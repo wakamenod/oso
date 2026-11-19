@@ -79,3 +79,24 @@ proptest::proptest! {
         proptest::prop_assert!(once.len() <= MAX_DISPLAY);
     }
 }
+
+#[test]
+fn a_display_name_keeps_no_invisible_character_that_could_carry_text() {
+    // Tag characters spelling ASCII after a flag, but for the three subdivision flags.
+    let tags: String = "rm -rf"
+        .chars()
+        .map(|c| char::from_u32(0xe0000 + u32::from(c)).unwrap())
+        .collect();
+    assert_eq!(clean_display(&format!("🏴{tags}\u{e007f}x")), "🏴x");
+    // Selectors past the sixteenth, and joiners and selectors after anything but an emoji.
+    assert_eq!(clean_display("ログ\u{e0100}イン"), "ログイン");
+    assert_eq!(clean_display("ロ\u{200d}グ\u{fe0f}イン"), "ログイン");
+    assert_eq!(clean_display("👍\u{fe0f}"), "👍\u{fe0f}");
+}
+
+#[test]
+fn names_are_compared_with_invisible_characters_dropped_and_ascii_case_aside() {
+    use super::skeleton;
+    assert_eq!(skeleton("ログ\u{fe0f}イン"), skeleton("ログイン"));
+    assert_eq!(skeleton("Fix\u{200b}Login"), "fixlogin");
+}

@@ -101,7 +101,7 @@ impl App {
         if handoff {
             return self.hand_over(id, transcript);
         }
-        let name = self.space_name(at);
+        let name = self.space_label(at);
         let question = format!(
             "No handoff.md in space {name}'s directory; replace its orchestrator anyway? (y or n)"
         );
@@ -234,6 +234,7 @@ impl App {
             return;
         };
         let spaces = &mut self.hosting.spaces;
+        spaces.placeholders.remove(&id);
         spaces.replacing.retain(|_, next| next.space != id);
         spaces.start_after.remove(&id);
         spaces.probing.remove(&id);

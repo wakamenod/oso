@@ -20,6 +20,10 @@ pub const REPOSITORIES_LIST: &str = "space-repositories";
 /// The list `space-remove-repo` completes over: the repositories of the space in front.
 pub const MEMBERS_LIST: &str = "space-members";
 
+/// The command whose prompt reads a space's new display name, which the host opens for
+/// `space-rename` with the space's name in it (ADR 0159).
+pub const SPACE_RENAME_TO: &str = "space-rename-to";
+
 /// The list `space-reopen` completes over: the archived spaces.
 pub const ARCHIVED_LIST: &str = "spaces-archived";
 
@@ -112,13 +116,21 @@ It is refused while a session of the space is working or needs input. Its idle s
         name: "space-rename",
         doc: "Give the space in front a new display name: any text, wide characters and emoji too, unlike every other space's.
 
-Its slug stays: its directory, its orchestrator's name, and what agents call it.",
+The prompt holds its name now, and `M-p` empties it. Its slug stays: its directory, its orchestrator's name, and what agents call it.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: space_rename,
+        state: None,
+    },
+    Command {
+        name: SPACE_RENAME_TO,
+        doc: "Give the space `space-rename` asked about the display name read in its prompt.",
         args: ArgSpec::Text {
-            prompt: "Rename space to:",
+            prompt: "Rename space to: ",
             history: "space-name",
         },
         reach: Reach::Person,
-        run: space_rename,
+        run: space_rename_to,
         state: None,
     },
     Command {
@@ -221,6 +233,10 @@ fn space_reopen(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 }
 
 fn space_rename(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    ask(ctx, SpaceRequest::AskRename)
+}
+
+fn space_rename_to(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     let display = answer(ctx, "No name")?;
     if ctx.answer_secret() {
         return Err(CommandError::new(
@@ -253,3 +269,6 @@ fn space_confirm(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 fn space_directory(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     ask(ctx, SpaceRequest::Directory)
 }
+
+#[cfg(test)]
+mod tests;

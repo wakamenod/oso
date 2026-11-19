@@ -194,7 +194,11 @@ pub enum SpaceRequest {
     Close,
     /// Open the archived space of this name again, and enter it (`space-reopen`).
     Reopen(String),
-    /// Give the space in front this display name; its slug stays (`space-rename`, ADR 0159).
+    /// Open `space-rename-to`'s prompt holding the display name of the space in front
+    /// (`space-rename`, ADR 0159).
+    AskRename,
+    /// Give the space `space-rename` asked about this display name; its slug stays
+    /// (`space-rename-to`, the answer to that prompt, ADR 0159).
     Rename(String),
     /// Edit the space's instructions (`space-instructions`).
     Instructions,
@@ -313,7 +317,7 @@ impl Editor {
     }
 
     /// What the selected window's modeline calls the space in front.
-    pub(crate) fn front_space(&self) -> &str {
+    pub(crate) fn front_space_label(&self) -> &str {
         &self.sessions.space
     }
 

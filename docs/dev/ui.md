@@ -787,6 +787,9 @@ plan.txt        2 days ago  exit      420 B  not open         /home/me/notes/pla
   the root in `trusted-projects`, beside `config.toml`, says `Trusted ~/src/oso` and drops
   `restricted`. `M-x untrust-project` takes the line out without asking and says
   `~/src/oso is restricted again`.
+- The space in front, after the project, in the selected window's alone: its display name,
+  cut to 20 cells, in the dim face, as `restricted` is
+  ([ADR 0159](adr/0159-space-new-starts-the-orchestrator-and-display-names.md)).
 
 ## Cursor
 
@@ -1350,7 +1353,9 @@ a switch made with its command stands until that setting changes in the file
   until oso restarts.
 - A space is a project with its sessions, and keeps its own windows. `C-c a j` (`space-switch`)
   switches to another; showing a session of another space switches to it first. A space
-  entered for the first time shows its last file and its last session side by side.
+  entered for the first time shows its last file and its last session side by side; one
+  `space-new` just made shows `*scratch*` alone until its orchestrator starts there
+  ([ADR 0159](adr/0159-space-new-starts-the-orchestrator-and-display-names.md)).
   `C-c a z` (`space-zoom`) shows the selected window alone, and back. Under `oso dev`, a
   restart keeps only the windows in front: the other spaces' windows go, and a zoomed
   window stays alone.

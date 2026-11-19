@@ -142,7 +142,7 @@ pub(super) fn acting() -> Vec<Value> {
             "move_to_space",
             "Only for a session started outside oso, when the person asks you to move to one of oso's spaces: oso asks the person, then this conversation goes on in oso, in that space, once this process has ended. On success, end your turn at once with the one line the reply gives, and call no more tools. Two processes must never run one conversation: do not resume it anywhere yourself.",
             json!({
-                "space": { "type": "string", "description": "The open space's name, as the person gave it." },
+                "space": { "type": "string", "description": "The open space's slug: lower-case ASCII, its directory's name under the spaces root, which space-switch shows beside the name the person sees. Ask the person for it." },
             }),
             &["space"],
             false,

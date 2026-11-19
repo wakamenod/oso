@@ -438,6 +438,7 @@ mod tests {
         "space-orchestrator-replace",
         "space-remove-repo",
         "space-rename",
+        "space-rename-to",
         "space-use-repo",
         "space-reopen",
         // Worktree sessions, which run git, gh and a session (ADR 0121).

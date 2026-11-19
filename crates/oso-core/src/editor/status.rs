@@ -472,8 +472,8 @@ impl Editor {
     /// window's modeline says what is about the frame (ADR 0159); else leaves it empty.
     fn push_front_space(&self, out: &mut String, frame_segments: bool) {
         out.clear();
-        if frame_segments && !self.front_space().is_empty() {
-            push_cut(out, self.front_space(), SPACE_CELLS);
+        if frame_segments && !self.front_space_label().is_empty() {
+            push_cut(out, self.front_space_label(), SPACE_CELLS);
             out.push_str(GAP);
         }
     }

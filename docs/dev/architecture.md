@@ -785,7 +785,8 @@ The UI thread never blocks on I/O or parsing:
 - What follows a session's change is made once after the event that brought it
   (`app/sessions/watch.rs`, ADR 0121 step 3): `*Spaces*` (`sessions/list.rs`, rendered only
   while shown) in the side window, which oso-core keeps outside the window tree
-  (`editor/sessions/side.rs`); the modeline's `SessionMarks`; the lists `ArgSpec::Listed`
+  (`editor/sessions/side.rs`); the modeline's `SessionMarks` and the space in front's name
+  (`Editor::set_front_space`, ADR 0159); the lists `ArgSpec::Listed`
   completes over (`Editor::set_listed`); the session buffers' modeline notes; and the
   notices (`sessions/attention.rs`, pure), which ask for attention through
   `oso_platform::notify` on macOS and the window's urgency elsewhere. Issue spaces

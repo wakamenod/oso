@@ -19,7 +19,7 @@ use serde_json::json;
 
 use super::super::super::App;
 use super::{Caller, Pending};
-use crate::commands::agent_sessions::RENAME_TO;
+use crate::commands::agent_sessions::SESSION_RENAME_TO;
 use crate::sessions::identity::new_name;
 use crate::sessions::tools::{self as rules, Renamable, Tool};
 use crate::sessions::worker::SessionKey;
@@ -41,7 +41,7 @@ impl App {
         let Some(name) = self.hosting.table().get(key).map(|s| s.name.clone()) else {
             return;
         };
-        let Some(prompt) = self.open_host_prompt(RENAME_TO) else {
+        let Some(prompt) = self.open_host_prompt(SESSION_RENAME_TO) else {
             return self.editor.message("Cannot ask for the name now");
         };
         self.editor.offer_prompt_default(prompt, name);
@@ -163,30 +163,6 @@ impl App {
             Some(why) => Err(format!("{}: {why}", rules::quoted(name))),
             None => Ok(()),
         }
-    }
-
-    /// Every name a session oso knows of answers to, but session `except`'s: each hosted
-    /// one's, being started or not, the name each running one was started with or the
-    /// registry gives it, and other programs' (ADR 0155). A new space's slug is none of them
-    /// either (ADR 0159).
-    pub(in crate::app) fn session_names(&self, except: Option<SessionKey>) -> Vec<&str> {
-        let table = self.hosting.table();
-        let others = || {
-            table
-                .iter()
-                .filter(move |session| Some(session.key) != except)
-        };
-        let answered = others()
-            .filter(|session| session.runs())
-            .flat_map(|session| {
-                let registry = self.hosting.naming.messaging_name(session.key);
-                registry.into_iter().chain(session.launched_as.as_deref())
-            });
-        (others().map(|session| session.name.as_str()))
-            .chain(answered)
-            .chain(table.held_names())
-            .chain(self.watch.external_names())
-            .collect()
     }
 
     /// Renames session `key` to `name`, checked already, in the record and its buffer, and

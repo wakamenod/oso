@@ -289,7 +289,7 @@ the echo area said.
 | `u` | `space-use-repo` | Choose the repository that `session-worktree`, `worktree-list` and `worktree-remove` use from the orchestrator's buffer, when the space has several trusted ones. |
 | `i` | `space-instructions` | Edit the goal the space's orchestrator is given. |
 | `d` | `space-directory` | List the space's directory. |
-| `n` | `space-rename` | Give the space a new display name, unlike every other space's. Its slug, directory and orchestrator's name stay. |
+| `n` | `space-rename` | Give the space a new display name, unlike every other space's: the prompt holds its name now. Its slug, directory and orchestrator's name stay. |
 | `c` | `space-close` | Archive the space; refused while one of its sessions works or needs input. |
 | `R` | `space-reopen` | Open a closed space again. |
 | `o` | `space-orchestrator-start` | Start the space's orchestrator again, the session you talk to about the work, in the space's directory, with each trusted repository as a working directory. `C-u` makes a space directory that is gone again at its place. |

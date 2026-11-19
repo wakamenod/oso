@@ -140,12 +140,12 @@ fn a_description_is_also_written_as_a_title_an_older_build_reads() {
         (parsed.description.as_str(), parsed.label()),
         ("Fix it", "fix")
     );
-    // A display name that was not cleaned is refused, as a description is.
+    // A display name that was not cleaned is cleaned, not refused: the space is kept.
     let forged = format!(
         r#"{{"id":"{}","name":"fix","display":"a\u202eb","created":1,"changed":2}}"#,
         id(3).as_str()
     );
-    assert_eq!(parse_line(forged.as_bytes()), None);
+    assert_eq!(parse_line(forged.as_bytes()).unwrap().display, "ab");
 }
 
 #[test]

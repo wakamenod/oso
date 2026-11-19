@@ -175,7 +175,7 @@ pub const COMMANDS: &[Command] = &[
         rename,
     ),
     Command {
-        name: RENAME_TO,
+        name: SESSION_RENAME_TO,
         doc: "Give the session `session-rename` asked about the name read in its prompt.",
         args: ArgSpec::Text {
             prompt: "Rename session to: ",
@@ -203,7 +203,7 @@ pub const COMMANDS: &[Command] = &[
 
 /// The command whose prompt reads a session's new name, which the host opens for
 /// `session-rename` with the session's name in it (ADR 0155).
-pub const RENAME_TO: &str = "session-rename-to";
+pub const SESSION_RENAME_TO: &str = "session-rename-to";
 
 /// A command of a row, with no argument.
 const fn row(
@@ -272,7 +272,7 @@ fn stop(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 }
 
 /// On a row of `*Spaces*`, or in a session's own terminal (`C-c a R`, ADR 0155): the host
-/// opens the prompt of [`RENAME_TO`] for it.
+/// opens the prompt of [`SESSION_RENAME_TO`] for it.
 fn rename(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     if ctx.editor.current().1.mode() == Mode::Sessions {
         return on_row(ctx, RowAction::Rename);

@@ -1,6 +1,7 @@
 //! What the app keeps for renaming sessions (ADR 0155): the rename the person was asked
 //! about, and the names Claude Code's registry gives oso's own running sessions, which its
-//! `SendMessage` knows them by.
+//! `SendMessage` knows them by; and every name a session answers to, which a rename and a new
+//! space's slug may not take (ADR 0159).
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 
@@ -67,6 +68,32 @@ impl Naming {
     /// The poll stopped: what it saw goes.
     pub(in crate::app) fn forget_registry(&mut self) {
         self.messaging.clear();
+    }
+}
+
+impl crate::app::App {
+    /// Every name a session oso knows of answers to, but session `except`'s: each hosted
+    /// one's, being started or not, the name each running one was started with or the
+    /// registry gives it, and other programs' (ADR 0155). A new space's slug is none of them
+    /// either (ADR 0159).
+    pub(in crate::app) fn session_names(&self, except: Option<SessionKey>) -> Vec<&str> {
+        let table = self.hosting.table();
+        let others = || {
+            table
+                .iter()
+                .filter(move |session| Some(session.key) != except)
+        };
+        let answered = others()
+            .filter(|session| session.runs())
+            .flat_map(|session| {
+                let registry = self.hosting.naming.messaging_name(session.key);
+                registry.into_iter().chain(session.launched_as.as_deref())
+            });
+        (others().map(|session| session.name.as_str()))
+            .chain(answered)
+            .chain(table.held_names())
+            .chain(self.watch.external_names())
+            .collect()
     }
 }
 

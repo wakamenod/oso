@@ -75,7 +75,12 @@ impl App {
             .map(|space| ClosedSpace {
                 id: space.id().clone(),
                 name: space.label().to_owned(),
-                title: space.stored.description.clone(),
+                // Its start alone: a closed space's row shows a few cells of it, on every frame.
+                title: crate::sessions::spaces::stored::cut_bytes(
+                    &space.stored.description,
+                    crate::sessions::spaces::stored::MAX_OLD_TITLE,
+                )
+                .to_owned(),
             })
             .collect();
         let front_space = (self.watch.spaces.current())

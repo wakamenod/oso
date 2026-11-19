@@ -1,17 +1,13 @@
-//! How `space-new` names the space it makes and starts (ADR 0159): its slug and display name
-//! from the description, unlike every space's and every session's name, entered with
-//! `*scratch*` alone, and its orchestrator started once its directory is made.
+//! How a space is named (ADR 0159): the session names no new space's slug may take, and
+//! `space-rename`'s prompt, holding the display name, whose answer renames the space it was
+//! opened for.
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 
-use oso_core::buffer::{Buffer, BufferId};
-use oso_core::editor::{Editor, SCRATCH};
-
 use crate::app::App;
+use crate::commands::agent_sessions::SPACE_RENAME_TO;
 use crate::sessions::identity::same_name;
-use crate::sessions::spaces::Member;
-use crate::sessions::spaces::edit::Naming;
-use crate::sessions::spaces::stored::fallback_names;
+use crate::sessions::spaces::stored::now_ms;
 
 impl App {
     /// Whether a name is one a session oso knows answers to, ASCII case aside (ADR 0155's
@@ -23,45 +19,42 @@ impl App {
         move |name: &str| names.iter().any(|other| same_name(other, name))
     }
 
-    /// Makes the space for `description` of repository `member`, named as the fallback names
-    /// it (ADR 0159), enters it with `*scratch*` alone, so that the buffer shown before is in
-    /// no window of it, and starts its orchestrator once its directory is made: the person's
-    /// `space-new` is the key that starts it.
-    pub(super) fn make_new_space(&mut self, description: &str, member: Member, now: u64) {
-        let (slug, display) = fallback_names(description, &member.name());
-        let naming = Naming {
-            description: description.to_owned(),
-            display,
-            slug,
+    /// `space-rename`: opens `space-rename-to`'s prompt holding the display name of the space
+    /// in front, `M-p` giving back an empty one (ADR 0159).
+    pub(super) fn ask_space_rename(&mut self) {
+        let Some(at) = self.watch.spaces().current() else {
+            return self.editor.message("No space in front".to_owned());
         };
-        let taken = self.session_name_taken();
-        let spaces = self.watch.spaces_mut();
-        let Some(at) = spaces.new_space(&naming, member, now, &taken) else {
+        let Some(space) = self.watch.spaces().get(at) else {
+            return;
+        };
+        let (id, label) = (space.id().clone(), space.label().to_owned());
+        let Some(prompt) = self.open_host_prompt(SPACE_RENAME_TO) else {
             return self
                 .editor
-                .message("No id for a new space yet; try again".to_owned());
+                .message("Cannot ask for the name now".to_owned());
         };
-        let scratch = scratch(&mut self.editor);
-        // Entered for the first time, it shows `*scratch*` alone, until its orchestrator.
-        self.watch.spaces_mut().showed(at, None, Some(scratch));
-        self.enter_space(at);
-        if let Some(id) = self.watch.spaces().stored(at).map(|s| s.id.clone()) {
-            self.hosting.spaces.start_after.insert(id);
-        }
-        self.make_space_directory(at, false);
-        let name = self.space_name(at);
-        self.editor
-            .message(format!("Space {name} made; its orchestrator starts"));
+        self.editor.offer_prompt_default(prompt, label);
+        let _ = self.editor.walk_history(false);
+        self.hosting.spaces.renaming = Some((prompt, id));
     }
-}
 
-/// The `*scratch*` buffer, made again if it was killed.
-fn scratch(editor: &mut Editor) -> BufferId {
-    let found = editor
-        .buffers()
-        .find(|(_, buffer)| buffer.name() == SCRATCH && buffer.path().is_none());
-    match found {
-        Some((id, _)) => id,
-        None => editor.add_buffer(Buffer::new(SCRATCH)),
+    /// `space-rename-to`'s answer: the space its prompt was opened for takes the display name
+    /// alone (ADR 0159).
+    pub(super) fn rename_space(&mut self, display: &str) {
+        const NONE_ASKED: &str = "No rename was asked: space-rename asks";
+        let Some((prompt, id)) = self.hosting.spaces.renaming.take() else {
+            return self.editor.message(NONE_ASKED.to_owned());
+        };
+        if self.editor.prompts().iter().any(|p| p.id() == prompt) {
+            return self.editor.message(NONE_ASKED.to_owned());
+        }
+        let Some(at) = self.watch.spaces().find(&id) else {
+            return self.editor.message("The space is gone".to_owned());
+        };
+        match self.watch.spaces_mut().rename(at, display, now_ms()) {
+            Ok(shown) => self.editor.message(format!("The space is now {shown}")),
+            Err(why) => self.editor.message(why),
+        }
     }
 }

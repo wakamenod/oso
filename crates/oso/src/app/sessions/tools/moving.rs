@@ -185,13 +185,18 @@ impl App {
             return Err(QUESTION_WAITS.into());
         }
         let added = adds.then_some(asker.main.root.as_path());
-        // The person reads the space as they call it, beside the slug the agent gave.
-        let shown = match stored.display.as_str() {
-            "" => space.to_owned(),
-            display => format!("{space} ({display})"),
-        };
-        let label = moving::question(&name, &asker, &shown, added);
-        let details = moving::details(&label, &asker, &shown, held_by.as_deref());
+        // The question quotes the slug the agent gave whole; `?` says what the person calls
+        // the space, cleaned, in full (ADR 0159).
+        let display = stored.display.clone();
+        let label = moving::question(&name, &asker, space, added);
+        let mut details = moving::details(&label, &asker, space, held_by.as_deref());
+        if !display.is_empty() {
+            details.push_str(&format!(
+                "\n\nSpace {} is the one you call {}.",
+                quoted(space),
+                crate::app::sessions::spaces::printable(&display)
+            ));
+        }
         let caller = asker.id.clone();
         let plan = Plan::Move(Box::new(Moving {
             asker,

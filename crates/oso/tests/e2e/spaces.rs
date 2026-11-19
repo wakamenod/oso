@@ -355,6 +355,17 @@ fn stored<'a>(spaces: &'a [Value], name: &str) -> Option<&'a Value> {
     spaces.iter().find(|space| space["name"] == name)
 }
 
+/// `space-rename` from the space menu: its prompt holds `from`, the space's name now, which
+/// the person replaces with `to` (ADR 0159).
+pub(super) fn rename_space(app: &mut crate::harness::App, from: &str, to: &str) {
+    space_menu(app, "n");
+    let state = app.wait_for("the rename's prompt", |state| {
+        super::worktrees::asks(state).is_some_and(|prompt| prompt.starts_with("Rename space to:"))
+    });
+    assert_eq!(state["prompts"][0]["text"], from, "{}", state["prompts"]);
+    app.send_keys(&format!("C-a C-k {} RET", keys(to)));
+}
+
 pub(super) fn answer(app: &mut crate::harness::App, label: &str, text: &str) {
     app.wait_for(label, |state| {
         super::worktrees::asks(state).is_some_and(|prompt| prompt.starts_with(label))
@@ -488,8 +499,7 @@ fn the_space_commands_make_change_close_and_reopen_a_space() {
     });
 
     // Renamed, the space keeps its slug, its directory and its orchestrator's name.
-    space_menu(&mut app, "n");
-    answer(&mut app, "Rename space to:", "Third 名前 🔧");
+    rename_space(&mut app, "Second", "Third 名前 🔧");
     let state = app.wait_for("the new name", |state| {
         space(state, "second").is_some_and(|s| s["display"] == "Third 名前 🔧")
     });

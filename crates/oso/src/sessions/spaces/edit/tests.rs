@@ -330,3 +330,83 @@ fn two_repositories_of_one_name_are_told_apart() {
     assert_eq!(names, ["app", "app<2>"]);
     assert_eq!(spaces.member_named("app<2>"), Some(PathBuf::from("/b/app")));
 }
+
+#[test]
+fn a_display_name_that_reads_as_another_spaces_name_or_slug_is_taken() {
+    let mut spaces = recalled(2);
+    let a = spaces
+        .new_space(
+            &named("Login fix"),
+            Member::at(Path::new("/a")),
+            1,
+            &no_session,
+        )
+        .unwrap();
+    let b = spaces
+        .new_space(&named("other"), Member::at(Path::new("/b")), 1, &no_session)
+        .unwrap();
+    assert_eq!(spaces.stored(a).unwrap().name, "login-fix");
+    assert!(spaces.rename(b, "ログ\u{fe0f}イン", 2).is_ok());
+    assert!(
+        spaces.rename(a, "ログイン", 3).is_err(),
+        "reads as b's name"
+    );
+    assert!(spaces.rename(b, "LOGIN-FIX", 3).is_err(), "a's slug");
+    assert!(
+        spaces.rename(b, "login-fix-was-1", 3).is_err(),
+        "a's earlier orchestrator"
+    );
+}
+
+#[test]
+fn a_slug_changes_only_while_the_space_has_no_directory() {
+    let mut editor = editor();
+    let mut spaces = recalled(2);
+    let sessions = |name: &str| name == "oso";
+    let joined = spaces.make(Member::at(Path::new("/src/oso")), 1).unwrap();
+    assert_eq!(spaces.stored(joined).unwrap().name, "oso");
+    assert!(
+        spaces.free_slug(joined, &sessions, 2),
+        "a session answers to oso"
+    );
+    assert_eq!(spaces.stored(joined).unwrap().name, "oso-2");
+    let path = PathBuf::from("/s/oso-2");
+    spaces.set_directory(joined, path, None, ("oso-2", "oso-2"), &no_session, 3);
+    assert!(
+        !spaces.free_slug(joined, &|_| true, 4),
+        "fixed with its directory"
+    );
+    // A second directory made for it changes neither its directory nor its slug.
+    let other = PathBuf::from("/s/oso-3");
+    spaces.set_directory(joined, other, None, ("oso-3", "oso-2"), &no_session, 5);
+    let stored = spaces.stored(joined).unwrap();
+    assert_eq!(stored.name, "oso-2");
+    assert_eq!(stored.directory.as_deref(), Some(Path::new("/s/oso-2")));
+    // Reopened, it keeps its slug even where another space has it meanwhile.
+    spaces.adopt(joined);
+    spaces.archive(&mut editor, joined, 6).unwrap();
+    let mut forged = Stored::of_repository(id(9), "oso-2".into(), Member::at(Path::new("/x")), 7);
+    forged.display = "forged".into();
+    // Made by another instance, its directory elsewhere: recalled under the same slug.
+    forged.directory = Some(PathBuf::from("/s/elsewhere"));
+    spaces.recall(vec![forged], Vec::new(), false);
+    assert_eq!(
+        spaces.with_slug("oso-2"),
+        Some(joined),
+        "the first answers to it"
+    );
+    spaces.reopen(joined, 8);
+    assert_eq!(spaces.stored(joined).unwrap().name, "oso-2");
+}
+
+#[test]
+fn a_recalled_space_with_a_directory_keeps_its_slug() {
+    let mut spaces = recalled(0);
+    let first = Stored::of_repository(id(1), "fix".into(), Member::at(Path::new("/a")), 1);
+    let mut made = Stored::of_repository(id(2), "fix".into(), Member::at(Path::new("/b")), 1);
+    made.directory = Some(PathBuf::from("/s/fix"));
+    let unmade = Stored::of_repository(id(3), "fix".into(), Member::at(Path::new("/c")), 1);
+    spaces.recall(vec![first, made, unmade], Vec::new(), false);
+    let names: Vec<&str> = spaces.iter().map(|s| s.name()).collect();
+    assert_eq!(names, ["fix", "fix", "fix-2"]);
+}

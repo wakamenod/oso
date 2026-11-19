@@ -22,8 +22,8 @@ impl Watch {
         self.known.get(&key).map(|known| known.since)
     }
 
-    /// The name of the space session `key` is in, as `*Spaces*` shows it.
-    pub(in crate::app) fn space_name(&self, key: SessionKey) -> Option<&str> {
+    /// The slug of the space session `key` is in, as agents name it (ADR 0159).
+    pub(in crate::app) fn space_slug(&self, key: SessionKey) -> Option<&str> {
         self.placed.get(&key).map(String::as_str)
     }
 

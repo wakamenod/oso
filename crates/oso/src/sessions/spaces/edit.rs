@@ -53,11 +53,7 @@ impl Spaces {
         let at = self.make(member, now)?;
         let base = slug(&naming.slug);
         let name = unique(&base, &|name| {
-            taken(name)
-                || self.spaces.iter().enumerate().any(|(other, space)| {
-                    let slug = &space.stored.name;
-                    (other != at && slug == name) || is_earlier_name(slug, name)
-                })
+            taken(name) || self.slug_taken(name, Some(at))
         });
         let display = clean_display(&naming.display);
         let display = if display.is_empty() || display == name {
@@ -143,15 +139,17 @@ impl Spaces {
         sessions: &dyn Fn(&str) -> bool,
         now: u64,
     ) {
-        let taken = sessions(name)
-            || self.spaces.iter().enumerate().any(|(other, space)| {
-                (other != at && space.stored.name == name)
-                    || is_earlier_name(&space.stored.name, name)
-            });
+        let taken = sessions(name) || self.slug_taken(name, Some(at));
         let Some(space) = self.spaces.get_mut(at) else {
             return;
         };
         let stored = &mut space.stored;
+        // A space has one directory: a later job's, made elsewhere, changes neither it nor its
+        // slug, which its orchestrator may answer to already.
+        if (stored.directory.as_deref()).is_some_and(|kept| !same(kept, &path)) {
+            log::warn!("a second directory was made for a space; it keeps its first");
+            return;
+        }
         stored.directory = Some(path);
         stored.directory_identity = identity;
         if !taken && slug(name) == name && stored.name == asked {
@@ -222,23 +220,55 @@ impl Spaces {
         Ok(())
     }
 
-    /// Opens archived space `at` again; it is not entered. A name another open space took
-    /// meanwhile is told apart.
+    /// Opens archived space `at` again; it is not entered. A slug another space took meanwhile
+    /// is told apart while the space has no directory; once it has one, its slug never changes
+    /// (ADR 0159).
     pub fn reopen(&mut self, at: usize, now: u64) {
         let Some(space) = self.spaces.get(at).filter(|space| !space.is_open()) else {
             return;
         };
-        let name = unique(&space.stored.name, &|name| {
-            self.spaces
-                .iter()
-                .enumerate()
-                .any(|(other, space)| other != at && space.is_open() && space.stored.name == name)
-        });
+        let name = if space.stored.directory.is_some() {
+            space.stored.name.clone()
+        } else {
+            unique(&space.stored.name, &|name| self.slug_taken(name, Some(at)))
+        };
         let stored = &mut self.spaces[at].stored;
         stored.name = name;
         stored.archived = false;
         stored.changed = now;
         self.unsaved = true;
+    }
+
+    /// Whether `name` is the slug of a space other than `at`, or a name one of its earlier
+    /// orchestrators keeps, `<slug>-was-<n>`, so that no two spaces answer to one name.
+    pub fn slug_taken(&self, name: &str, at: Option<usize>) -> bool {
+        // Only a name with `-was-` in it can be an earlier orchestrator's.
+        let earlier = name.to_ascii_lowercase().contains("-was-");
+        (self.spaces.iter().enumerate()).any(|(other, space)| {
+            let slug = &space.stored.name;
+            (Some(other) != at && slug == name) || (earlier && is_earlier_name(slug, name))
+        })
+    }
+
+    /// Gives space `at`, which has no directory yet, a slug no session answers to, as `taken`
+    /// says, when its own is one: a space made by a session's joining is named after its
+    /// repository, as that session often is, and its orchestrator would answer to that name
+    /// too (ADR 0159). Whether it changed.
+    pub fn free_slug(&mut self, at: usize, taken: &dyn Fn(&str) -> bool, now: u64) -> bool {
+        let Some(space) = self.spaces.get(at) else {
+            return false;
+        };
+        if space.stored.directory.is_some() || !taken(&space.stored.name) {
+            return false;
+        }
+        let name = unique(&space.stored.name, &|name| {
+            taken(name) || self.slug_taken(name, Some(at))
+        });
+        let stored = &mut self.spaces[at].stored;
+        stored.name = name;
+        stored.changed = now;
+        self.unsaved = true;
+        true
     }
 
     /// Space `at`'s own stored data.

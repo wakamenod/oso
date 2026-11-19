@@ -157,9 +157,7 @@ fn an_orchestrator_works_through_the_repositories_of_its_space() {
 
     // Renamed, the space keeps its slug and its directory, and the orchestrator there its
     // role; agents see the new display name (ADR 0159).
-    app.send_keys("C-c a S");
-    app.send_keys("n");
-    reply_with(&mut app, "Rename space to:", "Login fix");
+    super::spaces::rename_space(&mut app, "Fix login", "Login fix");
     app.wait_for("the new name", |state| {
         space(state, "fix-login").is_some_and(|s| s["display"] == "Login fix")
     });

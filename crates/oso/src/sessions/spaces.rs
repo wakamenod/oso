@@ -30,7 +30,7 @@ use oso_core::complete::Candidate;
 use oso_core::editor::{Editor, WindowTree};
 
 pub use stored::{Member, SpaceId, Stored};
-use stored::{same, slug, unique, unique_display};
+use stored::{same, skeleton, slug, unique, unique_display};
 
 use super::identity::SessionId;
 
@@ -142,19 +142,31 @@ impl Spaces {
     /// Takes the spaces the file held, or were made from the sessions (`migrated`, which are
     /// then kept at once), and `fresh` ids. A space already here stays as it is.
     pub fn recall(&mut self, stored: Vec<Stored>, fresh: Vec<SpaceId>, migrated: bool) {
+        // What each space is called, as `label_taken` compares names: one set, so that a file
+        // of many spaces of one name costs no more than one look a name.
+        let mut taken: HashSet<String> = HashSet::new();
+        for space in &self.spaces {
+            taken.insert(skeleton(&space.stored.name));
+            taken.insert(skeleton(space.label()));
+        }
         for mut space in stored {
             if self.known.insert(space.id.clone()) {
                 // Two instances that made a space of one name each keep both: the later gets
-                // another name, so that every space can be named.
-                if self.with_slug(&space.name).is_some() {
-                    space.name = unique(&space.name, &|name| self.with_slug(name).is_some());
+                // another name, so that every space can be named, while it has no directory.
+                // One that has one keeps its slug, which its directory and its orchestrator
+                // answer to (ADR 0159); the first of the two answers to it.
+                let slugs = |name: &str| self.with_slug(name).is_some();
+                if space.directory.is_none() && slugs(&space.name) {
+                    space.name = unique(&space.name, &slugs);
                     self.unsaved = true;
                 }
-                if !space.display.is_empty() && self.label_taken(&space.display, None) {
-                    space.display =
-                        unique_display(&space.display, &|label| self.label_taken(label, None));
+                if !space.display.is_empty() && taken.contains(&skeleton(&space.display)) {
+                    let free = |label: &str| taken.contains(&skeleton(label));
+                    space.display = unique_display(&space.display, &free);
                     self.unsaved = true;
                 }
+                taken.insert(skeleton(&space.name));
+                taken.insert(skeleton(space.label()));
                 self.spaces.push(Space::new(space));
             }
         }
@@ -246,11 +258,20 @@ impl Spaces {
             .position(|space| space.stored.name == slug)
     }
 
-    /// Whether a space other than `at` is called `label` where the person sees it, ASCII case
-    /// aside, so that no two read alike in a list.
+    /// Whether `label` would read as a name of a space other than `at` (ADR 0159): its display
+    /// name or its slug, or one of its earlier orchestrators', `<slug>-was-<n>`, compared with
+    /// every invisible character dropped and ASCII case aside, so that no two read alike in a
+    /// list and no answer picks a space by another's slug.
     pub fn label_taken(&self, label: &str, at: Option<usize>) -> bool {
+        let shape = skeleton(label);
         (self.spaces.iter().enumerate())
-            .any(|(other, space)| Some(other) != at && space.label().eq_ignore_ascii_case(label))
+            .filter(|&(other, _)| Some(other) != at)
+            .any(|(_, space)| {
+                let slug = &space.stored.name;
+                skeleton(space.label()) == shape
+                    || *slug == shape
+                    || orchestrator::is_earlier_name(slug, &shape)
+            })
     }
 
     /// The open space that holds the worktree at `path`, which one space does at most; else

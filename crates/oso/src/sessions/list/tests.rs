@@ -308,6 +308,31 @@ fn two_hundred_fifty_six_sessions_render_within_the_budget() {
 }
 
 #[test]
+fn two_hundred_fifty_six_sessions_of_wide_text_and_emoji_render_within_the_budget() {
+    let t = Instant::now();
+    let entries: Vec<Entry> = (0..256)
+        .map(|n| {
+            let state = [ASK, State::Working, State::Done, State::Idle][n % 4];
+            let mut entry = entry(n as u64, &format!("ログイン画面の修正-{n}"), state, t);
+            entry.parent = (n % 5 == 1).then(|| Key::Hosted(n as u64 - 1));
+            entry.recap = "ログイン画面のエラー表示を直して、テストを追加しました。".repeat(2);
+            entry.space = "ログイン 👨\u{200D}👩\u{200D}👧".to_owned();
+            entry
+        })
+        .collect();
+    let list = List::by_state();
+    let mut best = Duration::MAX;
+    for _ in 0..10 {
+        let start = Instant::now();
+        let shown = list.render(&entries, 32, t);
+        best = best.min(start.elapsed());
+        assert!(shown.lines.len() > 256);
+    }
+    // The budget of the ASCII case above: wide text and emoji may not cost more (ADR 0159).
+    assert!(cfg!(debug_assertions) || best.as_micros() < 500, "{best:?}");
+}
+
+#[test]
 fn a_recap_or_space_that_begins_with_a_mark_never_reads_as_a_row() {
     let now = Instant::now();
     let mut idle = entry(1, "proj", State::Idle, now);

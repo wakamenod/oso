@@ -36,6 +36,9 @@ const PART: &str = "spaces.part";
 pub const MAX_BYTES: u64 = 512 * 1024;
 /// The most spaces read or written.
 pub const MAX_SPACES: usize = 256;
+/// The longest display name read, in bytes, before it is cleaned to at most
+/// [`MAX_DISPLAY`].
+const MAX_DISPLAY_LINE: usize = 4 * MAX_DISPLAY;
 /// The longest path kept, in bytes.
 const MAX_PATH: usize = 4096;
 
@@ -72,6 +75,8 @@ fn read_checked(state_dir: &Path) -> io::Result<Option<Vec<Stored>>> {
 /// The spaces in the file's bytes, the last of an id kept, at most [`MAX_SPACES`].
 fn parse(bytes: &[u8]) -> Vec<Stored> {
     let mut spaces: Vec<Stored> = Vec::new();
+    // Each id's place, so that a file of many lines costs one look a line.
+    let mut places: std::collections::HashMap<SpaceId, usize> = std::collections::HashMap::new();
     let mut bad = 0;
     for line in bytes.split(|&b| b == b'\n') {
         if line.iter().all(u8::is_ascii_whitespace) {
@@ -81,9 +86,12 @@ fn parse(bytes: &[u8]) -> Vec<Stored> {
             bad += 1;
             continue;
         };
-        match spaces.iter_mut().find(|kept| kept.id == space.id) {
-            Some(kept) => *kept = space,
-            None => spaces.push(space),
+        match places.get(&space.id) {
+            Some(&at) => spaces[at] = space,
+            None => {
+                places.insert(space.id.clone(), spaces.len());
+                spaces.push(space);
+            }
         }
     }
     if bad > 0 {
@@ -136,12 +144,12 @@ fn parse_line(line: &[u8]) -> Option<Stored> {
     Some(Stored {
         id: SpaceId::parse(object.get("id")?.as_str()?)?,
         name,
+        // Cleaned again rather than refused: what is drawn may change with oso's tables, and a
+        // space must not be lost for its name (ADR 0159).
         display: match object.get("display") {
             None => String::new(),
-            Some(Value::String(display))
-                if display.len() <= MAX_DISPLAY && clean_display(display) == *display =>
-            {
-                display.clone()
+            Some(Value::String(display)) if display.len() <= MAX_DISPLAY_LINE => {
+                clean_display(display)
             }
             Some(_) => return None,
         },

@@ -8,6 +8,7 @@
 mod handover;
 mod members;
 mod naming;
+mod new_space;
 mod orchestrator;
 
 use std::collections::{HashMap, HashSet};
@@ -49,6 +50,14 @@ pub(in crate::app) struct SpaceWork {
     /// A description `space-new` read with no repository to start from: the next
     /// `space-add-repo` answer makes its space.
     description: Option<String>,
+    /// The prompt `space-rename` opened, and the space it renames (ADR 0159): dropped once
+    /// it closed with no answer.
+    pub(in crate::app) renaming: Option<(oso_core::minibuffer::PromptId, SpaceId)>,
+    /// The `*scratch*` each new space shows until its orchestrator: shown in its place only if
+    /// the selected window still shows it (ADR 0159).
+    pub(in crate::app) placeholders: HashMap<SpaceId, oso_core::buffer::BufferId>,
+    /// The spaces whose directory is being made: one job a space at a time.
+    pub(in crate::app) making: HashSet<SpaceId>,
     /// The spaces whose directory is shown once it is made.
     show_directory: HashSet<SpaceId>,
     /// The spaces whose orchestrator starts once their directory is made (step 3).
@@ -95,6 +104,7 @@ impl App {
             SpaceRequest::UseRepo(name) => self.use_repository(&name),
             SpaceRequest::Close => self.close_space(),
             SpaceRequest::Reopen(name) => self.reopen_space(&name),
+            SpaceRequest::AskRename => self.ask_space_rename(),
             SpaceRequest::Rename(display) => self.rename_space(&display),
             SpaceRequest::Instructions => self.space_instructions(),
             SpaceRequest::Directory => self.space_directory(),
@@ -198,7 +208,7 @@ impl App {
                     // this event (ADR 0136, Q5).
                     Ok(()) => self
                         .editor
-                        .message(format!("Added {shown} to space {}", self.space_name(at))),
+                        .message(format!("Added {shown} to space {}", self.space_label(at))),
                     Err(NotAdded::Already) => self
                         .editor
                         .message(format!("The space has {shown} already")),
@@ -219,11 +229,18 @@ impl App {
     }
 
     /// Asks the worker to make space `at`'s directory under `[spaces] root`, showing it after
-    /// when `show`.
-    pub(in crate::app) fn make_space_directory(&mut self, at: usize, show: bool) {
-        let Some(stored) = self.watch.spaces().stored(at) else {
+    /// when `show`, and starting its orchestrator after when `start`. Its slug is first made
+    /// unlike every session's name, as it is fixed once the directory is made (ADR 0159). One
+    /// job a space at a time: a second would make another directory and rename the space.
+    pub(in crate::app) fn make_space_directory(&mut self, at: usize, show: bool, start: bool) {
+        let Some(id) = self.watch.spaces().stored(at).map(|s| s.id.clone()) else {
             return;
         };
+        if self.hosting.spaces.making.contains(&id) {
+            return self
+                .editor
+                .message("The space's directory is being made".to_owned());
+        }
         let home = oso_platform::privacy::home();
         let root = crate::config::expand(self.configuration.spaces_root(), home.as_deref());
         let Some(root) = root else {
@@ -231,22 +248,22 @@ impl App {
                 "[spaces] root starts with ~/, and oso found no home directory".to_owned(),
             );
         };
-        let id = stored.id.clone();
-        let name = stored.name.clone();
-        let members = stored.members.clone();
-        let taken: Vec<String> = self
-            .watch
-            .spaces()
-            .iter()
+        if self.sessions.is_none() {
+            return;
+        }
+        let taken = self.session_name_taken();
+        (self.watch.spaces_mut()).free_slug(at, &taken, now_ms());
+        let Some(stored) = self.watch.spaces().stored(at) else {
+            return;
+        };
+        let (name, members) = (stored.name.clone(), stored.members.clone());
+        let taken: Vec<String> = (self.watch.spaces().iter())
             .filter(|space| space.id() != &id)
             .map(|space| space.name().to_owned())
             .collect();
-        if show {
-            self.hosting.spaces.show_directory.insert(id.clone());
-        }
         if let Some(worker) = &self.sessions {
             worker.send(Job::Space(SpaceJob::MakeDirectory {
-                id,
+                id: id.clone(),
                 root,
                 name,
                 members,
@@ -254,6 +271,14 @@ impl App {
                 exact: false,
             }));
         }
+        let spaces = &mut self.hosting.spaces;
+        if show {
+            spaces.show_directory.insert(id.clone());
+        }
+        if start {
+            spaces.start_after.insert(id.clone());
+        }
+        spaces.making.insert(id);
     }
 
     /// The worker made space `id`'s directory, or said why not, and looked at its
@@ -264,6 +289,7 @@ impl App {
         made: Result<Made, String>,
         identities: Vec<(PathBuf, Option<(u64, u64)>)>,
     ) {
+        self.hosting.spaces.making.remove(id);
         let show = self.hosting.spaces.show_directory.remove(id);
         let start = self.hosting.spaces.start_after.remove(id);
         let taken = self.session_name_taken();
@@ -290,7 +316,11 @@ impl App {
                     self.launch_orchestrator(at, None);
                 }
             }
-            Err(why) => self.editor.message(printable(&why)),
+            Err(why) => {
+                // `o` later is the person's own key, shown where it is pressed.
+                self.hosting.spaces.placeholders.remove(id);
+                self.editor.message(printable(&why));
+            }
         }
         self.sessions_touched();
         self.request_redraw();
@@ -346,7 +376,7 @@ impl App {
                 ));
             }
         };
-        let name = self.space_name(at);
+        let name = self.space_label(at);
         if self
             .watch
             .spaces_mut()
@@ -373,19 +403,8 @@ impl App {
         };
         self.watch.spaces_mut().reopen(at, now_ms());
         self.enter_space(at);
-        let name = self.space_name(at);
+        let name = self.space_label(at);
         self.editor.message(format!("Space {name} open again"));
-    }
-
-    /// `space-rename`: the display name alone (ADR 0159).
-    fn rename_space(&mut self, display: &str) {
-        let Some(at) = self.watch.spaces().current() else {
-            return self.editor.message("No space in front".to_owned());
-        };
-        match self.watch.spaces_mut().rename(at, display, now_ms()) {
-            Ok(shown) => self.editor.message(format!("The space is now {shown}")),
-            Err(why) => self.editor.message(why),
-        }
     }
 
     /// `space-instructions`: the file is found, its directory made, on the worker.
@@ -435,7 +454,7 @@ impl App {
             .and_then(|s| s.directory.clone())
         {
             Some(directory) => self.show_listing(directory),
-            None => self.make_space_directory(at, true),
+            None => self.make_space_directory(at, true, false),
         }
     }
 
@@ -487,7 +506,7 @@ impl App {
     }
 
     /// Space `at` as the person sees it called (ADR 0159).
-    fn space_name(&self, at: usize) -> String {
+    fn space_label(&self, at: usize) -> String {
         self.watch
             .spaces()
             .get(at)
@@ -495,10 +514,17 @@ impl App {
     }
 
     /// After the space requests of an event: a description `space-new` waited with is dropped
-    /// once no prompt is open, as `space-add-repo`'s was closed without an answer.
+    /// once no prompt is open, as `space-add-repo`'s was closed without an answer, and so is a
+    /// rename whose prompt closed.
     pub(in crate::app) fn forget_unanswered_space(&mut self) {
         if self.hosting.spaces.description.is_some() && self.editor.prompt().is_none() {
             self.hosting.spaces.description = None;
+        }
+        // A rename whose prompt closed with no answer: a later answer names no space.
+        if let Some((prompt, _)) = self.hosting.spaces.renaming
+            && !self.editor.prompts().iter().any(|p| p.id() == prompt)
+        {
+            self.hosting.spaces.renaming = None;
         }
     }
 
