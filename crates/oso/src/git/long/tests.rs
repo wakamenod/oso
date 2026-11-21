@@ -204,7 +204,10 @@ fn a_process_left_holding_the_pipes_holds_up_the_end_only_a_moment() {
 }
 
 /// A run of `commit` in `repo` whose pre-commit hook ignores `SIGTERM`, as a hook may, and
-/// marks `marker` after a while; git itself dies of `SIGTERM` and leaves the hook behind.
+/// marks `marker` after a while; git itself dies of `SIGTERM` and leaves the hook behind. It is
+/// given once the hook ignores `SIGTERM`: stopped before that, as a loaded machine may start
+/// the hook late, the hook dies of `SIGTERM`, and a test passes whether its group got `SIGKILL`
+/// or not.
 #[cfg(unix)]
 fn deaf_commit(repo: &Repo, marker: &std::path::Path) -> super::Long {
     use std::os::unix::fs::PermissionsExt;
@@ -212,8 +215,10 @@ fn deaf_commit(repo: &Repo, marker: &std::path::Path) -> super::Long {
     repo.git(&["config", "user.email", "t@t"]);
     repo.git(&["config", "commit.gpgsign", "false"]);
     let hook = repo.root.join(".git/hooks/pre-commit");
+    let deaf = repo.dir.join("deaf");
     let script = format!(
-        "#!/bin/sh\ntrap '' TERM\nsleep 2\ntouch '{}'\n",
+        "#!/bin/sh\ntrap '' TERM\ntouch '{}'\nsleep 2\ntouch '{}'\n",
+        deaf.display(),
         marker.display()
     );
     std::fs::write(&hook, script).unwrap();
@@ -223,7 +228,11 @@ fn deaf_commit(repo: &Repo, marker: &std::path::Path) -> super::Long {
         .with_own_hooks(&[])
         .start_long(&os(&words), &[], None)
         .unwrap();
-    std::thread::sleep(Duration::from_millis(300));
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !deaf.exists() {
+        assert!(Instant::now() < deadline, "the hook did not start");
+        std::thread::sleep(Duration::from_millis(10));
+    }
     long
 }
 
