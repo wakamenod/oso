@@ -299,14 +299,26 @@ fn the_thread_answers_each_request_and_wakes_once_answers_wait() {
     };
     detector.find(request.clone(), Arc::from([]));
     wakes.recv_timeout(Duration::from_secs(10)).unwrap();
-    let answers = detector.take();
+    let (answers, roots) = detector.take();
     assert_eq!(answers.len(), 1);
+    assert!(roots.is_empty());
     assert_eq!(answers[0].0, request);
     assert_eq!(
         answers[0].1.as_ref().map(|found| &found.root.path),
         Some(&root)
     );
-    assert!(detector.take().is_empty());
+    let (answers, roots) = detector.take();
+    assert!(answers.is_empty() && roots.is_empty());
+    // A root's answer wakes too, and each take that empties both lets the next wake.
+    for _ in 0..2 {
+        detector.find_root(root.clone(), Arc::from([]));
+        wakes.recv_timeout(Duration::from_secs(10)).unwrap();
+        let (answers, roots) = detector.take();
+        assert!(answers.is_empty());
+        assert_eq!(roots.len(), 1);
+        assert_eq!(roots[0].0, root);
+        assert_eq!(roots[0].1.as_ref().map(|f| &f.root.path), Some(&root));
+    }
 }
 
 /// The same places as `walk`'s `a_marker_counts_as_detection_counts_it`, whose copy of the
@@ -382,4 +394,17 @@ fn a_session_s_request_names_the_stand_in() {
         request.location,
         Path::new("/work/oso").join(DIRECTORY_STANDIN)
     );
+}
+
+#[test]
+fn a_root_asked_about_is_found_only_as_the_root_it_is() {
+    let scratch = Scratch::new("root-asked");
+    let repo = scratch.dir("repo");
+    scratch.dir("repo/.git");
+    let inner = scratch.dir("repo/src");
+    let found = detect_root(&repo, None, &[]).unwrap();
+    assert_eq!(found.root.path, repo);
+    // A directory inside a project is no root of its own.
+    assert_eq!(detect_root(&inner, None, &[]), None);
+    assert_eq!(detect_root(&scratch.0.join("gone"), None, &[]), None);
 }

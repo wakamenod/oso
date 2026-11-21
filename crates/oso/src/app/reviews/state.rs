@@ -180,6 +180,8 @@ pub(in crate::app) struct Reviews {
     /// A question's Enter that waits, and one held for an orchestrator being resumed
     /// (ADR 0163).
     pub(super) asking: super::ask::Asking,
+    /// A start in a space between its steps (ADR 0163).
+    pub(super) starting: super::start::Starting,
     /// The saved reviews' store and list (step 6).
     pub(super) keep: super::keep::Keep,
     /// The reviews a restart carried, waiting for their projects (step 6).

@@ -939,7 +939,10 @@ The UI thread never blocks on I/O or parsing:
   thread (`app/reviews.rs`) puts each text in at O(1), in order, while no prompt holds it, and
   frees what it replaces, the text, rows and highlights (`ReviewLeftover`), off the UI
   thread. The review menu's counts come from at most two `oso-review-count` threads
-  (`review/count.rs`), an epoch per opening of the menu. A review buffer's added and removed
+  (`review/count.rs`), an epoch per opening of the menu. A start in a space (ADR 0163) asks
+  the project detector's thread for a repository's or worktree's project with no buffer, and
+  one `oso-review-head` thread per pull request asked for `gh`'s head and the worktree holding
+  it, before the review opens there. A review buffer's added and removed
   lines, headers and cards are bands the window fills behind its text for the rows in view
   (`Editor::review_cells`).
 - While the person chose two panes and an area shows the review, the view thread also lays
