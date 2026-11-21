@@ -5,10 +5,10 @@
 
 use proptest::prelude::*;
 
-use super::pass::{MAX_COLUMN, fallback, measure};
+use super::pass::{MAX_COLUMN, measure};
 use super::{
     Answer, Budget, LINE_COST, LINE_LOOKBACK, Line, Settings, Style, fundamental, markdown,
-    markdown_stops, rust, toml,
+    markdown_stops, rust, toml, yaml_stops,
 };
 use crate::display_map::TabWidth;
 use crate::rope::Rope;
@@ -475,7 +475,7 @@ fn start(rope: &Rope, line: Line) -> usize {
     }
 }
 
-const ALL_RULES: [Rules; 4] = [rust, toml, markdown, fundamental];
+use super::code_tests::{ALL_RULES, FALLBACKS};
 
 proptest! {
     #[test]
@@ -514,7 +514,7 @@ proptest! {
         if sorted {
             lines.sort_by_key(|&line| start(&rope, line));
         }
-        for rules in ALL_RULES {
+        for (rules, fallback) in ALL_RULES.into_iter().zip(FALLBACKS) {
             let mut budget = bytes.map_or_else(Budget::new, Budget::with_limit);
             let answers = rules(&rope, Settings::default(), &lines, &mut budget);
             prop_assert_eq!(answers.len(), lines.len());
@@ -534,6 +534,8 @@ proptest! {
         }
         for row in 0..rope.line_count().min(8) {
             let stops = markdown_stops(&rope, Settings::default(), row, &mut Budget::new());
+            prop_assert_eq!(stops.last(), Some(&0));
+            let stops = yaml_stops(&rope, Settings::default(), row, &mut Budget::new());
             prop_assert_eq!(stops.last(), Some(&0));
         }
     }

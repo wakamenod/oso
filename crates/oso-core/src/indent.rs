@@ -6,18 +6,21 @@
 //! Must not depend on: `buffer`, `motion`, `search`, `editor` or `command`; it reads a rope
 //! and does no I/O. The editor chooses the rules by the buffer's mode.
 //!
-//! Each answer is bounded. Rust and TOML lex forward from an anchor, a line known to start
+//! Each answer is bounded. The rules lex forward from an anchor, a line known to start
 //! outside any string or comment, at most [`LINE_LOOKBACK`] back from the line; the lines of one
 //! command share one pass, in order, and at most [`COMMAND_READ`] across all of them. Past
-//! either, a new line takes the indentation of the nearest non-blank line before it, and an
-//! existing line keeps its own.
+//! either, a new line takes the indentation of the nearest non-blank line before it (in the
+//! languages of brackets and tags, a level more after an opener and one less before a closer,
+//! ADR 0164), and an existing line keeps its own.
 
+mod code;
 mod fundamental;
 mod markdown;
 mod origin;
 mod pass;
 mod rust;
 mod toml;
+mod yaml;
 
 use crate::display_map::TabWidth;
 use crate::rope::Rope;
@@ -218,6 +221,65 @@ pub fn toml(rope: &Rope, settings: Settings, lines: &[Line], budget: &mut Budget
     pass::answers::<toml::Toml>(rope, settings, lines, budget)
 }
 
+/// The answers of CSS's rules for `lines`, as [`rust`] (ADR 0164): one level past the line of
+/// the bracket open at the line's start, and a closer back to it.
+pub fn css(rope: &Rope, settings: Settings, lines: &[Line], budget: &mut Budget) -> Vec<Answer> {
+    pass::answers::<code::Code<code::Css>>(rope, settings, lines, budget)
+}
+
+/// The answers of JSON's rules for `lines`, as [`css`], comments allowed.
+pub fn json(rope: &Rope, settings: Settings, lines: &[Line], budget: &mut Budget) -> Vec<Answer> {
+    pass::answers::<code::Code<code::Json>>(rope, settings, lines, budget)
+}
+
+/// The answers of HTML's rules for `lines`, as [`rust`] (ADR 0164): one level past the line
+/// of the element open at the line's start, and an end tag back to it; a `<script>`'s text by
+/// [`javascript`]'s rules and a `<style>`'s by [`css`]'s, one level in from their tag's line.
+pub fn html(rope: &Rope, settings: Settings, lines: &[Line], budget: &mut Budget) -> Vec<Answer> {
+    pass::answers::<code::Code<code::Html>>(rope, settings, lines, budget)
+}
+
+/// The answers of JavaScript's rules for `lines`, JSX among it, as [`rust`] (ADR 0164): by
+/// the bracket or element open at the line's start, one level more for a line that goes on
+/// with a statement, and a `switch`'s labels as Prettier writes them.
+pub fn javascript(
+    rope: &Rope,
+    settings: Settings,
+    lines: &[Line],
+    budget: &mut Budget,
+) -> Vec<Answer> {
+    pass::answers::<code::Code<code::Jsx>>(rope, settings, lines, budget)
+}
+
+/// The answers of TypeScript's rules for `lines`, as [`javascript`] with no JSX.
+pub fn typescript(
+    rope: &Rope,
+    settings: Settings,
+    lines: &[Line],
+    budget: &mut Budget,
+) -> Vec<Answer> {
+    pass::answers::<code::Code<code::TypeScript>>(rope, settings, lines, budget)
+}
+
+/// The answers of Go's rules for `lines`, as [`javascript`] with no JSX, and a `switch`'s
+/// labels with the `switch`, as gofmt writes them.
+pub fn go(rope: &Rope, settings: Settings, lines: &[Line], budget: &mut Budget) -> Vec<Answer> {
+    pass::answers::<code::Code<code::Go>>(rope, settings, lines, budget)
+}
+
+/// The answers of YAML's rules for `lines` (ADR 0164): an existing line keeps its
+/// indentation, as YAML's structure is in it; a new one follows the line before, one level
+/// deeper after a line that opens a block. `TAB` cycles through [`yaml_stops`].
+pub fn yaml(rope: &Rope, settings: Settings, lines: &[Line], budget: &mut Budget) -> Vec<Answer> {
+    pass::answers::<yaml::Yaml>(rope, settings, lines, budget)
+}
+
+/// The columns `TAB` cycles line `row` of a YAML buffer through: the deepest it could go
+/// after the line before, then each level out to 0. Past the budget, only 0.
+pub fn yaml_stops(rope: &Rope, settings: Settings, row: usize, budget: &mut Budget) -> Vec<usize> {
+    yaml::stops(rope, settings, row, budget)
+}
+
 /// The answers of Markdown's rules for `lines`, as [`rust`]: a new line goes to the content
 /// column of the list item it leaves, or copies the indentation of the line it leaves. An
 /// existing line keeps its indentation: `TAB` cycles through [`markdown_stops`] instead.
@@ -253,6 +315,8 @@ pub fn fundamental(
     pass::answers::<fundamental::Fundamental>(rope, settings, lines, budget)
 }
 
+#[cfg(test)]
+mod code_tests;
 #[cfg(test)]
 mod fixed_point;
 #[cfg(test)]

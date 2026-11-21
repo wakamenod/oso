@@ -30,6 +30,7 @@ mod markdown;
 mod newline;
 mod region;
 mod settings;
+mod yaml;
 
 #[cfg(test)]
 pub(in crate::editor) use settings::compiled_modes;
@@ -81,12 +82,30 @@ impl From<EditError> for IndentError {
 /// The rules of a mode, as `Mode::indent_rules` gives them.
 type Rules = fn(&Rope, Settings, &[Line], &mut Budget) -> Vec<Answer>;
 
-/// The rules `TAB`, `indent-region` and a typed closer reindent a buffer's lines by: Rust's and
-/// TOML's, in a buffer of the person's. Markdown's `TAB` cycles through its stops instead, and
-/// Fundamental mode keeps the tab stops.
+/// The rules `TAB`, `indent-region` and a typed closer reindent a buffer's lines by, in a
+/// buffer of the person's: Rust's and TOML's, and those of ADR 0164's languages of brackets and
+/// tags. Markdown's and YAML's `TAB` cycle through their stops instead, and Fundamental mode
+/// keeps the tab stops.
 fn reindenting(buffer: &Buffer) -> Option<Rules> {
-    let language = matches!(buffer.mode(), Mode::Rust | Mode::Toml) && !buffer.is_internal();
+    let language = matches!(
+        buffer.mode(),
+        Mode::Rust
+            | Mode::Toml
+            | Mode::Css
+            | Mode::Json
+            | Mode::Html
+            | Mode::JavaScript
+            | Mode::TypeScript
+            | Mode::Tsx
+            | Mode::Go
+    ) && !buffer.is_internal();
     buffer.mode().indent_rules().filter(|_| language)
+}
+
+/// Whether a buffer in `mode` has elements whose end tag a typed `</` reindents: HTML, and
+/// JavaScript's and TSX's JSX.
+fn has_tags(mode: Mode) -> bool {
+    matches!(mode, Mode::Html | Mode::JavaScript | Mode::Tsx)
 }
 
 impl Editor {
@@ -101,17 +120,20 @@ impl Editor {
         self.electric_indent = on;
     }
 
-    /// `TAB` (`indent-for-tab-command`): in Rust and TOML, reindents the line of every cursor
-    /// of the selected window, each once, as one edit; on a line reindented, a cursor inside
-    /// the indentation goes to its end, and one in the text keeps its place in it. A line
-    /// already right does not change. In Markdown it cycles each line through the columns its
-    /// list gives it. In Fundamental mode and internal buffers it runs
-    /// [`Editor::tab_to_tab_stop`].
+    /// `TAB` (`indent-for-tab-command`): in a mode [`reindenting`] names, reindents the line of
+    /// every cursor of the selected window, each once, as one edit; on a line reindented, a
+    /// cursor inside the indentation goes to its end, and one in the text keeps its place in
+    /// it. A line already right does not change. In Markdown it cycles each line through the
+    /// columns its list gives it, and in YAML through the levels the line before allows. In
+    /// Fundamental mode and internal buffers it runs [`Editor::tab_to_tab_stop`].
     pub fn indent_for_tab(&mut self) -> Result<(), EditError> {
         let (window, buffer) = self.current();
         let Some(rules) = reindenting(buffer) else {
             if buffer.mode() == Mode::Markdown && !buffer.is_internal() {
                 return self.markdown_tab();
+            }
+            if buffer.mode() == Mode::Yaml && !buffer.is_internal() {
+                return self.yaml_tab();
             }
             return self.tab_to_tab_stop();
         };
@@ -149,15 +171,18 @@ impl Editor {
     }
 
     /// After a typed `}`, `)` or `]` (electric closers, ADR 0115): with
-    /// `electric-indent-mode` on, in Rust and TOML, reindents each cursor's line whose first
-    /// non-blank is the closer just before the cursor, so the closer lands under its
-    /// opener's line. The typing command calls it, so the change undoes with the typing.
+    /// `electric-indent-mode` on, in a mode [`reindenting`] names, reindents each cursor's line
+    /// whose first non-blank is the closer just before the cursor, so the closer lands under its
+    /// opener's line; in HTML and JSX, the `/` of a `</` that starts the line too, so an end tag
+    /// lands under its element's line (ADR 0164). The typing command calls it, so the change
+    /// undoes with the typing.
     pub fn indent_typed_closers(&mut self) -> Result<(), EditError> {
         let (window, buffer) = self.current();
         let Some(rules) = reindenting(buffer).filter(|_| self.electric_indent) else {
             return Ok(());
         };
         let rope = buffer.text();
+        let tags = has_tags(buffer.mode());
         let mut rows: Vec<usize> = window
             .selections
             .iter()
@@ -166,8 +191,13 @@ impl Editor {
                 let closer = rope.byte_at(at.checked_sub(1)?)?;
                 let row = rope.offset_to_point(at).row;
                 let start = rope.line_start(row);
-                let first = matches!(closer, b'}' | b')' | b']')
-                    && blanks_before(rope, at - 1, start) == at - 1 - start;
+                // Where the closer starts: a `</`'s `<`.
+                let from = match closer {
+                    b'}' | b')' | b']' => at - 1,
+                    b'/' if tags && at >= 2 && rope.byte_at(at - 2) == Some(b'<') => at - 2,
+                    _ => return None,
+                };
+                let first = from >= start && blanks_before(rope, from, start) == from - start;
                 first.then_some(row)
             })
             .collect();
@@ -277,5 +307,7 @@ fn text_of(rope: &Rope, range: Range<usize>) -> String {
     rope.chunks_in_range(range).collect()
 }
 
+#[cfg(test)]
+mod code_tests;
 #[cfg(test)]
 mod tests;

@@ -37,7 +37,8 @@ impl Editor {
     /// `RET` at every cursor of the selected window: `count` line breaks `ending`, as one
     /// edit. With `indent`, the spaces and tabs around each cursor go (in Markdown, only those
     /// after it, as two at a line's end break it) and the last new line takes its rules'
-    /// indentation; between an opener and its closer, in Rust and TOML, the closer goes to a
+    /// indentation; between an opener and its closer (or a start tag and its end tag, ADR 0164),
+    /// in the modes that open a line there, the closer goes to a
     /// line of its own and the cursor to an indented line between. A shown region is deleted
     /// first. Returns false, changing nothing, if more than `limit` bytes could go in.
     pub fn newline(
@@ -180,7 +181,8 @@ fn planned<'a>(
 
 /// Where `RET` breaks the line at each of `cursors`, in order, in a buffer in `mode`: the
 /// spaces and tabs around it, no further than the cursors beside it, and whether it is between
-/// an opener and its closer, which only Rust, and TOML's arrays, open a line between.
+/// an opener and its closer, which Rust, TOML's arrays and the languages of ADR 0164 open a line
+/// between, in HTML and JSX a start tag and its end tag too.
 pub(super) fn spots(rope: &Rope, cursors: &[usize], mode: Mode) -> Vec<Break> {
     let mut spots: Vec<Break> = Vec::with_capacity(cursors.len());
     for (index, &at) in cursors.iter().enumerate() {
@@ -202,18 +204,68 @@ pub(super) fn spots(rope: &Rope, cursors: &[usize], mode: Mode) -> Vec<Break> {
             .checked_sub(1)
             .and_then(|before| rope.byte_at(before));
         let closer = rope.byte_at(range.end);
-        // TOML's inline tables cannot span lines, and `(` means nothing in it.
+        let pair = |pairs: &[(u8, u8)]| {
+            opener
+                .zip(closer)
+                .is_some_and(|found| pairs.contains(&found))
+        };
+        let brackets = [(b'{', b'}'), (b'(', b')'), (b'[', b']')];
+        // TOML's inline tables cannot span lines, and `(` means nothing in it; nor in JSON.
         let between = match mode {
-            Mode::Rust => matches!(
-                (opener, closer),
-                (Some(b'{'), Some(b'}')) | (Some(b'('), Some(b')')) | (Some(b'['), Some(b']'))
-            ),
-            Mode::Toml => (opener, closer) == (Some(b'['), Some(b']')),
+            Mode::Rust | Mode::Css | Mode::TypeScript | Mode::Go => pair(&brackets),
+            Mode::JavaScript | Mode::Tsx => pair(&brackets) || tag_pair(rope, range.clone()),
+            Mode::Json => pair(&[(b'{', b'}'), (b'[', b']')]),
+            Mode::Html => tag_pair(rope, range.clone()),
+            Mode::Toml => pair(&[(b'[', b']')]),
             _ => false,
         };
         spots.push(Break { range, between });
     }
     spots
+}
+
+/// The most bytes read on either side of a cursor to tell whether it is between a start tag
+/// and its end tag: a tag's name past [`NAME`] is not compared.
+const TAG_SCAN: usize = 256;
+
+/// The longest tag name compared.
+const NAME: usize = 64;
+
+/// Whether `blanks`, the spaces and tabs around a cursor, sit between a start tag that ends
+/// just before them and the end tag of the same element just after them, as `<li>|</li>`
+/// (ADR 0164).
+fn tag_pair(rope: &Rope, blanks: Range<usize>) -> bool {
+    if blanks.start == 0 || rope.byte_at(blanks.start - 1) != Some(b'>') {
+        return false;
+    }
+    let line_start = rope.line_start(rope.offset_to_point(blanks.start).row);
+    let from = rope.clip_offset(
+        blanks.start.saturating_sub(TAG_SCAN).max(line_start),
+        Bias::Right,
+    );
+    let before = text_of(rope, from..blanks.start);
+    let to = rope.clip_offset((blanks.end + NAME + 3).min(rope.len()), Bias::Left);
+    let after = text_of(rope, blanks.end..to.max(blanks.end));
+    // The start tag: the last `<` before, its name, and no `/>`.
+    let Some(open) = before.rfind('<') else {
+        return false;
+    };
+    let tag = &before[open + 1..];
+    if tag.ends_with("/>") {
+        return false;
+    }
+    let name: &str = tag
+        .split(|c: char| c.is_ascii_whitespace() || c == '>')
+        .next()
+        .unwrap_or("");
+    if name.is_empty() || !name.starts_with(|c: char| c.is_ascii_alphabetic()) || name.len() > NAME
+    {
+        return false;
+    }
+    after
+        .strip_prefix("</")
+        .and_then(|rest| rest.strip_prefix(name))
+        .is_some_and(|rest| rest.trim_start_matches([' ', '\t']).starts_with('>'))
 }
 
 /// In Markdown, two spaces or more at the end of a line of text break it (ADR 0113 keeps them

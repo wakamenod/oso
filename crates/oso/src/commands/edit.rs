@@ -70,7 +70,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "tab-to-tab-stop",
-        doc: "Insert spaces at every cursor, up to the next tab stop.\n\nTab stops are every `tab-width` cells. Each cursor goes to its own next stop. `TAB` runs it in Markdown, Fundamental mode and internal buffers; in Rust and TOML it indents by mode (`indent-for-tab-command`).",
+        doc: "Insert spaces at every cursor, up to the next tab stop.\n\nTab stops are every `tab-width` cells. Each cursor goes to its own next stop. `TAB` runs it in Markdown, Fundamental mode and internal buffers; in Rust, TOML, CSS, JSON, HTML, JavaScript, TypeScript and Go it indents by mode, and in YAML it cycles (`indent-for-tab-command`).",
         args: ArgSpec::None,
         reach: Reach::Change,
         run: tab_to_tab_stop,
@@ -153,8 +153,9 @@ fn self_insert_command(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError
         return Err(CommandError::new("No text to insert"));
     }
     type_text(ctx, input, args.count())?;
-    // A closer typed first on its line goes under its opener's line (ADR 0115).
-    if matches!(input, "}" | ")" | "]") {
+    // A closer typed first on its line goes under its opener's line (ADR 0115), and the `/`
+    // of an end tag's `</` under its element's line (ADR 0164).
+    if matches!(input, "}" | ")" | "]" | "/") {
         ctx.editor.indent_typed_closers()?;
     }
     Ok(())
