@@ -9,6 +9,9 @@
 //!
 //! - Every command here is `Person`: what goes to a session is the person's typing, and the
 //!   message is theirs to change (Q7), so no command of the agent channel sends or drops one.
+//! - `Q` (`review-ask`, ADR 0163) asks a question about the place at point, sent at once to
+//!   the space's orchestrator: the question is the person's, typed in the prompt and confirmed
+//!   with `RET` there, which stands for the Enter a paste otherwise waits for.
 
 use oso_core::buffer::Mode;
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
@@ -33,7 +36,7 @@ pub const COMMANDS: &[Command] = &[
     ),
     Command {
         name: "review-message-send",
-        doc: "Paste this message into its agent session, not submitted, and mark the comments a review's message holds sent.\n\nThe session is the one picked for the review, or the pull request, with `C-u` while it runs, else the one that runs in the review's worktree, the one shown last if several do, or for a pull request's checks or threads the one in the worktree its branch is checked out in; with `C-u`, one read with completion, which is then kept. With none, the message stays and nothing is sent. The paste is the person's: read it in the session's input box and press Enter. A session asking for permission or another answer is refused, and the message stays. A comment changed in the review since the message was made stays unsent.",
+        doc: "Paste this message into its agent session, not submitted, and mark the comments a review's message holds sent.\n\nThe session is the one picked for the review, or the pull request, with `C-u` while it runs, else in a space with an orchestrator that orchestrator, which relays the comments to the review's worktree, else the one that runs in the review's worktree, the one shown last if several do, or for a pull request's checks or threads the one in the worktree its branch is checked out in; with `C-u`, one read with completion, which is then kept. With none, the message stays and nothing is sent. The paste is the person's: read it in the session's input box and press Enter. A session asking for permission or another answer is refused, and the message stays. A comment changed in the review since the message was made stays unsent.",
         args: ArgSpec::ListedOnPrefix {
             list: SEND_LIST,
             prompt: "Send the review message to session:",
@@ -53,7 +56,40 @@ pub const COMMANDS: &[Command] = &[
         "In a message made from a pull request's checks or threads, take in what it left out: the comments of others than you and the repository's owners, members and collaborators, and a fork's logs, quoted, above the end of what GitHub said (ADR 0127, step 6b). What you wrote stays.",
         review_message_take
     ),
+    Command {
+        name: "review-ask",
+        doc: "Ask a question about the hunk or line at point, or the lines the region spans, sent at once to the space's orchestrator.\n\nThe question goes with the review's worktree, the file, the line numbers and the lines, as a comment's place and hunk go with `C-c C-c`, and is submitted: the orchestrator answers in its terminal, shown in the review layout's slot while you stay in the review. Outside a space with an orchestrator it goes to the review's session, as `C-c C-c` sends. A file that may hold secrets sends its place alone. A session asking for permission or another answer is refused; `M-p` in the prompt brings the question back.",
+        args: ArgSpec::Text {
+            prompt: "Ask about this: ",
+            history: "review-ask",
+        },
+        reach: Reach::Person,
+        run: review_ask,
+        state: None,
+    },
 ];
+
+fn review_ask(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    let review = current_review(ctx)?;
+    // A yank of a secret entry turns the prompt secret: its text stays here.
+    if ctx.answer_secret() {
+        return Err(CommandError::new("Secret text is not sent"));
+    }
+    let question = ctx.answer().unwrap_or_default().trim();
+    if question.is_empty() {
+        return Err(CommandError::new("No question was asked"));
+    }
+    if question.len() > crate::commands::agent_sessions::MAX_SEND_BYTES {
+        return Err(CommandError::new(
+            "The question is past the 256 KiB a session takes",
+        ));
+    }
+    let question = question.to_owned();
+    ctx.editor
+        .request_review(ReviewRequest::Ask { review, question });
+    ctx.request_redraw();
+    Ok(())
+}
 
 fn review_send(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     let review = current_review(ctx)?;

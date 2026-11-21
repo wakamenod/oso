@@ -186,6 +186,7 @@ impl App {
         self.completion_if_due();
         self.review_layout_due();
         self.review_watch_due();
+        self.review_ask_due();
         self.quit_if_idle(event_loop);
         // Last, once every deadline is known.
         self.set_wake(event_loop);
@@ -296,6 +297,7 @@ impl App {
             self.sessions_deadline(),
             self.review_layout_deadline(),
             self.review_watch_deadline(),
+            self.review_ask_deadline(),
             self.handover_deadline(),
             self.idle_quit.next_wake(),
         ];

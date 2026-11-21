@@ -14,6 +14,8 @@ mod naming;
 mod new_space;
 mod orchestrator;
 
+pub(in crate::app) use orchestrator::Orchestrator;
+
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
@@ -73,7 +75,9 @@ pub(in crate::app) struct SpaceWork {
     /// The sessions being got ready as an orchestrator, by key: their space.
     pub(in crate::app) starting: HashMap<crate::sessions::worker::SessionKey, SpaceId>,
     /// What the question the host asked last offers, which `y` does (`SpaceRequest::Confirmed`):
-    /// dropped when another is asked or it is answered otherwise.
+    /// dropped when another is asked or it is answered otherwise. A review's offer to resume
+    /// the orchestrator is the third kind (ADR 0163), kept by `reviews::ask`; every such
+    /// question is asked through `App::ask_confirm`, which drops the others.
     pub(in crate::app) offer: Option<orchestrator::Offer>,
     /// A replacement of an orchestrator asked about, which `y` does (step 5).
     pub(in crate::app) replace_asked: Option<handover::Asked>,

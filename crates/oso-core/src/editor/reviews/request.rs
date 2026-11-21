@@ -93,4 +93,8 @@ pub enum ReviewRequest {
     /// Add what a message made from a pull request's checks or threads left out, above the end
     /// of what GitHub said (`C-c C-t`, ADR 0127, step 6b).
     MessageTake { buffer: BufferId },
+    /// Ask `question` about what the primary cursor of the selected window is on in the
+    /// review, or the lines its region spans: sent at once to the space's orchestrator, or to
+    /// the review's session outside one, and its terminal shown beside the review (ADR 0163).
+    Ask { review: ReviewId, question: String },
 }

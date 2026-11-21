@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use oso_core::editor::{SendExcerpt, SendPart};
 
-use super::{MAX_BYTES, Standing, TooLarge, compose, fence, place, refusal};
+use super::{InputBox, MAX_BYTES, Standing, TooLarge, compose, fence, input_box, place, refusal};
 use crate::sessions::state::{Reason, State};
 
 const DIRECTORY: &str = "/work/repo";
@@ -279,4 +279,62 @@ fn a_fix_error_s_message_cannot_pass_as_its_lines_or_its_ask() {
         .expect("the message's fence ends");
     assert_eq!(message, forged, "the message is inside its fence, whole");
     assert_eq!(after, "src/a.rs:1\n```\na\n```\n\nFix this error.");
+}
+
+/// The rows of a screen the rules' tests capture.
+fn screen(text: &str) -> Vec<String> {
+    text.lines().map(str::to_owned).collect()
+}
+
+#[test]
+fn the_input_box_reads_empty_at_the_prompt_alone_or_its_hint() {
+    let working = screen(include_str!("../screens/working.txt"));
+    assert_eq!(input_box(&working), InputBox::Empty);
+    let start = screen(include_str!("../screens/idle-start.txt"));
+    assert_eq!(input_box(&start), InputBox::Empty);
+}
+
+#[test]
+fn a_draft_is_typed_and_a_dialog_or_a_picker_is_no_box() {
+    let done = screen(include_str!("../screens/done.txt"));
+    assert_eq!(input_box(&done), InputBox::Typed, "a draft at the prompt");
+    for text in [
+        include_str!("../screens/question.txt"),
+        include_str!("../screens/plan-approval.txt"),
+        include_str!("../screens/permission-bash.txt"),
+        include_str!("../screens/resume-picker.txt"),
+        include_str!("../screens/slash-menu.txt"),
+        "",
+    ] {
+        assert_eq!(input_box(&screen(text)), InputBox::Other, "{text}");
+    }
+}
+
+#[test]
+fn only_a_folded_paste_reads_as_pasted() {
+    let rule = "─".repeat(40);
+    let boxed = |row: &str| screen(&format!("talk\n{rule}\n{row}\n{rule}\n  ? for shortcuts"));
+    assert_eq!(
+        input_box(&boxed("❯ [Pasted text #1 +12 lines]")),
+        InputBox::Pasted
+    );
+    assert_eq!(input_box(&boxed("❯ [Pasted text #3]")), InputBox::Pasted);
+    assert_eq!(input_box(&boxed("❯ ")), InputBox::Empty);
+    for typed in [
+        "❯ [Pasted text #1 +12 lines] and more",
+        "❯ draft [Pasted text #1 +12 lines]",
+        "❯ [Pasted text #x +1 lines]",
+    ] {
+        assert_eq!(input_box(&boxed(typed)), InputBox::Typed, "{typed}");
+    }
+    for other in [
+        "! [Pasted text #1 +12 lines]",
+        "# note",
+        "  ❯ 1. Yes",
+        "❯ 1. Yes",
+        "❯ 12. Keep planning",
+        "❯ /help",
+    ] {
+        assert_eq!(input_box(&boxed(other)), InputBox::Other, "{other}");
+    }
 }

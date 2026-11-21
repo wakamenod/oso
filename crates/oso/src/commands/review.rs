@@ -50,6 +50,7 @@ pub const KEYS: &[(&str, &str)] = &[
     ("/", "review-filter"),
     ("g", "review-refresh"),
     ("C-c C-c", "review-send"),
+    ("Q", "review-ask"),
     ("q", "review-quit"),
     ("?", "review-keys"),
 ];

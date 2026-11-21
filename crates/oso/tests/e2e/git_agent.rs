@@ -54,7 +54,7 @@ kill "$reader" 2>/dev/null
 exit "$(cat "$dir/go")"
 "#;
 
-const WORKING: &str = include_str!("../../src/sessions/screens/working.txt");
+pub(super) const WORKING: &str = include_str!("../../src/sessions/screens/working.txt");
 
 pub(super) const END: &str = "\u{1b}[201~";
 
