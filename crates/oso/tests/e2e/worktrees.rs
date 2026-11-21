@@ -134,11 +134,14 @@ impl Flow {
     /// Starts an instance in the repository with `README.md` shown, and trusts the project as
     /// a person does. Returns it and `README.md`'s buffer id.
     pub(super) fn start(&self) -> (App, Value) {
-        let mut app = App::start_with_config_and_env(
-            &self.repo,
-            &self.config,
-            &[("HOME", self.home.as_os_str())],
-        );
+        self.start_with(&[])
+    }
+
+    /// [`Flow::start`], with `env` set too, such as a stand-in `gh`.
+    pub(super) fn start_with(&self, env: &[(&str, &std::ffi::OsStr)]) -> (App, Value) {
+        let mut all = vec![("HOME", self.home.as_os_str())];
+        all.extend_from_slice(env);
+        let mut app = App::start_with_config_and_env(&self.repo, &self.config, &all);
         app.wait_until_ready();
         app.open_file(&self.repo.join("README.md"));
         app.wait_until_ready();

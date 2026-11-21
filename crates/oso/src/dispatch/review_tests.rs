@@ -202,3 +202,58 @@ fn an_agents_q_buries_the_review_and_asks_for_no_restore() {
     );
     assert!(refused.is_err());
 }
+
+#[test]
+fn in_a_space_with_an_orchestrator_the_host_opens_c_x_v_r_s_menu() {
+    use oso_core::editor::ReviewRequest;
+
+    let (mut editor, _) = in_project(true);
+    let mut d = super::Dispatcher::new();
+    d.set_review_menu_by_host(true);
+    super::motion_tests::send(&mut d, &mut editor, "C-x v r");
+    assert_eq!(d.menu_name(), None);
+    assert_eq!(
+        editor.take_review_requests(),
+        [ReviewRequest::Layout { menu: true }]
+    );
+    d.set_review_menu_by_host(false);
+    super::motion_tests::send(&mut d, &mut editor, "C-x v r");
+    assert_eq!(d.menu_name(), Some("review"));
+}
+
+/// The notes `review-start` shows now.
+#[cfg(unix)]
+fn start_notes(editor: &Editor) -> Notes {
+    let registry = crate::commands::registry();
+    let menus = crate::bindings::built_in_menus(&registry);
+    let definition = menus.get(menus.lookup("review-start").unwrap()).unwrap();
+    crate::commands::review::review_start_menu(editor, &Open::new(Arc::clone(definition)))
+}
+
+#[cfg(unix)]
+#[test]
+fn review_start_names_the_repository_and_needs_two_worktrees_for_w() {
+    use oso_core::complete::Candidate;
+
+    use crate::commands::review::REVIEW_WORKTREES_LIST;
+
+    let (mut editor, project) = in_project(true);
+    // Heads: p w .
+    let shown = start_notes(&editor);
+    assert_eq!(shown.line, None);
+    assert!((0..3).all(|head| note(&shown, head).1.is_some()));
+    editor.set_review_target(Some(project));
+    let shown = start_notes(&editor);
+    assert_eq!(
+        shown.line.as_deref(),
+        Some("Review \u{b7} oso \u{b7} ~/src/oso")
+    );
+    assert!(shown.get(0).is_none());
+    assert_eq!(note(&shown, 1).1, Some("one worktree: . reviews it"));
+    let two: Arc<[Candidate]> = ["/home/me/src/oso", "/home/me/src/oso-wt"]
+        .iter()
+        .map(|path| Candidate::new(*path, "", ""))
+        .collect();
+    editor.set_listed(REVIEW_WORKTREES_LIST, two);
+    assert!(start_notes(&editor).get(1).is_none());
+}

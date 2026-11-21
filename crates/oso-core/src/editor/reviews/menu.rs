@@ -1,6 +1,7 @@
 //! What the review menu shows of each project (ADR 0117, "Live content", ADR 0122): each
 //! scope's count from the menu's latest opening, the last scope reviewed, when the session's
-//! baseline was taken, and the branch's base.
+//! baseline was taken, and the branch's base; and the project it is for in place of the
+//! selected buffer's, while a start in a space chose one (ADR 0163).
 //!
 //! Must not depend on: `command` or `keymap`, or the host's threads or git; the host counts on
 //! threads of its own and hands each count in.
@@ -75,6 +76,18 @@ impl Reviews {
 }
 
 impl Editor {
+    /// Makes `project` the one the review menu, its counts and its heads use in place of the
+    /// selected buffer's, or with `None` the selected buffer's again (ADR 0163): set by a
+    /// start in a space, and cleared by the host once the menu closes.
+    pub fn set_review_target(&mut self, project: Option<ProjectId>) {
+        self.reviews.target = project;
+    }
+
+    /// The project [`Self::set_review_target`] set, if any.
+    pub fn review_target(&self) -> Option<ProjectId> {
+        self.reviews.target
+    }
+
     /// What the review menu shows of `project`, once it opened for it.
     pub fn scope_menu(&self, project: ProjectId) -> Option<&ScopeMenu> {
         let (_, menu) = self.reviews.menus.iter().find(|(id, _)| *id == project)?;

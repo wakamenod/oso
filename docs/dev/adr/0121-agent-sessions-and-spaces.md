@@ -1,8 +1,9 @@
 # 0121. Agent sessions and spaces
 
-- Status: Accepted, amended by 0126, 0128, 0131, 0132, 0135, 0136, 0138, 0140, 0141, 0143, 0145, 0151, 0153, 0155, 0160, 0161, 0163 and 0165;
+- Status: Accepted, amended by 0126, 0128, 0131, 0132, 0135, 0136, 0138, 0140, 0141, 0143, 0145, 0151, 0153, 0155, 0160, 0161, 0162, 0163 and 0165;
   "Merged work is not ready for review, as amended" (2026-11-17); "Removal archives its
-  sessions, as amended" (2026-11-18)
+  sessions, as amended" (2026-11-18); "An incomplete registry read refuses, as amended"
+  (2026-11-22)
 - Date: 2026-11-12
 
 ## Context
@@ -833,6 +834,14 @@ points:
   build-dependency, which is not worth it there.
 - **`oso-term` gained `Terminal::pid(&self) -> Option<u32>`:** the child's process id from its
   start until it is reaped, cleared before the reap, so a reused id is never given.
+  `Terminal::start` returns before its thread spawns the child, so `pid` right after it is
+  `None`. `Terminal::wait_started(&self, within: Duration) -> Option<u32>` blocks until the
+  thread started the child, failed to, or ended, and is for threads other than the UI's: the
+  `oso-session-start` thread waits at most 5 s (`SPAWN_WAIT`) before it reports the start, and
+  the app reads `pid` when it installs the terminal. Read at once, a session whose agent never
+  called oso, so that no bridge claimed it, kept no process id: check 4 counted it busy and its
+  own registry entry as another's session. A bridge's claim still reads the ids again, for a
+  start past the wait.
 - **The remembered set** is `sessions` in oso's state directory, JSON lines of id, name,
   directory, project root, parent, pin and archive marks, last change and the baseline's tree:
   at most 256 sessions and 256 KiB, private, refused if a link or another user's, written to a
@@ -1747,6 +1756,35 @@ had worked on main.
   repository), and the look on its own thread. The end-to-end flows check the person's and an
   agent's removal (the echo, the reply's `archived`, the session's mark) and a start with a
   seeded stranded record, then a restart that keeps it archived and says nothing again.
+
+## An incomplete registry read refuses, as amended
+
+Amended on 2026-11-22, with the author's choice through the coordinator. Check 4 read Claude
+Code's registry for the sessions oso did not start, and took a listing it could not finish as
+one that held none of them: a session in the worktree could go unseen.
+
+- **An incomplete registry read refuses the removal,** as check 4, with `Check::Unknown` and one
+  of three reasons: the registry has more than 256 entry files (`registry::MAX_FILES`, the
+  listing is cut), its directory is there but cannot be listed, or no registry directory is
+  known (no home, or a `CLAUDE_CONFIG_DIR` that is not absolute). Each ends "so a session oso did
+  not start may run in it". A directory that is not there has no sessions and refuses nothing.
+  A resume already refused on a cut listing or an unknown directory.
+- **Its refusal comes after check 3 and before a busy session's:** an entry left unread leaves
+  a settled hosted session busy too, and the reason that can be acted on is the registry's.
+- **What the person sees:** the reason in the echo, the `*Worktrees*` row, an agent's
+  `worktree_remove` reply and an orchestrator's listing, as for any check that cannot be run.
+  ADR 0126's planned `C-u` removal must keep check 4.
+- **Built with** `registry::Listing::{unlistable, complete}`, `RepoFacts::registry_unread` and
+  `Looked::registry_unread`, inside the `oso` binary crate; `RepoFacts::gather` takes the
+  registry directory, which the jobs give from `registry::directory()` and the tests from a
+  scratch directory. No public item of a library crate. The unit tests cover the listing (cut,
+  missing, a file in its place, a directory with no permissions), the order against checks 3
+  and 4, and a merged worktree kept for each reason and let go with an empty or missing
+  registry.
+- **Not covered:** stale entry files of processes that ended count towards the 256, so a
+  registry that keeps many refuses every removal until the person deletes them. A listed file
+  that does not pass the registry's checks (a link, another user's, too large, not JSON) is
+  still left out without a refusal.
 
 ## Consequences
 

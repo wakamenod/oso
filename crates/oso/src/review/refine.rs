@@ -27,7 +27,13 @@ pub(crate) const MAX_SIDE: usize = 100;
 /// The most bytes a line may have to be refined.
 pub(crate) const MAX_LINE: usize = 1024;
 /// How long one pair of lines may take.
+#[cfg(not(test))]
 pub(crate) const DEADLINE: Duration = Duration::from_millis(5);
+/// How long one pair of lines may take in a test: a pair past the time is left plain, and a
+/// test thread a loaded machine puts aside for 5 ms would see its lines plain, as a snapshot
+/// of a review or a git status then shows. No test times a pair.
+#[cfg(test)]
+pub(crate) const DEADLINE: Duration = Duration::from_secs(10);
 /// The most spans a line may have refined; one with more stays plain, so that a frame draws
 /// few of them a row.
 pub(crate) const MAX_SPANS: usize = 64;

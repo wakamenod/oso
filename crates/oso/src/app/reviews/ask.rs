@@ -194,7 +194,7 @@ impl App {
     }
 
     /// The id of the space in front.
-    fn front_space_id(&self) -> Option<SpaceId> {
+    pub(super) fn front_space_id(&self) -> Option<SpaceId> {
         let spaces = self.watch.spaces();
         let at = spaces.current()?;
         Some(spaces.get(at)?.id().clone())

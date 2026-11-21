@@ -313,6 +313,15 @@ session of the space the space, its repositories with their trust, and its sessi
 `with_dirs`, the orchestrator lets a worker also read another trusted repository of the space or
 one of its worktrees; the question you answer lists them.
 
+Reviews go through the orchestrator too. Ask it to review a worker's change, and say how: the
+viewpoints (security, design, performance, spec, tests). It starts each reviewer with
+`session_start` in the worker's worktree, with no "Start here anyway?" question (when oso asks
+you about the start at all, the question says another session runs there), and told not to
+edit, commit or push; that is its brief, not something oso enforces. It checks their reports
+against the code, merges and ranks them, and tells you what holds and what it dropped. When you
+ask it about code under review, it reads the code first and cites `file:line`, and says when an
+answer is the implementer's.
+
 ### Send work to a session
 
 Select a region and press `C-c a m`, then pick the session. The region goes as its path, its
@@ -390,6 +399,18 @@ removed; once git may be deleting, it asks first, as the worktree is then left h
 Each is a command too, such as `M-x review-uncommitted`. Reviews run git, so the project must
 be trusted. `C-c a c` takes a baseline when it starts a session at the root of a trusted
 project, so `D` shows what that session changed.
+
+In a space with an orchestrator, `C-x v r` (with no review open, or `C-u C-x v r`) first asks
+which of the space's trusted repositories to review, only when it has two or more, with the
+selected file's repository offered by `M-n`. Then a small menu asks what of it:
+
+| Key | Reviews |
+|---|---|
+| `p` | A pull request, by its number: it opens on the worktree its head is checked out in, so `RET` goes into that worktree's files |
+| `w` | A worktree, by completion, then the review menu above for it |
+| `.` | This checkout: the selected file's worktree of the repository, else its main checkout, then the review menu |
+
+So the menu works from the orchestrator's terminal too, which is in no repository.
 
 A review opens in the review layout: the review at the left, and one window at the right, the
 slot, which shows one thing at a time. `RET` shows the source there, `C-u RET` the old side,

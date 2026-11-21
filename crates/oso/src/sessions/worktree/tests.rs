@@ -131,9 +131,11 @@ impl Scratch {
         create::create(&self.repo(), &order(branch), &|_| {}, &|| Ok(()))
     }
 
-    /// What the job reads of the repository once, with no `GH_HOST` and no hosted session.
+    /// What the job reads of the repository once, with no `GH_HOST`, no hosted session and an
+    /// empty registry.
     fn facts(&self) -> RepoFacts {
-        RepoFacts::gather(&self.repo(), None, &[])
+        let registry = self.dir.join("registry");
+        RepoFacts::gather(&self.repo(), None, &[], Some(&registry))
     }
 
     /// The listed worktree at `path`.
@@ -583,4 +585,5 @@ fn a_rows_look_leaves_gh_for_later_and_skips_it_for_a_branch_never_pushed() {
 
 mod jobs;
 mod prepare;
+mod registry;
 mod stop;
