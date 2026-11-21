@@ -1,14 +1,18 @@
 //! The bands of `*Spaces*` in the side window (ADR 0140): a section's row on its band, the
 //! front worktree's rows on their tint, and, only while the pane is selected, the row at point
 //! on the point's band with a bar in its first cell. The pane not selected draws no band for
-//! point, so that whether it has the person's keys shows.
+//! point, so that whether it has the person's keys shows. On the lit beat of the blink, a
+//! waiting row's mark and name, and a roll-up's mark, are on a fill of their own (ADR 0140, as
+//! amended).
 //!
 //! Must not depend on: key presses or commands; a frame only reads the editor's state.
+
+use std::ops::Range;
 
 use oso_core::buffer::Mode;
 use oso_core::editor::Editor;
 use oso_core::frame::CellRect;
-use oso_core::window::{Screen, WindowId};
+use oso_core::window::{Screen, ScreenRow, WindowId};
 
 use crate::sessions::list::SpaceBands;
 
@@ -20,6 +24,8 @@ pub(super) struct SpacesFills {
     pub(super) point: Vec<CellRect>,
     /// The first cell of the row at point, where the bar goes.
     pub(super) bar: Vec<CellRect>,
+    /// The cells drawn inverse on the blink's lit beat.
+    pub(super) lit: Vec<CellRect>,
 }
 
 impl SpacesFills {
@@ -36,6 +42,7 @@ impl SpacesFills {
         self.tint.clear();
         self.point.clear();
         self.bar.clear();
+        self.lit.clear();
         if editor.side_window() != Some(id) {
             return;
         }
@@ -55,6 +62,7 @@ impl SpacesFills {
             if bands.tint.binary_search(&row.line).is_ok() {
                 push_row(&mut self.tint, text, at);
             }
+            push_lit(&mut self.lit, &bands.lit, (row, at), text);
         }
         if editor.tiled().0.id() == id {
             let first = band.first().map(|rect| CellRect {
@@ -65,6 +73,30 @@ impl SpacesFills {
             self.point.append(band);
         }
         band.clear();
+    }
+}
+
+/// Adds the cells of `lit` that `row`, at frame row `at` of the text area `text`, shows to
+/// `rects`: by the cells of its line from where the row starts, as the display model gives
+/// them, though the side window cuts a long line rather than wrap it.
+fn push_lit(
+    rects: &mut Vec<CellRect>,
+    lit: &[(usize, Range<usize>)],
+    (row, at): (&ScreenRow, usize),
+    text: CellRect,
+) {
+    let from = lit.partition_point(|(line, _)| *line < row.line);
+    for (_, columns) in lit[from..].iter().take_while(|(line, _)| *line == row.line) {
+        let start = columns.start.max(row.column) - row.column;
+        let end = (columns.end.min(row.end_column).saturating_sub(row.column)).min(text.columns);
+        if start < end {
+            rects.push(CellRect {
+                row: at,
+                rows: 1,
+                column: text.column + start,
+                columns: end - start,
+            });
+        }
     }
 }
 
@@ -105,6 +137,7 @@ mod tests {
         let bands = SpaceBands {
             sections: vec![1],
             tint: vec![3],
+            lit: vec![(1, 14..17), (3, 6..9)],
         };
         (editor, side, bands)
     }
@@ -132,6 +165,37 @@ mod tests {
             [1]
         );
         assert_eq!(fills.tint.iter().map(|r| r.row).collect::<Vec<_>>(), [3]);
+    }
+
+    #[test]
+    fn the_lit_beat_fills_its_cells_on_their_rows_cut_to_the_window() {
+        let (mut editor, side, mut bands) = shown(2);
+        let (fills, _) = filled(&editor, side, &bands);
+        let text = editor
+            .frame()
+            .windows()
+            .iter()
+            .find(|(w, _)| *w == side)
+            .unwrap()
+            .1
+            .text;
+        let lit: Vec<_> = (fills.lit.iter())
+            .map(|r| (r.row - text.row, r.column - text.column, r.columns, r.rows))
+            .collect();
+        assert_eq!(lit, [(1, 14, 3, 1), (3, 6, 3, 1)]);
+        // Past the window's edge, it is cut; wholly past it, nothing.
+        bands.lit = vec![
+            (1, text.columns - 1..text.columns + 4),
+            (3, text.columns..text.columns + 2),
+        ];
+        let (fills, _) = filled(&editor, side, &bands);
+        assert_eq!(fills.lit.len(), 1);
+        assert_eq!(fills.lit[0].columns, 1);
+        // Another window draws none.
+        editor.other_window(1);
+        let tree = editor.window().id();
+        let (fills, _) = filled(&editor, tree, &bands);
+        assert!(fills.lit.is_empty());
     }
 
     #[test]

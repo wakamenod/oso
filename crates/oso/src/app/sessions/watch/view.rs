@@ -7,7 +7,8 @@
 //! `*Spaces*` is an internal buffer, read-only, and withheld from agents: its recaps are
 //! sessions' screen text (Q7). While it is shown, the agent channel's commands answer in the
 //! echo area only. Its marks and quiet text are drawn in the state faces, as highlights the
-//! list gives with its text, and a working mark spins while one is in view (ADR 0131). Which
+//! list gives with its text, and a working mark spins while one is in view (ADR 0131), and a
+//! waiting row blinks, its faces alone set again on each beat (ADR 0140, as amended). Which
 //! of its lines a section's band or the front worktree's tint is behind is kept for the frame,
 //! and its modeline says how to enter it or leave it as it is selected or not (ADR 0140).
 
@@ -20,7 +21,7 @@ use oso_core::syntax::Highlights;
 use crate::app::App;
 use crate::sessions::list::{Entry, Key, Line, Rendered, SpaceBands};
 use crate::sessions::recap::{clean, without_spinner};
-use crate::sessions::spinner::Spinner;
+use crate::sessions::spinner::Clock;
 use crate::sessions::width;
 
 /// The list's buffer name.
@@ -39,8 +40,10 @@ pub(super) struct View {
     pub(super) hidden: bool,
     /// The text it was last given, so that the same text is not set again.
     text: String,
-    /// The spinner of working marks.
-    pub(super) spinner: Spinner,
+    /// The highlights it was last given, so that a blink's beat sets its faces alone.
+    highlights: Vec<(std::ops::Range<usize>, oso_core::syntax::Highlight)>,
+    /// The pane's clock: the spinner of working marks and the blink of waiting rows.
+    pub(super) clock: Clock,
     /// oso's window is hidden: nothing spins.
     occluded: bool,
     /// The tree's projects and their listings (ADR 0131).
@@ -72,7 +75,13 @@ impl super::Watch {
 
     /// `[sessions] spinner` in force (ADR 0131, Q14).
     pub(in crate::app) fn set_spinner(&mut self, on: bool) {
-        self.view.spinner.set_on(on);
+        self.view.clock.set_spinner(on);
+        self.stale = true;
+    }
+
+    /// `[sessions] blink` in force (ADR 0140, as amended).
+    pub(in crate::app) fn set_blink(&mut self, on: bool) {
+        self.view.clock.set_blink(on);
         self.stale = true;
     }
 }
@@ -176,20 +185,26 @@ impl App {
         if self.sessions_list_shown() {
             changed |= self.render_sessions(entries, now);
         } else {
-            self.watch.view.spinner.stop();
+            self.watch.view.clock.stop();
         }
         changed
     }
 
-    /// When the spinner's next frame is due, while it runs.
-    pub(super) fn sessions_spin_due(&self) -> Option<Instant> {
-        self.watch.view.spinner.due()
+    /// Whether `*Spaces*` could blink now: shown, not hidden by the system, with `[sessions]
+    /// blink` on.
+    pub(super) fn sessions_may_blink(&self) -> bool {
+        !self.watch.view.occluded && self.watch.view.clock.blinks() && self.sessions_list_shown()
     }
 
-    /// The spinner's next frame, if due at `now`: the list is drawn again with it, as its
-    /// ages are, so that no candidate is made again.
-    pub(super) fn spin_sessions(&mut self, now: Instant) {
-        if self.watch.view.spinner.due().is_some_and(|due| now >= due) {
+    /// When the spinner's next frame or the blink's next beat is due, while it runs.
+    pub(super) fn sessions_clock_due(&self) -> Option<Instant> {
+        self.watch.view.clock.due()
+    }
+
+    /// The spinner's next frame or the blink's next beat, if due at `now`: the list is drawn
+    /// again with it, as its ages are, so that no candidate is made again.
+    pub(super) fn tick_sessions(&mut self, now: Instant) {
+        if self.watch.view.clock.due().is_some_and(|due| now >= due) {
             self.watch.stale = true;
             self.watch.aging = true;
         }
@@ -200,14 +215,14 @@ impl App {
     pub(in crate::app) fn sessions_occluded(&mut self, occluded: bool) {
         self.watch.view.occluded = occluded;
         if occluded {
-            self.watch.view.spinner.stop();
+            self.watch.view.clock.stop();
         } else {
             self.watch.stale = true;
         }
     }
 
     /// Renders `*Spaces*` to the side window's width, point kept on what its row showed.
-    /// Returns whether its text changed.
+    /// Returns whether what it shows changed: its text, its faces or its lit cells.
     fn render_sessions(&mut self, entries: &[Entry], now: Instant) -> bool {
         let (Some(side), Some(buffer)) = (self.editor.side_window(), self.watch.view.buffer) else {
             return false;
@@ -226,38 +241,49 @@ impl App {
             .buffer(buffer)
             .map(|text| text.text().offset_to_point(cursor).row);
         let was = on.and_then(|line| self.watch.view.lines.get(line).cloned());
-        let frame = (!self.watch.view.occluded)
-            .then(|| self.watch.view.spinner.frame(now))
-            .flatten();
+        let shown = !self.watch.view.occluded;
+        let frame = shown.then(|| self.watch.view.clock.frame(now)).flatten();
         self.watch.list.set_spin(frame);
+        let lit = shown.then(|| self.watch.view.clock.lit(now)).flatten();
+        let watched = self.watched_session().map(Key::Hosted);
+        self.watch.list.set_blink(lit, watched);
         let mut rendered = self.watch.list.render(entries, width, now);
         let top = scroll.start;
         let rows = window.size().rows;
         let first = self.editor.buffer(buffer).map_or(0, |text| {
             text.text().offset_to_point(top.min(text.text().len())).row
         });
-        let in_view = rendered
-            .spinning
-            .iter()
-            .any(|&line| (first..first + rows).contains(&line));
-        self.watch
-            .view
-            .spinner
-            .drawn(frame.is_some() && in_view, now);
+        let in_view = |lines: &[usize]| {
+            lines
+                .iter()
+                .any(|line| (first..first + rows).contains(line))
+        };
+        let spinning = frame.is_some() && in_view(&rendered.spinning);
+        let blinking = lit.is_some() && in_view(&rendered.blinking);
+        self.watch.view.clock.drawn(spinning, blinking, now);
         let same = rendered.text == self.watch.view.text
             && self
                 .editor
                 .buffer(buffer)
                 .is_some_and(|kept| kept.text().len() == rendered.text.len());
+        let lit_moved = rendered.bands.lit != self.watch.view.bands.lit;
         self.watch.view.bands = std::mem::take(&mut rendered.bands);
         self.watch.view.open_to = rendered.open_to;
+        let same_faces = same && rendered.highlights == self.watch.view.highlights;
+        if !same_faces {
+            // A blink's beat changes faces alone: its text is not set again, so nothing is
+            // shaped again (ADR 0140, as amended).
+            if !same {
+                self.editor.set_internal_text(buffer, &rendered.text);
+            }
+            self.editor
+                .set_internal_highlights(buffer, highlights_of(&rendered));
+            self.watch.view.highlights = std::mem::take(&mut rendered.highlights);
+        }
         if same {
             self.watch.view.lines = rendered.lines;
-            return false;
+            return !same_faces || lit_moved;
         }
-        self.editor.set_internal_text(buffer, &rendered.text);
-        self.editor
-            .set_internal_highlights(buffer, highlights_of(&rendered));
         let line = was
             .and_then(|was| rendered.lines.iter().position(|line| *line == was))
             .or(on.filter(|&line| line < rendered.lines.len()))

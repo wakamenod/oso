@@ -120,6 +120,8 @@ pub struct Rendered {
     pub highlights: Vec<(Range<usize>, Highlight)>,
     /// The lines whose mark spins.
     pub spinning: Vec<usize>,
+    /// The lines that blink: a waiting session's, and a roll-up of one (ADR 0140, as amended).
+    pub blinking: Vec<usize>,
     /// The lines drawn on a band (ADR 0140).
     pub bands: SpaceBands,
     /// How deep the tree shows open: 0 its spaces, 1 down to its worktrees, 2 a worktree's
@@ -134,6 +136,41 @@ pub struct SpaceBands {
     pub sections: Vec<usize>,
     /// The front worktree's rows.
     pub tint: Vec<usize>,
+    /// On the lit beat of the blink, the cells of each blinking line drawn inverse: its line
+    /// and its columns, by line in order (ADR 0140, as amended).
+    pub lit: Vec<(usize, Range<usize>)>,
+}
+
+/// The pane's clock as a render reads it: the spinner's frame, whether the blink's beat is
+/// lit, and the session in front of the person, whose row does not blink.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct Beat {
+    /// The spinner's frame, while working marks spin.
+    pub(super) spin: Option<usize>,
+    /// Whether the beat is lit, while waiting rows blink.
+    pub(super) lit: Option<bool>,
+    /// The session shown in the selected window of a focused oso window.
+    pub(super) watched: Option<Key>,
+}
+
+impl Beat {
+    /// The beat `entry`'s row blinks on, lit or not: a session of oso's that needs input, not
+    /// archived and not the one in front of the person (ADR 0140, as amended). `None`: it
+    /// stands still.
+    pub(super) fn blinks(self, entry: &Entry) -> Option<bool> {
+        let lit = self.lit?;
+        let waits = matches!(entry.key, Key::Hosted(_))
+            && matches!(entry.state, State::NeedsInput(_))
+            && !entry.archived
+            && self.watched != Some(entry.key);
+        waits.then_some(lit)
+    }
+
+    /// The beat a roll-up of `sessions` blinks on: while one of them blinks, which needs input
+    /// and so is its most urgent.
+    pub(super) fn roll_blinks(self, sessions: &[&Entry]) -> Option<bool> {
+        sessions.iter().find_map(|e| self.blinks(e))
+    }
 }
 
 /// The list's own state: its grouping and what the person folded.
@@ -150,8 +187,8 @@ pub struct List {
     /// Folds `S-TAB` set, whatever their default: folded or open (ADR 0140). `TAB` turns one
     /// over.
     set: HashMap<Fold, bool>,
-    /// The spinner's frame, while working marks spin.
-    spin: Option<usize>,
+    /// The spinner's frame and the blink's beat.
+    beat: Beat,
     /// What the tree shows besides sessions.
     tree: tree::Tree,
 }
@@ -190,7 +227,14 @@ impl List {
 
     /// Working marks spin, showing frame `frame` of [`SPINNER`], or stand still with `None`.
     pub fn set_spin(&mut self, frame: Option<usize>) {
-        self.spin = frame.map(|frame| frame % SPINNER.len());
+        self.beat.spin = frame.map(|frame| frame % SPINNER.len());
+    }
+
+    /// Waiting rows blink, lit or not as `lit` says, but `watched`'s, or stand still with
+    /// `None` (ADR 0140, as amended).
+    pub fn set_blink(&mut self, lit: Option<bool>, watched: Option<Key>) {
+        self.beat.lit = lit;
+        self.beat.watched = watched;
     }
 
     /// `s`: the tree, or by state.
@@ -310,7 +354,7 @@ impl List {
                     .count();
                 let row = Row {
                     place: true,
-                    ..Row::new(parent, LEAD, self.spin, waiting)
+                    ..Row::new(parent, LEAD, self.beat, waiting)
                 };
                 row.render(&mut out, width, now);
                 if self.folded(&Fold::Nested(parent.key)) {
@@ -319,7 +363,7 @@ impl List {
                 for entry in nested {
                     let row = Row {
                         place: true,
-                        ..Row::new(entry, NESTED, self.spin, 0)
+                        ..Row::new(entry, NESTED, self.beat, 0)
                     };
                     row.render(&mut out, width, now);
                 }
@@ -498,12 +542,24 @@ impl Rendered {
     }
 
     /// Pushes `text` as a line, with `spans` of it, by its bytes, drawn as each says. A span
-    /// is cut to the text kept.
+    /// is cut to the whole characters of the text kept.
     fn push_drawn(&mut self, text: &str, line: Line, spans: &[(Range<usize>, Highlight)]) {
         let text = text.trim_end();
         let base = self.text.len();
+        // A span cut with the text keeps whole characters only: a cut may put its `…` where
+        // a span began, and a part of it would be no character's face.
+        let ceil =
+            |at: usize| (at.min(text.len())..=text.len()).find(|&at| text.is_char_boundary(at));
+        let floor = |at: usize| {
+            (0..=at.min(text.len()))
+                .rev()
+                .find(|&at| text.is_char_boundary(at))
+        };
         for (range, highlight) in spans {
-            let range = range.start.min(text.len())..range.end.min(text.len());
+            let (Some(start), Some(end)) = (ceil(range.start), floor(range.end)) else {
+                continue;
+            };
+            let range = start..end;
             if !range.is_empty() {
                 self.highlights
                     .push((base + range.start..base + range.end, *highlight));

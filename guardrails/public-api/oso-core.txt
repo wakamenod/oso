@@ -6369,6 +6369,7 @@ pub oso_core::syntax::Highlight::Outdated
 pub oso_core::syntax::Highlight::Property
 pub oso_core::syntax::Highlight::Sent
 pub oso_core::syntax::Highlight::SessionAlert
+pub oso_core::syntax::Highlight::SessionAlertLit
 pub oso_core::syntax::Highlight::SessionDone
 pub oso_core::syntax::Highlight::SessionFront
 pub oso_core::syntax::Highlight::SessionQuiet
