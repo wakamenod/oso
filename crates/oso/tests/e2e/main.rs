@@ -51,6 +51,7 @@ mod review;
 mod review_ask;
 mod review_pr;
 mod review_send;
+mod review_start;
 #[cfg(target_os = "macos")]
 mod secure;
 mod session_tools;

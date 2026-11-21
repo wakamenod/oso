@@ -16,8 +16,8 @@ use std::time::{Duration, Instant};
 use oso_platform::process::Executable;
 
 use super::{
-    Asking, Meanwhile, PrFound, PullFrom, Waits, fetch_failure, fetch_words, plain_branch,
-    read_sides, resolve_with,
+    Asking, Meanwhile, PrFound, PullFrom, Waits, fetch_failure, fetch_words, head_worktree_with,
+    plain_branch, read_sides, resolve_with,
 };
 use crate::git::{Gh, GhRepo, Git, Id, PullTarget};
 use crate::review::scope::{New, ScopeError, Sides};
@@ -132,6 +132,23 @@ impl Bench {
         };
         let resolved = resolve_with(&self.git(), &from, number, asking, &mut waits);
         (resolved, idle, fetched)
+    }
+
+    /// Where `number`'s head is checked out, as a start in a space finds it before opening.
+    fn head_worktree(&self, number: u64) -> Option<PathBuf> {
+        let (gh, target) = (self.gh(), self.target("origin"));
+        let from = PullFrom {
+            gh: &gh,
+            cwd: &self.hooks,
+            target: &target,
+        };
+        let mut tell = |_: Meanwhile<'_>| true;
+        let mut waits = Waits {
+            stop: &|| false,
+            tell: &mut tell,
+        };
+        let found = head_worktree_with(&self.git(), &from, number, &mut waits).unwrap();
+        found.map(|path| fs::canonicalize(path).unwrap())
     }
 
     fn resolve(&self, number: u64, remote: &str) -> Result<(Sides, PrFound), ScopeError> {
@@ -488,4 +505,33 @@ fn a_run_of_gh_a_stop_left_waiting_is_taken_up_not_started_again() {
     assert!(resolved.is_ok(), "{resolved:?}");
     assert!(asking.is_none());
     assert_eq!(bench.asked().lines().count(), 1, "gh was asked once");
+}
+
+#[test]
+fn a_start_in_a_space_finds_the_worktree_holding_the_head_before_opening() {
+    let bench = Bench::new("pr-head-worktree");
+    let (_, base, head) = branched(&bench.repo);
+    bench.answer(7, &base, &head, "feature", false);
+    assert_eq!(bench.head_worktree(7), None, "no worktree has feature");
+    let tree = bench.repo.dir.join("feature-tree");
+    let path = tree.to_str().unwrap();
+    bench.repo.git(&["worktree", "add", "-q", path, "feature"]);
+    assert_eq!(
+        bench.head_worktree(7),
+        Some(fs::canonicalize(&tree).unwrap())
+    );
+    // A fork's head of that name is another branch.
+    bench.answer(7, &base, &head, "feature", true);
+    assert_eq!(bench.head_worktree(7), None);
+    // A branch of that name that does not hold the head is another branch too.
+    bench.answer(7, &base, &base, "feature", false);
+    assert_eq!(bench.head_worktree(7), None);
+    // Checked out here, holding the head: the root itself.
+    bench.repo.git(&["worktree", "remove", "-f", path]);
+    bench.repo.git(&["checkout", "-q", "feature"]);
+    bench.answer(7, &base, &head, "feature", false);
+    assert_eq!(
+        bench.head_worktree(7),
+        Some(fs::canonicalize(&bench.repo.root).unwrap())
+    );
 }

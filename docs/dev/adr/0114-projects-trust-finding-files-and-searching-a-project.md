@@ -1,6 +1,6 @@
 # 0114. Projects, their trust, finding their files and searching them
 
-- Status: Accepted, amended by 0116, 0138 and 0141
+- Status: Accepted, amended by 0116, 0138, 0141 and 0163
 - Date: 2026-11-12
 
 ## Context

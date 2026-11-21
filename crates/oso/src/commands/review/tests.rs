@@ -435,6 +435,25 @@ fn reviews_start_from_the_shown_buffers_project_or_the_shown_reviews() {
     assert_eq!(super::review_project(&Editor::default()), None);
 }
 
+#[cfg(unix)]
+#[test]
+fn a_start_in_a_space_targets_its_project_until_cleared() {
+    let (mut editor, project) = in_project(true);
+    let other = editor.add_project(oso_core::project::Found {
+        root: oso_core::project::RootIdentity {
+            path: "/w/other".into(),
+            identity: None,
+        },
+        worktree_of: None,
+        checked_main: None,
+    });
+    editor.set_review_target(Some(other));
+    assert_eq!(super::review_project(&editor), Some(other));
+    assert_eq!(super::selected_project(&editor), Some(project));
+    editor.set_review_target(None);
+    assert_eq!(super::review_project(&editor), Some(project));
+}
+
 /// [`TEXT`] as two panes: b's new line beside a filler row, as is a's second.
 pub(crate) fn put_panes(editor: &mut Editor, review: ReviewId) {
     let head = "Review\nmodified  a  +2 \u{2212}1\n@@ -1 +1,2 @@\n";

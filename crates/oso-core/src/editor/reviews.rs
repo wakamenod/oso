@@ -46,7 +46,7 @@ pub use draft::DraftFor;
 pub use menu::{Count, ScopeMenu};
 pub use panes::{ReviewArea, ReviewChoice, ReviewLayout};
 pub use places::LineMoves;
-pub use request::ReviewRequest;
+pub use request::{ReviewRequest, ReviewStart};
 
 /// A review's id, never reused while the editor runs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -142,6 +142,9 @@ pub(super) struct Reviews {
     closed: Vec<(ReviewId, Review)>,
     /// What the files panes keep beside every review (step 6b).
     files: files::Shared,
+    /// The project the review menu is for in place of the selected buffer's, while a start in
+    /// a space chose it (ADR 0163).
+    target: Option<ProjectId>,
 }
 
 impl Reviews {

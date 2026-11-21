@@ -2171,6 +2171,7 @@ pub oso_core::editor::ReviewRequest::Reject::path: alloc::boxed::Box<[u8]>
 pub oso_core::editor::ReviewRequest::Reject::review: oso_core::editor::ReviewId
 pub oso_core::editor::ReviewRequest::Resume(alloc::string::String)
 pub oso_core::editor::ReviewRequest::Send(oso_core::editor::ReviewId)
+pub oso_core::editor::ReviewRequest::Start(oso_core::editor::ReviewStart)
 pub oso_core::editor::ReviewRequest::Undo(oso_core::editor::ReviewId)
 pub oso_core::editor::ReviewRequest::Viewed
 pub oso_core::editor::ReviewRequest::Viewed::hunks: alloc::vec::Vec<usize>
@@ -2190,6 +2191,18 @@ pub fn oso_core::editor::ReviewRequest::eq(&self, &oso_core::editor::ReviewReque
 impl core::fmt::Debug for oso_core::editor::ReviewRequest
 pub fn oso_core::editor::ReviewRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::editor::ReviewRequest
+pub enum oso_core::editor::ReviewStart
+pub oso_core::editor::ReviewStart::Checkout
+pub oso_core::editor::ReviewStart::Repository(alloc::string::String)
+pub oso_core::editor::ReviewStart::Worktree(alloc::string::String)
+impl core::clone::Clone for oso_core::editor::ReviewStart
+pub fn oso_core::editor::ReviewStart::clone(&self) -> oso_core::editor::ReviewStart
+impl core::cmp::Eq for oso_core::editor::ReviewStart
+impl core::cmp::PartialEq for oso_core::editor::ReviewStart
+pub fn oso_core::editor::ReviewStart::eq(&self, &oso_core::editor::ReviewStart) -> bool
+impl core::fmt::Debug for oso_core::editor::ReviewStart
+pub fn oso_core::editor::ReviewStart::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::editor::ReviewStart
 pub enum oso_core::editor::RowAction
 pub oso_core::editor::RowAction::Archive
 pub oso_core::editor::RowAction::Explain
@@ -2841,6 +2854,19 @@ pub fn oso_core::editor::Editor::set_operation_running(&mut self, bool)
 pub fn oso_core::editor::Editor::take_listing_requests(&mut self) -> alloc::vec::Vec<oso_core::editor::ListingRequest>
 pub fn oso_core::editor::Editor::take_operation_stop(&mut self) -> bool
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::add_project(&mut self, oso_core::project::Found) -> oso_core::project::ProjectId
+pub fn oso_core::editor::Editor::project(&self, oso_core::project::ProjectId) -> core::option::Option<&oso_core::project::Project>
+pub fn oso_core::editor::Editor::project_found(&mut self, &oso_core::editor::ProjectRequest, core::option::Option<oso_core::project::Found>)
+pub fn oso_core::editor::Editor::project_trusted(&self, oso_core::project::ProjectId) -> bool
+pub fn oso_core::editor::Editor::request_directory_project(&mut self, oso_core::buffer::BufferId, &std::path::Path)
+pub fn oso_core::editor::Editor::request_project(&mut self, oso_core::buffer::BufferId)
+pub fn oso_core::editor::Editor::set_trust_list(&mut self, core::option::Option<oso_core::project::TrustList>)
+pub fn oso_core::editor::Editor::take_project_requests(&mut self) -> alloc::vec::Vec<oso_core::editor::ProjectRequest>
+pub fn oso_core::editor::Editor::take_trust_changes(&mut self) -> alloc::vec::Vec<oso_core::project::TrustChange>
+pub fn oso_core::editor::Editor::trust_list(&self) -> core::option::Option<&oso_core::project::TrustList>
+pub fn oso_core::editor::Editor::trust_project(&mut self, oso_core::project::ProjectId, bool) -> core::result::Result<(), oso_core::editor::TrustRefused>
+pub fn oso_core::editor::Editor::untrust_project(&mut self, oso_core::project::ProjectId) -> core::result::Result<(), oso_core::editor::TrustRefused>
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::add_review(&mut self, oso_core::project::ProjectId, alloc::string::String) -> (oso_core::editor::ReviewId, oso_core::buffer::BufferId)
 pub fn oso_core::editor::Editor::agents_folded(&self, oso_core::editor::ReviewId) -> bool
 pub fn oso_core::editor::Editor::fold_agents(&mut self, oso_core::editor::ReviewId, bool)
@@ -3369,18 +3395,6 @@ pub fn oso_core::editor::Editor::screen_of(&self, oso_core::window::WindowId, &m
 pub fn oso_core::editor::Editor::shown_ranges(&self, &mut alloc::vec::Vec<(oso_core::buffer::BufferId, core::ops::range::Range<usize>)>)
 pub fn oso_core::editor::Editor::text_screen(&self, &mut oso_core::window::Screen)
 impl oso_core::editor::Editor
-pub fn oso_core::editor::Editor::project(&self, oso_core::project::ProjectId) -> core::option::Option<&oso_core::project::Project>
-pub fn oso_core::editor::Editor::project_found(&mut self, &oso_core::editor::ProjectRequest, core::option::Option<oso_core::project::Found>)
-pub fn oso_core::editor::Editor::project_trusted(&self, oso_core::project::ProjectId) -> bool
-pub fn oso_core::editor::Editor::request_directory_project(&mut self, oso_core::buffer::BufferId, &std::path::Path)
-pub fn oso_core::editor::Editor::request_project(&mut self, oso_core::buffer::BufferId)
-pub fn oso_core::editor::Editor::set_trust_list(&mut self, core::option::Option<oso_core::project::TrustList>)
-pub fn oso_core::editor::Editor::take_project_requests(&mut self) -> alloc::vec::Vec<oso_core::editor::ProjectRequest>
-pub fn oso_core::editor::Editor::take_trust_changes(&mut self) -> alloc::vec::Vec<oso_core::project::TrustChange>
-pub fn oso_core::editor::Editor::trust_list(&self) -> core::option::Option<&oso_core::project::TrustList>
-pub fn oso_core::editor::Editor::trust_project(&mut self, oso_core::project::ProjectId, bool) -> core::result::Result<(), oso_core::editor::TrustRefused>
-pub fn oso_core::editor::Editor::untrust_project(&mut self, oso_core::project::ProjectId) -> core::result::Result<(), oso_core::editor::TrustRefused>
-impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::replace_answer(&mut self, oso_core::editor::ReplaceAnswer)
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::replace_continue(&mut self)
@@ -3392,10 +3406,12 @@ pub fn oso_core::editor::Editor::review_kept(&self, oso_core::editor::ReviewId) 
 pub fn oso_core::editor::Editor::set_review_kept(&mut self, oso_core::editor::ReviewId, bool)
 pub fn oso_core::editor::Editor::take_closed_review(&mut self, oso_core::editor::ReviewId) -> core::option::Option<oso_core::review::Review>
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::review_target(&self) -> core::option::Option<oso_core::project::ProjectId>
 pub fn oso_core::editor::Editor::scope_menu(&self, oso_core::project::ProjectId) -> core::option::Option<&oso_core::editor::ScopeMenu>
 pub fn oso_core::editor::Editor::set_baseline_taken(&mut self, oso_core::project::ProjectId, core::option::Option<u64>)
 pub fn oso_core::editor::Editor::set_branch_base(&mut self, oso_core::project::ProjectId, u64, core::option::Option<alloc::string::String>)
 pub fn oso_core::editor::Editor::set_last_scope(&mut self, oso_core::project::ProjectId, oso_core::editor::ScopeKind)
+pub fn oso_core::editor::Editor::set_review_target(&mut self, core::option::Option<oso_core::project::ProjectId>)
 pub fn oso_core::editor::Editor::set_scope_count(&mut self, oso_core::project::ProjectId, u64, oso_core::editor::ScopeKind, oso_core::editor::Count) -> bool
 pub fn oso_core::editor::Editor::start_scope_counts(&mut self, oso_core::project::ProjectId, &[oso_core::editor::ScopeKind]) -> u64
 impl oso_core::editor::Editor

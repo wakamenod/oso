@@ -3,7 +3,8 @@
 //! branch is checked out in.
 //!
 //! Must not depend on: `app`, `dispatch`, winit or the UI thread; this runs `gh` and git on the
-//! review's thread.
+//! review's thread, and for a start in a space (ADR 0163) on `oso-review-head`, which finds
+//! where the head is checked out before the review opens.
 //!
 //! - `gh` is asked as the pull request buffers ask it (ADR 0127, step 5a): about the GitHub
 //!   repository the branch's remote names, else `origin`'s, from an empty private directory,
@@ -141,19 +142,88 @@ pub(super) fn resolve(
     waits: &mut Waits<'_>,
 ) -> Result<(Sides, PrFound), ScopeError> {
     waits.go_on()?;
-    let target = PullTarget::of(git).map_err(ScopeError::Refused)?;
-    let gh = Gh::find(git.top()).ok_or_else(|| {
-        ScopeError::Refused(
-            "gh is not installed, or not on PATH: oso reads pull requests through gh".into(),
-        )
-    })?;
-    let cwd = empty_hooks(state, "gh").map_err(ScopeError::Refused)?;
-    let from = PullFrom {
-        gh: &gh,
-        cwd: &cwd,
-        target: &target,
+    let asker = Asker::of(git, state)?;
+    resolve_with(git, &asker.from(), number, asking, waits)
+}
+
+/// What `gh` is asked with: the program, its empty private directory and the repository asked
+/// about, as both [`resolve`] and [`head_worktree`] find them.
+struct Asker {
+    gh: Gh,
+    cwd: PathBuf,
+    target: PullTarget,
+}
+
+impl Asker {
+    fn of(git: &Git, state: &Path) -> Result<Asker, ScopeError> {
+        let target = PullTarget::of(git).map_err(ScopeError::Refused)?;
+        let gh = Gh::find(git.top()).ok_or_else(|| {
+            ScopeError::Refused(
+                "gh is not installed, or not on PATH: oso reads pull requests through gh".into(),
+            )
+        })?;
+        let cwd = empty_hooks(state, "gh").map_err(ScopeError::Refused)?;
+        Ok(Asker { gh, cwd, target })
+    }
+
+    fn from(&self) -> PullFrom<'_> {
+        PullFrom {
+            gh: &self.gh,
+            cwd: &self.cwd,
+            target: &self.target,
+        }
+    }
+}
+
+/// Where pull request `number`'s head is checked out, holding its head commit, for a start in
+/// a space to open its review on (ADR 0163): the top of `git` itself, another worktree git lists
+/// on the head branch, or none, as for a fork's. Asked of `gh` as [`resolve`] asks it, from an
+/// empty private directory under `state`, on the caller's thread. Nothing is fetched: a clone
+/// that lacks the head commit has no worktree holding it.
+pub(crate) fn head_worktree(
+    git: &Git,
+    state: &Path,
+    number: u64,
+    stop: &dyn Fn() -> bool,
+) -> Result<Option<PathBuf>, ScopeError> {
+    let asker = Asker::of(git, state)?;
+    let mut tell = |_: Meanwhile<'_>| true;
+    let mut waits = Waits {
+        stop,
+        tell: &mut tell,
     };
-    resolve_with(git, &from, number, asking, waits)
+    head_worktree_with(git, &asker.from(), number, &mut waits)
+}
+
+/// [`head_worktree`], asking as `from` says.
+pub(super) fn head_worktree_with(
+    git: &Git,
+    from: &PullFrom<'_>,
+    number: u64,
+    waits: &mut Waits<'_>,
+) -> Result<Option<PathBuf>, ScopeError> {
+    let sides = ask_gh(from, number, &mut None, waits)?;
+    if sides.fork || !has(git, &sides.head)? {
+        return Ok(None);
+    }
+    waits.go_on()?;
+    if checked_out_here(git, from, &sides)? {
+        return Ok(Some(git.top().to_path_buf()));
+    }
+    worktree_of(git, &sides, waits)
+}
+
+/// Whether the pull request's head branch, not a fork's, is the one checked out at the top of
+/// `git`, and `HEAD` holds its head commit, which this clone has: then the new side is the work
+/// tree, and comments and questions go there.
+fn checked_out_here(git: &Git, from: &PullFrom<'_>, sides: &PrSides) -> Result<bool, ScopeError> {
+    if sides.fork || from.target.branch.as_deref() != Some(sides.head_branch.as_str()) {
+        return Ok(false);
+    }
+    match git.resolve("HEAD", "commit")? {
+        Some(head_here) => holds(git, &head_here, &sides.head),
+        None => Ok(false),
+    }
 }
 
 /// Where a pull request is asked about and fetched from.
@@ -193,12 +263,7 @@ pub(super) fn resolve_with(
         }
     }
     waits.go_on()?;
-    let here = !sides.fork
-        && from.target.branch.as_deref() == Some(sides.head_branch.as_str())
-        && match git.resolve("HEAD", "commit")? {
-            Some(head_here) => holds(git, &head_here, &sides.head)?,
-            None => false,
-        };
+    let here = checked_out_here(git, from, &sides)?;
     let new = if here {
         New::WorkTree { untracked: true }
     } else {

@@ -400,6 +400,18 @@ Each is a command too, such as `M-x review-uncommitted`. Reviews run git, so the
 be trusted. `C-c a c` takes a baseline when it starts a session at the root of a trusted
 project, so `D` shows what that session changed.
 
+In a space with an orchestrator, `C-x v r` (with no review open, or `C-u C-x v r`) first asks
+which of the space's trusted repositories to review, only when it has two or more, with the
+selected file's repository offered by `M-n`. Then a small menu asks what of it:
+
+| Key | Reviews |
+|---|---|
+| `p` | A pull request, by its number: it opens on the worktree its head is checked out in, so `RET` goes into that worktree's files |
+| `w` | A worktree, by completion, then the review menu above for it |
+| `.` | This checkout: the selected file's worktree of the repository, else its main checkout, then the review menu |
+
+So the menu works from the orchestrator's terminal too, which is in no repository.
+
 A review opens in the review layout: the review at the left, and one window at the right, the
 slot, which shows one thing at a time. `RET` shows the source there, `C-u RET` the old side,
 and `C-c C-c` the message of your comments, each in place of the last, so windows do not pile

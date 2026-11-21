@@ -218,6 +218,30 @@ impl App {
         worktrees
     }
 
+    /// The linked worktrees git last listed of the repository at `root`, none if it was not
+    /// listed (ADR 0163).
+    pub(in crate::app) fn listed_worktrees_of(&self, root: &Path) -> Vec<PathBuf> {
+        let same = oso_core::project::same_place;
+        let pane = &self.watch.view.pane;
+        let listed = (pane.listed.iter()).find(|(listed, _)| same(listed, root));
+        listed.map_or_else(Vec::new, |(_, worktrees)| {
+            (worktrees.iter())
+                .filter(|w| !same(root, &w.path))
+                .map(|w| w.path.clone())
+                .collect()
+        })
+    }
+
+    /// The worktrees the open spaces hold in the repository at `root` (ADR 0163).
+    pub(in crate::app) fn held_worktrees_in(&self, root: &Path) -> Vec<PathBuf> {
+        let same = oso_core::project::same_place;
+        let held = self.held_worktrees();
+        (held.into_iter())
+            .filter(|(repository, _)| same(repository, root))
+            .flat_map(|(_, paths)| paths)
+            .collect()
+    }
+
     /// The repository git listed `place` as a linked worktree of, if it did.
     pub(in crate::app) fn listed_repository_of(&self, place: &Path) -> Option<PathBuf> {
         let same = oso_core::project::same_place;

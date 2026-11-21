@@ -140,13 +140,18 @@ impl Editor {
         if self.buffer(id).is_none() {
             return;
         }
-        let project = found.map(|found| self.intern_project(found));
+        let project = found.map(|found| self.add_project(found));
         if let Some(buffer) = self.buffer_mut(id) {
             buffer.set_project(project);
         }
     }
 
-    fn intern_project(&mut self, found: Found) -> ProjectId {
+    /// The project `found` is, added if no project has its root (ADR 0163): one root is one
+    /// project, shared with the buffers already in it, which takes what its `.git` file names
+    /// this time. A repository or worktree with no open buffer gets a project this way, for a
+    /// review. The host calls it only with what its own detector found, off the UI thread, so
+    /// trust is judged as for a buffer's (ADR 0114).
+    pub fn add_project(&mut self, found: Found) -> ProjectId {
         if let Some(place) = self
             .projects
             .iter()
@@ -337,6 +342,30 @@ mod tests {
         assert_ne!(project(a), project(c));
         assert_eq!(editor.buffer_project(a).unwrap().name(), "oso");
         assert_eq!(editor.buffer_project(c).unwrap().name(), "other");
+    }
+
+    #[test]
+    fn a_project_added_without_a_buffer_is_the_one_its_buffers_join() {
+        let mut editor = Editor::with_buffer(visited("/w/oso/a.rs"));
+        let added = editor.add_project(found("/w/oso", 7));
+        assert_eq!(editor.add_project(found("/w/oso", 7)), added);
+        assert_ne!(editor.add_project(found("/w/other", 8)), added);
+        let a = editor.tiled().0.buffer();
+        let request = asked(&mut editor, a);
+        editor.project_found(&request, Some(found("/w/oso", 7)));
+        assert_eq!(editor.buffer(a).unwrap().project(), Some(added));
+        assert_eq!(editor.project(added).unwrap().name(), "oso");
+    }
+
+    #[test]
+    fn the_review_target_is_set_and_cleared() {
+        let mut editor = Editor::with_buffer(visited("/w/oso/a.rs"));
+        assert_eq!(editor.review_target(), None);
+        let added = editor.add_project(found("/w/oso", 7));
+        editor.set_review_target(Some(added));
+        assert_eq!(editor.review_target(), Some(added));
+        editor.set_review_target(None);
+        assert_eq!(editor.review_target(), None);
     }
 
     #[test]

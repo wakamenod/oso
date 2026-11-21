@@ -97,4 +97,19 @@ pub enum ReviewRequest {
     /// review, or the lines its region spans: sent at once to the space's orchestrator, or to
     /// the review's session outside one, and its terminal shown beside the review (ADR 0163).
     Ask { review: ReviewId, question: String },
+    /// A step of starting a review in a space whose orchestrator is recorded, from the space's
+    /// repositories (ADR 0163): the host finds the project and opens the next step's menu.
+    Start(ReviewStart),
+}
+
+/// A step of starting a review in a space (ADR 0163), as `review-repository`,
+/// `review-worktree` and `review-checkout` ask it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ReviewStart {
+    /// The space in front's repository of this name, as its prompt lists it.
+    Repository(String),
+    /// The chosen repository's worktree at this path, as its prompt lists it.
+    Worktree(String),
+    /// The selected buffer's worktree of the chosen repository, else its main checkout.
+    Checkout,
 }

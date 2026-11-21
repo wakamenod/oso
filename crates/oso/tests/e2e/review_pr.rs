@@ -19,14 +19,14 @@ use super::review::git;
 use super::typing;
 
 /// A branch's commit, as its loose ref names it.
-fn tip(root: &Path, branch: &str) -> String {
+pub(super) fn tip(root: &Path, branch: &str) -> String {
     let path = root.join(".git/refs/heads").join(branch);
     fs::read_to_string(path).unwrap().trim().to_owned()
 }
 
 /// A `gh` in `bin` that logs where it ran and what it was asked, and answers `pr view` with
 /// the pull request #7 from `base` to `head` and `pr list` with it.
-fn stand_in_gh(scratch: &Scratch, base: &str, head: &str) -> PathBuf {
+pub(super) fn stand_in_gh(scratch: &Scratch, base: &str, head: &str) -> PathBuf {
     let bin = scratch.path().join("bin");
     fs::create_dir_all(&bin).unwrap();
     let sides = format!(
