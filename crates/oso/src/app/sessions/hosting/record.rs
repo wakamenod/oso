@@ -65,6 +65,9 @@ impl App {
         if let Some(running) = self.hosting.spaces.summary_run.take() {
             crate::sessions::spaces::summary::stop(&running);
         }
+        // Nor does a native session's `claude`: it is stopped, and resumed by the next oso
+        // (ADR 0165, Q8).
+        self.kill_native_sessions();
         self.save_sessions();
         let Some(worker) = &self.sessions else {
             return;

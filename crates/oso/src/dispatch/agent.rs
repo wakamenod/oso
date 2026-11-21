@@ -98,12 +98,14 @@ impl Dispatcher {
         let (id, command) = self.by_reach(name, reach)?;
         // A commit's message is the person's to write until `draft_set` (ADR 0127, Q6), and a
         // pull request's (step 5a); the agent may read them. So is a review's message, which
-        // goes to the agent (ADR 0122, step 12, Q7).
+        // goes to the agent (ADR 0122, step 12, Q7), and a brief, which starts a session as the
+        // person's words (ADR 0121 step 4, ADR 0165).
         let mode = editor.current().1.mode();
         if reach == Reach::Change {
             match mode {
                 Mode::GitCommit | Mode::GitPrMessage => return refused(MESSAGE_REFUSED.into()),
                 Mode::ReviewMessage => return refused(REVIEW_MESSAGE_REFUSED.into()),
+                Mode::Brief => return refused(BRIEF_REFUSED.into()),
                 _ => {}
             }
         }
@@ -196,6 +198,9 @@ const MESSAGE_REFUSED: &str = "a commit's message is the person's to write; ask 
 
 /// Why the agent may not change a review's message before it is sent to it (ADR 0122, Q7).
 const REVIEW_MESSAGE_REFUSED: &str = "a review's message is the person's to send; ask the person";
+
+/// Why the agent may not change a brief before the person sends it (ADR 0165).
+const BRIEF_REFUSED: &str = "a brief is the person's to write; ask the person";
 
 /// Why the agent may not delete the side window.
 const SIDE_REFUSED: &str = "hiding the list of sessions is the person's";
@@ -959,6 +964,25 @@ mod tests {
         );
         assert!(why.contains("the person's to write"), "{why}");
         assert_eq!(editor.current().1.text().to_string(), "Title\n");
+    }
+
+    #[test]
+    fn a_brief_in_front_is_never_changed() {
+        use oso_core::buffer::Mode;
+        let (mut dispatcher, mut editor) = (Dispatcher::new(), editor("ab"));
+        let mut brief = Buffer::from_text("*Brief*", "Fix it\n");
+        assert!(brief.set_mode(Mode::Brief));
+        let id = editor.add_buffer(brief);
+        editor.show(id);
+        let why = refusal(
+            &mut dispatcher,
+            &mut editor,
+            "insert",
+            Given::Text("rm -rf ~"),
+            Reach::Change,
+        );
+        assert!(why.contains("the person's to write"), "{why}");
+        assert_eq!(editor.current().1.text().to_string(), "Fix it\n");
     }
 
     #[test]

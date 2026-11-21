@@ -603,6 +603,7 @@ blink = false                        # keep waiting sessions in *Spaces* still (
 agents_start_without_asking = true   # let your sessions start sessions, and add known repositories, with no question (off by default)
 agents_start_limit = 4               # how many such sessions each may run at once, 1 to 8, or "none"
 pane_width = 52                      # the *Spaces* pane's columns, 24 to 80 (44 by default)
+mode = "native"                      # new sessions in trusted projects show their conversation in oso's own rows ("tui" by default)
 
 [sessions.notify]                    # which states ask for your attention
 needs_input = true

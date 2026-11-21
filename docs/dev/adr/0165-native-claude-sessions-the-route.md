@@ -424,6 +424,39 @@ Part 1b-1, the editor's part:
   apply to a native session's buffer too, so ADR 0132's keys, ADR 0133's quit-wait and the
   agents' read gate take it; carrying over a restart still takes terminals only.
 
+Part 1b-2a, the session itself:
+
+- **The process:** `[sessions] mode = "native"` starts a new session in a trusted project as
+  `claude -p` with [`command::NATIVE`]'s flags and no brief on its line, on the start thread,
+  through `launch` and `process::spawn`, with a terminal session's variables, pipes and a
+  session of its own. Its first message goes on its standard input. A person's start with no
+  brief opens `*Brief*` for it (multi-line, `C-c C-c` starts, `C-c C-k` drops), not a one-line
+  prompt: a prompt the host opens has no way back to it. An agent's start with no brief, and a
+  restricted project, keep the terminal.
+- **Reading:** `sessions::stream` reads standard output in lines of at most 16 MiB on
+  `oso-native-read`, which parses them, and hands batches to the UI thread at most 30 times a
+  second from `oso-native-batch`; a full queue holds the reader, and so the process, back. The
+  last 16 KiB of standard error are kept, never logged, and the end of them is shown when the
+  process fails.
+- **Drawing and states:** the UI thread folds each batch into the session's rows and draws each
+  row that changed once, where it is. What the events say goes to the worker as the tracker's
+  targets; a native session's tracker has no grace period.
+- **Its end:** the process stops (input closed and `SIGTERM` to its group at once, `SIGKILL`
+  after 5 s) when its buffer is killed, which archives the session, or when the session list
+  stops it; oso's exit and a restart kill its group. Once it ended, what is left of its group,
+  such as a job its tools left in the background, is ended too before it is reaped, as a
+  terminal's hang-up would. The bridge takes the stream's process as the session's `claude`
+  until it is reaped.
+- **The record** keeps whether a session is native; the next oso brings a stopped native
+  session back as a native buffer with no process. Resuming it waits for part 1b-2b, and a fork
+  of it runs in a terminal until then. A send, a paste or `session-explain` to a native session
+  says why not until step 2.
+- **A brief is the person's:** the agent channel's changes are refused in `*Brief*`, a worktree
+  session's or a native session's first message, as in a commit's message.
+- **Not covered, residual:** if oso itself dies (a crash or `SIGKILL`), nothing signals the
+  native `claude`: it sees its input end and finishes the turn under way, tools included.
+  Linux's parent-death signal or a watchdog would cover it; left for a later step.
+
 The author approved the process this step starts (REVIEW.md's gate on spawning): a long-lived
 `claude -p` child with pipes, started through `launch` and `process::spawn` as ADR 0159's
 naming run is, with no new spawn API and no new variables. `RET` on a long result opens it in a

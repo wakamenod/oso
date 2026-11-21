@@ -19,7 +19,7 @@ use crate::git::TrustedRoot;
 use crate::sessions::hosted::{New, Run, Table};
 use crate::sessions::identity::Origin;
 use crate::sessions::identity::SessionId;
-use crate::sessions::start::{self, Kind, Order, Ready, Report};
+use crate::sessions::start::{self, Kind, Order, Ready, Report, Runs};
 use crate::sessions::worker::SessionKey;
 
 mod adopt;
@@ -29,6 +29,7 @@ mod carried;
 mod fork;
 mod moving;
 mod naming;
+mod native;
 mod record;
 mod resume;
 mod terminal;
@@ -39,6 +40,7 @@ use fork::ForkFrom;
 pub(in crate::app) use adopt::Adopting;
 pub(in crate::app) use begin::Begin;
 pub(in crate::app) use moving::{Moves, Moving};
+pub(in crate::app) use native::NativeSessions;
 
 /// What the app keeps of its hosted sessions.
 #[derive(Debug, Default)]
@@ -83,6 +85,8 @@ pub(in crate::app) struct Hosting {
     pub(in crate::app) moves: Moves,
     /// A rename asked, and what Claude Code calls oso's running sessions (ADR 0155).
     pub(in crate::app) naming: naming::Naming,
+    /// The native sessions, and starts waiting for their first message (ADR 0165).
+    pub(in crate::app) natives: NativeSessions,
 }
 
 impl Hosting {
@@ -128,6 +132,7 @@ impl Hosting {
             tools: super::tools::Tools::default(),
             moves: Moves::default(),
             naming: naming::Naming::default(),
+            natives: NativeSessions::default(),
         }
     }
 }
@@ -241,6 +246,7 @@ impl App {
             return None;
         }
         let project = self.project_at_root(&directory);
+        let native = self.native_start(&begin, project)?;
         let base = begin.name.clone().unwrap_or_else(|| base_name(&directory));
         let (key, name) = self.hosting.table.reserve(&directory, &base);
         if let Some(parent) = begin.parent.clone() {
@@ -258,7 +264,12 @@ impl App {
         self.turn_agent_channel_on_for_a_session();
         // An agent's tool's start stays behind what the person is doing (ADR 0144).
         let shown = begin.origin == Origin::Person && !begin.behind;
-        let terminal = self.session_terminal(key, &name, None, shown);
+        let runs = if native {
+            let first = begin.brief.as_deref();
+            Runs::Native(self.native_session_buffer(key, &name, directory.clone(), shown, first))
+        } else {
+            Runs::Terminal(self.session_terminal(key, &name, None, shown))
+        };
         let (trusted, root) = match begin.trusted.clone() {
             // A worktree just made, which no buffer opened yet: its own root and trust.
             Some(trusted) => (Some(trusted), Some(directory.clone())),
@@ -293,7 +304,7 @@ impl App {
             trusted,
             state: super::super::reviews::state(),
             claude: self.configuration.session_claude().map(Path::to_path_buf),
-            terminal,
+            runs,
             brief: begin.brief,
             steer_worktrees: self.configuration.steer_worktrees(),
             check_shared: begin.check_shared,
@@ -462,7 +473,11 @@ impl App {
     /// The agent channel goes off again if this start turned it on and nothing else needs it.
     fn session_not_started(&mut self, token: SessionKey) {
         self.forget_agent_resume(token);
-        self.session_terminal_not_started(token);
+        if self.hosting.natives.has(token) {
+            self.session_native_not_started(token);
+        } else {
+            self.session_terminal_not_started(token);
+        }
         self.hosting.baselines.remove(&token);
         if self.hosting.table.release(token).is_some() {
             self.hosting.trusts.remove(&token);
@@ -493,6 +508,7 @@ impl App {
                     origin,
                     unasked_brief,
                     changed: now_ms(),
+                    native: matches!(ready.started, start::Started::Native(_)),
                 },
             );
             if added.is_none() {
@@ -514,7 +530,10 @@ impl App {
             }
             session.changed = now_ms();
         }
-        let started = self.session_terminal_started(key, ready);
+        let started = match ready.started {
+            start::Started::Native(_) => self.session_native_started(key, ready),
+            start::Started::Terminal(_) => self.session_terminal_started(key, ready),
+        };
         // An agent that asked for it hears how it went, while the session is still listed.
         self.session_tool_started(
             key,

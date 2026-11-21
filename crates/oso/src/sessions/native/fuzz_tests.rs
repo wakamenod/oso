@@ -13,8 +13,9 @@ use proptest::prelude::*;
 
 use std::path::{Path, PathBuf};
 
+use super::placed::Placed;
 use super::render::{render, tail};
-use super::rows::{RowChange, Rows};
+use super::rows::{Changes, RowChange, Rows};
 use super::turns::target;
 use super::wire::parse;
 
@@ -66,6 +67,18 @@ fn shaped() -> impl Strategy<Value = String> {
     })
 }
 
+/// Where the line `lines` lines after `start` starts in `buffer`.
+fn line_start(buffer: &str, start: usize, lines: usize) -> usize {
+    let mut at = start;
+    for _ in 0..lines {
+        match buffer[at..].find('\n') {
+            Some(found) => at += found + 1,
+            None => return buffer.len(),
+        }
+    }
+    at
+}
+
 proptest! {
     #[test]
     fn any_bytes_read_without_panicking(bytes in prop::collection::vec(any::<u8>(), 0..4096)) {
@@ -75,6 +88,7 @@ proptest! {
     #[test]
     fn any_stream_folds_and_renders(
         lines in prop::collection::vec(line(), 0..80),
+        batch in 1..6usize,
         toggles in prop::collection::vec(
             (any::<prop::sample::Index>(), prop::option::of(0..4usize)),
             0..8,
@@ -83,31 +97,37 @@ proptest! {
         let directory = Path::new("/work/probe");
         let mut rows = Rows::new(PathBuf::from(directory));
         rows.sent("Hi");
-        // The buffer as a host keeps it: each row's text, changed only as the changes say.
-        let mut drawn: Vec<String> = Vec::new();
-        for line in &lines {
-            let event = parse(line);
-            let _ = target(&event);
-            for change in rows.apply(event) {
-                let at = change.row();
-                prop_assert!(at < rows.rows().len());
-                let row = &rows.rows()[at];
-                match change {
-                    RowChange::Added(_) => {
-                        prop_assert_eq!(at, drawn.len());
-                        drawn.push(render(row, directory).text);
-                    }
-                    RowChange::Changed(_) => drawn[at] = render(row, directory).text,
-                    RowChange::Grew { lines, from, .. } => {
-                        let kept: String = drawn[at].split_inclusive('\n').take(lines).collect();
-                        drawn[at] = kept + &tail(row, lines, from).text;
-                    }
+        // The buffer as a host keeps it: changed only as the changes of each batch say, where
+        // `Placed` says.
+        let mut buffer = String::new();
+        let mut placed = Placed::default();
+        for chunk in lines.chunks(batch) {
+            let mut changes = Changes::default();
+            for line in chunk {
+                let event = parse(line);
+                let _ = target(&event);
+                for change in rows.apply(event) {
+                    prop_assert!(change.row() < rows.rows().len());
+                    changes.add(change);
                 }
             }
+            for change in changes {
+                let at = change.row();
+                let row = &rows.rows()[at];
+                let range = placed.range(change, |start, lines| line_start(&buffer, start, lines));
+                prop_assert!(range.is_some(), "{:?} not drawn", change);
+                let range = range.unwrap_or_default();
+                let text = match change {
+                    RowChange::Grew { lines, from, .. } => tail(row, lines, from).text,
+                    RowChange::Added(_) | RowChange::Changed(_) => render(row, directory).text,
+                };
+                buffer.replace_range(range.clone(), &text);
+                placed.put(at, range, text.len());
+                prop_assert_eq!(placed.end(), buffer.len());
+            }
         }
-        for (at, row) in rows.rows().iter().enumerate() {
-            prop_assert_eq!(&drawn[at], &render(row, directory).text);
-        }
+        let whole: String = rows.rows().iter().map(|row| render(row, directory).text).collect();
+        prop_assert_eq!(&buffer, &whole);
         let count = rows.rows().len();
         if count > 0 {
             for (toggle, slot) in &toggles {
