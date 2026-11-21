@@ -181,7 +181,8 @@ impl App {
                 check,
                 path,
                 member,
-            } => self.repository_checked(check, &path, member),
+                known,
+            } => self.repository_checked(check, &path, member, known),
             Out::InstructionsReady { id, file } => self.instructions_ready(&id, file),
             Out::SpaceSummarized { id, named } => self.space_named(&id, named),
             Out::HandoverLooked {

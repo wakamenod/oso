@@ -534,12 +534,13 @@ tools besides oso's editing ones:
 | `start_worktree_session` | Start a session in a new worktree, with a brief. Asks you first. |
 | `session_resume` | For a space's orchestrator: resume a stopped session of its space with its conversation, as `C-c a r` does. Asks you first. |
 | `session_rename` | Rename its own session or one it started; a space's orchestrator also its space's sessions. Asks nothing, and the echo area says it. |
+| `space_add_repo` | For a space's orchestrator: add a repository's main checkout to its space, as the space menu's `a` does. Asks you first, unless the setting below allows it for a trusted repository oso already knows; any other always asks, and one oso does not trust joins restricted. Once it is trusted, oso offers to paste `/add-dir PATH` into the orchestrator. |
 | `worktree_list` | List the repository's worktrees, as `M-x worktree-list` does. |
 | `worktree_remove` | Remove a finished worktree, under the same rules as `M-x worktree-remove`. |
 | `space_status` | Read the session's issue space: its repositories, their trust, the orchestrator's name, its sessions. |
 | `draft_set` | Give back the commit message draft `C-c C-d` asked for. It goes in your message buffer; nothing is committed. |
 
-A tool that starts a session asks you in oso first. The question names the session that asks
+A tool that starts a session, or adds a repository to a space, asks you in oso first. The question names the session that asks
 and what would start. `y` allows it, `n` or `C-g` refuses it, and `?` shows the whole brief of a start. A refusal
 holds for the same request for a minute. After 20 such calls, a session's tools wait until you
 type in its terminal. To let sessions you started start sessions without the question, see
@@ -586,7 +587,7 @@ claude = "/usr/local/bin/claude"  # the executable, by absolute path; else found
 env = ["AWS_PROFILE"]                # more variables a session takes from oso's environment
 steer_worktrees = true               # point the agent to start_worktree_session (off by default)
 spinner = false                      # keep working marks in *Spaces* still (they spin by default)
-agents_start_without_asking = true   # let your sessions start sessions with no question (off by default)
+agents_start_without_asking = true   # let your sessions start sessions, and add known repositories, with no question (off by default)
 agents_start_limit = 4               # how many such sessions each may run at once, 1 to 8, or "none"
 pane_width = 52                      # the *Spaces* pane's columns, 24 to 80 (44 by default)
 
@@ -606,7 +607,10 @@ The `[sessions.notify]` values shown are the defaults.
 `agents_start_without_asking` lets a session you started, with a key or a `y`, start sessions
 through `start_worktree_session` and `session_start`, and a space's orchestrator resume a stopped
 session of its space through `session_resume`, without asking you, in a trusted project
-only, up to `agents_start_limit` running sessions each; past that it asks again. With
+only, up to `agents_start_limit` running sessions each; past that it asks again. It also lets a
+space's orchestrator add a trusted repository oso already knows (one `space-add-repo` would
+offer) to its space through `space_add_repo`, with no limit but the 20 calls; any other
+repository asks. With
 `agents_start_limit = "none"` no limit makes it ask, but a session can still start at most 20
 sessions each time you type in it. A session started this way asks for its own. A session an
 agent starts, whether it asked or not, stays in the background: it appears in the pane and the

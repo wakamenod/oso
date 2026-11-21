@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use oso_platform::privacy::PrivateDir;
 
 use super::dir::{self, Refusal};
-use super::stored::{Member, unique};
+use super::stored::{Member, is_plain, unique};
 
 /// How many names a space's directory is tried under: its own, then `-2` and on.
 const TRIES: usize = 32;
@@ -138,6 +138,102 @@ pub fn main_checkout(path: &Path) -> Result<Member, String> {
         )),
         _ => Err(format!("{shown} is no repository's main checkout")),
     }
+}
+
+/// The most components an agent's repository path has, as each is looked at on its own.
+pub const MAX_NAMED_DEPTH: usize = 128;
+
+/// The repository whose main checkout is at `path` as [`main_checkout`] finds it, for an
+/// agent's `space_add_repo` (ADR 0161): `path` must also name it with no link and no `.` or
+/// `..` on the way, so that the person's question shows the place the agent named.
+///
+/// # Errors
+///
+/// Why not, for the agent.
+pub fn main_checkout_as_named(path: &Path) -> Result<Member, String> {
+    use std::path::Component;
+    let shown = path.display();
+    if (path.components()).any(|part| matches!(part, Component::CurDir | Component::ParentDir)) {
+        return Err(format!(
+            "{shown} holds . or ..: name the repository's real path"
+        ));
+    }
+    // Each ancestor's look walks its whole way again, so the depth is bounded.
+    if path.components().count() > MAX_NAMED_DEPTH {
+        return Err(format!(
+            "{shown} is more than {MAX_NAMED_DEPTH} directories deep"
+        ));
+    }
+    // A look at another machine's share, a device or an automounted host would reach out
+    // before anyone is asked.
+    if far(path) {
+        return Err(format!(
+            "{shown} is on a share, a device or a mounted host: oso adds local repositories only"
+        ));
+    }
+    for at in path.ancestors() {
+        let meta = fs::symlink_metadata(at).map_err(|e| format!("{}: {e}", at.display()))?;
+        if meta.file_type().is_symlink() {
+            return Err(format!(
+                "{shown} goes through the link {}: name the repository's real path",
+                at.display()
+            ));
+        }
+    }
+    let member = main_checkout(path)?;
+    // The home directory reached by another name, such as a firmlink or a bind mount.
+    if member.identity.is_some() && home_identities().contains(&member.identity) {
+        return Err(format!(
+            "{shown} holds the home directory; add a repository inside it"
+        ));
+    }
+    if !member
+        .root
+        .to_str()
+        .is_some_and(|root| root.chars().all(is_plain))
+    {
+        return Err(format!(
+            "{shown}'s real path holds a character oso does not show as it is"
+        ));
+    }
+    Ok(member)
+}
+
+/// Whether `member` is one of the repositories at `known`, by its device and inode: never
+/// where the system has none (ADR 0161).
+pub fn known(member: &Member, known: &[PathBuf]) -> bool {
+    member.identity.is_some()
+        && (known.iter()).any(|root| {
+            let meta = fs::symlink_metadata(root);
+            meta.is_ok_and(|meta| dir::identity(&meta) == member.identity)
+        })
+}
+
+/// Whether `path` names another machine's share, a device, or a place macOS mounts hosts
+/// at, rather than a local directory.
+fn far(path: &Path) -> bool {
+    use std::path::{Component, Prefix};
+    let shared = path.components().next().is_some_and(|first| {
+        matches!(first, Component::Prefix(prefix) if !matches!(
+            prefix.kind(),
+            Prefix::Disk(_) | Prefix::VerbatimDisk(_)
+        ))
+    });
+    shared || path.starts_with("/net") || path.starts_with("/Network")
+}
+
+/// The device and inode of the home directory and of each directory above it, where the
+/// system has them: a repository there would hold the home directory under any name.
+fn home_identities() -> Vec<Option<(u64, u64)>> {
+    let Some(home) = oso_platform::privacy::home().and_then(|home| fs::canonicalize(home).ok())
+    else {
+        return Vec::new();
+    };
+    (home.ancestors())
+        .filter_map(|at| fs::symlink_metadata(at).ok())
+        .map(|meta| dir::identity(&meta))
+        .filter(Option::is_some)
+        .collect()
 }
 
 /// Whether the directory at `path`, by its real path, is the root or holds the home directory,

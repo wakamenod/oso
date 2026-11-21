@@ -13,16 +13,19 @@
 //! `session_rename` renames a worker of the space in oso's record and its buffer, never the
 //! orchestrator, and takes no name another session or the space has; its next resume passes
 //! the new name; the person's `C-c a R` opens holding the name and renames it again, and is
-//! refused on the orchestrator (ADR 0155). Reviewers the orchestrator starts with
-//! `session_start` in the implementer's worktree get no shared-directory question: one starts
-//! without asking, and past the limit the one question says another session runs there
-//! (ADR 0162).
+//! refused on the orchestrator (ADR 0155). `space_add_repo` is the orchestrator's only: a
+//! path through a link, a worktree and a member are refused; one oso does not trust asks even
+//! as the configuration allows starts, `n` refusing it for a minute and `y` adding it
+//! restricted; a trusted one is added without asking and the person offered the `/add-dir`
+//! paste (ADR 0161). Reviewers the orchestrator starts with `session_start` in the
+//! implementer's worktree get no shared-directory question: one starts without asking, and
+//! past the limit the one question says another session runs there (ADR 0162).
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test: which repository
 //! `repo` names and the scope have their own tests.
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -174,6 +177,131 @@ fn an_orchestrator_works_through_the_repositories_of_its_space() {
     assert_eq!(status["description"], "Fix login");
     assert_eq!(status["orchestrator"], "fix-login");
     assert_eq!(status["you_orchestrate"], true, "{status}");
+}
+
+/// `space_add_repo` of `path` from `bridge`'s session, with no question.
+fn add_repo(bridge: &mut Bridge, path: &Path) -> (Value, bool) {
+    bridge.tool(
+        "space_add_repo",
+        json!({ "path": path.display().to_string() }),
+    )
+}
+
+/// What `space_add_repo` refuses before anyone is asked: a worker's call, a path through a
+/// link, a worktree and a repository of the space.
+fn refused_before_asking(flow: &Flow, bridge: &mut Bridge, scratch: &Path, web: &Path) {
+    // A worker adds nothing.
+    let (_, run) = worker(flow, bridge, "wa", None);
+    let mut from_worker = Bridge::start(flow, &run);
+    let (said, error) = add_repo(&mut from_worker, web);
+    assert!(
+        error && said.to_string().contains("only a space's orchestrator"),
+        "{said}"
+    );
+
+    // A path through a link, a worktree and a member.
+    let link = scratch.join("web-link");
+    std::os::unix::fs::symlink(web, &link).unwrap();
+    let (said, error) = add_repo(bridge, &link);
+    assert!(
+        error && said.to_string().contains("goes through the link"),
+        "{said}"
+    );
+    let worktree = fs::canonicalize(flow.repo.join(".claude/worktrees/wa")).unwrap();
+    let (said, error) = add_repo(bridge, &worktree);
+    assert!(
+        error && said.to_string().contains("is a worktree"),
+        "{said}"
+    );
+    let (said, error) = add_repo(bridge, &fs::canonicalize(&flow.repo).unwrap());
+    assert!(error && said.to_string().contains("already"), "{said}");
+}
+
+/// A trusted repository is added without asking, as the configuration allows, and the person
+/// is offered the `/add-dir` paste, which they refuse; the space holds it, trusted.
+fn added_without_asking(app: &mut crate::harness::App, bridge: &mut Bridge, lib: &Path) {
+    fs::write(lib.join("notes.md"), "lib\n").unwrap();
+    app.open_file(&lib.join("notes.md"));
+    trust_restricted(app, "lib");
+    app.wait_for("lib trusted", |state| {
+        (state["modeline"].as_str()).is_some_and(|line| !line.contains("  lib  restricted  "))
+    });
+    let (added, error) = add_repo(bridge, lib);
+    assert!(!error, "{added}");
+    assert_eq!(added["asked"], false, "{added}");
+    assert_eq!(added["add_dir"], "offered", "{added}");
+    assert!(added["note"].to_string().contains("/add-dir"), "{added}");
+    app.wait_for("the offer", |state| {
+        asks(state).is_some_and(|prompt| prompt.starts_with("Paste /add-dir"))
+    });
+    app.send_keys("n");
+    let (status, _) = bridge.tool("space_status", json!({}));
+    let repositories: Vec<(&str, bool)> = (status["repositories"].as_array().unwrap().iter())
+        .map(|r| (r["name"].as_str().unwrap(), r["trusted"] == true))
+        .collect();
+    assert_eq!(
+        repositories,
+        [
+            ("repo", true),
+            ("other", false),
+            ("docs", false),
+            ("lib", true)
+        ]
+    );
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn an_orchestrator_adds_a_repository_to_its_space() {
+    let spaces = PrivateRoot::new("space-add");
+    let config = format!(
+        "agents_start_without_asking = true\n\n[spaces]\nroot = \"{}\"\n",
+        spaces.0.display()
+    );
+    let flow = Flow::with_fake("space-add", &config, FAKE);
+    let (mut app, mut bridge, _) = orchestrated(&flow, &spaces);
+    let scratch = fs::canonicalize(flow.scratch.path()).unwrap();
+    let repository = |name: &str| {
+        let dir = scratch.join(name);
+        fs::create_dir(&dir).unwrap();
+        flow.git(&dir, &["init", "-q", "-b", "main"]);
+        dir
+    };
+    let (web, docs, lib) = (repository("web"), repository("docs"), repository("lib"));
+
+    refused_before_asking(&flow, &mut bridge, &scratch, &web);
+
+    // One oso does not trust asks, though the configuration allows starts: `n` refuses it,
+    // then for a minute without asking.
+    let id = bridge.call(
+        "space_add_repo",
+        json!({ "path": web.display().to_string() }),
+    );
+    let question = answer(&mut app, &bridge, "n");
+    assert!(question.contains("add repository"), "{question}");
+    assert!(question.contains("joins restricted"), "{question}");
+    let (said, error) = bridge.result(id);
+    assert!(error && said.to_string().contains("refused"), "{said}");
+    let (said, error) = add_repo(&mut bridge, &web);
+    assert!(error && said.to_string().contains("a moment ago"), "{said}");
+
+    // `y`: it joins restricted, and waits for the person's trust.
+    let id = bridge.call(
+        "space_add_repo",
+        json!({ "path": docs.display().to_string() }),
+    );
+    answer(&mut app, &bridge, "y");
+    let (added, error) = bridge.result(id);
+    assert!(!error, "{added}");
+    assert_eq!(added["asked"], true, "{added}");
+    assert_eq!(added["add_dir"], "waits for trust", "{added}");
+    assert_eq!(added["repository"]["name"], "docs", "{added}");
+    assert_eq!(added["repository"]["trusted"], false, "{added}");
+    let (said, error) = add_repo(&mut bridge, &docs);
+    assert!(error && said.to_string().contains("already"), "{said}");
+
+    added_without_asking(&mut app, &mut bridge, &lib);
+    flow.exit_with(0);
 }
 
 /// The state `session_list` gives session `name`, as `bridge` sees it.

@@ -25,7 +25,7 @@ fn later() -> Instant {
 }
 
 /// `count` lines, `l1` to `l<count>`, with line `n` of `changed` changed to `L<n>`.
-fn numbered(count: u32, changed: &[u32]) -> String {
+pub(super) fn numbered(count: u32, changed: &[u32]) -> String {
     (1..=count)
         .map(|n| {
             if changed.contains(&n) {
@@ -39,7 +39,7 @@ fn numbered(count: u32, changed: &[u32]) -> String {
 
 /// A text reading of `a.txt` from `old` to `new`, diffed as a review diffs it, against the old
 /// side `base`.
-fn reading_of(old: impl AsRef<[u8]>, new: impl AsRef<[u8]>, base: &[u8]) -> Reading {
+pub(super) fn reading_of(old: impl AsRef<[u8]>, new: impl AsRef<[u8]>, base: &[u8]) -> Reading {
     let (o, n) = (old.as_ref(), new.as_ref());
     let hunks = diff::hunks(&diff::lines(o), &diff::lines(n), later()).unwrap();
     Reading {
@@ -317,7 +317,7 @@ proptest! {
 }
 
 /// The review text's lines once the view took `told`.
-fn built_lines(told: Vec<Tell>) -> Vec<String> {
+pub(super) fn built_lines(told: Vec<Tell>) -> Vec<String> {
     let mut state = State::new("t".into());
     for tell in told {
         state.take(tell);
@@ -547,8 +547,12 @@ proptest! {
             Tell::Listed { entries: vec![reading.entry.clone()].into(), more: 0, cut: false },
             Tell::File { reading: Arc::clone(&reading), carry: Carrying::Nothing },
         ];
-        for (start, end) in asked {
-            told.push(Tell::Context { path: b"a.txt"[..].into(), show: Some(start..end) });
+        // Each twice, as a key pressed again before its lines show asks.
+        for (start, end) in asked.into_iter().flat_map(|range| [range, range]) {
+            told.push(Tell::Context {
+                path: b"a.txt"[..].into(),
+                show: Some(start..end),
+            });
         }
         let lines = built_lines(told);
         for n in (1..=50).filter(|n| *n != 10 && *n != 40) {
