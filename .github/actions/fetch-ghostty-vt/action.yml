@@ -24,7 +24,11 @@ runs:
       if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
       run: |
-        if [ "$RUNNER_OS" = macOS ]; then
+        # The self-hosted Mac has it already, installed by its admin: its runner user cannot
+        # use Homebrew (docs/dev/ci-runner.md).
+        if command -v minisign >/dev/null; then
+          minisign -v
+        elif [ "$RUNNER_OS" = macOS ]; then
           brew install minisign
         else
           sudo apt-get update
