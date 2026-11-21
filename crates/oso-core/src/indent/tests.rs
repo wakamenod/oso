@@ -454,7 +454,9 @@ fn lines_that_end_with_cr_lf_are_reindented_as_any_other() {
 const PIECES: &[&str] = &[
     "{", "}", "(", ")", "[", "]", "\"", "'", "r#\"", "\"#", "/*", "*/", "//", "#", "#[", ";", ",",
     "\\", "fn ", "where ", "b'", "'a", "\"\"\"", "'''", "- ", "1. ", "```", "~~~", "x", " ",
-    "    ", "\t", "\n", "\r\n", "\r", "日本", "\u{3000}", "é", "👍", "\0",
+    "    ", "\t", "\n", "\r\n", "\r", "日本", "\u{3000}", "é", "👍", "\0", "<", ">", "</", "/>",
+    "<a", "<p>", "<br>", "<!--", "-->", "`", "${", "/", "<script>", "</script", "<style>",
+    "</style>", "<pre>", "</pre>", "case ", "default:", "?", ".", "|", ":", "&&", "=", "return ",
 ];
 
 fn text_strategy() -> impl Strategy<Value = String> {
@@ -475,7 +477,7 @@ fn start(rope: &Rope, line: Line) -> usize {
     }
 }
 
-use super::code_tests::{ALL_RULES, FALLBACKS};
+use super::every_mode::{ALL_RULES, FALLBACKS};
 
 proptest! {
     #[test]
@@ -535,8 +537,9 @@ proptest! {
         for row in 0..rope.line_count().min(8) {
             let stops = markdown_stops(&rope, Settings::default(), row, &mut Budget::new());
             prop_assert_eq!(stops.last(), Some(&0));
+            // Empty where the line keeps its indentation, past the reach.
             let stops = yaml_stops(&rope, Settings::default(), row, &mut Budget::new());
-            prop_assert_eq!(stops.last(), Some(&0));
+            prop_assert!(stops.last().is_none_or(|&last| last == 0));
         }
     }
 
@@ -570,7 +573,9 @@ fn a_line_asked_again_after_the_budget_ran_out_on_it_gets_the_fallback() {
     let text = "\n日本\"\"\"\"\"\"\"#x{r#\"\"\"\"where \"\"\"\"#r#\"\"#where fn \"#xx#{{\"\"\"fn x\n{{{\"\"\"\"\"\"\"\"\"r#\"{r#\"r#\"r#\"fn r#\"{{r#\"\n\n\n\n\n日本r#\"{{fn {日本{r#\"{{r#\"r#\"{{r#\"\n{{{{{{{{\"\"\"r#\"r#\"";
     let rope = Rope::from(text);
     let lines = [Line::New(99), Line::Row(8), Line::Row(0), Line::Row(8)];
-    for rules in ALL_RULES {
+    // YAML's, last, reads back only to the line before and keeps its rows: this budget does
+    // not run out in it.
+    for rules in &ALL_RULES[..ALL_RULES.len() - 1] {
         let mut budget = Budget::with_limit(334);
         let answers = rules(&rope, Settings::default(), &lines, &mut budget);
         assert!(budget.is_spent());

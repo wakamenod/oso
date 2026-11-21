@@ -13,9 +13,9 @@
 //! languages of brackets and tags, a level more after an opener and one less before a closer,
 //! ADR 0164), and an existing line keeps its own.
 
-mod code;
 mod fundamental;
 mod markdown;
+mod nesting;
 mod origin;
 mod pass;
 mod rust;
@@ -224,19 +224,19 @@ pub fn toml(rope: &Rope, settings: Settings, lines: &[Line], budget: &mut Budget
 /// The answers of CSS's rules for `lines`, as [`rust`] (ADR 0164): one level past the line of
 /// the bracket open at the line's start, and a closer back to it.
 pub fn css(rope: &Rope, settings: Settings, lines: &[Line], budget: &mut Budget) -> Vec<Answer> {
-    pass::answers::<code::Code<code::Css>>(rope, settings, lines, budget)
+    pass::answers::<nesting::Nesting<nesting::Css>>(rope, settings, lines, budget)
 }
 
 /// The answers of JSON's rules for `lines`, as [`css`], comments allowed.
 pub fn json(rope: &Rope, settings: Settings, lines: &[Line], budget: &mut Budget) -> Vec<Answer> {
-    pass::answers::<code::Code<code::Json>>(rope, settings, lines, budget)
+    pass::answers::<nesting::Nesting<nesting::Json>>(rope, settings, lines, budget)
 }
 
 /// The answers of HTML's rules for `lines`, as [`rust`] (ADR 0164): one level past the line
 /// of the element open at the line's start, and an end tag back to it; a `<script>`'s text by
 /// [`javascript`]'s rules and a `<style>`'s by [`css`]'s, one level in from their tag's line.
 pub fn html(rope: &Rope, settings: Settings, lines: &[Line], budget: &mut Budget) -> Vec<Answer> {
-    pass::answers::<code::Code<code::Html>>(rope, settings, lines, budget)
+    pass::answers::<nesting::Nesting<nesting::Html>>(rope, settings, lines, budget)
 }
 
 /// The answers of JavaScript's rules for `lines`, JSX among it, as [`rust`] (ADR 0164): by
@@ -248,7 +248,7 @@ pub fn javascript(
     lines: &[Line],
     budget: &mut Budget,
 ) -> Vec<Answer> {
-    pass::answers::<code::Code<code::Jsx>>(rope, settings, lines, budget)
+    pass::answers::<nesting::Nesting<nesting::JavaScript>>(rope, settings, lines, budget)
 }
 
 /// The answers of TypeScript's rules for `lines`, as [`javascript`] with no JSX.
@@ -258,24 +258,25 @@ pub fn typescript(
     lines: &[Line],
     budget: &mut Budget,
 ) -> Vec<Answer> {
-    pass::answers::<code::Code<code::TypeScript>>(rope, settings, lines, budget)
+    pass::answers::<nesting::Nesting<nesting::TypeScript>>(rope, settings, lines, budget)
 }
 
 /// The answers of Go's rules for `lines`, as [`javascript`] with no JSX, and a `switch`'s
 /// labels with the `switch`, as gofmt writes them.
 pub fn go(rope: &Rope, settings: Settings, lines: &[Line], budget: &mut Budget) -> Vec<Answer> {
-    pass::answers::<code::Code<code::Go>>(rope, settings, lines, budget)
+    pass::answers::<nesting::Nesting<nesting::Go>>(rope, settings, lines, budget)
 }
 
 /// The answers of YAML's rules for `lines` (ADR 0164): an existing line keeps its
 /// indentation, as YAML's structure is in it; a new one follows the line before, one level
 /// deeper after a line that opens a block. `TAB` cycles through [`yaml_stops`].
 pub fn yaml(rope: &Rope, settings: Settings, lines: &[Line], budget: &mut Budget) -> Vec<Answer> {
-    pass::answers::<yaml::Yaml>(rope, settings, lines, budget)
+    yaml::answers(rope, settings, lines, budget)
 }
 
 /// The columns `TAB` cycles line `row` of a YAML buffer through: the deepest it could go
-/// after the line before, then each level out to 0. Past the budget, only 0.
+/// after the code line before, then each level out to 0. Empty past the reach or the budget,
+/// where the line keeps its indentation.
 pub fn yaml_stops(rope: &Rope, settings: Settings, row: usize, budget: &mut Budget) -> Vec<usize> {
     yaml::stops(rope, settings, row, budget)
 }
@@ -316,11 +317,14 @@ pub fn fundamental(
 }
 
 #[cfg(test)]
-mod code_tests;
+mod every_mode;
 #[cfg(test)]
 mod fixed_point;
 #[cfg(test)]
+mod nesting_tests;
+#[cfg(test)]
 mod rust_tests;
+pub(crate) use nesting::{is_void, tag_name_of};
 pub(crate) use pass::MAX_COLUMN;
 
 /// Whether each of `offsets`, ascending, of a Markdown buffer is inside a fenced code block,

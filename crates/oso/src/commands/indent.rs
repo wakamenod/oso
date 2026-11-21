@@ -21,7 +21,7 @@ mod describe;
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "newline",
-        doc: "Insert a line break at every cursor, N times, and with `electric-indent-mode` on, indent the new line.\n\nThe line break is the one the file uses, so `\\r\\n` in a CRLF file. While indenting, the spaces and tabs around each cursor go, the last new line takes the indentation its mode's rules give, and between an opener and its closer in Rust, TOML, CSS, JSON, HTML, JavaScript, TypeScript and Go (in HTML and JSX, a start tag and its end tag too) the closer goes to a line of its own. Each is an undo step of its own. A negative N signals an error.",
+        doc: "Insert a line break at every cursor, N times, and with `electric-indent-mode` on, indent the new line.\n\nThe line break is the one the file uses, so `\\r\\n` in a CRLF file. While indenting, the spaces and tabs around each cursor go, the last new line takes the indentation its mode's rules give, and between an opener and its closer in Rust, TOML, CSS, JSON, JavaScript, TypeScript and Go, or a start tag and its end tag in HTML and JSX, the closer goes to a line of its own. Each is an undo step of its own. A negative N signals an error.",
         args: ArgSpec::Count,
         reach: Reach::Change,
         run: newline,
@@ -29,7 +29,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "indent-for-tab-command",
-        doc: "Indent the line of every cursor as the buffer's mode says.\n\nIn Rust, TOML, CSS, JSON, HTML, JavaScript, TypeScript and Go the line goes to its rules' column, wherever the cursor is on it: a cursor in the indentation goes to its end, one in the text keeps its place. A line already right does not change. With a region shown, it runs `indent-region`. In Markdown the line cycles through the columns of the list items it could belong to, innermost first, then the margin, and in YAML through the levels the line before allows, deepest first; in a fenced code block, and in Fundamental mode and internal buffers, it runs `tab-to-tab-stop`.",
+        doc: "Indent the line of every cursor as the buffer's mode says.\n\nIn Rust, TOML, CSS, JSON, HTML, JavaScript, TypeScript and Go the line goes to its rules' column, wherever the cursor is on it: a cursor in the indentation goes to its end, one in the text keeps its place. A line already right does not change. With a region shown, it runs `indent-region`. In Markdown the line cycles through the columns of the list items it could belong to, innermost first, then the margin, and in YAML through the levels the line before allows, deepest first; in a fenced code block, and in Fundamental mode, LaTeX, Swift and internal buffers, it runs `tab-to-tab-stop`.",
         args: ArgSpec::None,
         reach: Reach::Change,
         run: indent_for_tab_command,

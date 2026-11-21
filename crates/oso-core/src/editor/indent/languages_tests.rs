@@ -1,27 +1,27 @@
-//! Tests of the keys in ADR 0164's modes: `TAB` reindenting CSS, HTML, JavaScript and Go
-//! lines, typed closers and end tags, `RET` between brackets and between a start tag and its
-//! end tag, YAML's `RET` and `TAB`, and each mode's default indentation.
+//! Tests of the keys in ADR 0164's languages of brackets and tags: `TAB` reindenting CSS,
+//! JSON, HTML, JavaScript, TypeScript and Go lines, typed closers and end tags, `RET` between
+//! brackets and between a start tag and its end tag, and each mode's default indentation.
+//! YAML's are `yaml/tests.rs`'s.
 //!
 //! Must not depend on: `command` or `keymap`; the dispatcher's calls are written out here.
 
-use super::tests::{LIMIT, command, editor_in, marked};
+pub(super) use super::tests::{LIMIT, command, editor_in, marked};
 use crate::buffer::{BufferId, Mode};
 use crate::editor::Editor;
-use crate::editor::indent::IndentError;
-use crate::indent::{Origins, Settings, Style};
+use crate::indent::{Settings, Style};
 
-fn two() -> Settings {
+pub(super) fn two() -> Settings {
     Settings::new(2, Style::Spaces, 8).unwrap()
 }
 
 /// An editor showing `marked` in `mode`, indented by `settings`.
-fn editor_with(mode: Mode, settings: Settings, marked: &str) -> (Editor, BufferId) {
+pub(super) fn editor_with(mode: Mode, settings: Settings, marked: &str) -> (Editor, BufferId) {
     let (mut editor, id) = editor_in(mode, marked);
     editor.buffer_mut(id).unwrap().set_indent_settings(settings);
     (editor, id)
 }
 
-fn ret(editor: &mut Editor) {
+pub(super) fn ret(editor: &mut Editor) {
     let done = command(editor, |editor| editor.newline("\n", 1, true, LIMIT));
     assert_eq!(done, Ok(true));
 }
@@ -116,48 +116,48 @@ fn ret_between_brackets_and_between_a_start_tag_and_its_end_tag() {
 }
 
 #[test]
-fn yaml_s_ret_goes_in_after_a_block_and_tab_cycles_out() {
-    let (mut editor, id) = editor_with(Mode::Yaml, two(), "jobs:\n  test:|");
+fn an_end_tag_compares_names_as_html_does() {
+    // HTML ignores case, and a void element has no end tag to open a line before.
+    let (mut editor, id) = editor_with(Mode::Html, two(), "<LI>|</li>");
     ret(&mut editor);
-    assert_eq!(marked(&editor, id), "jobs:\n  test:\n    |");
-    let (mut editor, id) = editor_with(Mode::Yaml, two(), "steps:\n  - name: a|");
+    assert_eq!(marked(&editor, id), "<LI>\n  |\n</li>");
+    let (mut editor, id) = editor_with(Mode::Html, two(), "<br>|</br>");
     ret(&mut editor);
-    assert_eq!(marked(&editor, id), "steps:\n  - name: a\n  |");
-    // `TAB` cycles: the item's content column, then out to 0, then back.
-    let (mut editor, id) = editor_with(Mode::Yaml, two(), "steps:\n  - name: a\n|x");
-    let mut seen = Vec::new();
-    for _ in 0..4 {
-        command(&mut editor, Editor::indent_for_tab).unwrap();
-        seen.push(marked(&editor, id));
-    }
-    assert_eq!(
-        seen,
-        [
-            "steps:\n  - name: a\n    |x",
-            "steps:\n  - name: a\n  |x",
-            "steps:\n  - name: a\n|x",
-            "steps:\n  - name: a\n    |x",
-        ]
-    );
-    // YAML's lines are never reindented by rules: a region is refused, as in Fundamental.
-    let (mut editor, _) = editor_with(Mode::Yaml, two(), "a:\n|b: 1");
-    let reindented = command(&mut editor, |editor| editor.indent_region(None, LIMIT));
-    assert_eq!(reindented, Err(IndentError::NoRules));
+    assert_eq!(marked(&editor, id), "<br>\n|</br>");
+    // JSX does not ignore case.
+    let (mut editor, id) = editor_with(Mode::JavaScript, two(), "x = <Li>|</li>");
+    ret(&mut editor);
+    assert_eq!(marked(&editor, id), "x = <Li>\n|</li>");
+    // A typed `</` in JavaScript goes under its element's line too.
+    let (mut editor, id) = editor_with(Mode::JavaScript, two(), "x = (\n  <a>\n      </|");
+    command(&mut editor, Editor::indent_typed_closers).unwrap();
+    assert_eq!(marked(&editor, id), "x = (\n  <a>\n  </|");
 }
 
 #[test]
-fn each_new_mode_has_its_default_and_yaml_only_spaces() {
-    let (mut editor, id) = editor_in(Mode::Yaml, "|");
-    assert_eq!(editor.mode_indent(Mode::Html), two());
-    assert_eq!(editor.mode_indent(Mode::Tsx), two());
-    assert_eq!(
-        editor.mode_indent(Mode::Go),
-        Settings::new(8, Style::Tabs, 8).unwrap()
-    );
-    assert_eq!(editor.mode_indent(Mode::Rust), Settings::default());
-    // A configuration that asks YAML for tabs gets spaces.
-    let tabs = Settings::new(2, Style::Tabs, 8).unwrap();
-    let modes = crate::editor::indent::compiled_modes();
-    editor.set_mode_indents(modes.map(|mode| (mode, tabs, Origins::default())));
-    assert_eq!(editor.buffer(id).unwrap().indent_settings(), two());
+fn each_mode_has_its_default() {
+    let (editor, _) = editor_in(Mode::Rust, "|");
+    let tab = Settings::new(8, Style::Tabs, 8).unwrap();
+    for mode in [
+        Mode::Html,
+        Mode::Css,
+        Mode::Json,
+        Mode::Yaml,
+        Mode::JavaScript,
+        Mode::TypeScript,
+        Mode::Tsx,
+    ] {
+        assert_eq!(editor.mode_indent(mode), two(), "{mode:?}");
+        assert_eq!(mode.default_indent(), two(), "{mode:?}");
+    }
+    assert_eq!(editor.mode_indent(Mode::Go), tab);
+    for mode in [
+        Mode::Rust,
+        Mode::Toml,
+        Mode::Markdown,
+        Mode::Latex,
+        Mode::Fundamental,
+    ] {
+        assert_eq!(editor.mode_indent(mode), Settings::default(), "{mode:?}");
+    }
 }

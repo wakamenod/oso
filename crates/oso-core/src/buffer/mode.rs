@@ -203,14 +203,42 @@ impl Mode {
             | Self::TypeScript
             | Self::Tsx => Settings::new(2, Style::Spaces, 8),
             Self::Go => Settings::new(8, Style::Tabs, 8),
-            _ => None,
+            Self::Fundamental
+            | Self::CopyList
+            | Self::CopyView
+            | Self::Sessions
+            | Self::Rust
+            | Self::Markdown
+            | Self::Toml
+            | Self::Latex
+            | Self::Swift
+            | Self::Brief
+            | Self::Worktrees
+            | Self::Review
+            | Self::ReviewFiles
+            | Self::ReviewMessage
+            | Self::Terminal
+            | Self::Directory
+            | Self::GitStatus
+            | Self::GitGraph
+            | Self::GitPr
+            | Self::GitPrList
+            | Self::GitPrMessage
+            | Self::GitIssueList
+            | Self::GitIssue
+            | Self::GitCommit
+            | Self::GitLog
+            | Self::GitDiscarded
+            | Self::Conversation
+            | Self::RenamePreview
+            | Self::SessionMove => None,
         };
         given.unwrap_or_default()
     }
 
     /// Whether its indentation is made of spaces whatever the setting says: YAML's, as a tab
     /// cannot indent YAML (ADR 0164).
-    pub fn spaces_only(self) -> bool {
+    pub(crate) fn spaces_only(self) -> bool {
         self == Self::Yaml
     }
 

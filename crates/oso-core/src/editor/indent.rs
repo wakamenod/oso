@@ -212,20 +212,36 @@ impl Editor {
     /// have gets that indentation, in the buffer's style. Returns the rows answered a column,
     /// in order.
     fn reindent_rows(&mut self, rules: Rules, rows: &[usize]) -> Result<Vec<usize>, EditError> {
+        let buffer = self.current().1;
+        let lines: Vec<_> = rows.iter().map(|&row| Line::Row(row)).collect();
+        let answers = rules(
+            buffer.text(),
+            buffer.indent_settings(),
+            &lines,
+            &mut Budget::new(),
+        );
+        let columns: Vec<(usize, usize)> = rows
+            .iter()
+            .zip(answers)
+            .filter_map(|(&row, answer)| match answer {
+                Answer::Column(column) => Some((row, column)),
+                Answer::Keep => None,
+            })
+            .collect();
+        self.set_columns(&columns)?;
+        Ok(columns.into_iter().map(|(row, _)| row).collect())
+    }
+
+    /// Indents each of `columns`' rows, ascending, to its column in the buffer's style, as
+    /// one edit; a line already so indented is not touched.
+    fn set_columns(&mut self, columns: &[(usize, usize)]) -> Result<(), EditError> {
         let (window, buffer) = self.current();
         let id = window.buffer();
         let rope = buffer.text();
         let settings = buffer.indent_settings();
-        let lines: Vec<_> = rows.iter().map(|&row| Line::Row(row)).collect();
-        let answers = rules(rope, settings, &lines, &mut Budget::new());
-        let mut answered = Vec::with_capacity(rows.len());
         let mut texts = Vec::new();
         let mut ranges = Vec::new();
-        for (&row, answer) in rows.iter().zip(answers) {
-            let Answer::Column(column) = answer else {
-                continue;
-            };
-            answered.push(row);
+        for &(row, column) in columns {
             let start = rope.line_start(row);
             let (bytes, now) = leading(rope, start, settings.tab_width());
             if has_indentation(rope, start..start + bytes, now, column, settings) {
@@ -242,7 +258,7 @@ impl Editor {
                 .collect();
             self.apply_edits(id, &edits)?;
         }
-        Ok(answered)
+        Ok(())
     }
 }
 
@@ -308,6 +324,6 @@ fn text_of(rope: &Rope, range: Range<usize>) -> String {
 }
 
 #[cfg(test)]
-mod code_tests;
+mod languages_tests;
 #[cfg(test)]
 mod tests;

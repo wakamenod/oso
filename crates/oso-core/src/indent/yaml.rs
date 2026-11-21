@@ -1,7 +1,7 @@
 //! YAML's indentation rules (ADR 0164), as Emacs's yaml-mode has them: indentation is YAML's
-//! structure, so no line is ever reindented; a new line follows the line before, one level
-//! deeper after a line that opens a block, and `TAB` cycles a line through the levels it could
-//! take.
+//! structure, so no line is ever reindented; a new line follows the code line before it, one
+//! level deeper after a line that opens a block, and `TAB` cycles a line through the levels it
+//! could take.
 //!
 //! Must not depend on: `buffer`, or the tree highlighting parses; it reads the line before.
 //!
@@ -9,11 +9,18 @@
 //!   `|` or `>` (with its indicators), or it is a list item's `-` alone. A new line after it
 //!   goes one level past the line's content: past its `- ` markers, so a mapping in a list item
 //!   nests under the item's key. After any other line, it takes that line's indentation.
+//! - The code line before is the nearest one that is not blank or a comment, read back from
+//!   the line, at most [`LINE_LOOKBACK`] and within the budget. Past them a new line takes the
+//!   fallback answer, and `TAB` keeps the line where it is.
 //! - `TAB`'s stops: the deepest a line could go, then each level out to column 0.
 
-use super::pass::{self, Head, Lexer};
-use super::{Answer, Budget, Settings};
+use super::pass::{self, measure};
+use super::{Answer, Budget, LINE_LOOKBACK, Line, Settings};
 use crate::rope::Rope;
+use crate::sum_tree::Bias;
+
+/// How far back the code line before is looked for: a little first, then more.
+const BACK: [usize; 3] = [512, 8 << 10, LINE_LOOKBACK];
 
 /// The code line before: where its content starts past its `- ` markers, and where a new
 /// line after it goes.
@@ -23,49 +30,71 @@ struct Previous {
     next: usize,
 }
 
-pub(super) struct Yaml {
-    settings: Settings,
-    previous: Option<Previous>,
+/// What looking back from a line found.
+enum Before {
+    /// The code line before.
+    Line(Previous),
+    /// None: the line is the buffer's first code line.
+    None,
+    /// The look ran past the reach or the budget.
+    Unknown,
 }
 
-impl Lexer for Yaml {
-    fn fresh(settings: Settings) -> Self {
-        Self {
-            settings,
-            previous: None,
+/// The answers of YAML's rules for `lines`: an existing line keeps its indentation; a new one
+/// follows the code line before, or past the reach takes the fallback answer.
+pub(super) fn answers(
+    rope: &Rope,
+    settings: Settings,
+    lines: &[Line],
+    budget: &mut Budget,
+) -> Vec<Answer> {
+    lines
+        .iter()
+        .map(|&line| {
+            let (Line::New(offset) | Line::Empty(offset)) = line else {
+                return Answer::Keep;
+            };
+            let target = rope.clip_offset(offset, Bias::Left);
+            match before(rope, settings, target, budget) {
+                Before::Line(previous) => Answer::Column(previous.next.min(pass::MAX_COLUMN)),
+                Before::None => Answer::Column(0),
+                Before::Unknown => {
+                    pass::fallback::<super::fundamental::Fundamental>(rope, settings, line, budget)
+                }
+            }
+        })
+        .collect()
+}
+
+/// The code line before `target`, a line's start or a break's place: the text before it on
+/// its line counts, as the line a break leaves.
+fn before(rope: &Rope, settings: Settings, target: usize, budget: &mut Budget) -> Before {
+    let mut read = 0;
+    for back in BACK {
+        let base = rope.clip_offset(target.saturating_sub(back), Bias::Left);
+        if !budget.spend(target - base - read.min(target - base)) {
+            return Before::Unknown;
+        }
+        read = target - base;
+        let text: String = rope.chunks_in_range(base..target).collect();
+        // The lines it holds, nearest first; the first one is whole only at the buffer's start.
+        let mut lines = text.rsplit('\n').peekable();
+        while let Some(line) = lines.next() {
+            if lines.peek().is_none() && base > 0 {
+                break;
+            }
+            let indentation = measure(line, settings.tab_width());
+            let content = &line.as_bytes()[indentation.bytes..];
+            if indentation.blank || content.starts_with(b"#") {
+                continue;
+            }
+            return Before::Line(previous(settings, content, indentation.column));
+        }
+        if base == 0 {
+            return Before::None;
         }
     }
-
-    /// Any line at column 0 that is not a comment: YAML keeps no state across lines that
-    /// the rules read.
-    fn is_anchor(line: &[u8]) -> bool {
-        line.first().is_some_and(|&byte| byte != b'#')
-    }
-
-    fn is_inside(&self) -> bool {
-        false
-    }
-
-    fn line(&mut self, text: &str, indent: usize) {
-        let content = text.trim_start_matches([' ', '\t']).as_bytes();
-        if content.is_empty() || content == b"\r" || content.starts_with(b"#") {
-            return;
-        }
-        self.previous = Some(previous(self.settings, content, indent));
-    }
-
-    fn answer(&self, _head: &Head, new: bool) -> Option<Answer> {
-        if !new {
-            return Some(Answer::Keep);
-        }
-        Some(Answer::Column(
-            self.previous.map_or(0, |previous| previous.next),
-        ))
-    }
-
-    fn relative(settings: Settings, line: &[u8], column: usize, _head: &[u8]) -> usize {
-        previous(settings, line, column).next
-    }
+    Before::Unknown
 }
 
 /// What a line whose text past its indentation `indent` is `content` leaves for the next:
@@ -148,20 +177,21 @@ fn without_comment(text: &[u8]) -> &[u8] {
     text
 }
 
-/// The columns `TAB` cycles line `row` through: the deepest it could go after the line
-/// before, then each level of `indent_size` out, then 0. Past the budget, only 0.
+/// The columns `TAB` cycles line `row` through: the deepest it could go after the code line
+/// before, then each level of `indent_size` out, then 0. Empty past the reach or the budget:
+/// the line keeps its indentation.
 pub(super) fn stops(
     rope: &Rope,
     settings: Settings,
     row: usize,
     budget: &mut Budget,
 ) -> Vec<usize> {
-    let target = rope.line_start(row);
-    let reached = pass::pass_at::<Yaml>(rope, settings, target, None, false, budget);
-    let deepest = reached
-        .and_then(|reached| reached.lexer.previous)
-        .map_or(0, |previous| previous.next.max(previous.content))
-        .min(pass::MAX_COLUMN);
+    let deepest = match before(rope, settings, rope.line_start(row), budget) {
+        Before::Line(previous) => previous.next.max(previous.content),
+        Before::None => 0,
+        Before::Unknown => return Vec::new(),
+    }
+    .min(pass::MAX_COLUMN);
     let size = settings.indent_size().max(1);
     let mut stops: Vec<usize> = (0..=deepest / size)
         .rev()

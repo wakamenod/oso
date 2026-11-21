@@ -2,57 +2,58 @@
 //! comments, template literals and regular expressions, and in HTML and JSX, its elements.
 //!
 //! Must not depend on: `buffer`; it reads bytes. Every loop moves forward, so a line costs
-//! its length.
+//! its length, twice at most: a regular expression that does not close on its line is looked
+//! for once, and the line's later `/`s divide; an end tag looks for its element among the
+//! innermost [`TAG_SEARCH`] only, and not at all when no element of its name is open.
 //!
 //! - A `/` starts a regular expression where an operand can start (after an operator, a `(`,
 //!   a keyword such as `return`, or at a statement's start) and the expression closes on its
-//!   line; anywhere else, and when it does not close, it divides. JSX's `<` is told the same way.
+//!   line; anywhere else, and when it does not close, it divides. JSX's `<` is told the same way,
+//!   but for a TSX generic's `<T,>` or `<T extends U>`, which opens no element.
 //! - `</script` and `</style` end an HTML page's script or style wherever they come, as a
 //!   browser reads them, strings and comments of the script too.
 
-use super::super::pass::{MAX_DEPTH, is_word_byte};
-use super::{Before, Code, Dialect, Element, Flavor, Inside, Kind, NAME_BYTES, Name, Open};
+use super::super::pass::{MAX_DEPTH, is_word_byte, starts_with_word};
+use super::{Before, Dialect, Element, Inside, Kind, Language, Name, Nesting, Open};
+use super::{is_void, tag_name_len};
 
-/// HTML's elements with no end tag.
-const VOID: [&[u8]; 14] = [
-    b"area", b"base", b"br", b"col", b"embed", b"hr", b"img", b"input", b"link", b"meta", b"param",
-    b"source", b"track", b"wbr",
-];
+/// How many of the innermost brackets and elements an end tag looks among for its element:
+/// past them, it closes nothing.
+const TAG_SEARCH: usize = 64;
 
-/// The words after which a `/` or `<` starts an operand, as an operator would.
-const OPERAND_BEFORE: [&[u8]; 11] = [
-    b"return",
-    b"typeof",
-    b"case",
-    b"in",
-    b"of",
-    b"new",
-    b"delete",
-    b"void",
-    b"instanceof",
-    b"yield",
-    b"await",
-];
-
-pub(super) fn is_void(name: &[u8]) -> bool {
-    VOID.contains(&name)
+/// Whether `word` is one after which a `/` or `<` starts an operand, as after an operator.
+fn operand_follows(word: &[u8]) -> bool {
+    matches!(
+        word,
+        b"return"
+            | b"typeof"
+            | b"case"
+            | b"in"
+            | b"of"
+            | b"new"
+            | b"delete"
+            | b"void"
+            | b"instanceof"
+            | b"yield"
+            | b"await"
+    )
 }
 
-/// Whether `byte` can be part of a tag's name.
-pub(super) fn is_name_byte(byte: u8) -> bool {
-    byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':') || byte >= 0x80
-}
-
-/// Where the first of `needle`, compared ignoring ASCII case, starts in `bytes` from `from`.
+/// Where the first of `needle`, which starts with `<`, compared ignoring ASCII case, starts in
+/// `bytes` from `from`.
 fn find_ignoring_case(bytes: &[u8], from: usize, needle: &[u8]) -> Option<usize> {
-    bytes
-        .get(from..)?
-        .windows(needle.len())
-        .position(|window| window.eq_ignore_ascii_case(needle))
-        .map(|at| from + at)
+    let rest = bytes.get(from..)?;
+    rest.iter()
+        .enumerate()
+        .filter(|&(_, &byte)| byte == b'<')
+        .find(|&(at, _)| {
+            rest.get(at..at + needle.len())
+                .is_some_and(|window| window.eq_ignore_ascii_case(needle))
+        })
+        .map(|(at, _)| from + at)
 }
 
-impl<F: Flavor> Code<F> {
+impl<F: Language> Nesting<F> {
     /// Reads a line, `bytes` without its line break, indented to `indent`, and returns
     /// whether its last token is an operator a statement goes on after.
     pub(super) fn lex(&mut self, bytes: &[u8], indent: usize) -> bool {
@@ -64,6 +65,7 @@ impl<F: Flavor> Code<F> {
         let mut at = 0;
         // Where the script or style the line is in ends, if it does on this line.
         let mut raw_end = self.raw_end(bytes, 0);
+        self.no_regex = false;
         while at < bytes.len() {
             if raw_end == Some(at) {
                 self.end_raw();
@@ -127,12 +129,18 @@ impl<F: Flavor> Code<F> {
             self.deeper = self.deeper.saturating_add(1);
             return;
         }
+        let below = self.open.last().map_or(0, |open| open.names);
+        let names = match kind {
+            Kind::StartTag(_) | Kind::Tag(_) => below | name.bit(),
+            _ => below,
+        };
         self.open.push(Open {
             kind,
             indent,
             statement: indent,
             cases: false,
             name,
+            names,
         });
     }
 
@@ -167,12 +175,13 @@ impl<F: Flavor> Code<F> {
                 };
                 return at + 2;
             }
-            b'/' if script && self.before != Before::Operand => {
+            b'/' if script && self.before != Before::Operand && !self.no_regex => {
                 if let Some(end) = regex_end(line, at + 1) {
                     self.before = Before::Operand;
                     *operator = false;
                     return end;
                 }
+                self.no_regex = true;
             }
             _ => {}
         }
@@ -193,7 +202,8 @@ impl<F: Flavor> Code<F> {
             }
             b'<' if self.dialect == (Dialect::Script { jsx: true })
                 && self.before != Before::Operand
-                && next.is_some_and(|next| next == b'>' || next.is_ascii_alphabetic()) =>
+                && next.is_some_and(|next| next == b'>' || next.is_ascii_alphabetic())
+                && !is_generic(&line[at + 1..]) =>
             {
                 return self.open_tag(line, at, indent);
             }
@@ -248,7 +258,7 @@ impl<F: Flavor> Code<F> {
                 .take_while(|&&byte| is_word_byte(byte) || byte == b'$')
                 .count();
         let word = &line[at..end];
-        self.before = if OPERAND_BEFORE.contains(&word) {
+        self.before = if operand_follows(word) {
             Before::Operator
         } else {
             Before::Operand
@@ -353,19 +363,8 @@ impl<F: Flavor> Code<F> {
 
     /// The name of a tag that starts at `at`, in HTML lowercased, and where it ends.
     fn name(&self, line: &[u8], at: usize) -> (Name, usize) {
-        let mut name = Name::default();
-        let mut end = at;
-        while let Some(&byte) = line.get(end).filter(|&&byte| is_name_byte(byte)) {
-            if name.len < NAME_BYTES {
-                name.bytes[name.len] = match self.dialect {
-                    Dialect::Html => byte.to_ascii_lowercase(),
-                    _ => byte,
-                };
-                name.len += 1;
-            }
-            end += 1;
-        }
-        (name, end)
+        let (name, len) = tag_name_len(&line[at..], self.dialect == Dialect::Html);
+        (name, at + len)
     }
 
     /// Reads an end tag whose name starts at `at`: it closes the innermost element of that
@@ -380,12 +379,19 @@ impl<F: Flavor> Code<F> {
             self.deeper -= 1;
             return end;
         }
-        let element = self
+        let open = self
             .open
+            .last()
+            .is_some_and(|open| open.names & name.bit() != 0);
+        if !open {
+            return end;
+        }
+        let from = self.open.len().saturating_sub(TAG_SEARCH);
+        let element = self.open[from..]
             .iter()
             .rposition(|open| matches!(open.kind, Kind::Tag(_)) && open.name == name);
         if let Some(element) = element {
-            self.open.truncate(element);
+            self.open.truncate(from + element);
         }
         end
     }
@@ -438,6 +444,14 @@ impl<F: Flavor> Code<F> {
             Element::Normal => {}
         }
     }
+}
+
+/// Whether the text after a `<` in TSX is a generic's type parameters, `<T,>` or `<T extends
+/// U>`, as an arrow function's: a name, then a `,` or the word `extends`.
+fn is_generic(after: &[u8]) -> bool {
+    let name = after.iter().take_while(|&&byte| is_word_byte(byte)).count();
+    let rest = after[name..].trim_ascii_start();
+    rest.starts_with(b",") || starts_with_word(rest, b"extends")
 }
 
 /// Where a block comment that goes on at `at` ends, past its closer, if it does on the line.

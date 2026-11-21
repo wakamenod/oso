@@ -70,7 +70,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "tab-to-tab-stop",
-        doc: "Insert spaces at every cursor, up to the next tab stop.\n\nTab stops are every `tab-width` cells. Each cursor goes to its own next stop. `TAB` runs it in Markdown, Fundamental mode and internal buffers; in Rust, TOML, CSS, JSON, HTML, JavaScript, TypeScript and Go it indents by mode, and in YAML it cycles (`indent-for-tab-command`).",
+        doc: "Insert spaces at every cursor, up to the next tab stop.\n\nTab stops are every `tab-width` cells. Each cursor goes to its own next stop. `TAB` runs it in Markdown's fenced code, Fundamental mode, LaTeX, Swift and internal buffers; in Rust, TOML, CSS, JSON, HTML, JavaScript, TypeScript and Go it indents by mode, and in Markdown's lists and YAML it cycles (`indent-for-tab-command`).",
         args: ArgSpec::None,
         reach: Reach::Change,
         run: tab_to_tab_stop,

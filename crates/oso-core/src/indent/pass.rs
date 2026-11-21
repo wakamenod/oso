@@ -54,7 +54,7 @@ pub(super) trait Lexer: Sized {
     /// nearest non-blank line before it, indented to `column` with `line` past that: by
     /// default `column`, as Helix's `simple`; a mode whose lines tell their nesting on their
     /// own adds a level after an opener and takes one off before a closer (ADR 0164).
-    fn relative(settings: Settings, line: &[u8], column: usize, head: &[u8]) -> usize {
+    fn after_line_before(settings: Settings, line: &[u8], column: usize, head: &[u8]) -> usize {
         let _ = (settings, line, head);
         column
     }

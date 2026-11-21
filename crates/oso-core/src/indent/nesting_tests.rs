@@ -13,8 +13,6 @@ use super::{
 use crate::display_map::TabWidth;
 use crate::rope::Rope;
 
-use super::{fundamental, markdown, rust, toml, yaml};
-
 /// Two spaces a level, as Prettier writes.
 fn two() -> Settings {
     Settings::new(2, Style::Spaces, 8).unwrap()
@@ -250,35 +248,83 @@ fn past_the_lookback_a_new_line_follows_the_line_before() {
     assert_eq!(after_open, [Answer::Column(6)]);
 }
 
-/// Every mode's rules, for the tests that run them all.
-pub(super) const ALL_RULES: [Rules; 12] = [
-    rust,
-    toml,
-    markdown,
-    fundamental,
-    css,
-    json,
-    html,
-    javascript,
-    typescript,
-    go,
-    yaml,
-    fundamental,
-];
+#[test]
+fn a_script_ends_at_its_end_tag_wherever_it_comes() {
+    // A browser ends a script at `</script`, even in one of its strings.
+    fixed(
+        html,
+        two(),
+        "<div>\n  <script>\n    const a = \"</script>\";\n  <p>x</p>\n</div>\n",
+    );
+    // Names compare ignoring case in HTML; `<textarea>` keeps its lines as `<pre>` does.
+    fixed(html, two(), "<DIV>\n  <P>x</P>\n</div>\n");
+    let text = "<form>\n  <textarea>\nkeep\n  </textarea>\n  <p>x</p>\n</form>\n";
+    let rope = Rope::from(text);
+    let lines: Vec<_> = (0..rope.line_count()).map(Line::Row).collect();
+    let answers = html(&rope, two(), &lines, &mut Budget::new());
+    assert_eq!(answers[2], Answer::Keep);
+    assert_eq!(answers[4], Answer::Column(2));
+}
 
-/// The answer past the budget of the rules of [`ALL_RULES`], in the same order.
-pub(super) type Fallback = fn(&Rope, Settings, Line, &mut Budget) -> Answer;
-pub(super) const FALLBACKS: [Fallback; 12] = [
-    super::pass::fallback::<super::rust::Rust>,
-    super::pass::fallback::<super::toml::Toml>,
-    super::pass::fallback::<super::markdown::Markdown>,
-    super::pass::fallback::<super::fundamental::Fundamental>,
-    super::pass::fallback::<super::code::Code<super::code::Css>>,
-    super::pass::fallback::<super::code::Code<super::code::Json>>,
-    super::pass::fallback::<super::code::Code<super::code::Html>>,
-    super::pass::fallback::<super::code::Code<super::code::Jsx>>,
-    super::pass::fallback::<super::code::Code<super::code::TypeScript>>,
-    super::pass::fallback::<super::code::Code<super::code::Go>>,
-    super::pass::fallback::<super::yaml::Yaml>,
-    super::pass::fallback::<super::fundamental::Fundamental>,
-];
+#[test]
+fn optional_chains_and_nullish_operands_go_on_with_their_statement() {
+    fixed(
+        typescript,
+        two(),
+        "const a = b\n  ?.c()\n  ?? d;\nconst e = f;\n",
+    );
+}
+
+/// A TSX generic arrow's `<T,>` opens no element, and the lines after it are code.
+#[test]
+fn a_generic_s_parameters_open_no_element() {
+    fixed(
+        javascript,
+        two(),
+        "const f = <T,>(x: T) => {\n  return x;\n};\nconst g = <T extends U>(x: T) => x;\n\
+         const h = 1;\n",
+    );
+}
+
+/// Past the reach, a start tag that stays open sends a new line a level in, and an end tag
+/// what follows it a level out (ADR 0164, Q6).
+#[test]
+fn past_the_reach_html_follows_its_tags() {
+    let mut text = String::from("<html>\n  <body>\n");
+    while text.len() < LINE_LOOKBACK + 4096 {
+        text.push_str("    <p>x</p>\n");
+    }
+    text.push_str("    <div>\n");
+    let offset = text.len();
+    let rope = Rope::from(text.as_str());
+    let answers = html(&rope, two(), &[Line::New(offset - 1)], &mut Budget::new());
+    assert_eq!(answers, [Answer::Column(6)]);
+    text.push_str("</div>");
+    let rope = Rope::from(text.as_str());
+    let answers = html(&rope, two(), &[Line::New(offset)], &mut Budget::new());
+    assert_eq!(answers, [Answer::Column(4)]);
+}
+
+/// Crafted text costs a line's length, not its square: a regular expression that never
+/// closes is looked for once a line, and an end tag of no open element searches nothing.
+#[test]
+fn crafted_lines_cost_their_length() {
+    let regexes = format!("x = 1;\n{}\n", "/\\".repeat(30_000));
+    let classes = format!("x = 1;\n{}\n", "/[".repeat(30_000));
+    let tags = format!("{}{}\n", "<a>\n".repeat(256), "</>".repeat(20_000));
+    let cases: [(Rules, &str); 3] = [
+        (javascript, &regexes),
+        (javascript, &classes),
+        (html, &tags),
+    ];
+    for (rules, text) in cases {
+        let rope = Rope::from(text);
+        let started = std::time::Instant::now();
+        let answers = rules(&rope, two(), &[Line::New(rope.len())], &mut Budget::new());
+        let took = started.elapsed();
+        assert_eq!(answers.len(), 1);
+        // Linear, this takes well under a millisecond even in a debug build; the square of
+        // 60 KB took seconds.
+        assert!(took < std::time::Duration::from_millis(250), "{took:?}");
+    }
+}

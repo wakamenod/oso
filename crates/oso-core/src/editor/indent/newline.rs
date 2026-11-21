@@ -213,9 +213,11 @@ pub(super) fn spots(rope: &Rope, cursors: &[usize], mode: Mode) -> Vec<Break> {
         // TOML's inline tables cannot span lines, and `(` means nothing in it; nor in JSON.
         let between = match mode {
             Mode::Rust | Mode::Css | Mode::TypeScript | Mode::Go => pair(&brackets),
-            Mode::JavaScript | Mode::Tsx => pair(&brackets) || tag_pair(rope, range.clone()),
+            Mode::JavaScript | Mode::Tsx => {
+                pair(&brackets) || tag_pair(rope, start, range.clone(), false)
+            }
             Mode::Json => pair(&[(b'{', b'}'), (b'[', b']')]),
-            Mode::Html => tag_pair(rope, range.clone()),
+            Mode::Html => tag_pair(rope, start, range.clone(), true),
             Mode::Toml => pair(&[(b'[', b']')]),
             _ => false,
         };
@@ -224,48 +226,67 @@ pub(super) fn spots(rope: &Rope, cursors: &[usize], mode: Mode) -> Vec<Break> {
     spots
 }
 
-/// The most bytes read on either side of a cursor to tell whether it is between a start tag
-/// and its end tag: a tag's name past [`NAME`] is not compared.
+/// The most bytes read before a cursor to find the start tag it follows: a longer tag is not
+/// one whose element `RET` opens a line in.
 const TAG_SCAN: usize = 256;
 
-/// The longest tag name compared.
-const NAME: usize = 64;
-
-/// Whether `blanks`, the spaces and tabs around a cursor, sit between a start tag that ends
-/// just before them and the end tag of the same element just after them, as `<li>|</li>`
-/// (ADR 0164).
-fn tag_pair(rope: &Rope, blanks: Range<usize>) -> bool {
+/// Whether `blanks`, the spaces and tabs around a cursor on the line that starts at
+/// `line_start`, sit between a start tag that ends just before them and the end tag of the
+/// same element just after them, as `<li>|</li>` (ADR 0164). Names compare as the lexer reads
+/// them: ignoring case in HTML; a void element has no end tag to sit before.
+fn tag_pair(rope: &Rope, line_start: usize, blanks: Range<usize>, html: bool) -> bool {
     if blanks.start == 0 || rope.byte_at(blanks.start - 1) != Some(b'>') {
         return false;
     }
-    let line_start = rope.line_start(rope.offset_to_point(blanks.start).row);
+    let mut before = [0; TAG_SCAN];
     let from = rope.clip_offset(
         blanks.start.saturating_sub(TAG_SCAN).max(line_start),
         Bias::Right,
     );
-    let before = text_of(rope, from..blanks.start);
-    let to = rope.clip_offset((blanks.end + NAME + 3).min(rope.len()), Bias::Left);
-    let after = text_of(rope, blanks.end..to.max(blanks.end));
+    let before = read_into(rope, from..blanks.start, &mut before);
+    let mut after = [0; TAG_SCAN];
+    let to = rope.clip_offset((blanks.end + TAG_SCAN).min(rope.len()), Bias::Left);
+    let after = read_into(rope, blanks.end..to, &mut after);
     // The start tag: the last `<` before, its name, and no `/>`.
-    let Some(open) = before.rfind('<') else {
+    let Some(open) = before.iter().rposition(|&byte| byte == b'<') else {
         return false;
     };
-    let tag = &before[open + 1..];
-    if tag.ends_with("/>") {
+    if before.ends_with(b"/>") {
         return false;
     }
-    let name: &str = tag
-        .split(|c: char| c.is_ascii_whitespace() || c == '>')
-        .next()
-        .unwrap_or("");
-    if name.is_empty() || !name.starts_with(|c: char| c.is_ascii_alphabetic()) || name.len() > NAME
-    {
+    let Some(name) = indent::tag_name_of(&before[open + 1..]) else {
+        return false;
+    };
+    if html && indent::is_void(&name.to_ascii_lowercase()) {
         return false;
     }
-    after
-        .strip_prefix("</")
-        .and_then(|rest| rest.strip_prefix(name))
-        .is_some_and(|rest| rest.trim_start_matches([' ', '\t']).starts_with('>'))
+    let Some(rest) = after.strip_prefix(b"</") else {
+        return false;
+    };
+    let Some(closing) = indent::tag_name_of(rest) else {
+        return false;
+    };
+    let same = if html {
+        closing.eq_ignore_ascii_case(name)
+    } else {
+        closing == name
+    };
+    same && rest[closing.len()..].trim_ascii_start().starts_with(b">")
+}
+
+/// The bytes of `range`, at most `buffer`'s length of them from its start, copied into
+/// `buffer`.
+fn read_into<'a>(rope: &Rope, range: Range<usize>, buffer: &'a mut [u8]) -> &'a [u8] {
+    let mut len = 0;
+    for chunk in rope.chunks_in_range(range) {
+        let take = chunk.len().min(buffer.len() - len);
+        buffer[len..len + take].copy_from_slice(&chunk.as_bytes()[..take]);
+        len += take;
+        if len == buffer.len() {
+            break;
+        }
+    }
+    &buffer[..len]
 }
 
 /// In Markdown, two spaces or more at the end of a line of text break it (ADR 0113 keeps them

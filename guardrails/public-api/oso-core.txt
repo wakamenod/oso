@@ -96,7 +96,6 @@ pub fn oso_core::buffer::Mode::for_path(&std::path::Path) -> Self
 pub fn oso_core::buffer::Mode::indent_rules(self) -> core::option::Option<fn(&oso_core::rope::Rope, oso_core::indent::Settings, &[oso_core::indent::Line], &mut oso_core::indent::Budget) -> alloc::vec::Vec<oso_core::indent::Answer>>
 pub fn oso_core::buffer::Mode::name(self) -> &'static str
 pub fn oso_core::buffer::Mode::shows_copies(self) -> bool
-pub fn oso_core::buffer::Mode::spaces_only(self) -> bool
 impl core::clone::Clone for oso_core::buffer::Mode
 pub fn oso_core::buffer::Mode::clone(&self) -> oso_core::buffer::Mode
 impl core::cmp::Eq for oso_core::buffer::Mode

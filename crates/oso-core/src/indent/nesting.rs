@@ -12,8 +12,9 @@
 //!   line that starts with `*` goes one past the comment's opening column, and any other to the
 //!   indentation of the line before.
 //! - JavaScript and Go: a line that goes on with the statement of the line before (it ended
-//!   with an operator, or this one starts with `.`, `?`, `:`, `&&`, `||` or `??`) goes one level
-//!   past the statement's first line; the continuation does not stack. A `case` or `default`
+//!   with an operator, or, in JavaScript, this one starts with `.`, `?.`, `?`, `:`, `&&`, `||`,
+//!   `??` or `|`) goes one level past the statement's first line; the continuation does not
+//!   stack. A `case` or `default`
 //!   label sits one level in from its `switch` in JavaScript, the lines after it one more, as
 //!   Prettier writes; in Go a label sits with its `switch`, as gofmt writes.
 //! - HTML: a void element, a `/>` and a comment open nothing; `<script>`'s text is read as
@@ -40,7 +41,7 @@ pub(super) enum Dialect {
 }
 
 /// A language: its dialect and the lines that are anchors in it, at column 0.
-pub(super) trait Flavor {
+pub(super) trait Language {
     const DIALECT: Dialect;
 
     fn is_anchor(line: &[u8]) -> bool;
@@ -125,6 +126,9 @@ struct Open {
     /// Whether a `case` label came directly inside it: it is a `switch`'s body.
     cases: bool,
     name: Name,
+    /// A bit for the name of each element open here and below, so that an end tag that
+    /// names none of them is told without a search.
+    names: u64,
 }
 
 /// The operators a JavaScript line that goes on with a statement starts with, a space after:
@@ -132,7 +136,7 @@ struct Open {
 const LEADING_OPERATORS: [&[u8]; 6] = [b"&&", b"||", b"??", b"?", b":", b"|"];
 
 /// The rules of one language.
-pub(super) struct Code<F> {
+pub(super) struct Nesting<F> {
     settings: Settings,
     /// What the text is read as here: the language's own, or in HTML, a script's or style's.
     dialect: Dialect,
@@ -152,6 +156,9 @@ pub(super) struct Code<F> {
     /// What came last, for telling a `/` that starts a regular expression, and a `<` that
     /// starts a JSX element, from an operator.
     before: Before,
+    /// Whether a regular expression failed to close on the line at hand: every later `/` on
+    /// it divides, so that no line is read more than twice.
+    no_regex: bool,
     flavor: PhantomData<F>,
 }
 
@@ -164,7 +171,7 @@ enum Before {
     Operator,
 }
 
-impl<F: Flavor> Lexer for Code<F> {
+impl<F: Language> Lexer for Nesting<F> {
     fn fresh(settings: Settings) -> Self {
         Self {
             settings,
@@ -177,6 +184,7 @@ impl<F: Flavor> Lexer for Code<F> {
             opens_at: 0,
             previous: None,
             before: Before::Start,
+            no_regex: false,
             flavor: PhantomData,
         }
     }
@@ -192,7 +200,7 @@ impl<F: Flavor> Lexer for Code<F> {
         F::is_anchor(line)
     }
 
-    fn relative(settings: Settings, line: &[u8], column: usize, head: &[u8]) -> usize {
+    fn after_line_before(settings: Settings, line: &[u8], column: usize, head: &[u8]) -> usize {
         let size = settings.indent_size();
         let mut column = column;
         if opens(F::DIALECT, line) {
@@ -309,7 +317,7 @@ impl<F: Flavor> Lexer for Code<F> {
     }
 }
 
-impl<F: Flavor> Code<F> {
+impl<F: Language> Nesting<F> {
     fn depth(&self) -> usize {
         self.open.len().saturating_add(self.deeper)
     }
@@ -398,7 +406,7 @@ impl<F: Flavor> Code<F> {
 /// CSS: anchors are the rules and at-rules that start at column 0.
 pub(super) struct Css;
 
-impl Flavor for Css {
+impl Language for Css {
     const DIALECT: Dialect = Dialect::Css;
 
     fn is_anchor(line: &[u8]) -> bool {
@@ -412,7 +420,7 @@ impl Flavor for Css {
 /// JSON: the document's own bracket at column 0 is its only anchor.
 pub(super) struct Json;
 
-impl Flavor for Json {
+impl Language for Json {
     const DIALECT: Dialect = Dialect::Json;
 
     fn is_anchor(line: &[u8]) -> bool {
@@ -440,14 +448,17 @@ const SCRIPT_WORDS: [&[u8]; 14] = [
 ];
 
 fn is_script_anchor(line: &[u8]) -> bool {
-    matches!(line.first(), Some(b'}' | b'@'))
-        || SCRIPT_WORDS.iter().any(|word| starts_with_word(line, word))
+    match line.first() {
+        Some(b'}' | b'@') => true,
+        Some(b'a'..=b'v') => SCRIPT_WORDS.iter().any(|word| starts_with_word(line, word)),
+        _ => false,
+    }
 }
 
 /// TypeScript, with no JSX.
 pub(super) struct TypeScript;
 
-impl Flavor for TypeScript {
+impl Language for TypeScript {
     const DIALECT: Dialect = Dialect::Script { jsx: false };
 
     fn is_anchor(line: &[u8]) -> bool {
@@ -456,9 +467,9 @@ impl Flavor for TypeScript {
 }
 
 /// JavaScript and TSX, with JSX.
-pub(super) struct Jsx;
+pub(super) struct JavaScript;
 
-impl Flavor for Jsx {
+impl Language for JavaScript {
     const DIALECT: Dialect = Dialect::Script { jsx: true };
 
     fn is_anchor(line: &[u8]) -> bool {
@@ -472,7 +483,7 @@ const GO_WORDS: [&[u8]; 6] = [b"func", b"type", b"var", b"const", b"import", b"p
 /// Go.
 pub(super) struct Go;
 
-impl Flavor for Go {
+impl Language for Go {
     const DIALECT: Dialect = Dialect::Go;
 
     fn is_anchor(line: &[u8]) -> bool {
@@ -484,7 +495,7 @@ impl Flavor for Go {
 /// HTML: an element's tag, an end tag or a doctype at column 0 is an anchor.
 pub(super) struct Html;
 
-impl Flavor for Html {
+impl Language for Html {
     const DIALECT: Dialect = Dialect::Html;
 
     fn is_anchor(line: &[u8]) -> bool {
@@ -496,7 +507,7 @@ impl Flavor for Html {
 /// Whether a line whose text is `line`, past its indentation, opens a level for the next:
 /// it ends with an opening bracket, or in a language of elements, it is a start tag that
 /// stays open. For the answer past the budget, which reads only the line before.
-pub(super) fn opens(dialect: Dialect, line: &[u8]) -> bool {
+fn opens(dialect: Dialect, line: &[u8]) -> bool {
     let line = line.trim_ascii_end();
     if matches!(line.last(), Some(b'{' | b'[' | b'(')) {
         return true;
@@ -507,22 +518,21 @@ pub(super) fn opens(dialect: Dialect, line: &[u8]) -> bool {
         && matches!(line.get(1), Some(b'a'..=b'z' | b'A'..=b'Z'))
         && !line.ends_with(b"/>")
         && !line.windows(2).any(|pair| pair == b"</")
-        && !(dialect == Dialect::Html && scan::is_void(tag_name(&line[1..], true).as_bytes()))
+        && !(dialect == Dialect::Html && is_void(tag_name(&line[1..], true).as_bytes()))
 }
 
 /// Whether a line that starts with `head` closes a level: a closing bracket, or an end tag.
-pub(super) fn closes(dialect: Dialect, head: &[u8]) -> bool {
+fn closes(dialect: Dialect, head: &[u8]) -> bool {
     let tags = matches!(dialect, Dialect::Html | Dialect::Script { jsx: true });
     matches!(head.first(), Some(b'}' | b']' | b')')) || (tags && head.starts_with(b"</"))
 }
 
-/// The name `text` starts with, lowercased in HTML, which compares names so.
-fn tag_name(text: &[u8], html: bool) -> Name {
+/// The name `text` starts with, lowercased in HTML, which compares names so, and how many
+/// bytes it takes, past what is kept too.
+fn tag_name_len(text: &[u8], html: bool) -> (Name, usize) {
     let mut name = Name::default();
-    for &byte in text.iter().take_while(|&&byte| scan::is_name_byte(byte)) {
-        if name.len == NAME_BYTES {
-            break;
-        }
+    let len = text.iter().take_while(|&&byte| is_name_byte(byte)).count();
+    for &byte in &text[..len.min(NAME_BYTES)] {
         name.bytes[name.len] = if html {
             byte.to_ascii_lowercase()
         } else {
@@ -530,5 +540,42 @@ fn tag_name(text: &[u8], html: bool) -> Name {
         };
         name.len += 1;
     }
-    name
+    (name, len)
+}
+
+fn tag_name(text: &[u8], html: bool) -> Name {
+    tag_name_len(text, html).0
+}
+
+impl Name {
+    /// Its bit among an element's [`Open::names`].
+    fn bit(&self) -> u64 {
+        let hash = self.as_bytes().iter().fold(self.len as u64, |hash, &byte| {
+            hash.wrapping_mul(31).wrapping_add(u64::from(byte))
+        });
+        1 << (hash % 64)
+    }
+}
+
+/// HTML's elements with no end tag.
+const VOID: [&[u8]; 14] = [
+    b"area", b"base", b"br", b"col", b"embed", b"hr", b"img", b"input", b"link", b"meta", b"param",
+    b"source", b"track", b"wbr",
+];
+
+/// Whether `name`, lowercased, is an HTML element with no end tag, as `br`.
+pub(crate) fn is_void(name: &[u8]) -> bool {
+    VOID.contains(&name)
+}
+
+/// Whether `byte` can be part of a tag's name.
+fn is_name_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':') || byte >= 0x80
+}
+
+/// Whether `text`, after a `<`, starts the name of an element `<` opens, and what that name
+/// is, as the lexer reads it: for `RET` between a start tag and its end tag (ADR 0164).
+pub(crate) fn tag_name_of(text: &[u8]) -> Option<&[u8]> {
+    let len = text.iter().take_while(|&&byte| is_name_byte(byte)).count();
+    (len > 0 && text[0].is_ascii_alphabetic()).then(|| &text[..len])
 }

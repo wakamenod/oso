@@ -126,10 +126,87 @@ fn crafted() {
         let (p50, p99) = percentiles(&mut samples);
         println!("crafted {label:<12} RET p50 {p50:>9.2?}  p99 {p99:>9.2?}");
     }
+    // One long line each, `RET` after it: a regular expression that never closes, a class that
+    // never closes, and end tags of no open element under a full stack.
+    let lines: [(&str, Rules, String); 3] = [
+        (
+            "/\\ 64 KiB line",
+            indent::javascript,
+            format!("x = 1;\n{}", "/\\".repeat(32_000)),
+        ),
+        (
+            "/[ 64 KiB line",
+            indent::javascript,
+            format!("x = 1;\n{}", "/[".repeat(32_000)),
+        ),
+        (
+            "</> 64 KiB line",
+            indent::html,
+            format!("{}{}", "<a>\n".repeat(256), "</>".repeat(21_000)),
+        ),
+    ];
+    for (label, rules, text) in lines {
+        let rope = Rope::from(text.as_str());
+        let mut samples: Vec<Duration> = (0..50)
+            .map(|_| {
+                timed(
+                    rules,
+                    two(),
+                    &rope,
+                    &[Line::New(rope.len())],
+                    &mut Budget::new(),
+                )
+            })
+            .collect();
+        let (p50, p99) = percentiles(&mut samples);
+        println!("crafted {label:<16} RET p50 {p50:>9.2?}  p99 {p99:>9.2?}");
+    }
+}
+
+/// YAML: `RET` after a line at 1 and 1000 cursors, and `TAB`'s stops at 1000 rows, in a 2 MiB
+/// workflow-shaped file and in one with a single key at column 0.
+fn yaml_costs() {
+    let unit = "  job:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: a@v4\n      - run: |\n          cargo test\n        # a comment\n";
+    let workflow = format!("jobs:\n{}", unit.repeat(2 * MB / unit.len()));
+    let one_key = format!(
+        "paths:\n{}",
+        unit.replace("  job", "  /path").repeat(2 * MB / unit.len())
+    );
+    for (label, text) in [("YAML", workflow), ("YAML one key", one_key)] {
+        let rope = Rope::from(text.as_str());
+        let rows = rope.line_count();
+        let mut rng = Lcg(29);
+        let mut one: Vec<Duration> = (0..2000)
+            .map(|_| {
+                let at = rope.line_end(rng.below(rows));
+                timed(
+                    indent::yaml,
+                    two(),
+                    &rope,
+                    &[Line::New(at)],
+                    &mut Budget::new(),
+                )
+            })
+            .collect();
+        let (p50, p99) = percentiles(&mut one);
+        println!("{label:<14} RET at 1        p50 {p50:>9.2?}  p99 {p99:>9.2?}");
+        let started = Instant::now();
+        let mut budget = Budget::new();
+        let kept = (0..1000)
+            .filter(|index| {
+                indent::yaml_stops(&rope, two(), index * rows / 1000, &mut budget).is_empty()
+            })
+            .count();
+        println!(
+            "{label:<14} TAB at 1000     {:>9.2?}  rows kept {kept}",
+            started.elapsed()
+        );
+    }
 }
 
 pub(super) fn code_costs() {
     println!("== Languages of brackets and tags (ADR 0164)");
+    yaml_costs();
     costs("CSS", indent::css, two(), &CSS.repeat(2 * MB / CSS.len()));
     costs("JSON", indent::json, two(), &json_file(2 * MB));
     costs(
