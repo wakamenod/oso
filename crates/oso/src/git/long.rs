@@ -276,10 +276,15 @@ impl Long {
 
     /// How the run ended, reaping it, or `None` while git runs. A stopped run's group gets
     /// `SIGKILL` first, while git's ID still holds the group's, so that what ignored `SIGTERM`
-    /// goes too.
+    /// goes too. A stopped run that had not ended when looked at is not reaped in the same
+    /// call: git may end between the look and the reap, and once reaped its group is out of
+    /// reach.
     fn reap_ended(&mut self) -> io::Result<Option<ExitStatus>> {
         let mut child = locked(&self.child);
-        if self.stopping.is_some() && child.exited()? {
+        if self.stopping.is_some() {
+            if !child.exited()? {
+                return Ok(None);
+            }
             // Nothing left in the group is no error: ESRCH, or EPERM on macOS.
             let _ = child.signal_group(Signal::Kill);
             self.killed = true;
