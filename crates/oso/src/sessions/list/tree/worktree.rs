@@ -46,20 +46,7 @@ impl List {
         let running = hosted.iter().any(|e| e.state != State::Stopped);
         let fold = Fold::Worktree(space.id.clone(), worktree.path.clone());
         let folded = sessions.is_empty() || self.folded_as(&fold, !running);
-        let roll = worst(sessions);
-        // It spins while its roll-up is a working session of oso's (Q13).
-        let spin = self.spin.filter(|_| {
-            roll.is_some_and(|e| e.state == State::Working)
-                && worst(&hosted).is_some_and(|e| e.state == State::Working)
-        });
-        let roll_mark = match (spin, roll) {
-            (Some(frame), _) => Some((SPINNER[frame], Highlight::SessionWorking)),
-            (None, Some(top)) if matches!(top.key, Key::Hosted(_)) => {
-                Some((mark(top.state), face(top.state)))
-            }
-            (None, Some(top)) => Some((mark(top.state), Highlight::SessionQuiet)),
-            (None, None) => None,
-        };
+        let (spin, blink, roll_mark) = self.roll_mark(sessions, &hosted);
         let (name, tag) = names(worktree);
         let count = if folded && !sessions.is_empty() {
             format!("  ({})", sessions.len())
@@ -96,11 +83,26 @@ impl List {
         let text = pad(&text, width.saturating_sub(cells(&right))) + &right;
         let right_at = text.len() - right.len();
         spans.push((right_at..text.len(), Highlight::SessionQuiet));
+        // Inverse on the lit beat, where its fill is: only while the row is drawn whole.
+        let lit = blink == Some(true) && !right.is_empty() && cells(&text) <= width;
         if let Some((mark, face)) = roll_mark.filter(|_| !right.is_empty()) {
+            let face = if lit {
+                Highlight::SessionAlertLit
+            } else {
+                face
+            };
             spans.push((right_at..right_at + mark.len_utf8(), face));
         }
         if spin.is_some() {
             out.spinning.push(out.lines.len());
+        }
+        if blink.is_some() && !right.is_empty() {
+            out.blinking.push(out.lines.len());
+        }
+        if let Some((mark, _)) = roll_mark.filter(|_| lit) {
+            let at = cells(&text[..right_at]);
+            let end = at + cells(mark.encode_utf8(&mut [0; 4]));
+            out.bands.lit.push((out.lines.len(), at..end));
         }
         if front {
             out.bands.tint.push(out.lines.len());
@@ -111,6 +113,32 @@ impl List {
         }
         out.open_to = 2;
         self.hung(out, (worktree, depth + 1, front), sessions, width, now);
+    }
+
+    /// A worktree's rolled-up mark of `sessions`, of which `hosted` are oso's, in its face, and
+    /// the spinner's frame it spins at and the beat it blinks on, if it does.
+    fn roll_mark(
+        &self,
+        sessions: &[&Entry],
+        hosted: &[&Entry],
+    ) -> (Option<usize>, Option<bool>, Option<(char, Highlight)>) {
+        let roll = worst(sessions);
+        // It spins while its roll-up is a working session of oso's (Q13).
+        let spin = self.beat.spin.filter(|_| {
+            roll.is_some_and(|e| e.state == State::Working)
+                && worst(hosted).is_some_and(|e| e.state == State::Working)
+        });
+        // Its waiting session's blink, which no spin meets: one needs input, and so leads it.
+        let blink = self.beat.roll_blinks(hosted);
+        let roll_mark = match (spin, roll) {
+            (Some(frame), _) => Some((SPINNER[frame], Highlight::SessionWorking)),
+            (None, Some(top)) if matches!(top.key, Key::Hosted(_)) => {
+                Some((mark(top.state), face(top.state)))
+            }
+            (None, Some(top)) => Some((mark(top.state), Highlight::SessionQuiet)),
+            (None, None) => None,
+        };
+        (spin, blink, roll_mark)
     }
 
     /// The sessions of `worktree`, hung from its row by guides at `depth`, each family's
@@ -142,7 +170,7 @@ impl List {
             let row = Row {
                 under: Some(&under),
                 label,
-                ..Row::new(top, &indent, self.spin, waiting)
+                ..Row::new(top, &indent, self.beat, waiting)
             };
             row.render(out, width, now);
             if !self.folded(&Fold::Nested(top.key)) {
@@ -154,7 +182,7 @@ impl List {
                     let row = Row {
                         under: Some(&under),
                         label,
-                        ..Row::new(entry, &indent, self.spin, 0)
+                        ..Row::new(entry, &indent, self.beat, 0)
                     };
                     row.render(out, width, now);
                 }

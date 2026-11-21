@@ -11,8 +11,8 @@ use std::time::Instant;
 use oso_core::syntax::Highlight;
 
 use super::{
-    Entry, Key, Line, PLACE_FROM, Rendered, SPINNER, age, cells, cut, cut_middle, face, mark, pad,
-    shown_age, unmarked,
+    Beat, Entry, Key, Line, PLACE_FROM, Rendered, SPINNER, age, cells, cut, cut_middle, face, mark,
+    pad, shown_age, unmarked,
 };
 use crate::sessions::state::State;
 
@@ -28,8 +28,8 @@ pub(super) struct Row<'e> {
     /// What comes before its reason, on the line under it: past its indent and guides, under
     /// its label. `None`: its indent and two cells.
     pub(super) under: Option<&'e str>,
-    /// The spinner's frame, while working marks spin.
-    pub(super) spin: Option<usize>,
+    /// The spinner's frame and the blink's beat.
+    pub(super) beat: Beat,
     /// How many sessions nested under it need input.
     pub(super) waiting: usize,
     /// Whether it shows its place: not under its worktree in the tree.
@@ -41,19 +41,14 @@ pub(super) struct Row<'e> {
 }
 
 impl<'e> Row<'e> {
-    /// The row of `entry` after `indent`, its marks spinning at `spin`, with `waiting` of its
-    /// nested sessions needing input: no place, no tag, its name.
-    pub(super) fn new(
-        entry: &'e Entry,
-        indent: &'e str,
-        spin: Option<usize>,
-        waiting: usize,
-    ) -> Self {
+    /// The row of `entry` after `indent`, its marks spinning and blinking on `beat`, with
+    /// `waiting` of its nested sessions needing input: no place, no tag, its name.
+    pub(super) fn new(entry: &'e Entry, indent: &'e str, beat: Beat, waiting: usize) -> Self {
         Self {
             entry,
             indent,
             under: None,
-            spin,
+            beat,
             waiting,
             place: false,
             tag: None,
@@ -65,8 +60,9 @@ impl<'e> Row<'e> {
         let entry = self.entry;
         let line = Line::Session(entry.key);
         let external = matches!(entry.key, Key::External(_));
-        let spinning = !external && entry.state == State::Working && self.spin.is_some();
-        let mark = match self.spin.filter(|_| spinning) {
+        let spin = self.beat.spin;
+        let spinning = !external && entry.state == State::Working && spin.is_some();
+        let mark = match spin.filter(|_| spinning) {
             Some(frame) => SPINNER[frame],
             None => mark(entry.state),
         };
@@ -77,6 +73,11 @@ impl<'e> Row<'e> {
         let room = width.saturating_sub(cells(&head) + cells(&age) + 1);
         let name = cut_middle(unmarked(label), room);
         let mut text = format!("{head}{name}");
+        // Its mark and name, which a blink's lit beat draws inverse (ADR 0140, as amended):
+        // counted in cells only then, as a row is not counted twice for nothing.
+        let blink = self.beat.blinks(entry);
+        let named = self.indent.len()..text.len();
+        let named_cells = (blink == Some(true)).then(|| cells(self.indent)..cells(&text));
         let left = room.saturating_sub(cells(&name) + 2);
         let mut place = None;
         // Under its worktree in the tree, only the mark of a start without asking.
@@ -107,7 +108,11 @@ impl<'e> Row<'e> {
             if guided > 0 {
                 spans.push((at - guided..at, Highlight::SessionQuiet));
             }
-            spans.push((at..at + mark.len_utf8(), face(entry.state)));
+            if blink == Some(true) {
+                spans.push((named, Highlight::SessionAlertLit));
+            } else {
+                spans.push((at..at + mark.len_utf8(), face(entry.state)));
+            }
             spans.extend(place.map(|place| (place, Highlight::SessionQuiet)));
             spans.push((age_at, Highlight::SessionQuiet));
             spans
@@ -115,8 +120,19 @@ impl<'e> Row<'e> {
         if spinning {
             out.spinning.push(out.lines.len());
         }
+        if blink.is_some() {
+            out.blinking.push(out.lines.len());
+        }
+        if let Some(cells) = named_cells {
+            out.bands.lit.push((out.lines.len(), cells));
+        }
         out.push_drawn(&cut(&text, width), line.clone(), &spans);
-        // A reason only where the person has something to do.
+        self.reason(out, width, line);
+    }
+
+    /// Its reason, on the line under it, only where the person has something to do.
+    fn reason(&self, out: &mut Rendered, width: usize, line: Line) {
+        let entry = self.entry;
         let own = matches!(entry.state, State::NeedsInput(_) | State::Failed)
             .then_some(entry.recap.as_str())
             .filter(|recap| !recap.is_empty());

@@ -46,7 +46,23 @@ impl List {
         } else {
             Highlight::SessionSpace
         };
-        section(out, (&head, &name, Some(face)), roll(&all), width, line);
+        // Its roll-up blinks while a session of oso's in it waits (ADR 0140, as amended).
+        let blink = self.beat.roll_blinks(&all);
+        let at = out.lines.len();
+        let right_cells = section(
+            out,
+            (&head, &name, Some(face)),
+            roll(&all),
+            (width, blink == Some(true)),
+            line,
+        );
+        // Its roll-up is drawn while one blinks, as a session in it waits.
+        if blink.is_some() {
+            out.blinking.push(at);
+        }
+        if let Some(cells) = right_cells {
+            out.bands.lit.push((at, cells));
+        }
         if folded {
             return;
         }
@@ -61,7 +77,7 @@ impl List {
         {
             let row = Row {
                 tag: Some(tag),
-                ..Row::new(entry, INDENT[1], self.spin, 0)
+                ..Row::new(entry, INDENT[1], self.beat, 0)
             };
             row.render(out, width, now);
         }
@@ -165,7 +181,7 @@ impl List {
             out,
             (&head, "Archived spaces", None),
             count,
-            width,
+            (width, false),
             Line::Header(Group::ArchivedSpaces),
         );
         if folded {

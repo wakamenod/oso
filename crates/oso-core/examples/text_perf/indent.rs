@@ -292,6 +292,8 @@ fn editor_costs() {
     println!("editor }} typed at 1000, reindented  p50 {p50:>9.2?}  p99 {p99:>9.2?}");
 }
 
+#[path = "indent/code.rs"]
+mod code;
 #[path = "indent/region.rs"]
 mod region;
 
@@ -310,6 +312,7 @@ pub(crate) fn indent_costs() {
     region::small_command_costs();
     region::reviewed_costs();
     region::reviewed_edit_costs();
+    code::code_costs();
     // Every line, as `indent-region` asks.
     for size in [2 * MB, 4 * MB, 8 * MB] {
         let rope = Rope::from(rust_file(size).as_str());

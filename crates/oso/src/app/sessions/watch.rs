@@ -158,7 +158,7 @@ impl App {
             self.watch.feed.due(),
             self.watch.attention.due(),
             self.watch.seen.due(),
-            self.sessions_spin_due(),
+            self.sessions_clock_due(),
         ]
         .into_iter()
         .flatten()
@@ -177,7 +177,7 @@ impl App {
         if self.watch.seen.due().is_some_and(|due| now >= due) {
             self.session_seen();
         }
-        self.spin_sessions(now);
+        self.tick_sessions(now);
         self.refresh_sessions();
     }
 

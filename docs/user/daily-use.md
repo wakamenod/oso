@@ -221,7 +221,9 @@ click on a `▾` or `▸` folds.
 The
 modeline shows `⚠ N` while sessions need input and `● N` while sessions are done or ready for
 review. When a session needs you and you are looking elsewhere, oso says so in the echo area
-and asks the desktop for your attention.
+and asks the desktop for your attention. In the pane, a session waiting for your answer (a
+permission, a question, a plan) blinks: its mark and name, and the `⚠` of its worktree and its
+space, even folded, until you answer or show it.
 
 In `*Spaces*`:
 
@@ -597,6 +599,7 @@ claude = "/usr/local/bin/claude"  # the executable, by absolute path; else found
 env = ["AWS_PROFILE"]                # more variables a session takes from oso's environment
 steer_worktrees = true               # point the agent to start_worktree_session (off by default)
 spinner = false                      # keep working marks in *Spaces* still (they spin by default)
+blink = false                        # keep waiting sessions in *Spaces* still (they blink by default)
 agents_start_without_asking = true   # let your sessions start sessions, and add known repositories, with no question (off by default)
 agents_start_limit = 4               # how many such sessions each may run at once, 1 to 8, or "none"
 pane_width = 52                      # the *Spaces* pane's columns, 24 to 80 (44 by default)
@@ -610,8 +613,8 @@ ready_for_review = false
 
 `steer_worktrees` gives each new session a hook that turns down Claude Code's own worktree
 tools and points the agent to `start_worktree_session`, so its worktrees show in oso.
-`spinner = false` stops the working marks from turning, and with them the only timer the list
-runs. `pane_width` is where the pane starts; `<` and `>` in it change it for this oso only.
+`spinner = false` stops the working marks from turning, and `blink = false` stops waiting
+sessions from blinking; with both, the list runs no timer. `pane_width` is where the pane starts; `<` and `>` in it change it for this oso only.
 The `[sessions.notify]` values shown are the defaults.
 
 `agents_start_without_asking` lets a session you started, with a key or a `y`, start sessions

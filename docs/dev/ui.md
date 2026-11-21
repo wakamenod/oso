@@ -1314,7 +1314,12 @@ a switch made with its command stands until that setting changes in the file
   the dialog's question. Marks take their state's face: needs input and failed red, working
   amber, ready for review and done green, idle and stopped grey; a working mark of a session
   oso hosts turns through ten Braille frames, 8 a second, while it is in view, unless
-  `[sessions] spinner = false`. While the pane is selected, the row at point has an accent
+  `[sessions] spinner = false`. A session oso hosts that needs input blinks while it is in
+  view, a beat every 625 ms: on every other beat its mark and name are drawn inverse, the
+  text's background on a red fill, and so is the `⚠` its worktree's row and its space's row
+  roll up, folded or not; the session shown in the selected window of a focused oso window,
+  which is in front of the person, does not blink, and `[sessions] blink = false` keeps every
+  row still (ADR 0140, "Waiting rows blink, as amended"). While the pane is selected, the row at point has an accent
   band and an accent bar in its first cell, which every row leaves free; while it is not, no band
   marks point ([ADR 0140](adr/0140-a-spaces-pane-with-sections-and-guides.md)). Its modeline
   says `Spaces`, the grouping, and `C-c a s to enter` (the keys of `sessions` as bound, ADR 0143)
