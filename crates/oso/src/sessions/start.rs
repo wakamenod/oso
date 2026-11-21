@@ -189,8 +189,8 @@ pub enum Started {
 /// What the thread found.
 #[derive(Debug)]
 pub enum Report {
-    /// Start it.
-    Ready(Ready),
+    /// Start it. Boxed: the process handles make it far larger than the rest.
+    Ready(Box<Ready>),
     /// It does not start; why, for the echo area.
     Refused { token: u64, why: String },
     /// A resume found the conversation live in this process, in this directory; or, with no
@@ -287,7 +287,7 @@ fn prepare(order: Order, send: &(dyn Fn(Report) + Sync)) {
             Ok(started) => started,
             Err(why) => return refuse(why),
         };
-    send(Report::Ready(Ready {
+    send(Report::Ready(Box::new(Ready {
         token,
         id: id.clone(),
         buffer,
@@ -298,7 +298,7 @@ fn prepare(order: Order, send: &(dyn Fn(Report) + Sync)) {
         project,
         baseline: in_time.flatten(),
         notes,
-    }));
+    })));
     if let Some(Some(tree)) = late.and_then(|b| b.wait(BASELINE_GIVE_UP)) {
         send(Report::Baseline { token, tree });
     }

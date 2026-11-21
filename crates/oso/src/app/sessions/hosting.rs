@@ -396,7 +396,7 @@ impl App {
         match report {
             Report::Ready(ready) => {
                 let key = ready.token;
-                self.session_ready(ready);
+                self.session_ready(*ready);
                 if let Some(adopted) = self.take_adoption(key)
                     && self.hosting.table.get(key).is_some()
                 {
