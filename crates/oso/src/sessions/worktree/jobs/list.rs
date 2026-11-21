@@ -114,7 +114,12 @@ fn list(
         result: Ok(linked.len()),
     });
     let gh = Gh::find(repo.main());
-    let facts = RepoFacts::gather(repo, gh_host, &snapshot.hosted);
+    let facts = RepoFacts::gather(
+        repo,
+        gh_host,
+        &snapshot.hosted,
+        crate::sessions::registry::directory().as_deref(),
+    );
     let mut asks = Vec::new();
     for listed in linked {
         if !live() {

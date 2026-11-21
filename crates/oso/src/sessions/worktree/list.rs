@@ -176,6 +176,7 @@ mod tests {
                 merged: Some(merged),
                 ignored: Vec::new(),
                 external: Vec::new(),
+                registry_unread: None,
                 busy: Vec::new(),
                 gh_pending: None,
                 removing: false,

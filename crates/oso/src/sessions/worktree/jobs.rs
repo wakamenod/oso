@@ -441,7 +441,12 @@ fn check(
         ));
     };
     let gh = Gh::find(repo.main());
-    let facts = RepoFacts::gather(repo, gh_host, &snapshot.hosted);
+    let facts = RepoFacts::gather(
+        repo,
+        gh_host,
+        &snapshot.hosted,
+        crate::sessions::registry::directory().as_deref(),
+    );
     let held = snapshot.held(&listed.path, &facts.hosted_idle);
     let looked = checks::look(
         repo,
