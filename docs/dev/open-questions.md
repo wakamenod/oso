@@ -380,8 +380,12 @@ item notes when it must be settled.
 - Tree-sitter grammars beyond Rust, Markdown, TOML, Go, JavaScript, TypeScript and TSX
   ([ADR 0147](adr/0147-highlighting-go-typescript-and-javascript.md)), and HTML, CSS, JSON and
   YAML ([ADR 0157](adr/0157-highlighting-html-css-json-and-yaml.md)): LaTeX and Swift have
-  modes and no grammar. The four of ADR 0157 have no indentation rules of their own yet (its
-  Q9).
+  modes and no grammar, and keep the line before's indentation.
+- After ADR 0164's indentation: rules for LaTeX and Swift; `style` attributes and Markdown's raw
+  HTML as CSS and HTML; the layouts Prettier writes that the rules do not know (a long condition
+  broken inside `if (`, a JSX attribute on the tag's line with the rest under it); a `/` after
+  `)` that starts a regular expression; a TSX generic written `<T>` rather than `<T,>`
+  ([ADR 0164](adr/0164-indenting-the-web-languages-and-go.md)).
 - After window splits ([ADR 0112](adr/0112-window-splits.md)):
   - `C-x 4`: `switch-to-buffer-other-window`, `find-file-other-window` and
     `kill-buffer-and-window`, with rules for where a buffer is shown, as Emacs's

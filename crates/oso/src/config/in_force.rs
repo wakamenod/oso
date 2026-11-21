@@ -161,7 +161,10 @@ impl InForce {
                 timeout: JUMP_TIMEOUT,
             },
             electric_indent: true,
-            mode_indents: [Default::default(); super::MODE_COUNT],
+            // Each mode's own default (ADR 0164): two spaces in HTML or JavaScript, a tab in Go.
+            mode_indents: std::array::from_fn(|index| {
+                (super::MODES[index].1.default_indent(), Default::default())
+            }),
             sessions: super::settings::Sessions::default(),
             terminal: super::Terminal::default(),
             spaces: super::Spaces::default(),
@@ -337,7 +340,9 @@ mod tests {
                     timeout: JUMP_TIMEOUT,
                 },
                 electric_indent: true,
-                mode_indents: [Default::default(); crate::config::MODE_COUNT],
+                // Each mode's own default: two spaces in HTML, a tab in Go (ADR 0164).
+                mode_indents: crate::config::MODES
+                    .map(|(_, mode)| (mode.default_indent(), indent::Origins::default())),
                 sessions: crate::config::settings::Sessions::default(),
                 terminal: crate::config::Terminal::default(),
                 spaces: crate::config::Spaces::default(),
@@ -394,7 +399,9 @@ mod tests {
                     timeout: Duration::from_secs(1),
                 },
                 electric_indent: true,
-                mode_indents: [Default::default(); crate::config::MODE_COUNT],
+                // Each mode's own default: two spaces in HTML, a tab in Go (ADR 0164).
+                mode_indents: crate::config::MODES
+                    .map(|(_, mode)| (mode.default_indent(), indent::Origins::default())),
                 sessions: crate::config::settings::Sessions::default(),
                 terminal: crate::config::Terminal::default(),
                 spaces: crate::config::Spaces::default(),

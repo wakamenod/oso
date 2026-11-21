@@ -1,6 +1,6 @@
 # 0157. Highlighting HTML, CSS, JSON and YAML
 
-- Status: Accepted
+- Status: Accepted, amended by 0164
 - Date: 2026-11-18
 
 ## Context

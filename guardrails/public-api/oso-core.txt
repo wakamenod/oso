@@ -91,6 +91,7 @@ pub oso_core::buffer::Mode::TypeScript
 pub oso_core::buffer::Mode::Worktrees
 pub oso_core::buffer::Mode::Yaml
 impl oso_core::buffer::Mode
+pub fn oso_core::buffer::Mode::default_indent(self) -> oso_core::indent::Settings
 pub fn oso_core::buffer::Mode::for_path(&std::path::Path) -> Self
 pub fn oso_core::buffer::Mode::indent_rules(self) -> core::option::Option<fn(&oso_core::rope::Rope, oso_core::indent::Settings, &[oso_core::indent::Line], &mut oso_core::indent::Budget) -> alloc::vec::Vec<oso_core::indent::Answer>>
 pub fn oso_core::buffer::Mode::name(self) -> &'static str
@@ -4484,12 +4485,20 @@ impl core::marker::StructuralPartialEq for oso_core::indent::Settings
 pub const oso_core::indent::COMMAND_READ: usize
 pub const oso_core::indent::LINE_COST: usize
 pub const oso_core::indent::LINE_LOOKBACK: usize
+pub fn oso_core::indent::css(&oso_core::rope::Rope, oso_core::indent::Settings, &[oso_core::indent::Line], &mut oso_core::indent::Budget) -> alloc::vec::Vec<oso_core::indent::Answer>
 pub fn oso_core::indent::fundamental(&oso_core::rope::Rope, oso_core::indent::Settings, &[oso_core::indent::Line], &mut oso_core::indent::Budget) -> alloc::vec::Vec<oso_core::indent::Answer>
+pub fn oso_core::indent::go(&oso_core::rope::Rope, oso_core::indent::Settings, &[oso_core::indent::Line], &mut oso_core::indent::Budget) -> alloc::vec::Vec<oso_core::indent::Answer>
+pub fn oso_core::indent::html(&oso_core::rope::Rope, oso_core::indent::Settings, &[oso_core::indent::Line], &mut oso_core::indent::Budget) -> alloc::vec::Vec<oso_core::indent::Answer>
+pub fn oso_core::indent::javascript(&oso_core::rope::Rope, oso_core::indent::Settings, &[oso_core::indent::Line], &mut oso_core::indent::Budget) -> alloc::vec::Vec<oso_core::indent::Answer>
+pub fn oso_core::indent::json(&oso_core::rope::Rope, oso_core::indent::Settings, &[oso_core::indent::Line], &mut oso_core::indent::Budget) -> alloc::vec::Vec<oso_core::indent::Answer>
 pub fn oso_core::indent::markdown(&oso_core::rope::Rope, oso_core::indent::Settings, &[oso_core::indent::Line], &mut oso_core::indent::Budget) -> alloc::vec::Vec<oso_core::indent::Answer>
 pub fn oso_core::indent::markdown_stops(&oso_core::rope::Rope, oso_core::indent::Settings, usize, &mut oso_core::indent::Budget) -> alloc::vec::Vec<usize>
 pub fn oso_core::indent::rust(&oso_core::rope::Rope, oso_core::indent::Settings, &[oso_core::indent::Line], &mut oso_core::indent::Budget) -> alloc::vec::Vec<oso_core::indent::Answer>
 pub fn oso_core::indent::toml(&oso_core::rope::Rope, oso_core::indent::Settings, &[oso_core::indent::Line], &mut oso_core::indent::Budget) -> alloc::vec::Vec<oso_core::indent::Answer>
+pub fn oso_core::indent::typescript(&oso_core::rope::Rope, oso_core::indent::Settings, &[oso_core::indent::Line], &mut oso_core::indent::Budget) -> alloc::vec::Vec<oso_core::indent::Answer>
 pub fn oso_core::indent::with_editorconfig(oso_core::indent::Settings, oso_core::indent::Origins, &oso_core::editorconfig::Properties, oso_core::display_map::cell::TabWidth) -> (oso_core::indent::Settings, oso_core::indent::Origins)
+pub fn oso_core::indent::yaml(&oso_core::rope::Rope, oso_core::indent::Settings, &[oso_core::indent::Line], &mut oso_core::indent::Budget) -> alloc::vec::Vec<oso_core::indent::Answer>
+pub fn oso_core::indent::yaml_stops(&oso_core::rope::Rope, oso_core::indent::Settings, usize, &mut oso_core::indent::Budget) -> alloc::vec::Vec<usize>
 pub mod oso_core::jump
 pub enum oso_core::jump::KeysError
 pub oso_core::jump::KeysError::Action(char)
