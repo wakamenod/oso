@@ -906,6 +906,12 @@ fn open_context_review(scratch: &Scratch) -> App {
     std::fs::write(&file, numbered(15)).unwrap();
     let mut app = App::start_with_config(Some(&file), scratch.path(), &config);
     app.wait_until_ready();
+    // The project is found off the UI thread: trusting it before then finds no project.
+    app.wait_for("the project", |state| {
+        state["modeline"]
+            .as_str()
+            .is_some_and(|modeline| modeline.contains("  proj-review  restricted  "))
+    });
     app.send_keys(&format!("M-x {} RET y", typing("trust-project")));
     app.wait_for("the trust", |state| {
         state["echo"]

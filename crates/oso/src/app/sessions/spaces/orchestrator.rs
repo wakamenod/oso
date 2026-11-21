@@ -275,6 +275,28 @@ impl App {
             .map(|session| session.key)
     }
 
+    /// Whether space `space`'s orchestrator was given `root`, at its start or pasted since.
+    pub(in crate::app) fn was_given(&self, space: &SpaceId, root: &Path) -> bool {
+        (self.hosting.spaces.given.get(space))
+            .is_some_and(|given| given.iter().any(|was| same(was, root)))
+    }
+
+    /// Offers to paste `/add-dir root` into space `at`'s running orchestrator now, for a
+    /// trusted repository an agent just added (ADR 0161), and notes it as seen, so that the
+    /// look after this event does not offer it again. Whether the person is asked.
+    pub(in crate::app) fn offer_added(&mut self, at: usize, root: &Path) -> bool {
+        let asked = self.offer_add_dir(at, root);
+        let space = self
+            .watch
+            .spaces()
+            .stored(at)
+            .map(|stored| stored.id.clone());
+        if let (Some(seen), Some(space)) = (&mut self.hosting.spaces.trusted_seen, space) {
+            seen.push((space, root.to_owned()));
+        }
+        asked && self.hosting.spaces.offer.is_some()
+    }
+
     /// Offers to paste `/add-dir root` into space `at`'s running orchestrator, which was not
     /// given `root`: a trusted repository added, or trusted, since it started (Q5). Whether
     /// it asked.
@@ -286,8 +308,7 @@ impl App {
             return false;
         };
         let space = stored.id.clone();
-        let given = self.hosting.spaces.given.get(&space);
-        if given.is_some_and(|given| given.iter().any(|was| same(was, root))) {
+        if self.was_given(&space, root) {
             return false;
         }
         let Some(text) = root.to_str().map(|root| format!("/add-dir {root}")) else {

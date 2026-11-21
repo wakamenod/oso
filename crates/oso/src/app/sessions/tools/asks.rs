@@ -6,7 +6,8 @@
 //! person's act; on `n` or `C-g` the same call from the same session is refused for a minute.
 //! When the person's configuration lets the caller start sessions without asking, no question
 //! opens and `starting` runs the plan at once (ADR 0135). `session_resume`'s plan is asked and
-//! carried out the same way (ADR 0153). The question itself is `question`'s.
+//! carried out the same way (ADR 0153), and so is `space_add_repo`'s (ADR 0161). The question
+//! itself is `question`'s.
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 
@@ -44,6 +45,8 @@ pub(super) enum Plan {
     Move(Box<super::super::hosting::Moving>),
     /// A stopped session of the caller's space to resume (ADR 0153).
     Resume(super::resume::Resuming),
+    /// A repository to add to the caller's space (ADR 0161).
+    AddRepo(Box<super::add_repo::Adding>),
 }
 
 impl Plan {
@@ -54,8 +57,9 @@ impl Plan {
             Self::Start(begin, _) => begin.origin = now,
             // It always asks.
             Self::Move(_) => {}
-            // Its call's `unasked` says it: a resume keeps the session's origin (ADR 0153).
-            Self::Resume(_) => {}
+            // Its call's `unasked` says it: a resume keeps the session's origin (ADR 0153),
+            // and an add starts no session (ADR 0161).
+            Self::Resume(_) | Self::AddRepo(_) => {}
         }
     }
 }

@@ -125,14 +125,8 @@ impl App {
     /// Whether `resuming`'s rules still hold, as they are at the person's `y`: its caller is
     /// still its space's orchestrator, the session still of that space and still resumable.
     fn still_resumable(&self, resuming: &Resuming) -> Result<(), &'static str> {
+        self.still_orchestrates(resuming.caller, &resuming.space)?;
         let table = self.hosting.table();
-        let orchestrates = table.get(resuming.caller).is_some_and(|caller| {
-            let caller = self.caller_of(caller);
-            caller.orchestrator() && caller.space.is_some_and(|at| at.id == resuming.space)
-        });
-        if !orchestrates {
-            return Err("your session is no longer its space's orchestrator");
-        }
         let in_space = (table.get(resuming.key))
             .is_some_and(|session| self.session_in_space(session, &resuming.space));
         if !in_space {
