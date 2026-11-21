@@ -69,6 +69,8 @@ fn faces(scene: &Scene) -> Vec<Face> {
         Face::SyntaxString,
         Face::SyntaxKeyword,
         Face::DiffAdded,
+        Face::SessionAlert,
+        Face::SessionQuiet,
     ];
     scene
         .quads()
@@ -198,6 +200,76 @@ fn text_keeps_its_colour_under_the_fills_and_the_flash_but_not_on_the_band() {
     );
     let (k, t) = (Face::SyntaxKeyword, Face::Text);
     assert_eq!(faces(&scene), [k, t, t, t, t, t, k]);
+}
+
+/// A waiting row of `*Spaces*` on the blink's lit beat (ADR 0140, as amended): its mark and name
+/// in their inverse face on their own fill, over the point's band; the other beat draws them as
+/// before, and neither beat shapes anything again.
+#[test]
+fn a_waiting_rows_lit_beat_draws_it_inverse_and_shapes_nothing_again() {
+    let text = " ⚠ ask  now";
+    let buffer = Buffer::from_text("t", text);
+    let named = 1..1 + "⚠ ask".len();
+    let age = text.len() - 3..text.len();
+    let lit_runs = highlights(
+        text,
+        &[
+            (named.clone(), Highlight::SessionAlertLit),
+            (age.clone(), Highlight::SessionQuiet),
+        ],
+    );
+    let mark = 1..1 + '⚠'.len_utf8();
+    let unlit_runs = highlights(
+        text,
+        &[
+            (mark, Highlight::SessionAlert),
+            (age, Highlight::SessionQuiet),
+        ],
+    );
+    let (point, lit) = ([rect(0, 0, 1, 11)], [rect(0, 1, 1, 5)]);
+    let lit_fills: [(Face, &[CellRect]); 2] =
+        [(Face::SessionPoint, &point), (Face::SessionAlertLit, &lit)];
+    let unlit_fills: [(Face, &[CellRect]); 1] = [(Face::SessionPoint, &point)];
+    let mut scene = Scene::new(LIMITS, theme());
+    let mut atlas = FakeAtlas::default();
+    let region = rect(0, 0, 1, 20);
+    let unlit = || Look {
+        highlights: Some(&unlit_runs),
+        fills: &unlit_fills,
+        ..Look::default()
+    };
+    build(
+        &mut scene,
+        &[pane(0, region, 0, view(&buffer, 1, unlit()))],
+        &mut atlas,
+    );
+    let (a, q, t) = (Face::SessionAlert, Face::SessionQuiet, Face::Text);
+    assert_eq!(faces(&scene), [t, a, t, t, t, t, t, t, q, q, q]);
+    let look = Look {
+        highlights: Some(&lit_runs),
+        fills: &lit_fills,
+        ..Look::default()
+    };
+    let system = build(
+        &mut scene,
+        &[pane(0, region, 0, view(&buffer, 1, look))],
+        &mut atlas,
+    );
+    assert!(system.shaped.is_empty(), "{:?}", system.shaped);
+    // In the text's background colour, as the cursor's glyph is: told by its colour.
+    let l = Face::SessionAlertLit;
+    let colours: Vec<_> = scene.quads().iter().map(|quad| quad.color()).collect();
+    let want: Vec<_> = [t, l, l, l, l, l, t, t, q, q, q]
+        .iter()
+        .map(|face| theme().foreground(*face))
+        .collect();
+    assert_eq!(colours, want);
+    let system = build(
+        &mut scene,
+        &[pane(0, region, 0, view(&buffer, 1, unlit()))],
+        &mut atlas,
+    );
+    assert!(system.shaped.is_empty(), "{:?}", system.shaped);
 }
 
 /// A review's line of a side, highlighted (ADR 0122, step 9): syntax colours over its added or

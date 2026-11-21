@@ -1,6 +1,6 @@
 # 0081. macOS benchmarks off pull requests
 
-- Status: Accepted
+- Status: Accepted, amended by 0166
 - Date: 2026-11-08
 
 ## Context

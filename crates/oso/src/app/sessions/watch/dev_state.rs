@@ -67,6 +67,8 @@ impl App {
             "spaces": spaces,
             "side": self.editor.side_window().map(|id| id.get()),
             "list": list,
+            // The lines drawn inverse on the blink's lit beat (ADR 0140, as amended).
+            "lit": self.watch.pane_bands().lit.iter().map(|(line, _)| *line).collect::<Vec<_>>(),
             "space": self
                 .watch
                 .spaces

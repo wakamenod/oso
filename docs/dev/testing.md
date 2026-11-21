@@ -228,8 +228,8 @@ tell the two versions apart:
    anything in the path of a real bug goes first.
 
 **Coverage** (`just coverage`, `coverage.yml`) is in the job summary of each
-pull request that changes more than docs: lines, functions and regions per
-crate, then per file. Use it to find code no test reaches, not as a target. It measures `cargo test`
+push to `main` that changes more than docs, and of the nightly run: lines, functions and
+regions per crate, then per file. Use it to find code no test reaches, not as a target. It measures `cargo test`
 on Linux with the dev features, so:
 
 - The window, the event loop and the GPU do not run: `crates/oso/src/app.rs`,
@@ -347,8 +347,8 @@ it. `just pixel-tests` runs five ignored tests in `oso-render`'s `paint`, which 
 on a real GPU with a block for a glyph and read the pixels: an opaque pane hides the text
 under it, a pane's text goes over its background, both layers draw their own ranges, a
 glyph stops at its pane's edges, and the frame's top row keeps its band. They are ignored
-because `cargo test` must not need a GPU. `e2e.yml` runs them on Linux with lavapipe and on
-macOS. The glyphs come from a fake text system, so they assert the same on both, and a
+because `cargo test` must not need a GPU. The `e2e` job of `ci.yml` runs them on Linux with
+lavapipe and on macOS. The glyphs come from a fake text system, so they assert the same on both, and a
 failure on Linux is real. There are no stored images to compare. Once M2-16 draws floats,
 a flow can take over.
 
@@ -542,17 +542,26 @@ agent sessions' rules engine (`sessions::fuzz_tests`) and each module of `oso-ls
 ## CI
 
 GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and
-every push to `main`. See [ADR 0021](adr/0021-development-tooling.md).
+every push to `main`. See [ADR 0021](adr/0021-development-tooling.md) and
+[ADR 0166](adr/0166-macos-ci-on-a-self-hosted-mac-and-fewer-jobs-per-pull-request.md).
+Its macOS jobs run on a self-hosted Mac, set up as in [ci-runner.md](ci-runner.md); a pull
+request from a fork gets GitHub's `macos-latest` instead.
 
-A pull request that changes nothing but `docs/` builds nothing: its first job, `changes`,
-finds that from the files it changes since it left `main`, and every job below that builds
-or checks code is skipped, so it shows as skipped, not failed. The gitleaks scan and
-`just markers`, which looks for conflict markers in every tracked file with `git grep`,
-still run. A push to `main` always runs everything.
+A pull request that changes nothing but docs builds nothing. Docs here means files under
+`docs/` and Markdown files at the root; Markdown elsewhere can be a test input. Its first
+job, `changes`, finds that from the files it changes since it left `main`, and every job
+below that builds or checks code is skipped, so it shows as skipped, not failed. The
+gitleaks scan, `just markers` and `adr-cited` still run. A push to `main` always runs
+everything. `ci-ok` sums the run up: it fails if a job of `ci.yml` failed or was
+cancelled, and counts a skipped one as passed.
+
+On each pull request:
 
 - `just ci` on Linux, macOS and Windows. `check`, `lint` and `test` cover
   the dev features too (`--all-features`). The macOS job also runs
-  `just public-api-macos-check`, below, so that a push starts one macOS job.
+  `just public-api-macos-check` and `just release-safety`, below.
+- `just e2e` and `just pixel-tests` on Linux with Xvfb and lavapipe, and on macOS, the one
+  runner that checks text pixels ([ADR 0049](adr/0049-end-to-end-test-harness.md))
 - `just release-safety` on Linux: release builds contain no dev-only
   features, crates or code ([ADR 0032](adr/0032-control-socket-transport.md))
 - `cargo-deny` and `cargo-audit`
@@ -565,30 +574,33 @@ still run. A push to `main` always runs everything.
   with the native window layer ([ADR 0070](adr/0070-windowing-and-input-without-winit.md))
 - the structure workflow (`structure.yml`): a structural change needs an
   ADR cited in the pull request description
-- weekly, the design health report (`design-health.yml`) as a GitHub issue
-- the performance workflow (`perf.yml`), on every pull request and every push
-  to `main` that changes more than `docs/`: results in the job summary and in
-  JSON artifacts, compared with the last result on `main`
-  ([ADR 0046](adr/0046-performance-regression-checks.md)). Pull requests run the
-  benchmarks on Linux only; a change to the input, render or load paths is
-  measured with `just perf-remote`, or with the workflow started by hand, which
-  includes macOS ([ADR 0081](adr/0081-macos-benchmarks-off-pull-requests.md))
-- the end-to-end workflow (`e2e.yml`), on pull requests and pushes to `main` that
-  change more than `docs/`: `just e2e` on Linux with Xvfb and lavapipe, and on
-  macOS, the one runner that checks text pixels
-  ([ADR 0049](adr/0049-end-to-end-test-harness.md))
 - `just test-time` on Linux: a warning when the test run grows past its budget
-- the coverage workflow (`coverage.yml`) on pull requests, in the job summary;
-  it cannot fail the build
-- weekly, mutation testing of `oso-core` (`mutants.yml`), read by the design
+
+On pushes to `main`, nightly at 17:00 UTC, and when started by hand, not on pull requests:
+
+- the performance workflow (`perf.yml`): the benchmarks on Linux and macOS and the build
+  time on all three, on GitHub's runners. Results go to the job summary and to JSON
+  artifacts, compared with the last result of a push to `main`
+  ([ADR 0046](adr/0046-performance-regression-checks.md)). A regression fails the run and
+  opens or updates the issue "Performance regression on main"; a push's result becomes the
+  baseline all the same. The nightly run measures only a head of `main` no push run
+  measured. A pull request runs it when labelled `perf`; a change to the input, render or
+  load paths is measured with that label or with `just perf-remote`
+  ([ADR 0081](adr/0081-macos-benchmarks-off-pull-requests.md))
+- the coverage workflow (`coverage.yml`), in the job summary; it cannot fail the build
+- the end-to-end flows under headless Weston (`e2e-wayland.yml`), which gate nothing yet
+  ([ADR 0070](adr/0070-windowing-and-input-without-winit.md))
+- CodeQL code scanning (`codeql.yml`), `Analyze (rust)` and `Analyze (actions)`. It
+  replaces the repository's default setup, which is off.
+
+Weekly:
+
+- the design health report (`design-health.yml`) as a GitHub issue
+- mutation testing of `oso-core` (`mutants.yml`), read by the design
   health report ([ADR 0050](adr/0050-test-quality-checks.md))
-- weekly, `oso-syntax`'s property tests with 4096 cases (`syntax-properties.yml`): random
+- `oso-syntax`'s property tests with 4096 cases (`syntax-properties.yml`): random
   edits, resumed slices and crafted nesting for every grammar; `just ci` runs them with few
   ([ADR 0111](adr/0111-tree-sitter-highlighting.md))
-- CodeQL code scanning (`codeql.yml`), `Analyze (rust)` and `Analyze (actions)`, on pull
-  requests, pushes to `main` and weekly. It replaces the repository's default setup, which
-  is off. A pull request that changes nothing but `docs/` and Markdown files skips the Rust
-  analysis's steps, and the job still reports
 
 Planned:
 

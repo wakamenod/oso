@@ -28,11 +28,17 @@ pub struct ModeIndent {
 }
 
 impl ModeIndent {
-    /// The setting these give, the compiled-in one's values where they give nothing.
+    /// The setting these give, the compiled-in one's values where they give nothing. Where
+    /// the compiled-in one indents a tab a level (Go's, ADR 0164), a tab width given alone
+    /// sets the indent size too, so that a level stays one tab.
     pub fn over(self, compiled: indent::Settings) -> indent::Settings {
-        let size = self
-            .indent_size
-            .unwrap_or(u32::try_from(compiled.indent_size()).unwrap_or(4));
+        let a_tab_a_level = compiled.style() == Style::Tabs
+            && compiled.indent_size() == compiled.tab_width().get() as usize;
+        let size = match (self.indent_size, self.tab_width) {
+            (Some(size), _) => size,
+            (None, Some(width)) if a_tab_a_level => width,
+            (None, _) => u32::try_from(compiled.indent_size()).unwrap_or(4),
+        };
         let style = self.style.unwrap_or(compiled.style());
         let width = self.tab_width.unwrap_or(compiled.tab_width().get());
         indent::Settings::new(size, style, width).unwrap_or(compiled)
@@ -154,5 +160,37 @@ fn shown(value: &DeValue<'_>) -> String {
         DeValue::String(text) => quoted(text).to_string(),
         DeValue::Integer(integer) => integer.as_str().to_owned(),
         other => type_name(other).to_owned(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use oso_core::buffer::Mode;
+    use oso_core::indent::{Settings, Style};
+
+    use super::ModeIndent;
+
+    /// Go indents a tab a level: a tab width given alone keeps a level one tab, and an indent
+    /// size given says otherwise (ADR 0164).
+    #[test]
+    fn a_tab_width_alone_keeps_a_tab_a_level() {
+        let go = Mode::Go.default_indent();
+        let width = ModeIndent {
+            tab_width: Some(4),
+            ..ModeIndent::default()
+        };
+        assert_eq!(width.over(go), Settings::new(4, Style::Tabs, 4).unwrap());
+        let both = ModeIndent {
+            indent_size: Some(8),
+            tab_width: Some(4),
+            ..ModeIndent::default()
+        };
+        assert_eq!(both.over(go), Settings::new(8, Style::Tabs, 4).unwrap());
+        // Spaces a level do not follow the tab width.
+        let html = Mode::Html.default_indent();
+        assert_eq!(
+            width.over(html),
+            Settings::new(2, Style::Spaces, 4).unwrap()
+        );
     }
 }

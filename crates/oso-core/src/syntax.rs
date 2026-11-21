@@ -85,6 +85,9 @@ pub enum Highlight {
     /// A session's mark that needs the person: needs input or failed (ADR 0131). Only the
     /// host's `*Spaces*` gives these; no parser does.
     SessionAlert,
+    /// A waiting session's mark and name on the lit beat of its blink, drawn inverse on a fill
+    /// in the alert's colour (ADR 0140, as amended): only the host's `*Spaces*` gives these.
+    SessionAlertLit,
     /// A working session's mark.
     SessionWorking,
     /// The mark of a session done or ready for review.
