@@ -70,6 +70,19 @@ pub(super) const TITLES: [(&str, &str); 3] = [
     ("{\"type\":\"ai-title\"", "aiTitle"),
 ];
 
+/// How a message that a command or a hook wrapped starts: never a person's words. A deny
+/// list, shared by `session-search` (ADR 0145) and native sessions (ADR 0165): a wrapper Claude
+/// Code adds later is searched until it is listed here, which shows on the screen only, never
+/// to an agent; a native session shows only what oso sent as the person's.
+pub(crate) const WRAPPERS: [&str; 6] = [
+    "<command-",
+    "<local-command",
+    "<bash-",
+    "<task-notification",
+    "<system-reminder",
+    "[Request interrupted",
+];
+
 /// A conversation of Claude Code's that oso may resume.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Conversation {
