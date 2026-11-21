@@ -6,8 +6,12 @@ description: Record a design decision as an Architecture Decision Record in docs
 # Record an ADR
 
 An ADR records one decision: context, decision, consequences and the
-alternatives considered. Accepted ADRs are never rewritten; a changed decision
-gets a new ADR that supersedes the old one.
+alternatives considered. Accepted ADRs are not rewritten. A new decision, a
+reversed or replaced one, or a change to a module, crate or layer gets a new
+ADR that supersedes or amends the old one. An "as built" record of a step, a
+narrow amendment of one rule, or a wording fix goes in the accepted ADR
+itself, marked as `docs/dev/adr/README.md` ("Changing an accepted ADR")
+says.
 
 ## Steps
 
@@ -15,6 +19,11 @@ gets a new ADR that supersedes the old one.
    `NNNN-*.md` plus one, zero-padded to four digits.
 2. **Check for conflicts.** Read the ADRs the decision touches. If it changes
    an accepted decision, the new ADR supersedes or amends it (see step 5).
+   If it only records a step as built, narrows one rule, or fixes wording,
+   write no new ADR: add the in-place section the README describes (`##
+   <What changed>, as amended` opening with `Amended on YYYY-MM-DD`, named
+   on the status line with its date; `## Step N, as built`; or an `Erratum
+   (YYYY-MM-DD, …)` bullet), and skip steps 1, 3 and 4.
 3. **Write `docs/dev/adr/NNNN-short-title.md`** from the template in
    `docs/dev/adr/README.md`:
    - Status: `Proposed`. Date: today, `YYYY-MM-DD`.
@@ -31,7 +40,8 @@ gets a new ADR that supersedes the old one.
    it changes only part of one, give it a `Changes to accepted ADRs` section
    naming each passage it changes, and set the old one's status to
    `Accepted, amended by NNNN` once this ADR is accepted. Do not change
-   anything else in the old ADR.
+   anything else in the old ADR; an in-place section never rewrites the
+   text above it either.
 6. **Update `docs/dev/open-questions.md`:** remove items the ADR settles, and
    add new open items it raises under the milestone they block.
 7. **Ask for approval.** ADRs are a human gate (ADR 0018). Summarize the
