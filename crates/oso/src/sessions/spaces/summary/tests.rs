@@ -229,16 +229,39 @@ mod runs {
     #[test]
     fn what_claude_started_is_killed_with_it_and_an_exit_stops_it_at_once() {
         let scratch = Scratch::new("group");
+        // Renamed into place, so that a `pid` there is whole.
         let body = format!(
-            "sleep 30 & echo $! > '{}/pid'; cat > /dev/null; wait",
-            scratch.0.display()
+            "sleep 30 & echo $! > '{d}/pid.new'; mv '{d}/pid.new' '{d}/pid'; cat > /dev/null; wait",
+            d = scratch.0.display()
         );
         let ask = scratch.ask(scratch.claude(&body));
-        // Long enough for a loaded machine to start the shell and its child.
-        assert_eq!(
-            run_within(&ask, Duration::from_secs(3)),
-            Err("no answer in 3 s".into())
+        let running = std::sync::Arc::clone(&ask.running);
+        let run = std::thread::spawn(move || run_within(&ask, Duration::from_secs(1)));
+        // `wait` looks at the run's child under this lock, so holding it from when the child is
+        // stored until the stand-in has started its own keeps the limit from killing the run
+        // first: a script's first start can take seconds on a loaded macOS, which checks a new
+        // executable.
+        let held = loop {
+            let held = running.lock().unwrap();
+            if held.is_some() {
+                break held;
+            }
+            drop(held);
+            if run.is_finished() {
+                panic!("the run ended before its child was seen: {:?}", run.join());
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        let deadline = Instant::now() + Duration::from_secs(60);
+        while !scratch.0.join("pid").exists() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(
+            scratch.0.join("pid").exists(),
+            "the stand-in never started its child"
         );
+        drop(held);
+        assert_eq!(run.join().unwrap(), Err("no answer in 1 s".into()));
         let pid = std::fs::read_to_string(scratch.0.join("pid")).unwrap();
         let deadline = Instant::now() + Duration::from_secs(2);
         while alive(pid.trim()) && Instant::now() < deadline {
@@ -252,6 +275,9 @@ mod runs {
         let started = Instant::now();
         let run = std::thread::spawn(move || run_within(&ask, Duration::from_secs(20)));
         while running.lock().unwrap().is_none() {
+            if run.is_finished() {
+                panic!("the run ended before its child was seen: {:?}", run.join());
+            }
             std::thread::sleep(Duration::from_millis(10));
         }
         super::super::stop(&running);
