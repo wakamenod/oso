@@ -48,7 +48,10 @@ pub(super) fn run(start: Start, hold_limit: Duration, channels: Channels<'_>) {
     let size = limits::clamp(start.size);
     let mut last = Snapshot::new(size);
     let outcome = catch_unwind(AssertUnwindSafe(|| {
-        let mut running = Running::open(start, size, hold_limit, channels)?;
+        let opened = Running::open(start, size, hold_limit, channels);
+        // The pid is set if the child runs: a caller waiting for it goes on now.
+        channels.shared.mark_started();
+        let mut running = opened?;
         let end = running.run();
         if running.released() {
             // The next instance has the terminal: its child is not waited for here, and the
@@ -70,6 +73,8 @@ pub(super) fn run(start: Start, hold_limit: Duration, channels: Channels<'_>) {
             other => other,
         }))
     }));
+    // A start that panicked started nothing: no one waits for it any longer.
+    channels.shared.mark_started();
     send_end(outcome, last, channels);
 }
 

@@ -86,6 +86,8 @@ impl App {
             directory,
             ..
         } = ready;
+        // The start thread waited for the spawn: this is the child's id while it runs, and
+        // none once it was reaped.
         let child = terminal.pid();
         if !self.install_terminal(buffer, terminal, &passed_over) {
             return false;
