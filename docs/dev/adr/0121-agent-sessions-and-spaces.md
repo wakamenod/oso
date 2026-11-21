@@ -833,6 +833,14 @@ points:
   build-dependency, which is not worth it there.
 - **`oso-term` gained `Terminal::pid(&self) -> Option<u32>`:** the child's process id from its
   start until it is reaped, cleared before the reap, so a reused id is never given.
+  `Terminal::start` returns before its thread spawns the child, so `pid` right after it is
+  `None`. `Terminal::wait_started(&self, within: Duration) -> Option<u32>` blocks until the
+  thread started the child, failed to, or ended, and is for threads other than the UI's: the
+  `oso-session-start` thread waits at most 5 s (`SPAWN_WAIT`) before it reports the start, and
+  the app reads `pid` when it installs the terminal. Read at once, a session whose agent never
+  called oso, so that no bridge claimed it, kept no process id: check 4 counted it busy and its
+  own registry entry as another's session. A bridge's claim still reads the ids again, for a
+  start past the wait.
 - **The remembered set** is `sessions` in oso's state directory, JSON lines of id, name,
   directory, project root, parent, pin and archive marks, last change and the baseline's tree:
   at most 256 sessions and 256 KiB, private, refused if a link or another user's, written to a

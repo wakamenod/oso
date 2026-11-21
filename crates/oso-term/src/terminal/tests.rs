@@ -367,6 +367,38 @@ fn the_pid_is_the_childs_while_it_runs_and_none_once_it_ended() {
 }
 
 #[test]
+fn the_pid_is_waited_for_after_the_start_returns() {
+    // `start` returns before the thread spawns the child: `pid` at once may be `None`, and
+    // `wait_started` gives the child's id whatever the race did (ADR 0121).
+    let mut seen = Seen::start(sh("printf 'pid %s\\n' $$; read line; exit 0"));
+    let waited = seen.terminal.wait_started(Duration::from_secs(10));
+    assert!(waited.is_some(), "the child's id once it started");
+    seen.until(|s| s.shows("pid "));
+    let shown = seen
+        .screen
+        .iter()
+        .find_map(|line| line.strip_prefix("pid "))
+        .and_then(|pid| pid.trim().parse::<u32>().ok());
+    assert_eq!(waited, shown);
+    seen.terminal.send(b"go\n".to_vec()).unwrap();
+    seen.until(|s| s.end().is_some());
+    assert_eq!(seen.terminal.wait_started(Duration::ZERO), None);
+}
+
+#[test]
+fn a_child_that_cannot_start_is_waited_for_no_longer() {
+    let mut start = sh("true");
+    start.cwd = Some("/nonexistent-directory-for-oso-term".into());
+    let seen = Seen::start(start);
+    let asked = Instant::now();
+    assert_eq!(seen.terminal.wait_started(Duration::from_secs(30)), None);
+    assert!(
+        asked.elapsed() < Duration::from_secs(10),
+        "it waited out the limit"
+    );
+}
+
+#[test]
 fn a_hang_up_ends_the_terminal() {
     let mut seen = Seen::start(sh("printf 'up\\n'; while :; do sleep 1; done"));
     seen.until(|s| s.shows("up"));
