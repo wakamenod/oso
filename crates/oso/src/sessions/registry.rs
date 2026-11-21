@@ -2,8 +2,9 @@
 //! running `claude` keeps in `sessions` under its configuration directory, named by its
 //! process id, and whether the process it names still runs.
 //!
-//! Must not depend on: threads, the UI or `app`; the caller reads on a thread of its own, never
-//! the UI thread, and gives the process table's answer as a function.
+//! Must not depend on: threads of its own, the UI or `app`; the caller reads on a thread of its
+//! own, never the UI thread, which [`list`] may hold for [`SETTLE`], and gives the process
+//! table's answer as a function.
 //!
 //! - Only names of the form `<digits>.json` are opened. Other files sit beside them, and oso
 //!   never reads them.
@@ -105,10 +106,15 @@ fn directory_from(config_dir: Option<OsString>, home: Option<PathBuf>) -> Option
     home.map(|home| home.join(".claude").join("sessions"))
 }
 
-/// The entries in `dir`, in no order. A directory that cannot be listed has none.
+/// The entries in `dir`, in no order. A directory that cannot be listed has none. Unlike
+/// [`list`], it never waits for a file being written.
 pub fn read(dir: &Path) -> Vec<Entry> {
-    list(dir).entries
+    list_in(dir, None).entries
 }
+
+/// How long [`list`] waits before it reads again a file that held no entry, which may have been
+/// read while it was written.
+pub const SETTLE: Duration = Duration::from_millis(100);
 
 /// What a read of the registry found.
 #[derive(Debug, Default)]
@@ -136,8 +142,8 @@ pub enum Incomplete {
 }
 
 impl Listing {
-    /// Whether every entry file was listed and read: neither cut, unlistable nor unread. A file
-    /// read that does not pass [`read`]'s checks is still left out.
+    /// Whether every entry file was listed and read: neither cut, unlistable nor unread. A link,
+    /// a file that is not regular and another user's file are still left out.
     pub fn complete(&self) -> bool {
         self.incomplete().is_none()
     }
@@ -157,8 +163,15 @@ impl Listing {
 }
 
 /// The entries in `dir`, in no order, and whether files were left unread. A directory that
-/// cannot be listed has none.
+/// cannot be listed has none. A file that holds no entry is read once more after [`SETTLE`],
+/// all such files after one wait, so that one read while it was written is not counted unread.
 pub fn list(dir: &Path) -> Listing {
+    list_in(dir, Some(&|| std::thread::sleep(SETTLE)))
+}
+
+/// [`list`], reading again after `settle` returns the files that held no entry, if it is
+/// given.
+fn list_in(dir: &Path, settle: Option<&dyn Fn()>) -> Listing {
     let listing = match std::fs::read_dir(dir) {
         Ok(listing) => listing,
         Err(e) => {
@@ -177,17 +190,32 @@ pub fn list(dir: &Path) -> Listing {
     let cut = files.len() > MAX_FILES;
     files.truncate(MAX_FILES);
     let mut unread = false;
-    let entries = files
-        .into_iter()
-        .filter_map(|(pid, path)| match read_entry(&path, pid) {
-            Ok(entry) => entry,
+    let mut again = Vec::new();
+    let mut entries: Vec<Entry> = Vec::new();
+    for (pid, path) in files {
+        match read_entry(&path, pid) {
+            Ok(entry) => entries.extend(entry),
+            Err(e) if e.kind() == io::ErrorKind::InvalidData && settle.is_some() => {
+                again.push((pid, path));
+            }
             Err(e) => {
                 log::debug!("registry file {} cannot be read: {e}", path.display());
                 unread = true;
-                None
             }
-        })
-        .collect();
+        }
+    }
+    if let Some(settle) = settle.filter(|_| !again.is_empty()) {
+        settle();
+        for (pid, path) in again {
+            match read_entry(&path, pid) {
+                Ok(entry) => entries.extend(entry),
+                Err(e) => {
+                    log::debug!("registry file {} cannot be read: {e}", path.display());
+                    unread = true;
+                }
+            }
+        }
+    }
     Listing {
         entries,
         cut,
@@ -787,6 +815,15 @@ mod tests {
             );
             assert_eq!(listing.entries.len(), 1);
         }
+        std::fs::remove_file(scratch.0.join("2.json")).unwrap();
+        // One being written when it was first read: complete once it is, within the wait.
+        scratch.write("2.json", "");
+        let done = || scratch.write("2.json", &entry_json(2, "Thu Nov 12 19:46:55 2026"));
+        let listing = super::list_in(&scratch.0, Some(&done));
+        assert!(listing.complete() && listing.entries.len() == 2);
+        // `read` does not wait.
+        scratch.write("2.json", "");
+        assert_eq!(read(&scratch.0).len(), 1);
         std::fs::remove_file(scratch.0.join("2.json")).unwrap();
         let shut = scratch.0.join("4.json");
         std::fs::write(&shut, entry_json(4, "Thu Nov 12 19:46:55 2026")).unwrap();

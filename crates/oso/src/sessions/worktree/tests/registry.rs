@@ -98,4 +98,10 @@ fn a_registry_not_listed_in_full_keeps_a_merged_worktree() {
         assert_eq!(refusal(&s, &made.path, Some(&registry)), want);
         fs::set_permissions(&shut, fs::Permissions::from_mode(0o600)).unwrap();
     }
+    // One that holds no entry for its process, root or not.
+    fs::write(registry.join("4000000000.json"), r#"{"pid":4000000001}"#).unwrap();
+    assert_eq!(
+        refusal(&s, &made.path, Some(&registry)),
+        unknown(REGISTRY_UNREAD)
+    );
 }

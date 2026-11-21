@@ -1864,19 +1864,26 @@ through the coordinator.
 - **An entry file larger than 64 KiB (`registry::MAX_BYTES`), or one that holds no entry for
   its process** (not JSON, no `pid`, or another process's), counts as a file that cannot be
   read: the listing is not complete, so check 4 refuses with "has an entry file that cannot be
-  read" and a resume offers `session-fork`. Before, it was left out. A file that is not regular
-  or is another user's is still left out.
+  read" and a resume offers `session-fork`. Before, it was left out. A file that holds no
+  entry is read once more after 100 ms (`registry::SETTLE`), every such file after one wait, so
+  that one read while the CLI wrote it does not refuse; the registry poll does not wait. This replaces the "Not
+  covered" sentences of the two sections above on files that do not pass the registry's checks:
+  now only a link, a file that is not regular and another user's file are left out without a
+  refusal.
 - **A session oso did not start is in a worktree** when its directory is in the worktree's
   path, each as given or with links resolved (`std::fs::canonicalize`), so that another name
   for the same directory is caught. A directory that cannot be resolved, as it is gone, is
   compared as given.
 - **What the person sees:** the refusals already named, in the same places; nothing new.
-- **Built with** `registry::read_entry` giving an error for these files, and
-  `facts::External` keeping each session's resolved directory, resolved once per job on its
-  thread; no public item of a library crate. The unit tests cover each kind of file and a
+- **Built with** `registry::read_entry` giving an error for these files, `registry::list`
+  reading them again, and `facts::Outside` keeping each session's resolved directory, resolved
+  once per job on its thread; no public item of a library crate. The unit tests cover each kind
+  of file, one completed during the wait, a merged worktree and a resume refused by one, and a
   session in a linked name for the worktree, both ways.
-- **Not covered:** a directory on a mount that does not answer holds the job's thread while it
-  is resolved, as git there would.
+- **Not covered:** the directory of every live session oso does not host is resolved, whatever
+  repository it is in, so one on a mount that does not answer holds every worktree job while it
+  is resolved. A file that stays without an entry refuses until it is fixed or deleted. The sessions oso hosts, unsaved buffers and unsent briefs are
+  still placed in a worktree by the text of its path (`worktree::Snapshot::held`).
 
 ## Consequences
 

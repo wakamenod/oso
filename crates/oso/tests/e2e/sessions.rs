@@ -39,7 +39,8 @@ done
 mkdir -p "$HOME/.claude/sessions"
 entry="$HOME/.claude/sessions/$$.json"
 printf '{"pid":%s,"sessionId":"%s","cwd":"%s","startedAt":%s000,"name":"%s","kind":"interactive","status":"idle"}\n' \
-  $$ "$id" "$PWD" "$(date +%s)" "$name" > "$entry"
+  $$ "$id" "$PWD" "$(date +%s)" "$name" > "$entry.tmp"
+mv "$entry.tmp" "$entry"
 trap 'rm -f "$entry"' EXIT
 printf 'fake claude %s\n' "$name"
 if [ -f "$dir/bridge" ]; then
