@@ -132,9 +132,9 @@ The author accepted this on 2026-11-21, through the orchestrator.
 
 ## Consequences
 
-- A pull request starts 14 jobs instead of about 22 (perf.yml's four jobs show as skipped, taking no runner), and a docs-only one starts 5. Of the
-  14, two run on the Mac, and none waits for GitHub's macOS runners unless it comes from a
-  fork.
+- A pull request starts 14 jobs instead of about 22, and a docs-only one starts 5.
+  `perf.yml`'s four jobs show as skipped, and take no runner. Of the 14, two run on the
+  Mac, and none waits for GitHub's macOS runners unless it comes from a fork.
 - The Mac's jobs run one at a time. With several pull requests open they queue on the Mac,
   but without the hosted runners' timeouts. They build incrementally from the kept `target`.
 - A pull request no longer shows coverage, CodeQL findings, benchmarks or build time. They
