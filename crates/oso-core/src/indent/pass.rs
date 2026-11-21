@@ -15,6 +15,10 @@ use crate::display_map::{CellKind, Clusters, TabWidth};
 use crate::rope::{Chunks, Rope};
 use crate::sum_tree::Bias;
 
+mod fallback;
+
+pub(super) use fallback::fallback;
+
 /// What a mode's rules keep while reading forward, and what they answer. Private to this
 /// module's rules: the editor chooses them with a match on the buffer's mode.
 pub(super) trait Lexer: Sized {
@@ -45,6 +49,15 @@ pub(super) trait Lexer: Sized {
     /// The answer for a line that starts here, which starts with `head`, or none if the
     /// rules cannot tell. `new` says whether it is a new line.
     fn answer(&self, head: &Head, new: bool) -> Option<Answer>;
+
+    /// Past the budget, the column a new line that starts with `head` goes to after the
+    /// nearest non-blank line before it, indented to `column` with `line` past that: by
+    /// default `column`, as Helix's `simple`; a mode whose lines tell their nesting on their
+    /// own adds a level after an opener and takes one off before a closer (ADR 0164).
+    fn after_line_before(settings: Settings, line: &[u8], column: usize, head: &[u8]) -> usize {
+        let _ = (settings, line, head);
+        column
+    }
 }
 
 /// The deepest brackets a lexer keeps. Past it, it counts them, and lines inside them get
@@ -61,9 +74,6 @@ const NEAR: usize = 1024;
 /// The most bytes read back at a time when looking for an anchor, and the first.
 const WINDOW: usize = 4096;
 const FIRST_WINDOW: usize = 256;
-
-/// What looking for the line a fallback copies may read back: a little first, then more.
-const FALLBACK_BACK: [usize; 2] = [128, 1024];
 
 /// The most spaces and tabs read at the start of a line asked about: past them, the rules
 /// cannot tell.
@@ -345,7 +355,7 @@ pub(super) fn answers<L: Lexer>(
             Some((at, _, _)) if target < at => {
                 // The pass stays where it is, past this line.
                 row_before = None;
-                fallback(rope, settings, line, budget)
+                fallback::<L>(rope, settings, line, budget)
             }
             _ => {
                 let carried = pass.take();
@@ -362,7 +372,7 @@ pub(super) fn answers<L: Lexer>(
                     }
                     None => {
                         row_before = None;
-                        fallback(rope, settings, line, budget)
+                        fallback::<L>(rope, settings, line, budget)
                     }
                 }
             }
@@ -415,7 +425,7 @@ fn answer_at<'a, L: Lexer>(
     // Where the rules cannot tell, the pass goes on all the same.
     let answer = match told.map(deepest) {
         Some(answer) => answer,
-        None => fallback(rope, settings, asked.line, budget),
+        None => fallback::<L>(rope, settings, asked.line, budget),
     };
     p.indent = match answer {
         Answer::Column(column) => Some(column),
@@ -563,36 +573,4 @@ fn find_anchor<L: Lexer>(
         end = start;
     }
     Ok((from == 0).then_some(0))
-}
-
-/// The answer for a line past the budget: an existing line keeps its indentation, and a
-/// new one takes that of the nearest non-blank line it follows, as Helix's `simple` does.
-/// What that reads comes from the budget's reserve for fallbacks; past it, no indentation.
-pub(super) fn fallback(rope: &Rope, settings: Settings, line: Line, budget: &mut Budget) -> Answer {
-    let (Line::New(offset) | Line::Empty(offset)) = line else {
-        return Answer::Keep;
-    };
-    let target = rope.clip_offset(offset, Bias::Left);
-    for back in FALLBACK_BACK {
-        let base = rope.clip_offset(target.saturating_sub(back), Bias::Left);
-        if !budget.spend_reserve(target - base) {
-            break;
-        }
-        let text: String = rope.chunks_in_range(base..target).collect();
-        // The lines it holds, nearest first; the first one is whole only at the buffer's start.
-        let mut lines = text.rsplit('\n').peekable();
-        while let Some(line) = lines.next() {
-            if lines.peek().is_none() && base > 0 {
-                break;
-            }
-            let indentation = measure(line, settings.tab_width());
-            if !indentation.blank {
-                return deepest(Answer::Column(indentation.column));
-            }
-        }
-        if base == 0 {
-            break;
-        }
-    }
-    Answer::Column(0)
 }

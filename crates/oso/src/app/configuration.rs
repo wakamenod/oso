@@ -260,6 +260,8 @@ impl App {
             .set_toggles(configuration.in_force.sessions.notify);
         self.watch
             .set_spinner(!configuration.in_force.sessions.no_spinner);
+        self.watch
+            .set_blink(!configuration.in_force.sessions.no_blink);
         if let Some(on) = changes.electric_indent {
             self.editor.set_electric_indent(on);
         }

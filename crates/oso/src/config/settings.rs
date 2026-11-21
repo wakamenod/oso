@@ -64,6 +64,9 @@ pub struct Sessions {
     /// `spinner = false`: working marks in `*Spaces*` stand still (ADR 0131, Q14). They spin
     /// unless set.
     pub no_spinner: bool,
+    /// `blink = false`: waiting sessions' rows in `*Spaces*` stand still (ADR 0140, as
+    /// amended). They blink unless set.
+    pub no_blink: bool,
     /// `pane_width`: the columns of `*Spaces*`' pane, from 24 to 80; else 44 (ADR 0131, Q7).
     pub pane_width: Option<usize>,
     /// `[sessions.notify]`: which states ask for the person's attention (ADR 0121, step 3).
@@ -294,6 +297,11 @@ pub(super) fn sessions(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Sessi
             "spinner" => {
                 if let Some(on) = switch(value, "[sessions]", "spinner", found) {
                     sessions.no_spinner = !on;
+                }
+            }
+            "blink" => {
+                if let Some(on) = switch(value, "[sessions]", "blink", found) {
+                    sessions.no_blink = !on;
                 }
             }
             "pane_width" => sessions.pane_width = pane_width(value, found),

@@ -37,6 +37,7 @@ impl Face {
             Highlight::Sent => Self::ReviewSent,
             Highlight::Decided => Self::ReviewDecided,
             Highlight::SessionAlert => Self::SessionAlert,
+            Highlight::SessionAlertLit => Self::SessionAlertLit,
             Highlight::SessionWorking => Self::SessionWorking,
             Highlight::SessionDone => Self::SessionDone,
             Highlight::SessionQuiet => Self::SessionQuiet,

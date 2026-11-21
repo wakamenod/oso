@@ -177,8 +177,8 @@ pub(super) struct Behind<'a> {
     underlines: [(Face, &'a [CellRect]); UNDERLINES],
 }
 
-/// The fills behind a window's text, from the back: `*Spaces*`' bands, in the side window only
-/// (ADR 0140), the current line's band, a review's bands
+/// The fills behind a window's text, from the back: `*Spaces*`' bands and the lit beat of its
+/// blink, in the side window only (ADR 0140), the current line's band, a review's bands
 /// (added and removed lines, a pane's filler rows, their refined words, file headers and
 /// comment cards), trailing
 /// whitespace, then the current match first, so that it always has room, a jump's matches as
@@ -190,6 +190,8 @@ fn fills_of(cells: &WindowCells) -> [(Face, &[CellRect]); FILLS] {
         (Face::SessionFrontTint, &cells.pane.tint[..]),
         (Face::SessionPoint, &cells.pane.point[..]),
         (Face::SessionPointBar, &cells.pane.bar[..]),
+        // A waiting row's mark and name on the blink's lit beat, over the point's band.
+        (Face::SessionAlertLit, &cells.pane.lit[..]),
         (Face::CurrentLine, &cells.band[..]),
         (Face::DiffAdded, &cells.review.added[..]),
         (Face::DiffRemoved, &cells.review.removed[..]),
@@ -207,7 +209,7 @@ fn fills_of(cells: &WindowCells) -> [(Face, &[CellRect]); FILLS] {
 }
 
 /// How many lists of cells a window fills behind its text.
-const FILLS: usize = 17;
+const FILLS: usize = 18;
 
 /// A jump's labels in a window over its text: each label's first key in [`Face::JumpLabel`],
 /// and the keys after it in [`Face::JumpLabelNext`], in the order the editor gives them, by

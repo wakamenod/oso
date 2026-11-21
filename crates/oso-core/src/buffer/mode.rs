@@ -6,7 +6,7 @@
 
 use std::path::Path;
 
-use crate::indent::{self, Answer, Budget, Line, Settings};
+use crate::indent::{self, Answer, Budget, Line, Settings, Style};
 use crate::rope::Rope;
 
 /// Which keys a buffer takes, what its modeline calls it, and which language it holds.
@@ -189,6 +189,59 @@ impl Mode {
         matches!(self, Self::CopyList | Self::CopyView)
     }
 
+    /// The indentation a buffer in this mode takes when neither the configuration nor
+    /// EditorConfig gives one (ADR 0115, ADR 0164): two spaces in HTML, CSS, JSON, YAML,
+    /// JavaScript and TypeScript, as Prettier writes them; a tab a level in Go, as gofmt does;
+    /// four spaces elsewhere. Tabs are eight columns wide.
+    pub fn default_indent(self) -> Settings {
+        let given = match self {
+            Self::Html
+            | Self::Css
+            | Self::Json
+            | Self::Yaml
+            | Self::JavaScript
+            | Self::TypeScript
+            | Self::Tsx => Settings::new(2, Style::Spaces, 8),
+            Self::Go => Settings::new(8, Style::Tabs, 8),
+            Self::Fundamental
+            | Self::CopyList
+            | Self::CopyView
+            | Self::Sessions
+            | Self::Rust
+            | Self::Markdown
+            | Self::Toml
+            | Self::Latex
+            | Self::Swift
+            | Self::Brief
+            | Self::Worktrees
+            | Self::Review
+            | Self::ReviewFiles
+            | Self::ReviewMessage
+            | Self::Terminal
+            | Self::Directory
+            | Self::GitStatus
+            | Self::GitGraph
+            | Self::GitPr
+            | Self::GitPrList
+            | Self::GitPrMessage
+            | Self::GitIssueList
+            | Self::GitIssue
+            | Self::GitCommit
+            | Self::GitLog
+            | Self::GitDiscarded
+            | Self::Conversation
+            | Self::RenamePreview
+            | Self::SessionMove => None,
+        };
+        given.unwrap_or_default()
+    }
+
+    /// Whether its indentation is made of spaces whatever the setting says: YAML's, as a tab
+    /// cannot indent YAML (ADR 0164).
+    pub(crate) fn spaces_only(self) -> bool {
+        self == Self::Yaml
+    }
+
     /// The rules its lines are indented by (ADR 0115), or none for the emergency copies' and
     /// the worktrees' buffers and the sessions' list, whose text is not the person's to indent,
     /// and for a terminal, which has none. A brief and a commit's message are prose.
@@ -201,21 +254,20 @@ impl Mode {
             Self::Rust => Some(indent::rust),
             Self::Toml => Some(indent::toml),
             Self::Markdown => Some(indent::markdown),
-            // The modes of ADR 0138 and ADR 0157 have no rules of their own yet: lines keep the
-            // one before's.
+            // ADR 0164.
+            Self::Css => Some(indent::css),
+            Self::Json => Some(indent::json),
+            Self::Html => Some(indent::html),
+            Self::JavaScript | Self::Tsx => Some(indent::javascript),
+            Self::TypeScript => Some(indent::typescript),
+            Self::Go => Some(indent::go),
+            Self::Yaml => Some(indent::yaml),
+            // LaTeX and Swift have no rules of their own yet: lines keep the one before's.
             Self::Fundamental
             | Self::Brief
             | Self::GitCommit
             | Self::GitPrMessage
             | Self::ReviewMessage
-            | Self::Go
-            | Self::TypeScript
-            | Self::Tsx
-            | Self::JavaScript
-            | Self::Html
-            | Self::Css
-            | Self::Json
-            | Self::Yaml
             | Self::Latex
             | Self::Swift => Some(indent::fundamental),
             Self::CopyList

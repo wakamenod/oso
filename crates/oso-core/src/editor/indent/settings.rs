@@ -7,7 +7,7 @@
 use super::super::{Editor, ProjectRequest};
 use crate::buffer::{Buffer, BufferId, Mode};
 use crate::editorconfig::{Applied, Properties};
-use crate::indent::{self, Origin, Origins, Settings};
+use crate::indent::{self, Origin, Origins, Settings, Style};
 
 /// Each mode's indentation, as the configuration gives it, and where each property came from.
 pub(in crate::editor) type ModeIndents = [(Mode, Settings, Origins); 14];
@@ -36,7 +36,7 @@ pub(in crate::editor) fn compiled_mode_indents() -> ModeIndents {
         Mode::Swift,
         Mode::Fundamental,
     ]
-    .map(|mode| (mode, Settings::default(), Origins::default()))
+    .map(|mode| (mode, mode.default_indent(), Origins::default()))
 }
 
 impl Editor {
@@ -52,7 +52,7 @@ impl Editor {
         }
     }
 
-    /// The indentation of `mode`: the configuration's, or four spaces with tabs eight wide.
+    /// The indentation of `mode`: the configuration's, or its default ([`Mode::default_indent`]).
     pub fn mode_indent(&self, mode: Mode) -> Settings {
         self.configured_indent(mode).0
     }
@@ -62,9 +62,10 @@ impl Editor {
         self.mode_indents
             .iter()
             .find(|(known, ..)| *known == mode)
-            .map_or_else(Default::default, |&(_, settings, origins)| {
-                (settings, origins)
-            })
+            .map_or_else(
+                || (mode.default_indent(), Origins::default()),
+                |&(_, settings, origins)| (settings, origins),
+            )
     }
 
     /// Sets what the EditorConfig files read for `id`'s file give it, and gives it its mode's
@@ -87,8 +88,16 @@ impl Editor {
         let (configured, given) = self.configured_indent(buffer.mode());
         let none = Properties::default();
         let properties = buffer.editorconfig().map_or(&none, Applied::properties);
-        let (settings, mut origins) =
+        let (mut settings, mut origins) =
             indent::with_editorconfig(configured, given, properties, buffer.tab_width());
+        // YAML is indented with spaces whatever the setting says (ADR 0164): the style is the
+        // mode's own then, not what asked for tabs.
+        if buffer.mode().spaces_only() && settings.style() == Style::Tabs {
+            let size = u32::try_from(settings.indent_size()).unwrap_or(2);
+            settings =
+                Settings::new(size, Style::Spaces, settings.tab_width().get()).unwrap_or(settings);
+            origins.style = Origin::Default;
+        }
         // A buffer that visits no file is shown with the default.
         if origins.tab_width == Origin::Visited && buffer.path().is_none() {
             origins.tab_width = Origin::Default;
