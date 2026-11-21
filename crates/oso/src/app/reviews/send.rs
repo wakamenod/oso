@@ -9,9 +9,10 @@
 //! and the paste is `send_to_session`'s.
 //!
 //! - The session is the one the person picked for the review with `C-u C-c C-c`, while it
-//!   runs, else, for a pull request, the hosted session in the worktree its head branch is
-//!   checked out in (step 12b, Q11), else the one that runs in the review's root, the one shown
-//!   last first.
+//!   runs, else, in a space whose orchestrator is recorded, that orchestrator, which relays the
+//!   comments to the worktree the message names (ADR 0163); else, for a pull request, the
+//!   hosted session in the worktree its head branch is checked out in (step 12b, Q11), else the
+//!   one that runs in the review's root, the one shown last first.
 //!   With none, the message stays and says how to pick or start one: nothing goes to the kill
 //!   ring, as the message may hold an agent's words (ADR 0074, Q-G).
 //! - A paste refused, as when the session asks for permission, keeps the message (Q6).
@@ -36,7 +37,7 @@ use super::super::App;
 use super::scope_label;
 use crate::commands::agent_sessions::{MAX_SEND_BYTES, too_large};
 use crate::commands::review::{MAX_NAME, one_line};
-use crate::review::message::{Item, compose};
+use crate::review::message::{HEAD, Item, compose, relay_head};
 use crate::review::pr::PrFound;
 use crate::sessions::worker::SessionKey;
 
@@ -86,6 +87,7 @@ impl App {
         };
         let root = found.root().to_path_buf();
         let scope = format!("{scope}, in {}", one_line(found.name(), MAX_NAME));
+        let head = self.message_head(review, index, &root);
         let (Some(model), rows) = (self.editor.review(review), self.editor.review_rows(review))
         else {
             return;
@@ -104,7 +106,7 @@ impl App {
             .collect();
         // A file may hold secrets by its name, or as an open buffer of it does (`secrets`).
         let held = super::secrets::held_paths(&self.editor);
-        let composed = compose(&scope, &items, MAX_SEND_BYTES, |path| {
+        let composed = compose(&head, &scope, &items, MAX_SEND_BYTES, |path| {
             super::secrets::withheld(&root, &held, path)
         });
         if composed.taken == 0 {
@@ -133,9 +135,12 @@ impl App {
             origin: Origin::Review(review),
             taken,
         });
-        let to = match self.review_session(review) {
+        let to = match self.message_session(&Origin::Review(review)) {
             Some(key) => format!("to {}", self.review_session_name(key)),
-            None => "to no session yet".to_owned(),
+            None => match self.review_orchestrator() {
+                Some(Err((name, _))) => format!("to orchestrator {name}, which is not running"),
+                _ => "to no session yet".to_owned(),
+            },
         };
         let more = match left {
             0 => String::new(),
@@ -224,6 +229,11 @@ impl App {
             },
             None => match self.message_session(&origin) {
                 Some(key) => key,
+                None if matches!(origin, Origin::Review(_))
+                    && self.review_orchestrator().is_some() =>
+                {
+                    return self.orchestrator_not_running();
+                }
                 None => {
                     let start = self.dispatcher.where_is(&self.editor, "claude");
                     let place = match origin {
@@ -372,19 +382,74 @@ impl App {
             .retain(|pull, key| table.get(*key).is_some() && shown.contains(pull));
     }
 
-    /// The session a message from `origin` goes to, if none is named.
+    /// The session a message from `origin` goes to, if none is named: for a review's, the one
+    /// the person picked for it while it runs, else the space's orchestrator in a space whose
+    /// orchestrator is recorded, none while it is not running (ADR 0163), else the review's
+    /// own.
     fn message_session(&self, origin: &Origin) -> Option<SessionKey> {
         match origin {
-            Origin::Review(review) => self.review_session(*review),
+            Origin::Review(review) => match self.picked_session(*review) {
+                Some(key) => Some(key),
+                None => match self.review_orchestrator() {
+                    Some(running) => running.ok(),
+                    None => self.review_session(*review),
+                },
+            },
             Origin::Pull(from) => self.pull_session(from),
         }
     }
 
-    /// The session a message of `review` goes to: the one the person picked for it while it
-    /// runs, else the one in each of [`places`], the one shown last first.
-    fn review_session(&self, review: ReviewId) -> Option<SessionKey> {
-        let picked = (self.reviews.sending.picked.get(&review).copied())
-            .filter(|key| self.hosting.table().get(*key).is_some_and(|s| s.runs()));
+    /// The first line of a message of the review at `index`, whose root is `root`: to the
+    /// space's orchestrator, it names the worktree the orchestrator relays it to.
+    fn message_head(&self, review: ReviewId, index: usize, root: &Path) -> String {
+        if !self.relays(review) {
+            return HEAD.to_owned();
+        }
+        let running = &self.reviews.open[index];
+        let worktree = places(running.pr.as_ref(), root).next().unwrap_or(root);
+        relay_head(&worktree.to_string_lossy())
+    }
+
+    /// Whether a message of `review` goes to the space's orchestrator: no session was picked
+    /// for it, and the space in front has one recorded.
+    fn relays(&self, review: ReviewId) -> bool {
+        self.picked_session(review).is_none() && self.review_orchestrator().is_some()
+    }
+
+    /// Says that the space's orchestrator, which a message goes to, is not running: the
+    /// message stays.
+    fn orchestrator_not_running(&mut self) {
+        let Some(Err((name, terminal))) = self.review_orchestrator() else {
+            return;
+        };
+        let how = match terminal {
+            Some(_) => format!(
+                "{} in its terminal resumes it",
+                self.dispatcher.where_is(&self.editor, "session-resume")
+            ),
+            None => format!(
+                "{} starts it",
+                self.dispatcher
+                    .where_is(&self.editor, "space-orchestrator-start")
+            ),
+        };
+        self.editor.message(format!(
+            "Orchestrator {name} is not running: {how}, or C-u C-c C-c picks a session; the \
+             message stays"
+        ));
+    }
+
+    /// The session the person picked for `review` with `C-u C-c C-c`, while it runs.
+    fn picked_session(&self, review: ReviewId) -> Option<SessionKey> {
+        (self.reviews.sending.picked.get(&review).copied())
+            .filter(|key| self.hosting.table().get(*key).is_some_and(|s| s.runs()))
+    }
+
+    /// The session a message of `review` goes to outside a space with an orchestrator: the
+    /// one the person picked for it while it runs, else the one in each of [`places`], the one
+    /// shown last first.
+    pub(super) fn review_session(&self, review: ReviewId) -> Option<SessionKey> {
+        let picked = self.picked_session(review);
         picked.or_else(|| {
             let index = self.reviews.index(review)?;
             let running = &self.reviews.open[index];
@@ -394,7 +459,7 @@ impl App {
     }
 
     /// Session `key`'s name, as the echo area shows it.
-    fn review_session_name(&self, key: SessionKey) -> String {
+    pub(super) fn review_session_name(&self, key: SessionKey) -> String {
         (self.hosting.table().get(key)).map_or_else(String::new, |s| one_line(&s.name, 40))
     }
 
@@ -427,7 +492,10 @@ impl App {
 
 /// Where a review's session is looked for, in order: a pull request's comments go to the
 /// session where its head branch is checked out (step 12b, Q11), else to the review's own.
-fn places<'a>(found: Option<&'a PrFound>, root: &'a Path) -> impl Iterator<Item = &'a Path> {
+pub(super) fn places<'a>(
+    found: Option<&'a PrFound>,
+    root: &'a Path,
+) -> impl Iterator<Item = &'a Path> {
     let head = found.and_then(|found| found.worktree.as_deref());
     head.into_iter().chain(std::iter::once(root))
 }

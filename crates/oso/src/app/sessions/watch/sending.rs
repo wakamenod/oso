@@ -120,7 +120,7 @@ impl App {
 
     /// The terminal of hosted session `key`, if a paste may go there now; else why not, as
     /// [`App::send_to_session`] refuses it.
-    pub(super) fn paste_target(
+    pub(in crate::app) fn paste_target(
         &self,
         key: SessionKey,
     ) -> Result<oso_core::buffer::BufferId, String> {

@@ -33,7 +33,7 @@ impl App {
 
     /// Text the input method committed, or a key that types several characters, for the
     /// terminal `buffer`'s program, as UTF-8.
-    pub(super) fn send_text(&mut self, buffer: BufferId, text: &str) {
+    pub(in crate::app) fn send_text(&mut self, buffer: BufferId, text: &str) {
         let Some(terminal) = self
             .terminals
             .map

@@ -177,6 +177,9 @@ pub(in crate::app) struct Reviews {
     pub(super) looked: Option<(WindowId, usize, ViewSize, u64)>,
     /// The review message waiting to be sent, and the session picked for each review (step 12).
     pub(super) sending: super::send::Sending,
+    /// A question's Enter that waits, and one held for an orchestrator being resumed
+    /// (ADR 0163).
+    pub(super) asking: super::ask::Asking,
     /// The saved reviews' store and list (step 6).
     pub(super) keep: super::keep::Keep,
     /// The reviews a restart carried, waiting for their projects (step 6).

@@ -152,7 +152,7 @@ the head's letter with Control, `C-c C-n` for `n`:
 | `C-c C-w` | Start a session in a new worktree of this session's project. |
 | `C-c C-e`, `C-c C-f` | Explain this session's state; show who sent it its newest message. |
 | `C-c C-z` | Zoom the selected window. |
-| `C-c C-v` | Review what changed in its project since its baseline. |
+| `C-c C-v` | The review layout, as `C-x v r`: from the layout's slot, back to the review. `C-c a D` reviews what changed in its project since its baseline. |
 | `C-c @` | Insert a session's name as `@NAME`. |
 | `C-c +`, `C-c -` | Let the agent channel read its screen, or take that back. |
 | `C-c C-u` | A prefix argument for the next key, as `C-u` elsewhere: `C-c C-u C-c a m` sends the place only. |
@@ -454,6 +454,21 @@ stays, and the echo area says how to pick or start one. `C-c C-k` drops the mess
 holding text yanked from a secret is not sent.
 Sent comments are drawn dimmed, and an edit makes one unsent again. A session that is asking you
 something takes no paste: answer it first, and the message waits.
+In a space with an orchestrator, the message goes to the orchestrator instead, naming the
+review's worktree, and the orchestrator has the comments acted on there; `C-u C-c C-c` still picks
+any session. With the orchestrator stopped, the message stays and the echo area says how to resume
+it.
+
+`Q` in the review asks a question about the hunk or line at point, the lines the region spans, or
+an unchanged line around a hunk. Type it in the prompt and press `RET`: it goes at once, with the
+review's worktree, the file, the line numbers and the lines, to the space's orchestrator, and is
+submitted, as you confirmed it in the prompt. The orchestrator's terminal shows in the layout's
+slot while you stay in the review, so you read the answer beside the diff. Outside a space with an
+orchestrator, it goes to the review's session. A file that may hold secrets sends its place alone.
+An orchestrator asking for permission or another answer takes no question: its terminal shows so
+that you see why, and `M-p` in the prompt brings the question back. A stopped orchestrator is
+offered to be resumed, and the question waits for it for two minutes. Text you had typed in the
+orchestrator's input box goes with the question.
 
 In `*pr: #N*`, `x` sends the check on the line to the agent, `X` every failing one with the end
 of its log, `c` the review thread on the line and `C` every unresolved one. They open in

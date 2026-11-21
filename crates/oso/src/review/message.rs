@@ -28,6 +28,15 @@ use crate::git::printable;
 
 /// The line a message starts with.
 pub(crate) const HEAD: &str = "Review comments on the changes below. Please act on each of them.";
+
+/// The line a message to a space's orchestrator starts with, naming the worktree `root` the
+/// changes are in, so that it relays them to the session there (ADR 0163).
+pub(crate) fn relay_head(root: &str) -> String {
+    format!(
+        "Review comments on the changes in worktree {}. Have each of them acted on there.",
+        printable(root, MAX_PATH_CHARS)
+    )
+}
 /// The most lines of a hunk a message holds whole.
 pub(crate) const MAX_HUNK_LINES: usize = 60;
 /// The lines around the comment a longer hunk is cut to.
@@ -56,16 +65,18 @@ pub(crate) struct Message {
     pub(crate) taken: usize,
 }
 
-/// The message of `items`, in their order, under the line naming `scope`, at most `max`
-/// bytes: the items past it are left out. `secret` says whether a file's name may hold
-/// secrets, so that its lines are not sent; it is asked only of the items composed.
+/// The message of `items`, in their order, under `head`, [`HEAD`] or a [`relay_head`], and the
+/// line naming `scope`, at most `max` bytes: the items past it are left out. `secret` says
+/// whether a file's name may hold secrets, so that its lines are not sent; it is asked only of
+/// the items composed.
 pub(crate) fn compose(
+    head: &str,
     scope: &str,
     items: &[Item<'_>],
     max: usize,
     secret: impl Fn(&[u8]) -> bool,
 ) -> Message {
-    let mut text = format!("{HEAD}\nScope: {}.", printable(scope, MAX_PATH_CHARS));
+    let mut text = format!("{head}\nScope: {}.", printable(scope, MAX_PATH_CHARS));
     let mut taken = 0;
     for item in items {
         let entry = entry(item, secret(item.comment.path()));
@@ -107,7 +118,7 @@ fn entry(item: &Item<'_>, secret: bool) -> String {
             out.push_str("\n(The file may hold secrets: its lines are not sent.)");
         } else {
             out.push('\n');
-            lines_of(&mut out, hunk, at);
+            lines_of(&mut out, hunk, at, "comment");
         }
     }
     if let Some(parent) = item.parent {
@@ -130,7 +141,7 @@ fn entry(item: &Item<'_>, secret: bool) -> String {
 
 /// The hunk `anchor` is in, and where in its lines, removed then added, the anchor is: `None`
 /// for a whole hunk.
-fn hunk_of(shape: &Shape, anchor: Anchor) -> Option<(&Hunk, Option<usize>)> {
+pub(super) fn hunk_of(shape: &Shape, anchor: Anchor) -> Option<(&Hunk, Option<usize>)> {
     match anchor {
         Anchor::Line { side, number } => {
             let hunk = &shape.hunks()[shape.hunk_at(side, number)?];
@@ -146,7 +157,7 @@ fn hunk_of(shape: &Shape, anchor: Anchor) -> Option<(&Hunk, Option<usize>)> {
 
 /// Where a comment is: `L42 (new)`, a whole hunk as the lines it spans, `L40-L48 (new)`, or,
 /// with no hunk known, `hunk 3`.
-fn place(anchor: Anchor, hunk: Option<&Hunk>) -> String {
+pub(super) fn place(anchor: Anchor, hunk: Option<&Hunk>) -> String {
     let side = |side: Side| match side {
         Side::Old => "old",
         Side::New => "new",
@@ -171,8 +182,8 @@ fn place(anchor: Anchor, hunk: Option<&Hunk>) -> String {
 }
 
 /// Writes `hunk` in a `diff` fence, cut to the [`CUT_TO`] lines around `at` when it has more
-/// than [`MAX_HUNK_LINES`], saying how many were left out.
-fn lines_of(out: &mut String, hunk: &Hunk, at: Option<usize>) {
+/// than [`MAX_HUNK_LINES`], saying how many were left out around the `what` it is about.
+pub(super) fn lines_of(out: &mut String, hunk: &Hunk, at: Option<usize>, what: &str) {
     let len = hunk.removed.len() + hunk.added.len();
     let (from, to) = if len > MAX_HUNK_LINES {
         let from = at
@@ -202,7 +213,7 @@ fn lines_of(out: &mut String, hunk: &Hunk, at: Option<usize>) {
     if (from, to) != (0, len) {
         let _ = write!(
             out,
-            "\n(The hunk's {len} lines are cut to the {CUT_TO} around the comment: {from} above \
+            "\n(The hunk's {len} lines are cut to the {CUT_TO} around the {what}: {from} above \
              and {} below are left out.)",
             len - to
         );
@@ -210,7 +221,7 @@ fn lines_of(out: &mut String, hunk: &Hunk, at: Option<usize>) {
 }
 
 /// A line's text without its ending, at most [`MAX_LINE_CHARS`] characters.
-fn line_text(line: &[u8]) -> String {
+pub(super) fn line_text(line: &[u8]) -> String {
     let line = line.strip_suffix(b"\n").unwrap_or(line);
     let line = line.strip_suffix(b"\r").unwrap_or(line);
     // No character takes more than 4 bytes, so what is shown is in these, however long the

@@ -256,7 +256,7 @@ impl App {
     }
 
     /// The key of space `at`'s orchestrator while it runs.
-    fn live_orchestrator(&self, at: usize) -> Option<SessionKey> {
+    pub(in crate::app) fn live_orchestrator(&self, at: usize) -> Option<SessionKey> {
         let id = self.watch.spaces().stored(at)?.orchestrator.clone()?;
         let table = self.hosting.table();
         table
@@ -302,6 +302,7 @@ impl App {
         // A question asked anew drops the one before, and what it offered.
         self.hosting.spaces.offer = None;
         self.hosting.spaces.replace_asked = None;
+        self.forget_review_offer();
         match self.editor.ask(question, "space-confirm") {
             Ok(prompt) => {
                 self.hosting.spaces.offer = Some(Offer {
@@ -323,6 +324,10 @@ impl App {
     /// one asked anew replaced it, so a `y` does only the question it answered; with nothing
     /// kept, it does nothing.
     pub(in crate::app) fn space_confirmed(&mut self) {
+        // A review's offer to resume the orchestrator for a question (ADR 0163).
+        if self.review_ask_confirmed() {
+            return;
+        }
         if self.hosting.spaces.replace_asked.is_some() {
             return self.replace_confirmed();
         }
@@ -352,6 +357,7 @@ impl App {
     /// After an event: an offer whose question is no longer open, and was not answered `y`
     /// in it, is dropped, so that no later `y` does it.
     pub(in crate::app) fn forget_unanswered_offer(&mut self) {
+        self.forget_unanswered_review_offer();
         let open = self.editor.prompt().map(|prompt| prompt.id());
         let replace = self
             .hosting

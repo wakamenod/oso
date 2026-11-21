@@ -479,6 +479,18 @@ project and how long ago the baseline was taken. Only a trusted project runs git
   There `C-c C-c` pastes it into the session, as `session-send` does, not submitted, and `C-u
   C-c C-c` picks the session by completion; `C-c C-k` drops it and shows the review again. Once pasted, the comments it
   held are drawn dimmed, but any changed meanwhile; one message waits at a time.
+- **In a space** whose orchestrator is recorded ([ADR 0163](adr/0163-reviews-in-a-space.md)),
+  the message goes to the orchestrator unless `C-u C-c C-c` picked a session, its first line
+  naming the review's worktree; with the orchestrator stopped, it stays, and the echo area names
+  the key that resumes or starts it.
+- `Q` (`review-ask`) reads a question in the prompt and sends it at once, submitted, to the
+  space's orchestrator (outside a space with one, to the review's session): a line saying what it
+  is, the review's scope and worktree, then `## path  L42 (new)` and the hunk at point, the lines
+  the region spans or an unchanged line, in a `diff` fence, and `Question: …`. The orchestrator's
+  terminal shows in the layout's slot, the review staying selected. Enter goes 150 ms after the
+  paste, as a key of its own, if the session still takes a paste. A refused question shows the
+  terminal and says why; a stopped orchestrator is offered to be resumed (`y`), the question held
+  for it two minutes.
 - `C-x k` closes the review, asking first while comments of yours that were not sent, or a draft,
   would be lost; a review not shown is shown before the question.
 - **The review layout** ([ADR 0160](adr/0160-the-review-layout.md)): a review a person opens
@@ -1155,7 +1167,8 @@ a switch made with its command stands until that setting changes in the file
   head of that letter where the terminal and Emacs leave `C-<letter>` free (ADR 0143): `C-c C-n`,
   `C-c C-d`, `C-c C-b`, `C-c C-r`, `C-c C-a`, `C-c C-w`, `C-c C-e`, `C-c C-f`, `C-c C-z` and
   `C-c C-v`, with `C-c C-p` for the pane (`s`), as `C-c C-s` is the live search. `C-c a` opens the
-  menu, for `c`, `m`, `j`, `O`, `S`, `K`, `P`, `A` and `V`. `C-c @` mentions, `C-c +` and `C-c -`
+  menu, for `c`, `m`, `j`, `O`, `S`, `K`, `P`, `A`, `D` and `V`; `C-c C-v` is `review-layout`
+  since ADR 0163, `C-c a D` the session's review. `C-c @` mentions, `C-c +` and `C-c -`
   allow and deny the agent channel's reads, `C-c C-u` is a prefix argument, `C-c C-y` pastes an
   `@` reference to the clipboard's image, kept in a private file
   ([ADR 0142](adr/0142-attaching-the-clipboard-s-image-to-a-session.md)), and `C-c ?` says the

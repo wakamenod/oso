@@ -104,7 +104,9 @@ often, so it must rebuild within 2 s.
   which `app/reviews/files.rs` puts in and `commands/review/files.rs` drives (step 6b); and
   `review/count.rs` counts the review menu's scopes on `oso-review-count`. `review/message.rs`
   composes the message of the person's comments that `app/reviews/send.rs` pastes into the
-  review's session through `send_to_session` (step 12). `review/pr.rs` resolves a pull
+  review's session through `send_to_session` (step 12), or the space's orchestrator
+  (ADR 0163); `review/ask.rs` composes `Q`'s question, which `app/reviews/ask.rs` pastes and
+  submits there, shown in the layout's slot. `review/pr.rs` resolves a pull
   request's sides through `gh` and a fetch of objects alone (step 12b). `review/saved.rs` is a
   saved review's file format (step 6), which `app/reviews/store.rs` reads and writes on
   `oso-review-store`, under the state directory, and `app/reviews/keep.rs` saves and brings
