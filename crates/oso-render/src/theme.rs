@@ -307,7 +307,7 @@ const FADED_FLOOR: f32 = 4.5;
 /// are not here, so text on them is drawn in [`Face::Text`]'s colour.
 ///
 /// The spaces pane's bands (ADR 0140) follow: its marks and names keep their colours on them.
-pub(crate) const SYNTAX_FILLS: [Face; 8] = [
+pub(crate) const SYNTAX_FILLS: [Face; 9] = [
     Face::CurrentLine,
     Face::DiffAdded,
     Face::DiffRemoved,
@@ -316,6 +316,8 @@ pub(crate) const SYNTAX_FILLS: [Face; 8] = [
     Face::SessionHeader,
     Face::SessionFrontTint,
     Face::SessionPoint,
+    // A waiting row's lit beat (ADR 0140, as amended): only its own inverse glyphs are on it.
+    Face::SessionAlertLit,
 ];
 
 /// `name`'s theme, with text gamma off until its strength is picked beside the OS's text.
@@ -583,6 +585,8 @@ pub(crate) mod tests {
                 (Face::SessionFrontTint, LABEL),
                 (Face::SessionPoint, LABEL),
             ],
+            // A waiting row's lit beat: its glyphs on their own fill, as a key's on its chip.
+            Face::SessionAlertLit => &[(Face::SessionAlertLit, LABEL)],
             Face::SessionWorking
             | Face::SessionQuiet
             | Face::SessionFront

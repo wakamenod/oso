@@ -106,11 +106,23 @@ impl App {
     }
 
     /// After each event: the session in front of the person, whose look counts once it has
-    /// stayed [`SEEN_AFTER`].
+    /// stayed [`SEEN_AFTER`]. While a session needs input and the list could blink, it is drawn
+    /// again at once, as the one in front does not blink (ADR 0140, as amended).
     pub(in crate::app) fn sync_seen(&mut self) {
         let watched = self.watched_session();
-        if self.watch.seen.watched.map(|(key, _)| key) != watched {
-            self.watch.seen.watched = watched.map(|key| (key, Some(Instant::now() + SEEN_AFTER)));
+        if self.watch.seen.watched.map(|(key, _)| key) == watched {
+            return;
+        }
+        self.watch.seen.watched = watched.map(|key| (key, Some(Instant::now() + SEEN_AFTER)));
+        let waiting =
+            || (self.watch.known.values()).any(|known| matches!(known.state, State::NeedsInput(_)));
+        // A change due already makes the list again, with the new one in front. Else only the
+        // list is made again, for its blink, as for its ages: no candidate changed, and no
+        // change can come between, which would need them made.
+        if !self.watch.stale && self.sessions_may_blink() && waiting() {
+            self.watch.stale = true;
+            self.watch.aging = true;
+            self.refresh_sessions();
         }
     }
 

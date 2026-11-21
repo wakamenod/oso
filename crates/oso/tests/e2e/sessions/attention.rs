@@ -1,13 +1,14 @@
 //! Attention to hosted agent sessions (ADR 0121, step 3), with a fake `claude` that prints the
 //! recorded screen a flow writes, as the TUI would: the side list, the states the rules find,
-//! the modeline's marks, the notices, a stop that asks first, and another program's session
-//! read from the registry.
+//! the modeline's marks, the notices, the blink of a waiting row, a stop that asks first, and
+//! another program's session read from the registry.
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test: the rules, the
 //! tracker, the list's layout and the attention's timing have their own tests.
 
 use std::fs;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::path::Path;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use oso_platform::process::{Executable, Sink, Source, Spawn, spawn};
 use serde_json::{Value, json};
@@ -128,14 +129,16 @@ fn the_side_list_marks_and_notices_follow_a_sessions_state() {
         "{list}"
     );
 
-    // Away from it, its turn ends: done, a notice, and the mark.
+    // Away from it, it blinks; its turn ends: done, a notice, and the mark.
     let notes = flow.project.join("notes.txt");
     fs::write(&notes, "notes\n").unwrap();
-    app.open_file(&notes);
+    blinks(&mut app, &notes);
     print(&flow, WORKING);
     app.wait_for("working", |state| {
         state_of(state, "proj").as_deref() == Some("working")
     });
+    // Answered, it stands still.
+    app.wait_for("still", |state| lit(state) == 0);
     spins(&mut app);
     let asked = |state: &Value| sessions(state)["asked"].as_u64().unwrap_or(0);
     let before = asked(&app.state());
@@ -178,6 +181,29 @@ fn the_side_list_marks_and_notices_follow_a_sessions_state() {
 
     stop_asks_first(&mut app);
     super::quit(&mut app);
+}
+
+/// The lines the list draws inverse on the blink's lit beat.
+fn lit(state: &Value) -> usize {
+    sessions(state)["lit"].as_array().map_or(0, Vec::len)
+}
+
+/// The waiting session does not blink in front of the person; away from it, its row, its
+/// worktree's and its space's blink, lit then not, a beat every 625 ms (ADR 0140, as amended).
+fn blinks(app: &mut App, notes: &Path) {
+    // A display with no window manager may say the window lost the keyboard: it takes it.
+    app.call("focus", Some(json!({ "focused": true })));
+    app.wait_for("focused", |state| sessions(state)["focused"] == true);
+    let until = Instant::now() + Duration::from_millis(1_500);
+    while Instant::now() < until {
+        let state = app.state();
+        assert_eq!(lit(&state), 0, "{}", sessions(&state)["list"]);
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    app.open_file(notes);
+    app.wait_for("lit", |state| lit(state) > 0);
+    app.wait_for("not lit", |state| lit(state) == 0);
+    app.wait_for("lit again", |state| lit(state) > 0);
 }
 
 /// The working session's mark spins in the list, a frame every 125 ms (ADR 0131).
