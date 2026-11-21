@@ -42,6 +42,9 @@ jobs:
   # Whether this run measures: a pull request only with the perf label, not when another
   # label is added; a nightly run only when no push run measured main's head.
   gate:
+    # Skipped, with no runner, on a pull request without the label: the jobs below then
+    # skip too.
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'perf') && (github.event.action != 'labeled' || github.event.label.name == 'perf')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

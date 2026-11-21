@@ -132,7 +132,7 @@ The author accepted this on 2026-11-21, through the orchestrator.
 
 ## Consequences
 
-- A pull request starts 14 jobs instead of about 22, and a docs-only one starts 5. Of the
+- A pull request starts 14 jobs instead of about 22 (perf.yml adds two skipped checks that take no runner), and a docs-only one starts 5. Of the
   14, two run on the Mac, and none waits for GitHub's macOS runners unless it comes from a
   fork.
 - The Mac's jobs run one at a time. With several pull requests open they queue on the Mac,
