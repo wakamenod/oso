@@ -35,6 +35,7 @@
 //! - `messages`: who sent a session a message, from its screen.
 //! - `send`: what the person sends to a session, and why a send is refused.
 //! - `images`: the clipboard's images kept for a session, and the `@path` pasted for one.
+//! - `native`: a native session's stream read into rows and states (ADR 0165).
 
 pub mod adopt;
 pub mod attention;
@@ -50,6 +51,7 @@ pub mod launch;
 pub mod list;
 pub mod messages;
 pub mod moving;
+pub mod native;
 pub mod recap;
 pub mod record;
 pub mod registry;
