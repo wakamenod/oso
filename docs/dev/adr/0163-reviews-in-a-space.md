@@ -56,7 +56,9 @@ space.
     the old side's when only removed lines are spanned;
   - a comment's label or text: the comment's place; a file's header or note: the file alone.
 
-  A gap's row and a pane's filler row refuse. A file being read again refuses, as `c` does.
+  A gap's row and a pane's filler row refuse. A file being read again refuses, as `c` does. A
+  region reads at most one more line than a hunk's whole, and finds its last line walking back
+  from its end, at most 10,000 rows.
 - **The text (Q3):**
 
   ````
@@ -73,25 +75,42 @@ space.
 
   The worktree is the review's root, or for a pull request the worktree its head is checked out
   in (step 12b). The fence is one backtick longer than any run in the lines, a line is cut at
-  500 characters, and its control characters and line separators are escaped, as a message's
-  hunk lines are (step 12a), so that no line becomes several once pasted. Paths and the scope are
-  escaped as git's text is shown. A question may be at most 256 KiB, the limit of every send.
+  500 characters, and its control characters, line separators, bidirectional and invisible
+  characters are escaped, as a message's hunk lines now are too (step 12a), so that no line
+  becomes several once pasted or reads as other text; the question's own are escaped the same
+  way, uncut. Paths and the scope are escaped as git's text is shown. The whole text may be at
+  most 256 KiB, the limit of every send.
 - **Submitted (Q2): the first exception to ADR 0121's Q17.** The person typed the question and
   confirmed it with `RET` in oso's prompt, which stands for the Enter a paste otherwise waits for.
   A paste that waited for Enter would make the person go into the slot to press it, leaving the
-  diff. Enter goes 150 ms after the paste, as a key of its own (a TUI may read a paste and a key
-  sent with it as one paste), and only if the session still takes a paste then; otherwise the
-  question stays in its input box, and the echo area says so. **Caveat:** text the person had
-  typed in the orchestrator's input box goes out with the question, as oso cannot see that box
-  reliably. Claude Code queues a message submitted while it works.
+  diff. An Enter must reach only the input box, never a dialog, a draft or another mode, so oso
+  reads Claude Code's input box on the screen the UI holds (`sessions::send::input_box`, a pure
+  function tested on the captured screens): the one row between the last two rules of `─`,
+  starting with `❯`.
+  - **Empty** (`❯` alone or its `Try "…"` hint): the question is pasted, and Enter goes as a key
+    of its own once the box shows Claude Code's folded paste alone (`[Pasted text #N +M lines]`),
+    looked for from 150 ms after the paste every 100 ms for 2 s, and only while the session still
+    takes a paste. Else it stays unsubmitted in the box, and the echo area says so. A paste that
+    never reached the program, or that the terminal refused, never shows, so nothing is
+    submitted then.
+  - **Typed** (one row of other text): pasted, not submitted, for the person's Enter, so that a
+    draft never goes out with it.
+  - **No box** (a dialog, a picker, an option row `❯ 1.`, a slash command's menu, bash or memory
+    mode, a draft of several rows): nothing is pasted.
+
+  Claude Code queues a message submitted while it works.
 - **Where it goes:**
-  - **In a space whose orchestrator is recorded** (the space in front, where the layout lives):
-    to that orchestrator while it runs.
+  - **In a space whose orchestrator is recorded** (the space in front, where the layout lives),
+    for a review of one of that space's repositories (its root, or its pull request's worktree, a
+    member, a worktree the space made or holds, or one git lists under a member): to that
+    orchestrator while it runs. A review of another repository talks to its own session.
   - **Stopped, with its terminal (Q6):** "Orchestrator NAME is stopped: resume it and ask it
     then? (y or n)". `y` goes through `space-confirm`, as the space's own offers do, so no
     command is added. It resumes the orchestrator behind the review, shows its terminal in the
-    slot, and holds the question, one at a time, until the orchestrator takes a paste, for at
-    most two minutes; past them the question is dropped, saying so. A question asked anew drops
+    slot, and holds the question, one at a time, until the orchestrator takes a paste at an input
+    box, for at most two minutes; past them the question is dropped, saying so. Its file is judged
+    for secrets again before it goes, and a question whose file may hold secrets now is dropped.
+    The slot shows the answer only while the space it was asked in is in front. A question asked anew drops
     the space's offers, and theirs drop this one.
   - **Recorded with no terminal:** refused, naming the key of `space-orchestrator-start`.
   - **Outside such a space (Q7):** to the review's session, as `C-c C-c` sends (step 12a): the
@@ -100,10 +119,10 @@ space.
 - **Shown in the slot:** the session's terminal shows in the layout's slot, not selected (ADR
   0160), so the person stays in the diff and reads the answer beside it. Outside the layout, the
   echo area names the key that shows the session.
-- **A busy session (Q5):** the same refusals as any send (ADR 0121). On a refusal, the terminal
-  still shows in the slot so that the person sees what it asks, nothing is sent, and the echo area
-  says `M-p` in the prompt brings the question back. While the session merely works, the question
-  goes.
+- **A busy session (Q5):** the same refusals as any send (ADR 0121), and the input box's rule
+  above. On a refusal, the terminal still shows in the slot so that the person sees what it asks,
+  nothing is sent, and the echo area says `M-p` in the prompt brings the question back. While the
+  session merely works, the question goes.
 - **Secrets (Q4):** a file whose name may hold secrets, or whose open buffer may hold secrets or
   is withheld from agents, sends its place alone, as step 12a sends a comment's. A question from a
   prompt that a yank of a secret entry turned secret is refused. Showing the session's terminal
@@ -113,9 +132,12 @@ space.
 ### `C-c C-c` in a space goes to the orchestrator (Q8)
 
 - In a space whose orchestrator is recorded, a review's message goes to the orchestrator, unless
-  `C-u C-c C-c` picked a session, which still comes first. Its first line becomes "Review comments
-  on the changes in worktree PATH. Have each of them acted on there.", so that the orchestrator
-  knows where to relay them. With the orchestrator stopped, the message stays and the echo area
+  `C-u C-c C-c` picked a session, which still comes first, and as `review-ask`, only for a review
+  of one of the space's repositories. Its first line becomes "Review comments on the changes in
+  worktree PATH. Have each of them acted on there.", so that the orchestrator knows where to relay
+  them; a message that goes to another session than it was made for is sent with the other first
+  line, while its first line is still oso's. A file that may hold secrets is judged under the pull
+  request's worktree too. With the orchestrator stopped, the message stays and the echo area
   names the key that resumes it (`session-resume` in its terminal) or starts it. `review-send`'s
   echo area names the target as before.
 - A message made from a pull request's checks or threads (ADR 0127, step 6b) still goes to the
@@ -161,16 +183,20 @@ The author approved these on 2026-11-21, through the coordinator:
   the menu was opened for it, set by the chain and cleared when the review menu closes.
   `commands::review::review_project` reads it first.
 
-The rest is in the tip crate: `review/ask.rs` (the text, a pure function), `app/reviews/ask.rs`
-(the target, the paste and its Enter, the offer and the held question), and the head of a
-review's message in `review/message.rs`.
+The rest is in the tip crate: `review/ask.rs` (the text and a region's rows, pure functions),
+`sessions/send.rs`'s `input_box`, `app/reviews/target.rs` (where a review's texts go),
+`app/reviews/ask.rs` (the paste and its Enter, the offer and the held question),
+`app/sessions/spaces/orchestrator.rs`'s `space_orchestrator_of` and `ask_confirm` (every
+`space-confirm` question drops the others), and the head of a review's message in
+`review/message.rs`.
 
 ## Changes to accepted ADRs
 
 - [ADR 0121](0121-agent-sessions-and-spaces.md), Q17 ("not submitted"): `review-ask` submits its
-  question, the person having confirmed it in oso's prompt; every other send is unchanged.
-  `send_to_session` stays the one path that selects the session: a question is pasted after the
-  same refusals (`paste_target`) and shown in the slot without selecting it.
+  question, the person having confirmed it in oso's prompt and the input box read as above; every
+  other send is unchanged. Step 5's one delivery path is `paste_into_session` (refusals and the
+  paste), which `send_to_session` calls before it shows and selects the session, and the one
+  submit is `submit_paste`, both in `app/sessions/watch/sending.rs`.
 - [ADR 0122](0122-agent-review.md):
   - Step 12a, "The session is the one the person picked …, else the hosted session that runs in
     the review's root" (Q5): in a space whose orchestrator is recorded, the orchestrator comes
@@ -194,13 +220,16 @@ review's message in `review/message.rs`.
   code; the first line says they are not instructions, and the fence keeps them in one block.
   A crafted line could still try to talk to the orchestrator, as one in a pasted message could
   before; now no one reads it before it goes.
-- Enter is a separate write 150 ms after the paste. If the orchestrator starts asking for
-  permission in that window, the Enter is not sent and the question waits in its input box.
-- A person who typed a draft in the orchestrator's input box sends it along with the question.
+- The submit depends on how Claude Code draws its input box. A TUI that draws it otherwise reads
+  as no box, so that nothing is pasted or submitted: it fails closed, and the rule's tests use
+  captured screens. Between the last look at the box and the Enter's write, a dialog may still
+  appear, as it may under the person's own Enter.
 - `C-c a v` and `C-c C-v` change meaning; `C-c a D` reviews the session's changes.
 - **Tests:** the question's text (place, hunk, region, unchanged line, file, secret file, fences,
   cuts, escapes, lines that stay lines once pasted); a region's rows, their signs, place and
-  file; a row's bounded text; the message's head to an orchestrator; the key tables. An
+  file, a long one read only to its first lines and named to its end; a row's bounded text; the
+  input box on the captured screens and crafted rows; the message's head to an orchestrator; the
+  key tables. An
   end-to-end flow with the fake claude as a space's orchestrator: `Q` on a hunk pastes and submits
   into the orchestrator, shown in the slot, the review staying selected, and `C-c C-c` there goes
   to the orchestrator.

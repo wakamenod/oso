@@ -58,10 +58,11 @@ impl App {
     }
 
     /// `C-y` in a terminal, or a send to an agent session (ADR 0121, Q17): with bracketed
-    /// paste off, text of several lines asks first (ADR 0120, Q13).
-    pub(in crate::app) fn paste(&mut self, buffer: BufferId, text: String) {
+    /// paste off, text of several lines asks first (ADR 0120, Q13). Returns whether the paste
+    /// was queued for the program now.
+    pub(in crate::app) fn paste(&mut self, buffer: BufferId, text: String) -> bool {
         let Some(hosted) = self.terminals.map.get_mut(buffer) else {
-            return;
+            return false;
         };
         if paste::breaks(&text) && !hosted.grid.modes().bracketed_paste {
             let lines = paste::lines(&text);
@@ -78,24 +79,33 @@ impl App {
                 Err(error) => self.editor.message(error.to_string()),
             }
             self.request_redraw();
-            return;
+            return false;
         }
-        self.send_paste(buffer, text, false);
+        self.send_paste(buffer, text, false)
     }
 
-    pub(super) fn send_paste(&mut self, buffer: BufferId, text: String, lines_allowed: bool) {
+    /// Queues `text` as a paste for the terminal `buffer`'s program; whether it was.
+    pub(super) fn send_paste(
+        &mut self,
+        buffer: BufferId,
+        text: String,
+        lines_allowed: bool,
+    ) -> bool {
         let Some(terminal) = self
             .terminals
             .map
             .get(buffer)
             .and_then(|hosted| hosted.terminal.as_ref())
         else {
-            return self.no_program(buffer);
+            self.no_program(buffer);
+            return false;
         };
         if terminal.paste(text, lines_allowed).is_err() {
             self.editor
                 .message("The terminal's input is full; nothing pasted");
+            return false;
         }
+        true
     }
 
     /// The wheel over a terminal, `rows` down and `columns` right with the pointer `at`: to

@@ -105,9 +105,7 @@ impl App {
         let question = format!(
             "No handoff.md in space {name}'s directory; replace its orchestrator anyway? (y or n)"
         );
-        self.hosting.spaces.offer = None;
-        self.forget_review_offer();
-        match self.editor.ask(question, "space-confirm") {
+        match self.ask_confirm(question) {
             Ok(prompt) => {
                 self.hosting.spaces.replace_asked = Some(Asked {
                     prompt,

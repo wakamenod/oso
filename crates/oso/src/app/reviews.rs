@@ -579,6 +579,7 @@ mod send;
 mod slot;
 mod state;
 mod store;
+mod target;
 #[cfg(test)]
 #[path = "reviews_tests.rs"]
 mod tests;

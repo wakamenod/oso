@@ -487,16 +487,20 @@ project and how long ago the baseline was taken. Only a trusted project runs git
   space's orchestrator (outside a space with one, to the review's session): a line saying what it
   is, the review's scope and worktree, then `## path  L42 (new)` and the hunk at point, the lines
   the region spans or an unchanged line, in a `diff` fence, and `Question: …`. The orchestrator's
-  terminal shows in the layout's slot, the review staying selected. Enter goes 150 ms after the
-  paste, as a key of its own, if the session still takes a paste. A refused question shows the
-  terminal and says why; a stopped orchestrator is offered to be resumed (`y`), the question held
-  for it two minutes.
+  terminal shows in the layout's slot, the review staying selected. It goes to the orchestrator
+  only for a review of one of the space's repositories or worktrees. Claude Code's input box is
+  read from the screen: empty, the question is pasted and Enter goes as a key of its own once the
+  box shows the folded paste alone (150 ms to 2 s after it), else it stays unsubmitted; with text
+  typed, it is pasted, not submitted; with no box (a dialog, a picker, bash or memory mode),
+  nothing is pasted. A refused question shows the terminal and says why; a stopped orchestrator
+  is offered to be resumed (`y`), the question held for it two minutes, its file judged for
+  secrets again before it goes.
 - `C-x k` closes the review, asking first while comments of yours that were not sent, or a draft,
   would be lost; a review not shown is shown before the question.
 - **The review layout** ([ADR 0160](adr/0160-the-review-layout.md)): a review a person opens
   takes the frame as the review at the left, three fifths, and the slot at the right, two
-  fifths. The slot shows one thing at a time: the source `RET` goes to, the side `C-u RET` shows
-  and the message `C-c C-c` makes, each in place of the last. `C-x v r` (`review-layout`) goes
+  fifths. The slot shows one thing at a time: the source `RET` goes to, the side `C-u RET` shows,
+  the message `C-c C-c` makes and the session `Q` asks (ADR 0163), each in place of the last. `C-x v r` (`review-layout`) goes
   back from the slot to the review where the person left it, and in the review puts back the
   windows from before the layout, exactly, as `q` and closing the review do. The two panes take
   the layout's left, the files pane the review's left. The windows are found by name, so a slot

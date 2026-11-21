@@ -7,7 +7,9 @@
 //!
 //! An offer is a question the host asks with `space-confirm` as its `y`: what it would paste is
 //! kept beside the question's id, dropped when another question is asked, and done only when
-//! `y` answers that same question, as the person's paste, never submitted.
+//! `y` answers that same question, as the person's paste, never submitted. Every such question,
+//! the space's and a review's offer to resume the orchestrator (ADR 0163), is asked through
+//! [`App::ask_confirm`], which drops the others first, and `y` runs the one still kept.
 
 use std::path::{Path, PathBuf};
 
@@ -20,6 +22,17 @@ use crate::sessions::spaces::stored::{now_ms, same};
 use crate::sessions::spaces::{Member, SpaceId};
 use crate::sessions::start::SpaceStart;
 use crate::sessions::worker::{Job, SessionKey, SpaceJob};
+
+/// The orchestrator of the space in front, as a review that talks to it sees it (ADR 0163).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::app) enum Orchestrator {
+    /// Running.
+    Running(SessionKey),
+    /// Stopped, with its terminal, where `session-resume` takes it up again.
+    Stopped { name: String, key: SessionKey },
+    /// Recorded, with no terminal.
+    NoTerminal { name: String },
+}
 
 /// What a question the host asked would do on `y`: paste `/add-dir PATH` into an orchestrator.
 #[derive(Debug)]
@@ -255,6 +268,49 @@ impl App {
         })
     }
 
+    /// The orchestrator of the space in front, while one is recorded and one of `places` is
+    /// in that space: a member repository, a worktree the space made or holds, or a worktree
+    /// git lists under a member. `None` otherwise, so that a review of another repository
+    /// talks to its own session (ADR 0163).
+    pub(in crate::app) fn space_orchestrator_of(&self, places: &[&Path]) -> Option<Orchestrator> {
+        let spaces = self.watch.spaces();
+        let at = spaces.current()?;
+        let stored = spaces.stored(at)?;
+        stored.orchestrator.as_ref()?;
+        let same = oso_core::project::same_place;
+        let member = |root: &Path| stored.members.iter().any(|m| same(&m.root, root));
+        let inside = places.iter().any(|place| {
+            member(place)
+                || stored.worktrees.iter().any(|w| same(w, place))
+                || self
+                    .listed_repository_of(place)
+                    .is_some_and(|repo| member(&repo))
+        });
+        if !inside {
+            return None;
+        }
+        if let Some(key) = self.live_orchestrator(at) {
+            return Some(Orchestrator::Running(key));
+        }
+        let name = stored.name.clone();
+        Some(match self.orchestrator_of(at) {
+            Some(key) => Orchestrator::Stopped { name, key },
+            None => Orchestrator::NoTerminal { name },
+        })
+    }
+
+    /// Asks `question` with `space-confirm` as its `y`, after dropping every offer kept for
+    /// such a question, the space's and a review's, so that a `y` does only what it answers.
+    pub(in crate::app) fn ask_confirm(
+        &mut self,
+        question: String,
+    ) -> Result<PromptId, oso_core::minibuffer::PromptError> {
+        self.hosting.spaces.offer = None;
+        self.hosting.spaces.replace_asked = None;
+        self.forget_review_offer();
+        self.editor.ask(question, "space-confirm")
+    }
+
     /// The key of space `at`'s orchestrator while it runs.
     pub(in crate::app) fn live_orchestrator(&self, at: usize) -> Option<SessionKey> {
         let id = self.watch.spaces().stored(at)?.orchestrator.clone()?;
@@ -321,10 +377,7 @@ impl App {
             super::printable(&text)
         );
         // A question asked anew drops the one before, and what it offered.
-        self.hosting.spaces.offer = None;
-        self.hosting.spaces.replace_asked = None;
-        self.forget_review_offer();
-        match self.editor.ask(question, "space-confirm") {
+        match self.ask_confirm(question) {
             Ok(prompt) => {
                 self.hosting.spaces.offer = Some(Offer {
                     prompt,

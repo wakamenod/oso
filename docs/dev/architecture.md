@@ -832,10 +832,13 @@ The UI thread never blocks on I/O or parsing:
   in that space. That thread also reads the session's registry entry, and once its turn has
   ended it answers the bridge's held `move_wait`, after which `oso mcp` sends its own parent
   `SIGTERM` (`channel/mcp/moving.rs`, `oso_platform::process::terminate_parent`).
-- Sending to a session ([ADR 0121](adr/0121-agent-sessions-and-spaces.md) step 5) has one
-  delivery path on the UI thread, `App::send_to_session` (`app/sessions/watch/sending.rs`): it
-  refuses a session that cannot take a paste (`sessions/send.rs::refusal`, pure), pastes with
-  the terminal's own paste, never submitted, and shows the session. Commands only describe
+- Sending to a session ([ADR 0121](adr/0121-agent-sessions-and-spaces.md) step 5) goes through
+  one module on the UI thread, `app/sessions/watch/sending.rs`: `App::paste_into_session`
+  refuses a session that cannot take a paste (`sessions/send.rs::refusal`, pure) and pastes with
+  the terminal's own paste, not submitted; `App::send_to_session` does so and shows the session.
+  The one submit is `App::submit_paste`, an Enter of its own after the same refusals, for a
+  review's question the person confirmed in oso's prompt (`review-ask`, ADR 0163), whose
+  session shows beside the review instead. Commands only describe
   what to send (`SessionRequest::Send`); the text is put together by pure functions
   (`sessions/send.rs::compose`). ADR 0122's review comments call the same path, their message
   composed from the review's model by `review/message.rs` and shown in `*review message*`

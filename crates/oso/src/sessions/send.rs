@@ -217,5 +217,69 @@ pub fn refusal(name: &str, standing: Standing) -> Option<String> {
     Some(format!("{name} {what}; answer it first"))
 }
 
+/// What Claude Code's input box holds, as its screen shows it, for the one submit oso makes
+/// (`review-ask`, ADR 0163).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InputBox {
+    /// Nothing typed: the prompt sign alone, or its `Try "…"` hint.
+    Empty,
+    /// Only a paste the TUI folded, `[Pasted text #N +M lines]`.
+    Pasted,
+    /// One row of other text at the prompt sign: the person's draft, or an earlier paste.
+    Typed,
+    /// Another mode than the prompt's (`!`, `#`), a draft of several rows, a dialog or a
+    /// picker in its place, or no box found.
+    Other,
+}
+
+/// The input box `rows` show, read from the bottom: one row between the last two rules of
+/// `─`, starting with the prompt sign `❯`. A dialog, a picker, a draft of several lines and a
+/// mode with another sign all read as [`InputBox::Other`], so that oso pastes nothing there.
+pub fn input_box(rows: &[String]) -> InputBox {
+    let rule = |row: &String| {
+        let row = row.trim_end();
+        row.chars().count() >= 20 && row.chars().all(|c| c == '─')
+    };
+    let mut rules = rows.iter().enumerate().rev().filter(|(_, row)| rule(row));
+    let (Some((below, _)), Some((above, _))) = (rules.next(), rules.next()) else {
+        return InputBox::Other;
+    };
+    if below != above + 2 {
+        return InputBox::Other;
+    }
+    let Some(rest) = rows[above + 1].strip_prefix('❯') else {
+        return InputBox::Other;
+    };
+    let rest = rest.trim();
+    if rest.is_empty() || (rest.starts_with("Try \"") && rest.ends_with('"')) {
+        return InputBox::Empty;
+    }
+    if folded_paste(rest) {
+        return InputBox::Pasted;
+    }
+    // A dialog's option at the sign, `❯ 1. Yes`, is no draft, and a slash command's menu
+    // shows under `❯ /…`.
+    let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+    if (digits > 0 && rest[digits..].starts_with(". ")) || rest.starts_with('/') {
+        return InputBox::Other;
+    }
+    InputBox::Typed
+}
+
+/// Whether `text` is all one paste the TUI folded: `[Pasted text #N]` or
+/// `[Pasted text #N +M lines]`.
+fn folded_paste(text: &str) -> bool {
+    let Some(inner) = (text.strip_prefix("[Pasted text #")).and_then(|t| t.strip_suffix(']'))
+    else {
+        return false;
+    };
+    let (number, lines) = match inner.split_once(" +") {
+        Some((number, lines)) => (number, lines.strip_suffix(" lines")),
+        None => (inner, Some("1")),
+    };
+    let digits = |t: &str| !t.is_empty() && t.bytes().all(|b| b.is_ascii_digit());
+    digits(number) && lines.is_some_and(digits)
+}
+
 #[cfg(test)]
 mod tests;

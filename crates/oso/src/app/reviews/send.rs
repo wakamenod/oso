@@ -26,7 +26,7 @@
 //! - One message at a time: `C-c C-c` in a review while one is open shows it.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use oso_core::buffer::{Buffer, BufferId, Mode};
 use oso_core::editor::ReviewId;
@@ -34,11 +34,10 @@ use oso_core::project::ProjectId;
 use oso_core::review::{Author, Comment, CommentId, Review, RowKind, Rows, Seek};
 
 use super::super::App;
-use super::scope_label;
+use super::super::sessions::Orchestrator;
+use super::target::places;
 use crate::commands::agent_sessions::{MAX_SEND_BYTES, too_large};
-use crate::commands::review::{MAX_NAME, one_line};
 use crate::review::message::{HEAD, Item, compose, relay_head};
-use crate::review::pr::PrFound;
 use crate::sessions::worker::SessionKey;
 
 /// What the buffer of a review's message is called.
@@ -49,6 +48,11 @@ pub(in crate::app) struct Waiting {
     buffer: BufferId,
     origin: Origin,
     taken: Vec<Comment>,
+    /// The first line it was made with, and the worktree a message to an orchestrator names:
+    /// a message that goes elsewhere is sent with the other line, while its first line is
+    /// still this one (ADR 0163).
+    head: String,
+    worktree: Option<PathBuf>,
 }
 
 /// What a message was made from: a review's comments, or a pull request's checks or review
@@ -64,7 +68,7 @@ enum Origin {
 #[derive(Default)]
 pub(in crate::app) struct Sending {
     message: Option<Waiting>,
-    picked: HashMap<ReviewId, SessionKey>,
+    pub(super) picked: HashMap<ReviewId, SessionKey>,
     picked_pulls: HashMap<(ProjectId, u64), SessionKey>,
 }
 
@@ -78,16 +82,15 @@ impl App {
         let Some(index) = self.reviews.index(review) else {
             return;
         };
-        let (project, scope) = {
-            let running = &self.reviews.open[index];
-            (running.project, scope_label(&running.scope))
-        };
-        let Some(found) = self.editor.project(project) else {
+        let (Some(scope), Some(worktree)) = (self.review_scope(index), self.review_worktree(index))
+        else {
             return;
         };
-        let root = found.root().to_path_buf();
-        let scope = format!("{scope}, in {}", one_line(found.name(), MAX_NAME));
-        let head = self.message_head(review, index, &root);
+        let places = self.review_places(index);
+        // To the space's orchestrator, the message names the worktree it relays to.
+        let relays =
+            self.picked_session(review).is_none() && self.review_orchestrator(review).is_some();
+        let head = message_head(relays, &worktree);
         let (Some(model), rows) = (self.editor.review(review), self.editor.review_rows(review))
         else {
             return;
@@ -106,9 +109,9 @@ impl App {
             .collect();
         // A file may hold secrets by its name, or as an open buffer of it does (`secrets`).
         let held = super::secrets::held_paths(&self.editor);
-        let composed = compose(&head, &scope, &items, MAX_SEND_BYTES, |path| {
-            super::secrets::withheld(&root, &held, path)
-        });
+        let withheld =
+            |path: &[u8]| (places.iter()).any(|root| super::secrets::withheld(root, &held, path));
+        let composed = compose(&head, &scope, &items, MAX_SEND_BYTES, withheld);
         if composed.taken == 0 {
             return self
                 .editor
@@ -127,18 +130,20 @@ impl App {
             self.editor.show(buffer);
         }
         let count = taken.len();
-        let hidden = self.hidden_comments(review, &taken, |path| {
-            super::secrets::withheld(&root, &held, path)
-        });
+        let hidden = self.hidden_comments(review, &taken, withheld);
         self.reviews.sending.message = Some(Waiting {
             buffer,
             origin: Origin::Review(review),
             taken,
+            head,
+            worktree: Some(worktree),
         });
         let to = match self.message_session(&Origin::Review(review)) {
             Some(key) => format!("to {}", self.review_session_name(key)),
-            None => match self.review_orchestrator() {
-                Some(Err((name, _))) => format!("to orchestrator {name}, which is not running"),
+            None => match self.review_orchestrator(review) {
+                Some(Orchestrator::Stopped { name, .. } | Orchestrator::NoTerminal { name }) => {
+                    format!("to orchestrator {name}, which is not running")
+                }
                 _ => "to no session yet".to_owned(),
             },
         };
@@ -229,10 +234,14 @@ impl App {
             },
             None => match self.message_session(&origin) {
                 Some(key) => key,
-                None if matches!(origin, Origin::Review(_))
-                    && self.review_orchestrator().is_some() =>
+                None if let Origin::Review(review) = origin
+                    && let Some(orchestrator) = self.review_orchestrator(review) =>
                 {
-                    return self.orchestrator_not_running();
+                    let left = "or C-u C-c C-c picks a session; the message stays";
+                    if let Some(why) = self.not_running(&orchestrator, left) {
+                        self.editor.message(why);
+                    }
+                    return;
                 }
                 None => {
                     let start = self.dispatcher.where_is(&self.editor, "claude");
@@ -248,6 +257,7 @@ impl App {
             },
         };
         let name = self.review_session_name(key);
+        let text = self.with_head_for(key, &origin, text);
         if let Err(why) = self.send_to_session(key, text) {
             return self.editor.message(why);
         }
@@ -383,15 +393,16 @@ impl App {
     }
 
     /// The session a message from `origin` goes to, if none is named: for a review's, the one
-    /// the person picked for it while it runs, else the space's orchestrator in a space whose
-    /// orchestrator is recorded, none while it is not running (ADR 0163), else the review's
-    /// own.
+    /// the person picked for it while it runs, else the space's orchestrator while the review
+    /// is of one of its repositories, none while it is not running (ADR 0163), else the
+    /// review's own.
     fn message_session(&self, origin: &Origin) -> Option<SessionKey> {
         match origin {
             Origin::Review(review) => match self.picked_session(*review) {
                 Some(key) => Some(key),
-                None => match self.review_orchestrator() {
-                    Some(running) => running.ok(),
+                None => match self.review_orchestrator(*review) {
+                    Some(Orchestrator::Running(key)) => Some(key),
+                    Some(_) => None,
                     None => self.review_session(*review),
                 },
             },
@@ -399,68 +410,37 @@ impl App {
         }
     }
 
-    /// The first line of a message of the review at `index`, whose root is `root`: to the
-    /// space's orchestrator, it names the worktree the orchestrator relays it to.
-    fn message_head(&self, review: ReviewId, index: usize, root: &Path) -> String {
-        if !self.relays(review) {
-            return HEAD.to_owned();
+    /// `text`, a review's message, with the first line that fits session `key`: the one naming
+    /// the worktree for the space's orchestrator, else the plain one, in place of the one it
+    /// was made with while its first line is still that one.
+    fn with_head_for(&self, key: SessionKey, origin: &Origin, text: String) -> String {
+        let (Origin::Review(review), Some(waiting)) =
+            (origin, self.reviews.sending.message.as_ref())
+        else {
+            return text;
+        };
+        let Some(worktree) = &waiting.worktree else {
+            return text;
+        };
+        let relays =
+            matches!(self.review_orchestrator(*review), Some(Orchestrator::Running(k)) if k == key);
+        let head = message_head(relays, worktree);
+        match text.strip_prefix(waiting.head.as_str()) {
+            Some(rest) if head != waiting.head && rest.starts_with('\n') => head + rest,
+            _ => text,
         }
+    }
+
+    /// The roots a review's file is judged under for secrets: its own, and the worktree its
+    /// pull request's head is checked out in.
+    pub(super) fn review_places(&self, index: usize) -> Vec<PathBuf> {
         let running = &self.reviews.open[index];
-        let worktree = places(running.pr.as_ref(), root).next().unwrap_or(root);
-        relay_head(&worktree.to_string_lossy())
-    }
-
-    /// Whether a message of `review` goes to the space's orchestrator: no session was picked
-    /// for it, and the space in front has one recorded.
-    fn relays(&self, review: ReviewId) -> bool {
-        self.picked_session(review).is_none() && self.review_orchestrator().is_some()
-    }
-
-    /// Says that the space's orchestrator, which a message goes to, is not running: the
-    /// message stays.
-    fn orchestrator_not_running(&mut self) {
-        let Some(Err((name, terminal))) = self.review_orchestrator() else {
-            return;
+        let Some(root) = self.editor.project(running.project).map(|p| p.root()) else {
+            return Vec::new();
         };
-        let how = match terminal {
-            Some(_) => format!(
-                "{} in its terminal resumes it",
-                self.dispatcher.where_is(&self.editor, "session-resume")
-            ),
-            None => format!(
-                "{} starts it",
-                self.dispatcher
-                    .where_is(&self.editor, "space-orchestrator-start")
-            ),
-        };
-        self.editor.message(format!(
-            "Orchestrator {name} is not running: {how}, or C-u C-c C-c picks a session; the \
-             message stays"
-        ));
-    }
-
-    /// The session the person picked for `review` with `C-u C-c C-c`, while it runs.
-    fn picked_session(&self, review: ReviewId) -> Option<SessionKey> {
-        (self.reviews.sending.picked.get(&review).copied())
-            .filter(|key| self.hosting.table().get(*key).is_some_and(|s| s.runs()))
-    }
-
-    /// The session a message of `review` goes to outside a space with an orchestrator: the
-    /// one the person picked for it while it runs, else the one in each of [`places`], the one
-    /// shown last first.
-    pub(super) fn review_session(&self, review: ReviewId) -> Option<SessionKey> {
-        let picked = self.picked_session(review);
-        picked.or_else(|| {
-            let index = self.reviews.index(review)?;
-            let running = &self.reviews.open[index];
-            let root = self.editor.project(running.project)?.root();
-            places(running.pr.as_ref(), root).find_map(|place| self.worktree_session(place))
-        })
-    }
-
-    /// Session `key`'s name, as the echo area shows it.
-    pub(super) fn review_session_name(&self, key: SessionKey) -> String {
-        (self.hosting.table().get(key)).map_or_else(String::new, |s| one_line(&s.name, 40))
+        places(running.pr.as_ref(), root)
+            .map(Path::to_path_buf)
+            .collect()
     }
 
     /// Marks sent each of `taken` that `review` still holds with the text it was taken with,
@@ -490,14 +470,13 @@ impl App {
     }
 }
 
-/// Where a review's session is looked for, in order: a pull request's comments go to the
-/// session where its head branch is checked out (step 12b, Q11), else to the review's own.
-pub(super) fn places<'a>(
-    found: Option<&'a PrFound>,
-    root: &'a Path,
-) -> impl Iterator<Item = &'a Path> {
-    let head = found.and_then(|found| found.worktree.as_deref());
-    head.into_iter().chain(std::iter::once(root))
+/// The first line of a review's message: to the space's orchestrator, `relays`, naming the
+/// worktree it relays the comments to.
+fn message_head(relays: bool, worktree: &Path) -> String {
+    match relays {
+        true => relay_head(&worktree.to_string_lossy()),
+        false => HEAD.to_owned(),
+    }
 }
 
 /// Whether `now` says what `then` said when the message was made from it: an edit to other

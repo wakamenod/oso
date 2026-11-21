@@ -30,6 +30,26 @@ fn show_review(app: &mut App) {
     rows_until(app, |rows| has(rows, "+changed"));
 }
 
+/// The working screen with Claude Code's folded paste in its input box, as the TUI shows a
+/// paste of several lines: oso submits a question only once its box shows that alone.
+fn pasted_screen() -> String {
+    let lines: Vec<&str> = WORKING.lines().collect();
+    let at = lines
+        .iter()
+        .rposition(|line| line.trim_end() == "\u{276f}")
+        .expect("the working screen's empty input box");
+    let mut lines: Vec<String> = lines.iter().map(|line| (*line).to_owned()).collect();
+    lines[at] = "\u{276f} [Pasted text #1 +12 lines]".to_owned();
+    lines.join("\n") + "\n"
+}
+
+/// Waits for the fake to read the question's paste, then shows the folded paste in its box,
+/// as the TUI would.
+fn fold_paste(flow: &Flow, pastes_before: usize) {
+    pastes(flow, pastes_before + 1);
+    flow.scratch.write("screen", pasted_screen().as_bytes());
+}
+
 /// What the fake has read once its input ends with a submitted paste, the `pastes`th.
 fn submitted(flow: &Flow, pastes: usize) -> String {
     let deadline = Instant::now() + Duration::from_secs(10);
@@ -137,6 +157,7 @@ fn in_a_space_questions_and_comments_go_to_its_orchestrator() {
 
     // `Q` goes to the orchestrator, naming the worktree, and its terminal shows in the slot.
     ask(&mut app, "Why");
+    fold_paste(&flow, 0);
     let read = submitted(&flow, 1);
     let root = fs::canonicalize(&flow.repo).unwrap();
     assert!(

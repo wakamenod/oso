@@ -134,7 +134,8 @@ through `oso mcp`.
 | `P` | `session-pin` | Pin or unpin this session; dim outside a session's buffer. |
 | `A` | `session-archive` | Archive this session, or bring it back; dim outside a session's buffer. |
 | `R` | `session-rename` | Rename this session, or the one on the `*Spaces*` row: the prompt holds its name. |
-| `v` | `review-session` | Review what changed in this project since its baseline. |
+| `v` | `review-layout` | The review layout, as `C-x v r`: from the layout's slot, back to the review. |
+| `D` | `review-session` | Review what changed in this project since its baseline. |
 | `V` | the review menu | The review menu, as `C-x v r` opens it with no review open. |
 
 So `C-c a r` resumes a session, and `C-c a S` opens the space menu.
@@ -418,7 +419,8 @@ In a review buffer:
 | `u` | Undo the last decision |
 | `\|` | Two panes, the old side and the new side lined up, or one stream again |
 | `g` | Read the files again now |
-| `C-c C-c` | Gather your comments not sent yet into a message to the session |
+| `C-c C-c` | Gather your comments not sent yet into a message to the session, or to the space's orchestrator |
+| `Q` | Ask the space's orchestrator about the hunk or line at point, or the region's lines |
 | `q` | Put back the windows from before the review layout, or bury the review |
 | `?` | List these keys |
 
@@ -464,11 +466,13 @@ an unchanged line around a hunk. Type it in the prompt and press `RET`: it goes 
 review's worktree, the file, the line numbers and the lines, to the space's orchestrator, and is
 submitted, as you confirmed it in the prompt. The orchestrator's terminal shows in the layout's
 slot while you stay in the review, so you read the answer beside the diff. Outside a space with an
-orchestrator, it goes to the review's session. A file that may hold secrets sends its place alone.
-An orchestrator asking for permission or another answer takes no question: its terminal shows so
-that you see why, and `M-p` in the prompt brings the question back. A stopped orchestrator is
-offered to be resumed, and the question waits for it for two minutes. Text you had typed in the
-orchestrator's input box goes with the question.
+orchestrator, or for a repository that is not one of the space's, it goes to the review's session.
+A file that may hold secrets sends its place alone. oso reads the orchestrator's input box on its
+screen: with nothing typed there, the question is pasted and submitted once the box shows it; with
+text you typed there, it is pasted and not submitted, for you to press Enter; and with no input box
+showing, as while it asks for permission, nothing is sent. Its terminal then shows so that you see
+why, and `M-p` in the prompt brings the question back. A stopped orchestrator is offered to be
+resumed, and the question waits for it for two minutes.
 
 In `*pr: #N*`, `x` sends the check on the line to the agent, `X` every failing one with the end
 of its log, `c` the review thread on the line and `C` every unresolved one. They open in

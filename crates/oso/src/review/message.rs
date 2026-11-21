@@ -15,13 +15,16 @@
 //! - Paths, and the text of the comment replied to, which may be an agent's, are escaped as
 //!   git's text is shown, so a name cannot start a line that reads as another comment's; a
 //!   hunk's line has its control characters but tabs, and the line separators, escaped, so
-//!   that no line of it becomes several once pasted, where a lone `\r` breaks a line.
+//!   that no line of it becomes several once pasted, where a lone `\r` breaks a line, and its
+//!   bidirectional and invisible characters, so that a line reads as the bytes it holds.
 //! - The message holds the comments in the order given until the next would pass `max`; the
 //!   rest are left for a later message, and the caller says how many.
 
 use std::fmt::Write as _;
 
 use oso_core::review::{Anchor, Author, Comment, Hunk, Shape, Side};
+
+use oso_core::display_map::cell::is_invisible;
 
 use super::hunk_header;
 use crate::git::printable;
@@ -37,6 +40,8 @@ pub(crate) fn relay_head(root: &str) -> String {
         printable(root, MAX_PATH_CHARS)
     )
 }
+/// What goes in place of a file's lines when it may hold secrets.
+pub(super) const SECRET: &str = "\n(The file may hold secrets: its lines are not sent.)";
 /// The most lines of a hunk a message holds whole.
 pub(crate) const MAX_HUNK_LINES: usize = 60;
 /// The lines around the comment a longer hunk is cut to.
@@ -44,7 +49,7 @@ pub(crate) const CUT_TO: usize = 30;
 /// The most characters of a hunk's line a message holds; past them, `…`.
 pub(crate) const MAX_LINE_CHARS: usize = 500;
 /// The most characters of a path shown.
-const MAX_PATH_CHARS: usize = 300;
+pub(super) const MAX_PATH_CHARS: usize = 300;
 /// The most characters of the comment replied to: its first line.
 const MAX_PARENT_CHARS: usize = 200;
 
@@ -115,7 +120,7 @@ fn entry(item: &Item<'_>, secret: bool) -> String {
     }
     if let Some((hunk, at)) = hunk {
         if secret {
-            out.push_str("\n(The file may hold secrets: its lines are not sent.)");
+            out.push_str(SECRET);
         } else {
             out.push('\n');
             lines_of(&mut out, hunk, at, "comment");
@@ -234,7 +239,7 @@ pub(super) fn line_text(line: &[u8]) -> String {
             out.push('\u{2026}');
             break;
         }
-        if breaks(c) {
+        if breaks(c) || is_invisible(c) {
             let _ = write!(out, "\\u{{{:x}}}", u32::from(c));
         } else {
             out.push(c);

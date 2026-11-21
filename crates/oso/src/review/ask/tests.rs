@@ -1,20 +1,25 @@
 //! A review's question: its first lines, a line's and a hunk's place and lines, a region's
 //! rows, an unchanged line, a file, a secret file, fences longer than the lines' backticks,
-//! lines that cannot become several once pasted, and cuts.
+//! lines that cannot become several once pasted, and cuts; the rows a region spans, quoted
+//! with their signs and named by their lines, cut to one file, and a row's text without its
+//! sign.
 //!
 //! Must not depend on: `app`, `dispatch` or winit; these compose over shapes made here.
 
-use oso_core::review::{Anchor, Base, Hunk, Shape, Side};
+use std::sync::Arc;
+
+use oso_core::review::{Anchor, Base, Hunk, RowKind, Rows, Section, Shape, Side};
+use oso_core::rope::Rope;
 use proptest::prelude::*;
 
-use super::{About, HEAD, Review, compose};
+use super::{About, HEAD, Where, compose, region_rows, row_text};
 use crate::review::message::{CUT_TO, MAX_HUNK_LINES};
 
 const PATH: &[u8] = b"src/a.rs";
 
-const REVIEW: Review<'static> = Review {
+const REVIEW: Where<'static> = Where {
     scope: "uncommitted, in oso",
-    root: "/work/oso-wt",
+    worktree: "/work/oso-wt",
 };
 
 fn hunk(old_start: u32, new_start: u32, removed: &[&str], added: &[&str]) -> Hunk {
@@ -148,9 +153,9 @@ fn a_long_region_is_cut_to_its_first_lines() {
 
 #[test]
 fn paths_and_scopes_are_escaped_so_they_read_as_one_line() {
-    let review = Review {
+    let review = Where {
         scope: "uncommitted, in a\nb",
-        root: "/w/x\ny",
+        worktree: "/w/x\ny",
     };
     let text = compose(&review, b"a\n## b.rs", &About::File, false, "Q");
     assert_eq!(
@@ -185,4 +190,140 @@ proptest! {
         prop_assert!(!text.contains('\r'), "{}", text);
         prop_assert!(!text.contains('\u{2028}'), "{}", text);
     }
+}
+
+/// A file's section: its header, two unchanged lines from 4, the hunk's header, a removed
+/// line 6 and two added lines 6 and 7; then another file's header.
+fn section_rows() -> (Rows, Rope) {
+    let mut a = Section::new(b"a.rs".as_slice().into());
+    a.push(RowKind::File, 1);
+    a.push(RowKind::Context { old: 4, new: 4 }, 2);
+    a.push(RowKind::Hunk { hunk: 0 }, 1);
+    a.push(
+        RowKind::Lines {
+            hunk: 0,
+            side: Side::Old,
+            first: 6,
+        },
+        1,
+    );
+    a.push(
+        RowKind::Lines {
+            hunk: 0,
+            side: Side::New,
+            first: 6,
+        },
+        2,
+    );
+    let mut b = Section::new(b"b.rs".as_slice().into());
+    b.push(RowKind::File, 1);
+    b.push(
+        RowKind::Lines {
+            hunk: 0,
+            side: Side::New,
+            first: 1,
+        },
+        1,
+    );
+    let rows = Rows::new(vec![Arc::new(a), Arc::new(b)]);
+    let text =
+        Rope::from("M a.rs\n four\n five\n@@ -6 +6,2 @@\n-six\n+SIX\n+seven\nA b.rs\n+one\n");
+    (rows, text)
+}
+
+fn quoted(about: &About<'_>) -> (String, Vec<(char, String)>) {
+    match about {
+        About::Rows { place, lines } => (place.clone(), lines.clone()),
+        _ => panic!("not rows"),
+    }
+}
+
+#[test]
+fn a_region_quotes_its_changed_and_unchanged_lines_named_by_the_new_side() {
+    let (rows, text) = section_rows();
+    let (path, about) = region_rows(&rows, &text, 0, 6).unwrap();
+    assert_eq!(&*path, b"a.rs");
+    let (place, lines) = quoted(&about);
+    assert_eq!(place, "L4-L7 (new)");
+    let lines: Vec<(char, &str)> = lines.iter().map(|(s, l)| (*s, l.as_str())).collect();
+    assert_eq!(
+        lines,
+        vec![
+            (' ', "four"),
+            (' ', "five"),
+            ('-', "six"),
+            ('+', "SIX"),
+            ('+', "seven"),
+        ],
+        "the header and the hunk's header are not quoted"
+    );
+}
+
+#[test]
+fn a_region_of_removed_lines_alone_is_named_by_the_old_side() {
+    let (rows, text) = section_rows();
+    let (_, about) = region_rows(&rows, &text, 4, 4).unwrap();
+    assert_eq!(quoted(&about).0, "L6 (old)");
+}
+
+#[test]
+fn a_region_stops_at_the_next_file() {
+    let (rows, text) = section_rows();
+    let (path, about) = region_rows(&rows, &text, 5, 8).unwrap();
+    assert_eq!(&*path, b"a.rs");
+    assert_eq!(quoted(&about).1.len(), 2, "b.rs's line is left out");
+}
+
+#[test]
+fn a_region_with_no_line_quotes_nothing() {
+    let (rows, text) = section_rows();
+    assert!(region_rows(&rows, &text, 0, 0).is_none());
+    assert!(region_rows(&rows, &text, 3, 3).is_none());
+}
+
+#[test]
+fn a_row_s_text_leaves_its_sign_out_and_reads_a_bounded_length() {
+    let text = Rope::from(format!("+{}\n", "x".repeat(10_000)).as_str());
+    let line = row_text(&text, 0);
+    assert!(line.starts_with('x'));
+    assert!(line.len() < 3_000, "{}", line.len());
+}
+
+#[test]
+fn a_long_region_reads_only_its_first_lines_and_is_named_to_its_end() {
+    let mut a = Section::new(b"a.rs".as_slice().into());
+    a.push(RowKind::File, 1);
+    a.push(
+        RowKind::Lines {
+            hunk: 0,
+            side: Side::New,
+            first: 1,
+        },
+        500,
+    );
+    let rows = Rows::new(vec![Arc::new(a)]);
+    let mut text = String::from("A a.rs\n");
+    for n in 1..=500 {
+        text.push_str(&format!("+line {n}\n"));
+    }
+    let text = Rope::from(text.as_str());
+    let (_, about) = region_rows(&rows, &text, 0, 500).unwrap();
+    let (place, lines) = quoted(&about);
+    assert_eq!(place, "L1-L500 (new)");
+    assert_eq!(
+        lines.len(),
+        61,
+        "one more than a whole hunk's, so that the cut is known"
+    );
+}
+
+#[test]
+fn the_question_s_invisible_and_control_characters_are_escaped_and_it_is_not_cut() {
+    let long = "x".repeat(2_000);
+    let question = format!("a\u{202e}b\rc {long}");
+    let text = compose(&REVIEW, PATH, &About::File, false, &question);
+    assert!(
+        text.ends_with(&format!("Question: a\\u{{202e}}b\\u{{d}}c {long}")),
+        "{text}"
+    );
 }
