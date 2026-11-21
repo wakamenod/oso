@@ -37,7 +37,8 @@ impl Editor {
     /// `RET` at every cursor of the selected window: `count` line breaks `ending`, as one
     /// edit. With `indent`, the spaces and tabs around each cursor go (in Markdown, only those
     /// after it, as two at a line's end break it) and the last new line takes its rules'
-    /// indentation; between an opener and its closer, in Rust and TOML, the closer goes to a
+    /// indentation; between an opener and its closer (or a start tag and its end tag, ADR 0164),
+    /// in the modes that open a line there, the closer goes to a
     /// line of its own and the cursor to an indented line between. A shown region is deleted
     /// first. Returns false, changing nothing, if more than `limit` bytes could go in.
     pub fn newline(
@@ -180,7 +181,8 @@ fn planned<'a>(
 
 /// Where `RET` breaks the line at each of `cursors`, in order, in a buffer in `mode`: the
 /// spaces and tabs around it, no further than the cursors beside it, and whether it is between
-/// an opener and its closer, which only Rust, and TOML's arrays, open a line between.
+/// an opener and its closer, which Rust, TOML's arrays and the languages of ADR 0164 open a line
+/// between, in HTML and JSX a start tag and its end tag too.
 pub(super) fn spots(rope: &Rope, cursors: &[usize], mode: Mode) -> Vec<Break> {
     let mut spots: Vec<Break> = Vec::with_capacity(cursors.len());
     for (index, &at) in cursors.iter().enumerate() {
@@ -202,18 +204,89 @@ pub(super) fn spots(rope: &Rope, cursors: &[usize], mode: Mode) -> Vec<Break> {
             .checked_sub(1)
             .and_then(|before| rope.byte_at(before));
         let closer = rope.byte_at(range.end);
-        // TOML's inline tables cannot span lines, and `(` means nothing in it.
+        let pair = |pairs: &[(u8, u8)]| {
+            opener
+                .zip(closer)
+                .is_some_and(|found| pairs.contains(&found))
+        };
+        let brackets = [(b'{', b'}'), (b'(', b')'), (b'[', b']')];
+        // TOML's inline tables cannot span lines, and `(` means nothing in it; nor in JSON.
         let between = match mode {
-            Mode::Rust => matches!(
-                (opener, closer),
-                (Some(b'{'), Some(b'}')) | (Some(b'('), Some(b')')) | (Some(b'['), Some(b']'))
-            ),
-            Mode::Toml => (opener, closer) == (Some(b'['), Some(b']')),
+            Mode::Rust | Mode::Css | Mode::TypeScript | Mode::Go => pair(&brackets),
+            Mode::JavaScript | Mode::Tsx => {
+                pair(&brackets) || tag_pair(rope, start, range.clone(), false)
+            }
+            Mode::Json => pair(&[(b'{', b'}'), (b'[', b']')]),
+            Mode::Html => tag_pair(rope, start, range.clone(), true),
+            Mode::Toml => pair(&[(b'[', b']')]),
             _ => false,
         };
         spots.push(Break { range, between });
     }
     spots
+}
+
+/// The most bytes read before a cursor to find the start tag it follows: a longer tag is not
+/// one whose element `RET` opens a line in.
+const TAG_SCAN: usize = 256;
+
+/// Whether `blanks`, the spaces and tabs around a cursor on the line that starts at
+/// `line_start`, sit between a start tag that ends just before them and the end tag of the
+/// same element just after them, as `<li>|</li>` (ADR 0164). Names compare as the lexer reads
+/// them: ignoring case in HTML; a void element has no end tag to sit before.
+fn tag_pair(rope: &Rope, line_start: usize, blanks: Range<usize>, html: bool) -> bool {
+    if blanks.start == 0 || rope.byte_at(blanks.start - 1) != Some(b'>') {
+        return false;
+    }
+    let mut before = [0; TAG_SCAN];
+    let from = rope.clip_offset(
+        blanks.start.saturating_sub(TAG_SCAN).max(line_start),
+        Bias::Right,
+    );
+    let before = read_into(rope, from..blanks.start, &mut before);
+    let mut after = [0; TAG_SCAN];
+    let to = rope.clip_offset((blanks.end + TAG_SCAN).min(rope.len()), Bias::Left);
+    let after = read_into(rope, blanks.end..to, &mut after);
+    // The start tag: the last `<` before, its name, and no `/>`.
+    let Some(open) = before.iter().rposition(|&byte| byte == b'<') else {
+        return false;
+    };
+    if before.ends_with(b"/>") {
+        return false;
+    }
+    let Some(name) = indent::tag_name_of(&before[open + 1..]) else {
+        return false;
+    };
+    if html && indent::is_void(&name.to_ascii_lowercase()) {
+        return false;
+    }
+    let Some(rest) = after.strip_prefix(b"</") else {
+        return false;
+    };
+    let Some(closing) = indent::tag_name_of(rest) else {
+        return false;
+    };
+    let same = if html {
+        closing.eq_ignore_ascii_case(name)
+    } else {
+        closing == name
+    };
+    same && rest[closing.len()..].trim_ascii_start().starts_with(b">")
+}
+
+/// The bytes of `range`, at most `buffer`'s length of them from its start, copied into
+/// `buffer`.
+fn read_into<'a>(rope: &Rope, range: Range<usize>, buffer: &'a mut [u8]) -> &'a [u8] {
+    let mut len = 0;
+    for chunk in rope.chunks_in_range(range) {
+        let take = chunk.len().min(buffer.len() - len);
+        buffer[len..len + take].copy_from_slice(&chunk.as_bytes()[..take]);
+        len += take;
+        if len == buffer.len() {
+            break;
+        }
+    }
+    &buffer[..len]
 }
 
 /// In Markdown, two spaces or more at the end of a line of text break it (ADR 0113 keeps them

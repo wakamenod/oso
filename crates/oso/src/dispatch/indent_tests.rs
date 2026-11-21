@@ -121,6 +121,20 @@ fn a_typed_closer_goes_under_its_opener_and_undoes_with_the_typing() {
     assert_eq!(marked(&editor), "fn f() {\n    x\n    |");
 }
 
+/// In HTML, the `/` of a `</` typed first on its line takes the line under its element's,
+/// before the name is typed, and undoes with the typing (ADR 0164).
+#[test]
+fn a_typed_end_tag_goes_under_its_element_and_undoes_with_the_typing() {
+    let (mut dispatcher, mut editor) = at(Mode::Html, "<div>\n  <p>x</p>\n      |");
+    send(&mut dispatcher, &mut editor, "<");
+    assert_eq!(marked(&editor), "<div>\n  <p>x</p>\n      <|");
+    send(&mut dispatcher, &mut editor, "/");
+    assert_eq!(marked(&editor), "<div>\n  <p>x</p>\n</|");
+    // The typing joins one undo step, as Emacs's does, and the reindent with it.
+    send(&mut dispatcher, &mut editor, "C-z");
+    assert_eq!(marked(&editor), "<div>\n  <p>x</p>\n      |");
+}
+
 #[test]
 fn ret_at_several_cursors_is_one_edit() {
     let (mut dispatcher, mut editor) = at(Mode::Rust, "foo(|a, |b)");

@@ -1,6 +1,6 @@
 # 0138. Language servers
 
-- Status: Accepted, amended by 0147 and 0157
+- Status: Accepted, amended by 0147, 0157 and 0164
 - Date: 2026-11-15
 
 ## Context

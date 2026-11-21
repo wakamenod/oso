@@ -248,6 +248,8 @@ alongside the steps above, after M2-16:
   Markdown's fences ([ADR 0157](adr/0157-highlighting-html-css-json-and-yaml.md)).
 - Window splits ([ADR 0112](adr/0112-window-splits.md)), indentation
   ([ADR 0115](adr/0115-indentation.md)), project trust model.
+- Indenting HTML, CSS, JSON, YAML, JavaScript, TypeScript and Go
+  ([ADR 0164](adr/0164-indenting-the-web-languages-and-go.md)).
 - Project file finding and asynchronous ripgrep-style search, in-process
   ([ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)).
 - Migemo-style romaji search for Japanese text, and avy-style jumps
