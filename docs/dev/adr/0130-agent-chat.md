@@ -1,6 +1,6 @@
 # 0130. Agent chat
 
-- Status: Proposed
+- Status: Superseded by 0165
 - Date: 2026-11-13
 
 ## Context

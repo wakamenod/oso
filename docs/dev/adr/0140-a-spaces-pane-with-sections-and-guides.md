@@ -1,6 +1,6 @@
 # 0140. A spaces pane with sections and guides
 
-- Status: Accepted, amended by 0143 and 0159
+- Status: Accepted, amended by 0143 and 0159; "Waiting rows blink, as amended" (2026-11-21)
 - Date: 2026-11-16
 
 ## Context
@@ -230,6 +230,79 @@ Each passage stays in its ADR as written; what holds now follows it.
 - [ADR 0121](0121-agent-sessions-and-spaces.md), via the `sessions` command, "select it if it is
   shown; hide it if it is selected": go back to the tree's window if it is selected; hide it with
   a prefix argument.
+
+## Waiting rows blink, as amended
+
+Amended on 2026-11-21, with the author's choices through the coordinator. The author could not
+tell from the pane that a session was waiting for them, at a permission prompt or a question. Its
+row had a red `⚠`, one still cell, while working rows spun beside it, so the eye went to them;
+and a folded space or worktree said so only with a `⚠ N` at its right edge. The modeline's mark
+blinks three times as a session not shown enters needs input (ADR 0121), then stands still. The
+author's Emacs setup blinks a waiting session's tab and sidebar row, inverse, until it is
+answered.
+
+- **Only needs input blinks** (Q1): `permission`, `question`, `plan`, `elicitation` and `dialog`,
+  a session of oso's whose dialog wants the person's answer. Failed, done, ready for review and
+  idle stand still. Another program's session never blinks, as it never spins: oso cannot show
+  it. Nor does an archived one, which does not spin either.
+- **Its mark and name blink inverse** (Q2): on the lit beat they are drawn in the text's
+  background colour on a fill of the alert's red, `Face::SessionAlertLit` over
+  `Highlight::SessionAlertLit`; on the other beat as before, the red `⚠` and the plain name. The
+  text never changes, so `n`/`p`, the cut, point and the row's width stay as they are, and a beat
+  shapes nothing again: it sets the buffer's highlights alone, and the frame draws the fill.
+  Text is drawn inverse only where its fill is: a roll-up cut at a narrow width keeps its face.
+- **Not in front of the person** (Q4): the session shown in the selected window of a focused oso
+  window, which is looking at its dialog, does not blink, nor do its roll-ups for it. While a
+  prompt is open, no session is in front of the person (ADR 0121's "seen"), so that one blinks
+  too, as the prompt has their keys. A change of the session in front draws the list again at
+  once while one needs input and the list could blink.
+- **625 ms a beat** (Q3), lit then not, from the first beat lit, for as long as it needs input:
+  five of the spinner's frames, so that while both run a beat falls on a frame and wakes nothing
+  more.
+- **The roll-ups blink too** (Q5), folded or open: a worktree's rolled-up `⚠` at its row's right,
+  and a space's `⚠ N` at the end of its rule, on the same beat, while a session in them blinks.
+  So a folded space still shows that a session in it waits. A repository's row in a space of
+  several has no roll-up, and so nothing to blink; the title row's counts, `Other projects`,
+  `Archived` and, grouped by state, the `Needs input` header stand still too.
+- **`[sessions] blink = false`** (Q6) keeps them still, and so sets no deadline for them; like
+  `spinner`, it applies at once. The system's "reduce motion" setting is not read, as for the
+  spinner (ADR 0131, Q14).
+- **The modeline is unchanged** (Q7): its `⚠ N` still blinks three times as a session not shown
+  enters needs input.
+- **One clock** (`sessions/spinner.rs`'s `Clock`) keeps the spinner's frames and the blink's
+  beats from one epoch, with one deadline on the event loop's wait: the next frame while a
+  spinning row is in view, else the next beat while a blinking row is. While neither is in
+  view, while oso's window is hidden, or with both off, no deadline is set: nothing runs while
+  nothing waits. A render reads it as a `Beat`: the frame, whether the beat is lit, and the
+  session in front of the person.
+- **Built in** `sessions/list.rs` (`Beat`, `Rendered::blinking`, `SpaceBands::lit`, the cells
+  drawn inverse), `list/row.rs`, `tree/worktree.rs` and `tree/space.rs`; the fill in
+  `app/draw/spaces.rs` and `tiled.rs`, over the point's band, by the cells of the line each
+  screen row shows; the face and its contrast pair in `oso-render`, on its own fill at 4.5:1 in
+  every built-in theme, and listed among the fills a highlight keeps its face on. oso-core's
+  public API gains the one `Highlight` variant; `oso-render`'s `Face` gains the one face. No new
+  crate, crate edge, module or trait. A span the list cuts with its text now keeps whole
+  characters only, as a cut may put its `…` where a span began.
+- **Cost.** A beat renders the list, as a spinner's tick does, and sets its highlights alone. In
+  the tree, with twenty waiting rows of forty and their roll-ups, it costs what a tick of twenty
+  spinning rows does, within a tenth, and so stays inside ADR 0131's 0.2 ms where the tick does;
+  grouped by state, each waiting row has its reason's line too, and a beat costs about a sixth
+  more. Release-only tests take both in turn and hold those ratios. At most 1.6 beats a second
+  while nothing spins, a fifth of the spinner's rate, inside ADR 0131's sustained budget; while
+  it spins, a beat adds no wakeup.
+- **Tests.** Unit tests cover the beats and the deadline; the rows and roll-ups that blink,
+  folded or not, and on both beats; those that do not (in front of the person, another
+  program's, other states, the switch off); the same text on both beats; that whatever is drawn
+  inverse is on its fill at every width from 1 to 59; the fill's cells cut to the window; the
+  setting; the cost; and, in `oso-render`, that a lit beat draws the glyphs inverse on their fill
+  and neither beat shapes anything again. An end-to-end flow checks in the running app that a
+  waiting session in front of the person stands still, blinks once it is not, and stands still
+  once it is answered.
+- **Changes to accepted ADRs**, each passage staying as written: [ADR
+  0131](0131-an-orca-style-sessions-pane.md), "A working mark spins (Q5) … Every other mark is
+  still": a waiting session's mark and name blink, and the roll-ups of one; and "The spinner
+  (Q5, Q11–Q14) … It is the one timer the pane runs": the spinner and the blink share that one
+  timer.
 
 ## Consequences
 

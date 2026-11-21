@@ -1029,7 +1029,9 @@ read. See [ADR 0019](adr/0019-configuration.md).
   thread reads them again after `C-x C-w`; parsing and matching are pure functions in
   `oso_core::editorconfig`. Indentation itself is computed on the UI thread at the key by
   per-mode rules in `oso_core::indent`, from the text alone, within a budget: no tree and no
-  worker.
+  worker. CSS, JSON, HTML, JavaScript, TypeScript (JSX among them) and Go share one lexer with
+  a dialect each, and YAML has rules of its own that never reindent a line
+  ([ADR 0164](adr/0164-indenting-the-web-languages-and-go.md)).
 
 ### Persistence
 

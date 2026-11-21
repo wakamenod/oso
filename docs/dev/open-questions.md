@@ -380,8 +380,12 @@ item notes when it must be settled.
 - Tree-sitter grammars beyond Rust, Markdown, TOML, Go, JavaScript, TypeScript and TSX
   ([ADR 0147](adr/0147-highlighting-go-typescript-and-javascript.md)), and HTML, CSS, JSON and
   YAML ([ADR 0157](adr/0157-highlighting-html-css-json-and-yaml.md)): LaTeX and Swift have
-  modes and no grammar. The four of ADR 0157 have no indentation rules of their own yet (its
-  Q9).
+  modes and no grammar, and keep the line before's indentation.
+- After ADR 0164's indentation: rules for LaTeX and Swift; `style` attributes and Markdown's raw
+  HTML as CSS and HTML; the layouts Prettier writes that the rules do not know (a long condition
+  broken inside `if (`, a JSX attribute on the tag's line with the rest under it); a `/` after
+  `)` that starts a regular expression; a TSX generic written `<T>` rather than `<T,>`
+  ([ADR 0164](adr/0164-indenting-the-web-languages-and-go.md)).
 - After window splits ([ADR 0112](adr/0112-window-splits.md)):
   - `C-x 4`: `switch-to-buffer-other-window`, `find-file-other-window` and
     `kill-buffer-and-window`, with rules for where a buffer is shown, as Emacs's
@@ -434,10 +438,10 @@ item notes when it must be settled.
 - Check on the current Claude Code CLI before ADR 0128 step 1: that a `SendMessage` wakes an idle
   session, how long an MCP tool call may block, and how its agent teams place teammates
   ([ADR 0128](adr/0128-orchestration-and-automations.md)).
-- Before ADR 0130 step 1, measure the chat sidecar's start time and memory, and check that the
-  Python SDK's `cli_path` runs the person's own `claude` with oso's session id; before chat is
-  published, check that signing in with a subscription through an SDK client is allowed
-  ([ADR 0130](adr/0130-agent-chat.md)).
+- In ADR 0165 step 1, measure a native session's start time to its first event and its memory,
+  whether `ExitPlanMode` reaches the bridge's permission tool (or needs the stdio route), and
+  whether a `SendMessage` reaches a `-p` session
+  ([ADR 0165](adr/0165-native-claude-sessions-the-route.md)).
 - Check before ADR 0126 step 3 that a `statusLine` given with `--settings` overrides the person's
   own for that session only ([ADR 0126](adr/0126-sessions-and-worktrees-in-depth.md)).
 - After ADR 0121 step 6 lands, rename the hosted session's table entry,
