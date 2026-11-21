@@ -235,7 +235,8 @@ impl Mode {
             | Self::GitDiscarded
             | Self::Conversation
             | Self::RenamePreview
-            | Self::SessionMove => None,
+            | Self::SessionMove
+            | Self::NativeSession => None,
         };
         given.unwrap_or_default()
     }
