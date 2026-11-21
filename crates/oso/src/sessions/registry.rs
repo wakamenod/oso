@@ -73,7 +73,9 @@ pub enum Live {
     /// No such process, or one that started at another time: the id was given again.
     No,
     /// The entry says nothing of when its process started, or the system does not say when the
-    /// process with its pid did. Callers count it as live: refusing a resume is the safe side.
+    /// process with its pid did. Callers count it as live where that refuses, as refusing a
+    /// resume is the safe side; check 4 never counts a hosted session idle by it, as that
+    /// would let a removal through.
     Unknown,
 }
 

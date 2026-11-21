@@ -2,7 +2,8 @@
 
 - Status: Accepted, amended by 0126, 0128, 0131, 0132, 0135, 0136, 0138, 0140, 0141, 0143, 0145, 0151, 0153, 0155, 0160, 0161, 0163 and 0165;
   "Merged work is not ready for review, as amended" (2026-11-17); "Removal archives its
-  sessions, as amended" (2026-11-18)
+  sessions, as amended" (2026-11-18); "An unverifiable registry entry is busy, as amended"
+  (2026-11-22)
 - Date: 2026-11-12
 
 ## Context
@@ -1138,7 +1139,8 @@ questions through the coordinator, (a) for each, and the coordinator approved th
   screen showing it is saved for `session-explain-file`.
   - The UI thread sends each running hosted session's process id and whether its state is idle
     or done with the job. The job reads the registry once, as it reads it for external
-    sessions, and combines the two halves. A process with no live registry entry is busy.
+    sessions, and combines the two halves. A process with no registry entry whose start time
+    matches it is busy ("An unverifiable registry entry is busy, as amended").
   - The UI thread looks at its own half again after the job's checks and before the removal;
     the job's half is shown in `*Worktrees*` as the job found it.
 - **The squash test.** "A merged pull request whose merge commit contains the tip" is read as
@@ -1747,6 +1749,38 @@ had worked on main.
   repository), and the look on its own thread. The end-to-end flows check the person's and an
   agent's removal (the echo, the reply's `archived`, the session's mark) and a start with a
   seeded stranded record, then a restart that keeps it archived and says nothing again.
+
+## An unverifiable registry entry is busy, as amended
+
+Amended on 2026-11-22, with the author's choice through the coordinator. The registry's half of
+check 4 took a hosted session's entry as idle unless it was known not to match its process: an
+entry that could not be checked counted as idle. It no longer does: like the other checks, an
+accident guard and not a boundary, it now fails closed on an entry it cannot tie to the hosted
+process.
+
+- **A hosted session's entry counts as idle only when it is known live:** its `procStart` or
+  `startedAt` matches the start of the process with its id, within the slack
+  (`registry::Live::Yes`). An entry that gives neither, or a process whose start the system does
+  not say, leaves the session busy, as a missing entry did already. When two files give one
+  process id, each must be known live and say idle. Claude Code writes both start fields, so its
+  entries can be checked. For a session oso does not host, nothing changes: an unknown entry
+  still counts as another's session, which refuses too.
+- **What the person sees:** the same refusal as for any busy session, "session NAME in it is
+  busy", in the echo, `*Worktrees*` and an agent's `worktree_remove` reply, and "a session in
+  it is busy" in an orchestrator's listing. ADR 0126's planned `C-u` removal must keep check 4,
+  as it does for every busy session. The person's `session-stop` (`k` in the sessions list)
+  reads no registry and is unchanged; a stopped session is never busy, so the person can stop
+  it and then remove the worktree.
+- **Built with** `facts::sessions_in_registry` taking each entry's `registry::Live` in place of
+  a yes or no, inside the `oso` binary crate; no public item. The unit tests cover entries that
+  are unknown, live and stale, a process whose start the system does not say, an idle entry
+  with no start fields for a hosted process that runs, and two entries for one process. An
+  end-to-end flow removes the start time from a settled, merged session's entry, is refused,
+  puts it back and removes the worktree.
+- **Not covered:** that Claude Code keeps writing a start field is the CLI's behaviour, not
+  checked by oso; the end-to-end fake writes `startedAt` only. Should a release stop, or
+  `process::start_time` fail on a platform, every hosted session counts as busy and each removal
+  needs `session-stop` first, with a refusal that does not tell this cause from a turn that runs.
 
 ## Consequences
 

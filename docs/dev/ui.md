@@ -1208,7 +1208,8 @@ a switch made with its command stands until that setting changes in the file
   - it has nothing uncommitted or untracked;
   - no buffer in it is unsaved and no brief for it is unsent;
   - no session in it is busy: one oso hosts is busy unless its state is idle, done or ready for
-    review and Claude Code's registry calls it idle;
+    review and Claude Code's registry calls it idle, in an entry whose start time matches its
+    process;
   - its branch is merged, into a remote's main branch or through a merged pull request that
     `gh` knows of.
 
