@@ -351,6 +351,7 @@ fn has_own_keys(mode: Mode) -> bool {
         | Mode::Conversation
         | Mode::RenamePreview
         | Mode::GitDiscarded
+        | Mode::NativeSession
         | Mode::Sessions => true,
         Mode::Fundamental
         | Mode::SessionMove

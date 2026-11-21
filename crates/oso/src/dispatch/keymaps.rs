@@ -388,7 +388,8 @@ impl Keymaps {
             | Mode::Yaml
             | Mode::Latex
             | Mode::Swift
-            | Mode::SessionMove => None,
+            | Mode::SessionMove
+            | Mode::NativeSession => None,
             Mode::Review => Some(&self.review),
             Mode::Directory => Some(&self.dired),
             Mode::RenamePreview => Some(&self.rename_preview),

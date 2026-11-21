@@ -584,8 +584,8 @@ impl Editor {
 
 /// Whether `buffer`, though internal, is listed and killed as a person's buffer is: a
 /// directory's listing (ADR 0134), a git status, log, graph or pull request (ADR 0127), as
-/// Emacs's dired and magit buffers are, a rename's preview (ADR 0138, step 14), or what a
-/// session's move into a space waits for, whose kill cancels it (ADR 0151).
+/// Emacs's dired and magit buffers are, a rename's preview (ADR 0138), what a session's move
+/// waits for, whose kill cancels it (ADR 0151), or a native session's (ADR 0165).
 fn kept_as_users(buffer: &Buffer) -> bool {
     let kept = [Mode::GitDiscarded, Mode::RenamePreview, Mode::SessionMove];
     super::listings::is_listing(buffer)
@@ -595,6 +595,7 @@ fn kept_as_users(buffer: &Buffer) -> bool {
         || super::git::is_git_pr(buffer)
         || super::git::is_git_issue(buffer)
         || (buffer.is_internal() && kept.contains(&buffer.mode()))
+        || buffer.is_native_session()
 }
 
 #[cfg(test)]

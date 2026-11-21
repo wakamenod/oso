@@ -234,6 +234,7 @@ impl Editor {
             | Mode::Conversation
             | Mode::RenamePreview
             | Mode::SessionMove
+            | Mode::NativeSession
             | Mode::GitDiscarded
             | Mode::Sessions => {}
             Mode::CopyList => self.leave_internal(),
