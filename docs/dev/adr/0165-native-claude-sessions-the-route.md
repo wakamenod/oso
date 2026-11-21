@@ -463,6 +463,30 @@ naming run is, with no new spawn API and no new variables. `RET` on a long resul
 read-only buffer withheld from agents, and `n`, `p`, `]` and `[` move between prompts and tool
 rows from part 1b-2 on.
 
+Part 1b-2b, the buffer's keys (B1 and B2 (a), as the author chose):
+
+- **`TAB`** folds or unfolds the row at point: thinking, or a tool call with its input and
+  result. In an open row of several calls, on a call's lines, it folds that call alone; on the
+  row's own line, the row. Point goes to what it folded. Where each call of such a row is, the
+  host keeps as it draws the row, so a key draws nothing to find it.
+- **`RET`** shows the whole result of the call at point, or its whole change, read-only in
+  `*result: NAME*`, one per session, internal and withheld from agents as `*Session explain*`
+  is, since a result may hold what the session read. It is put in at the cost of the result's
+  size (at most `wire`'s 1 MiB and its change's headers), on the person's key; the call it
+  shows already is shown as it is. Its line is made one line as the row's is.
+- **`n`/`p`** go to the start of the next or previous message of the person's, **`]`/`[`** of
+  the next or previous tool row, with a count; back from a line of one past its first, to its
+  start first. They go by the rows' kinds, never by their text.
+- **Every key is `Person`:** the buffer is withheld, and the host does the work after the
+  command, where the channel's guards no longer see it, so what a key folds or says would tell
+  an agent of the rows.
+- **Session mode's `C-c` keys** (ADR 0132, ADR 0143) are bound in a native session's buffer
+  beside its own, but `C-c +` and `C-c -`, which let an agent read a terminal's screen; those
+  that need a terminal say why. The keys are carried out by the host from the row ledger,
+  through `SessionRequest::Native` and `NativeAction` (the author approved the public API's
+  change).
+- Resume and fork of a native session come in part 1b-2c.
+
 ## Questions
 
 The author chose (a) on each, on 2026-11-21. The options are kept as they were put.

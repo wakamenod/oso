@@ -148,6 +148,13 @@ pub enum SessionRequest {
     /// Act on the session whose terminal is this buffer, as on its row (`C-c K`, `C-c P`,
     /// `C-c A` in session mode, ADR 0132).
     OnBuffer(BufferId, RowAction),
+    /// Act on the row of native session buffer `buffer` that holds its line `line`, from 0
+    /// (ADR 0165).
+    Native {
+        buffer: BufferId,
+        line: usize,
+        action: NativeAction,
+    },
     /// Give the session whose rename the host asked about last this name (`session-rename-to`,
     /// the answer to `session-rename`'s prompt, ADR 0155).
     RenameTo(String),
@@ -291,6 +298,19 @@ pub enum RowAction {
     /// Read a new name for the session, its current one in the prompt (`session-rename`,
     /// ADR 0155).
     Rename,
+}
+
+/// What a key of a native session's buffer does at the row it is on (ADR 0165, step 1).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NativeAction {
+    /// Fold or unfold the row, or in a row of several calls shown open, the call.
+    Toggle,
+    /// Show the whole result of the call, read-only, in `*result: NAME*`.
+    Open,
+    /// Move to the start of the person's message this many after, before if negative.
+    Prompt(isize),
+    /// Move to the start of the tool row this many after, before if negative.
+    Tool(isize),
 }
 
 impl Editor {

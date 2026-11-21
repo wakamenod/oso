@@ -1,8 +1,8 @@
 //! What the commands of ADR 0121 step 3 ask, carried out: `*Spaces*` and its rows, showing a
 //! session (in its space, Q2), spaces and zoom, a live explain, and a stop that asks first
 //! while a session works or needs input (Q8); and step 5's sends and message follows, in
-//! `sending`. The question is the host's, as only the app
-//! knows a session's state.
+//! `sending`; and a native session's buffer's keys (ADR 0165), carried out in `hosting`. The
+//! question is the host's, as only the app knows a session's state.
 //!
 //! Must not depend on: how a frame is drawn, or key presses.
 
@@ -67,6 +67,11 @@ impl App {
                     None => self.editor.message("This buffer holds no session"),
                 }
             }
+            SessionRequest::Native {
+                buffer,
+                line,
+                action,
+            } => self.native_key(buffer, line, action),
             SessionRequest::Regroup => self.watch.list.regroup(),
             SessionRequest::CycleFolds => {
                 if !self.watch.list.cycle_folds(self.watch.view.open_to) {

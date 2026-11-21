@@ -11,17 +11,12 @@
 //! - `rows`: the events folded into a session's rows, and what changed with each event.
 //! - `render`: a row as text and faces, folded or unfolded, as ADR 0130 has them, and
 //!   `placed`: where each row is in the buffer.
+//! - `point`: what the buffer's keys find at point: a row's call, the row a move goes to, and
+//!   a call's whole result.
 //! - `turns`: what an event says of the session's state.
 
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "step 1b's reader thread and buffer use it (ADR 0165)"
-    )
-)]
-
 pub mod placed;
+pub mod point;
 pub mod render;
 pub mod rows;
 pub mod turns;

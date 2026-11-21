@@ -639,6 +639,14 @@ tools and points the agent to `start_worktree_session`, so its worktrees show in
 sessions from blinking; with both, the list runs no timer. `pane_width` is where the pane starts; `<` and `>` in it change it for this oso only.
 The `[sessions.notify]` values shown are the defaults.
 
+With `mode = "native"`, a new session in a trusted project shows its conversation in
+`*claude: NAME*` as oso's own rows. A start with no brief opens `*Brief*` for your first
+message: `C-c C-c` starts the session, `C-c C-k` drops it. In the session's buffer, `TAB` folds
+or unfolds the row at point, `RET` shows a tool call's whole result in `*result: NAME*`, which
+agents cannot read, `n` and `p` move between your messages, and `]` and `[` between tool rows.
+The `C-c` keys of a session's terminal work there too, except `C-c +` and `C-c -`. For now such
+a session takes only its first message.
+
 `agents_start_without_asking` lets a session you started, with a key or a `y`, start sessions
 through `start_worktree_session` and `session_start`, and a space's orchestrator resume a stopped
 session of its space through `session_resume`, without asking you, in a trusted project

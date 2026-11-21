@@ -463,16 +463,19 @@ pub fn edges(result: &ToolResult) -> Shown<'_> {
         return Shown::Whole(text);
     }
     let half = MAX_SHOWN_RESULT / 2;
-    let head_end = text
+    // Only what is shown is walked: a newline past `half` from either end changes nothing.
+    let near_start = &text[..text.floor_char_boundary(half)];
+    let head_end = near_start
         .match_indices('\n')
         .nth(RESULT_EDGE - 1)
-        .map_or(text.len(), |(at, _)| at);
+        .map_or(near_start.len(), |(at, _)| at);
     let head = capped(&text[..head_end], half).0;
     let body = text.strip_suffix('\n').unwrap_or(text);
-    let tail_start = body
+    let near = body.ceil_char_boundary(body.len().saturating_sub(half));
+    let tail_start = body[near..]
         .rmatch_indices('\n')
         .nth(RESULT_EDGE - 1)
-        .map_or(0, |(at, _)| at + 1)
+        .map_or(0, |(at, _)| near + at + 1)
         .max(head.len() + usize::from(text[head.len()..].starts_with('\n')))
         .max(text.ceil_char_boundary(text.len().saturating_sub(half)));
     let tail = &text[tail_start..];
@@ -498,7 +501,7 @@ fn relative(path: &str, directory: &Path) -> String {
 }
 
 /// `text` on one line, its control characters as spaces, cut to [`MAX_TARGET`] with `…`.
-fn one_line(text: &str) -> String {
+pub(super) fn one_line(text: &str) -> String {
     let (shown, cut) = capped(text, MAX_TARGET);
     let mut line: String = shown
         .chars()
