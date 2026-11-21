@@ -658,18 +658,25 @@ fn an_idle_registry_entry_with_no_start_time_keeps_its_worktree() {
 }
 
 /// Has Claude Code's registry, under the flow's home, say `run` is idle in `cwd`, as a
-/// `claude` at its prompt does: the other half of a removal's check that it is not busy.
+/// `claude` at its prompt does: the other half of a removal's check that it is not busy. Its
+/// `startedAt` is the process's own start, which check 4 matches, as the CLI's is.
 fn registered_idle(flow: &Flow, run: &Run, cwd: &Path) {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_millis();
+    let millis = |time: std::time::SystemTime| {
+        time.duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    };
+    let now = millis(std::time::SystemTime::now());
+    let pid = run.pid.parse::<u32>().unwrap();
+    let started = oso_platform::process::start_time(pid)
+        .expect("the system says when the fake started")
+        .expect("the fake runs");
     let registry = flow.home.join(".claude").join("sessions");
     fs::create_dir_all(&registry).unwrap();
     let entry = json!({
-        "pid": run.pid.parse::<u32>().unwrap(),
+        "pid": pid,
         "cwd": cwd,
-        "startedAt": now,
+        "startedAt": millis(started),
         "kind": "interactive",
         "status": "idle",
         "statusUpdatedAt": now,
