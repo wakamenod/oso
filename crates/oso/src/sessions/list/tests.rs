@@ -438,6 +438,98 @@ fn a_spinner_tick_with_twenty_spinning_rows_stays_within_its_budget() {
 }
 
 #[test]
+fn by_state_a_waiting_row_blinks_its_mark_and_name_and_its_header_stays_still() {
+    let t = Instant::now();
+    let entries = [entry(1, "ask", ASK, t), entry(2, "work", State::Working, t)];
+    let mut list = List::by_state();
+    list.set_blink(Some(true), None);
+    let lit = list.render(&entries, 32, t);
+    let rows: Vec<&str> = lit.text.lines().collect();
+    assert!(rows[0].starts_with(" ▾ Needs input"), "{rows:?}");
+    assert!(rows[1].starts_with(" ⚠ ask"), "{rows:?}");
+    assert_eq!(lit.blinking, [1]);
+    assert_eq!(lit.bands.lit, [(1, 1..6)]);
+    // Archived, it stands still.
+    let archived = [Entry {
+        archived: true,
+        ..entry(1, "ask", ASK, t)
+    }];
+    assert!(list.render(&archived, 32, t).blinking.is_empty());
+    let at = lit.text.find("⚠ ask").unwrap();
+    assert!(
+        lit.highlights
+            .contains(&(at..at + "⚠ ask".len(), Highlight::SessionAlertLit))
+    );
+}
+
+/// What a spinner's tick and a blink's beat do on the UI thread, with twenty working or waiting
+/// rows of forty, in `list`'s grouping: the best of thirty each, taken in turn so that a loaded
+/// machine slows both alike. A tick sets the list's text and highlights; a beat, whose text is
+/// the same, its highlights alone (ADR 0140, as amended).
+pub(super) fn tick_and_beat(
+    mut list: List,
+    waiting: &[Entry],
+    working: &[Entry],
+) -> (Duration, Duration) {
+    use oso_core::buffer::Mode;
+    use oso_core::editor::Editor;
+    use oso_core::syntax::Highlights;
+    let t = Instant::now();
+    let highlights = |shown: &super::Rendered| {
+        let mut highlights = Highlights::new(shown.text.len());
+        for (range, highlight) in &shown.highlights {
+            highlights.replace(range.clone(), [(range.len(), Some(*highlight))]);
+        }
+        highlights
+    };
+    let mut editor = Editor::default();
+    let ticks = editor.add_internal_buffer("*Spaces*", Mode::Sessions);
+    let beats = editor.add_internal_buffer("*Spaces* 2", Mode::Sessions);
+    list.set_blink(Some(true), None);
+    editor.set_internal_text(beats, &list.render(waiting, 44, t).text);
+    let (mut tick, mut beat) = (Duration::MAX, Duration::MAX);
+    for n in 0..30 {
+        let start = Instant::now();
+        list.set_blink(None, None);
+        list.set_spin(Some(n));
+        let shown = list.render(working, 44, t);
+        editor.set_internal_text(ticks, &shown.text);
+        editor.set_internal_highlights(ticks, highlights(&shown));
+        tick = tick.min(start.elapsed());
+        assert!(!shown.spinning.is_empty());
+        let start = Instant::now();
+        list.set_spin(None);
+        list.set_blink(Some(n % 2 == 1), None);
+        let shown = list.render(waiting, 44, t);
+        editor.set_internal_highlights(beats, highlights(&shown));
+        beat = beat.min(start.elapsed());
+        assert!(!shown.blinking.is_empty());
+    }
+    (tick, beat)
+}
+
+#[test]
+fn a_blinks_beat_with_twenty_waiting_rows_costs_no_more_than_a_spinners_tick() {
+    let t = Instant::now();
+    let rows = |state: State| -> Vec<Entry> {
+        (0..40)
+            .map(|n| {
+                let state = if n < 20 { state } else { State::Idle };
+                entry(n, &format!("m4-session-number-{n}"), state, t)
+            })
+            .collect()
+    };
+    let (tick, beat) = tick_and_beat(List::by_state(), &rows(ASK), &rows(State::Working));
+    // A debug build is several times slower, and only a release build's ratio means anything.
+    // Each waiting row takes a second line, its reason, which a working one does not: a beat
+    // costs about a sixth more than a tick, and is held under half again as much.
+    assert!(
+        cfg!(debug_assertions) || beat <= tick * 3 / 2,
+        "{beat:?} against {tick:?}"
+    );
+}
+
+#[test]
 fn a_session_started_without_asking_says_so_after_its_place() {
     let t = Instant::now();
     let mut unasked = entry(1, "fix", State::Idle, t);

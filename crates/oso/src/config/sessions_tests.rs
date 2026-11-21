@@ -130,6 +130,24 @@ fn steering_worktrees_is_off_until_set() {
 }
 
 #[test]
+fn waiting_rows_blink_until_blink_is_false() {
+    let f = Fixture::new();
+    assert!(!f.parse("[sessions]\n").settings.sessions.no_blink);
+    let loaded = f.parse("[sessions]\nblink = false\n");
+    assert_eq!(messages(&loaded), Vec::<String>::new());
+    assert!(loaded.settings.sessions.no_blink);
+    let loaded = f.parse("[sessions]\nblink = 0\n");
+    let messages = messages(&loaded);
+    assert_eq!(messages.len(), 1);
+    assert!(
+        messages[0].ends_with("[sessions] blink takes true or false, not a number"),
+        "{}",
+        messages[0]
+    );
+    assert!(!loaded.settings.sessions.no_blink);
+}
+
+#[test]
 fn agents_start_without_asking_and_its_limit() {
     let f = Fixture::new();
     let loaded = f.parse("[sessions]\n");

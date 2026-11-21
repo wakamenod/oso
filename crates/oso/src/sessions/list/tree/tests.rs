@@ -1,6 +1,6 @@
 //! The tree: projects, their worktrees in order and their sessions, external sessions under
 //! their worktree or in `Other projects`, quiet worktrees, folds, the space in front, the
-//! spinner on a worktree's row, and its cost.
+//! spinner on a worktree's row, the blink of a waiting one, and its cost.
 //!
 //! Must not depend on: `app` or `dispatch`; plain data in, text out.
 
@@ -193,6 +193,170 @@ fn the_space_in_front_and_marks_take_their_faces_and_a_working_worktree_spins() 
     assert_eq!(rendered.spinning.len(), 2, "{text}");
     // The front worktree's row and its session's are on its tint (ADR 0140).
     assert_eq!(rendered.bands.tint, rendered.spinning, "{text}");
+}
+
+#[test]
+fn a_waiting_session_its_worktree_and_its_space_blink_even_folded() {
+    let mut list = List::default();
+    list.set_tree(tree());
+    let entries = [
+        session(1, "oso-bb", State::Working, "/w/oso"),
+        session(2, "pane-c3", ASK, "/w/oso/.claude/worktrees/pane"),
+        external(9, "oso-2", "/w/oso", Some("/w/oso")),
+    ];
+    let now = Instant::now();
+    list.set_blink(Some(true), None);
+    let lit = list.render(&entries, 44, now);
+    let rows: Vec<&str> = lit.text.lines().collect();
+    let at = |prefix: &str| {
+        (rows.iter().position(|row| row.starts_with(prefix)))
+            .unwrap_or_else(|| panic!("{prefix:?} in {rows:?}"))
+    };
+    let (space, worktree, row) = (at(" ▾ oso"), at("   ▾ pane"), at("     └ ⚠ pane-c3"));
+    assert_eq!(lit.blinking, [space, worktree, row], "{rows:?}");
+    // Its mark and name, the worktree's roll-up mark and the space's `⚠ 1`, by cells.
+    assert_eq!(
+        lit.bands.lit,
+        [(space, 41..44), (worktree, 38..39), (row, 7..16)],
+        "{rows:?}"
+    );
+    // Drawn inverse on the lit beat, from its mark to the end of its name.
+    let start = lit.text.find("⚠ pane-c3").unwrap();
+    let end = start + "⚠ pane-c3".len();
+    assert!(
+        lit.highlights
+            .contains(&(start..end, Highlight::SessionAlertLit)),
+        "{:?}",
+        lit.highlights
+    );
+    // The other beat: the same text, the mark in its own face, nothing filled.
+    list.set_blink(Some(false), None);
+    let unlit = list.render(&entries, 44, now);
+    assert_eq!(unlit.text, lit.text);
+    assert_eq!(unlit.blinking, lit.blinking);
+    assert!(unlit.bands.lit.is_empty());
+    let mark = start..start + '⚠'.len_utf8();
+    assert!(unlit.highlights.contains(&(mark, Highlight::SessionAlert)));
+    // Folded, its space still blinks.
+    list.fold(&lit.lines[space]);
+    list.set_blink(Some(true), None);
+    let folded = list.render(&entries, 44, now);
+    assert_eq!(folded.text.lines().count(), space + 1, "{}", folded.text);
+    assert_eq!(folded.blinking, [space]);
+    assert_eq!(folded.bands.lit, [(space, 41..44)]);
+    // On the other beat it still counts as blinking, so that the clock goes on.
+    list.set_blink(Some(false), None);
+    let folded = list.render(&entries, 44, now);
+    assert_eq!(folded.blinking, [space]);
+    assert!(folded.bands.lit.is_empty());
+}
+
+/// What is drawn inverse is always on its fill, at any width, so that it never draws unseen in
+/// the background's colour.
+#[test]
+fn whatever_is_drawn_inverse_is_on_its_fill_at_any_width() {
+    let mut list = List::default();
+    list.set_tree(tree());
+    let entries = [
+        session(
+            2,
+            "pane-c3-with-a-long-name",
+            ASK,
+            "/w/oso/.claude/worktrees/pane",
+        ),
+        session(3, "main-asks", ASK, "/w/oso"),
+    ];
+    list.set_blink(Some(true), None);
+    for folded in [false, true] {
+        if folded {
+            list.fold(&list.render(&entries, 44, Instant::now()).lines[1]);
+        }
+        for width in 1..60 {
+            let rendered = list.render(&entries, width, Instant::now());
+            let starts: Vec<usize> = std::iter::once(0)
+                .chain(rendered.text.match_indices('\n').map(|(at, _)| at + 1))
+                .collect();
+            for (range, highlight) in &rendered.highlights {
+                if *highlight != Highlight::SessionAlertLit {
+                    continue;
+                }
+                let line = starts.iter().rposition(|&at| at <= range.start).unwrap();
+                assert!(
+                    rendered.text.is_char_boundary(range.end)
+                        && rendered.text.is_char_boundary(range.start),
+                    "{width} {range:?} {:?}",
+                    rendered.text
+                );
+                let from = super::cells(&rendered.text[starts[line]..range.start]);
+                let to = from + super::cells(&rendered.text[range.clone()]);
+                let filled = (rendered.bands.lit.iter())
+                    .any(|(at, cells)| *at == line && cells.start <= from && to <= cells.end);
+                assert!(
+                    filled,
+                    "{width}: {range:?} {:?}\n{}",
+                    rendered.bands.lit, rendered.text
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn nothing_blinks_in_front_of_the_person_outside_oso_or_while_still() {
+    let mut list = List::default();
+    list.set_tree(tree());
+    let mut entries = vec![session(2, "pane-c3", ASK, "/w/oso/.claude/worktrees/pane")];
+    let now = Instant::now();
+    // The session in front of the person: neither it nor its roll-ups blink.
+    list.set_blink(Some(true), Some(Key::Hosted(2)));
+    let rendered = list.render(&entries, 44, now);
+    assert!(rendered.blinking.is_empty() && rendered.bands.lit.is_empty());
+    // Another program's session that needs input stays quiet.
+    entries[0] = Entry {
+        key: Key::External(9),
+        ..entries[0].clone()
+    };
+    list.set_blink(Some(true), None);
+    let rendered = list.render(&entries, 44, now);
+    assert!(rendered.blinking.is_empty(), "{}", rendered.text);
+    // Failed, done and idle never blink; nor anything with the blink off.
+    for state in [State::Failed, State::Done, State::Idle] {
+        let entries = [session(
+            2,
+            "pane-c3",
+            state,
+            "/w/oso/.claude/worktrees/pane",
+        )];
+        assert!(
+            list.render(&entries, 44, now).blinking.is_empty(),
+            "{state}"
+        );
+    }
+    list.set_blink(None, None);
+    let entries = [session(2, "pane-c3", ASK, "/w/oso/.claude/worktrees/pane")];
+    assert!(list.render(&entries, 44, now).blinking.is_empty());
+}
+
+#[test]
+fn in_the_tree_a_blinks_beat_costs_no_more_than_a_spinners_tick() {
+    let rows = |state: State| -> Vec<Entry> {
+        (0..40)
+            .map(|n| {
+                let state = if n < 20 { state } else { State::Idle };
+                let name = format!("m4-session-number-{n}");
+                session(n, &name, state, "/w/oso/.claude/worktrees/pane")
+            })
+            .collect()
+    };
+    let mut list = List::default();
+    list.set_tree(tree());
+    let (tick, beat) = super::super::tests::tick_and_beat(list, &rows(ASK), &rows(State::Working));
+    // With its roll-ups, a worktree's and a space's, and no reasons: a beat does what a tick
+    // does, but set the text, and is held within a tenth of it, for the timer's noise.
+    assert!(
+        cfg!(debug_assertions) || beat <= tick * 11 / 10,
+        "{beat:?} against {tick:?}"
+    );
 }
 
 #[test]

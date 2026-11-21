@@ -175,7 +175,7 @@ impl List {
         width: usize,
         now: Instant,
     ) {
-        Row::new(entry, indent, self.spin, waiting).render(out, width, now);
+        Row::new(entry, indent, self.beat, waiting).render(out, width, now);
     }
 
     /// `Other projects`, folded by default, by directory, each folded too.
@@ -207,7 +207,7 @@ impl List {
             out,
             (&head, "Other projects", None),
             roll,
-            width,
+            (width, false),
             Line::Header(Group::Other),
         );
         if folded {
@@ -241,7 +241,7 @@ impl List {
             out,
             (&head, "Archived", None),
             count,
-            width,
+            (width, false),
             Line::Header(Group::Archived),
         );
         if folded {
@@ -252,7 +252,7 @@ impl List {
         for entry in archived {
             let row = Row {
                 place: true,
-                ..Row::new(entry, SESSION, None, 0)
+                ..Row::new(entry, SESSION, super::Beat::default(), 0)
             };
             row.render(out, width, now);
         }
@@ -292,14 +292,16 @@ fn named_heading(
 }
 
 /// A section's row (ADR 0140): `head` and `name`, in `name_face` if given, a rule to the
-/// right edge's `right`, in its face, and the section's band behind it.
+/// right edge's `right`, in its face, and the section's band behind it. If `lit`, a blink's
+/// lit beat, `right` is drawn inverse and the cells it takes returned, to be filled, when it is
+/// drawn whole; else it is drawn in its face.
 fn section(
     out: &mut Rendered,
     (head, name, name_face): (&str, &str, Option<Highlight>),
     right: Option<(String, Highlight)>,
-    width: usize,
+    (width, lit): (usize, bool),
     line: Line,
-) {
+) -> Option<std::ops::Range<usize>> {
     let (right, right_face) = right.unwrap_or((String::new(), Highlight::SessionQuiet));
     let right = if right.is_empty() {
         right
@@ -316,15 +318,25 @@ fn section(
     text.extend(std::iter::repeat_n(RULE, rule));
     let rule_end = text.len();
     text.push_str(&right);
-    let mut spans = vec![
-        (rule_at..rule_end, Highlight::SessionQuiet),
-        (rule_end..text.len(), right_face),
-    ];
+    let drawn = cut(&text, width);
+    // Inverse only where its fill is, past its blank, so that it never draws unseen.
+    let lit = lit && drawn.len() == text.len() && right.len() > 1;
+    let mut spans = vec![(rule_at..rule_end, Highlight::SessionQuiet)];
+    if lit {
+        spans.push((rule_end..rule_end + 1, right_face));
+        spans.push((rule_end + 1..text.len(), Highlight::SessionAlertLit));
+    } else {
+        spans.push((rule_end..text.len(), right_face));
+    }
     if let Some(face) = name_face {
         spans.insert(0, (head.len()..name_end, face));
     }
     out.bands.sections.push(out.lines.len());
-    out.push_drawn(&cut(&text, width), line, &spans);
+    out.push_drawn(&drawn, line, &spans);
+    lit.then(|| {
+        let end = cells(&drawn);
+        end + 1 - cells(&right)..end
+    })
 }
 
 /// The tree's first row (ADR 0140): the pane's name, and at the right the three most urgent
