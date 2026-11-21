@@ -1,8 +1,8 @@
 //! What a worktree job reads of a repository once, for every worktree it looks at (ADR 0121):
 //! the remotes, the remote branches that count as main lines, the local branches whose work
 //! went to a remote, the GitHub repository `gh` is asked about, the live sessions oso did not
-//! start, which of the sessions oso hosts Claude Code's registry calls idle, and whether the
-//! registry was listed in full.
+//! start, which of the sessions oso hosts Claude Code's registry calls idle, and why the
+//! registry cannot tell whether a session oso did not start runs in a worktree, if it cannot.
 //!
 //! Must not depend on: `app`, `dispatch` or the UI thread; this runs on a worktree
 //! job's thread.
@@ -39,9 +39,10 @@ pub struct RepoFacts {
     /// Live sessions in the registry that oso does not host, by their directory and a name to
     /// show.
     pub external: Vec<(PathBuf, String)>,
-    /// Why the registry could not be listed in full, if it could not: then a session oso does
-    /// not host may run in any worktree, and check 4 refuses every one.
-    pub registry_unread: Option<&'static str>,
+    /// Why the registry could not be read in full, or names a live session oso does not host
+    /// with no directory, if it does: then such a session may run in any worktree, and check 4
+    /// refuses every one.
+    pub registry_untold: Option<&'static str>,
     /// The process ids of the `claude`s oso hosts whose live registry entry's `status` is
     /// `idle`: the registry's half of check 4.
     pub hosted_idle: HashSet<u32>,
@@ -51,7 +52,7 @@ impl RepoFacts {
     /// Reads them from `repo`; `gh_host` is `GH_HOST` from oso's environment, `hosted` the
     /// process ids of the `claude`s oso hosts, and `registry` Claude Code's registry directory,
     /// `None` if it is not known (`registry::directory`). A fact that cannot be read is left
-    /// empty, but for the registry, which says why in `registry_unread`.
+    /// empty, but for the registry, which says why in `registry_untold`.
     pub fn gather(
         repo: &Repo,
         gh_host: Option<&str>,
@@ -71,15 +72,15 @@ impl RepoFacts {
             pushed.extend(with_upstream(repo));
         }
         let github = super::git::github_of(repo, &remotes, gh_host);
-        let (listing, registry_unread) = match registry {
+        let (listing, untold) = match registry {
             Some(dir) => {
                 let listing = registry::list(dir);
-                let unread = unread(&listing);
-                (listing, unread)
+                let untold = untold(&listing);
+                (listing, untold)
             }
             None => (registry::Listing::default(), Some(REGISTRY_UNKNOWN)),
         };
-        let (external, hosted_idle) = sessions_in_registry(listing.entries, hosted, |entry| {
+        let found = sessions_in_registry(listing.entries, hosted, |entry| {
             registry::liveness(entry, process::start_time) != registry::Live::No
         });
         RepoFacts {
@@ -87,9 +88,9 @@ impl RepoFacts {
             mains,
             pushed,
             github,
-            external,
-            registry_unread,
-            hosted_idle,
+            external: found.external,
+            registry_untold: untold.or(found.placeless.then_some(REGISTRY_PLACELESS)),
+            hosted_idle: found.hosted_idle,
         }
     }
 
@@ -115,15 +116,21 @@ pub const REGISTRY_CUT: &str = "Claude Code's session registry has more than 256
 pub const REGISTRY_UNLISTABLE: &str = "Claude Code's session registry cannot be listed, so a \
      session oso did not start may run in it";
 
+/// Why check 4 refuses when an entry file in the registry cannot be opened or read.
+pub const REGISTRY_UNREAD: &str = "Claude Code's session registry has an entry file that cannot \
+     be read, so a session oso did not start may run in it";
+
+/// Why check 4 refuses when a live session oso did not start has no directory oso can use.
+pub const REGISTRY_PLACELESS: &str = "Claude Code's session registry has a live session oso did \
+     not start whose directory cannot be read, so it may run in it";
+
 /// Why check 4 refuses when the registry `listing` is incomplete, if it is.
-fn unread(listing: &registry::Listing) -> Option<&'static str> {
-    if listing.complete() {
-        None
-    } else if listing.unlistable {
-        Some(REGISTRY_UNLISTABLE)
-    } else {
-        Some(REGISTRY_CUT)
-    }
+fn untold(listing: &registry::Listing) -> Option<&'static str> {
+    listing.incomplete().map(|why| match why {
+        registry::Incomplete::Cut => REGISTRY_CUT,
+        registry::Incomplete::Unlistable => REGISTRY_UNLISTABLE,
+        registry::Incomplete::Unread => REGISTRY_UNREAD,
+    })
 }
 
 /// The remote branches that count as main lines, by full name, from one listing of
@@ -185,20 +192,30 @@ fn with_upstream(repo: &Repo) -> Vec<String> {
         .collect()
 }
 
-/// From the registry's `entries`, read once, those `live` says still run: the sessions oso does
-/// not host, by directory and name, and the process ids of those it hosts (`hosted`) whose
-/// `status` is `idle`.
+/// What the registry's live entries say of the sessions.
+#[derive(Debug, Default)]
+struct InRegistry {
+    /// The sessions oso does not host, by directory and name.
+    external: Vec<(PathBuf, String)>,
+    /// The process ids of the sessions oso hosts whose `status` is `idle`.
+    hosted_idle: HashSet<u32>,
+    /// One oso does not host has no directory oso can use (`registry::Entry::cwd`), so that it
+    /// may run anywhere.
+    placeless: bool,
+}
+
+/// From the registry's `entries`, read once, those `live` says still run, with `hosted` the
+/// process ids of the sessions oso hosts.
 fn sessions_in_registry(
     entries: Vec<registry::Entry>,
     hosted: &[u32],
     live: impl Fn(&registry::Entry) -> bool,
-) -> (Vec<(PathBuf, String)>, HashSet<u32>) {
-    let mut external = Vec::new();
-    let mut idle = HashSet::new();
+) -> InRegistry {
+    let mut found = InRegistry::default();
     for entry in entries.into_iter().filter(|entry| live(entry)) {
         if hosted.contains(&entry.pid) {
             if entry.status.as_deref() == Some("idle") {
-                idle.insert(entry.pid);
+                found.hosted_idle.insert(entry.pid);
             }
             continue;
         }
@@ -206,18 +223,19 @@ fn sessions_in_registry(
             || format!("process {}", entry.pid),
             |name| crate::git::printable(name, 48),
         );
-        if let Some(cwd) = entry.cwd {
-            external.push((cwd, name));
+        match entry.cwd {
+            Some(cwd) => found.external.push((cwd, name)),
+            None => found.placeless = true,
         }
     }
-    (external, idle)
+    found
 }
 
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
 
-    use super::{REGISTRY_CUT, REGISTRY_UNLISTABLE, sessions_in_registry, unread};
+    use super::{REGISTRY_CUT, REGISTRY_UNLISTABLE, REGISTRY_UNREAD, sessions_in_registry, untold};
     use crate::sessions::registry::{Entry, Listing, MAX_FILES};
 
     fn entry(pid: u32, status: &str) -> Entry {
@@ -237,34 +255,54 @@ mod tests {
     #[test]
     fn hosted_processes_give_their_status_and_others_are_external() {
         let entries = vec![entry(1, "idle"), entry(2, "busy"), entry(3, "idle")];
-        let (external, idle) = sessions_in_registry(entries, &[1, 2], |_| true);
-        assert_eq!(idle.into_iter().collect::<Vec<_>>(), [1]);
-        assert_eq!(external, [(PathBuf::from("/w/3"), "process 3".to_owned())]);
+        let found = sessions_in_registry(entries, &[1, 2], |_| true);
+        assert_eq!(found.hosted_idle.into_iter().collect::<Vec<_>>(), [1]);
+        let external = [(PathBuf::from("/w/3"), "process 3".to_owned())];
+        assert_eq!(found.external, external);
+        assert!(!found.placeless);
+    }
+
+    #[test]
+    fn a_live_external_entry_with_no_directory_may_run_anywhere() {
+        let mut hosted = entry(1, "idle");
+        hosted.cwd = None;
+        let mut gone = entry(2, "idle");
+        gone.cwd = None;
+        let found = sessions_in_registry(vec![hosted, gone], &[1], |e| e.pid != 2);
+        assert!(found.hosted_idle.contains(&1) && !found.placeless);
+        let mut external = entry(3, "idle");
+        external.cwd = None;
+        let found = sessions_in_registry(vec![external], &[1], |_| true);
+        assert!(found.external.is_empty() && found.placeless);
     }
 
     #[test]
     fn an_entry_that_no_longer_runs_says_nothing() {
-        let (external, idle) =
-            sessions_in_registry(vec![entry(1, "idle"), entry(3, "idle")], &[1], |e| {
-                e.pid != 1
-            });
-        assert!(idle.is_empty());
-        assert_eq!(external.len(), 1);
+        let found = sessions_in_registry(vec![entry(1, "idle"), entry(3, "idle")], &[1], |e| {
+            e.pid != 1
+        });
+        assert!(found.hosted_idle.is_empty());
+        assert_eq!(found.external.len(), 1);
     }
 
     #[test]
     fn an_incomplete_registry_read_gives_why() {
-        assert_eq!(unread(&Listing::default()), None);
+        assert_eq!(untold(&Listing::default()), None);
         let cut = Listing {
             cut: true,
             ..Listing::default()
         };
-        assert_eq!(unread(&cut), Some(REGISTRY_CUT));
+        assert_eq!(untold(&cut), Some(REGISTRY_CUT));
         assert!(REGISTRY_CUT.contains(&MAX_FILES.to_string()));
         let unlistable = Listing {
             unlistable: true,
             ..Listing::default()
         };
-        assert_eq!(unread(&unlistable), Some(REGISTRY_UNLISTABLE));
+        assert_eq!(untold(&unlistable), Some(REGISTRY_UNLISTABLE));
+        let unread_file = Listing {
+            unread: true,
+            ..Listing::default()
+        };
+        assert_eq!(untold(&unread_file), Some(REGISTRY_UNREAD));
     }
 }

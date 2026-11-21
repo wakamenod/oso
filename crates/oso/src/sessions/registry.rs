@@ -81,10 +81,10 @@ pub enum Live {
 /// is always given oso's own, so that the registry it writes is the one oso reads.
 pub const CONFIG_VARIABLE: &str = "CLAUDE_CONFIG_DIR";
 
-/// The registry's directory: `sessions` under `$CLAUDE_CONFIG_DIR`, else under `~/.claude`.
-/// `None` when it cannot be told: `$CLAUDE_CONFIG_DIR` is not an absolute path, which a
-/// session would read from its own directory, or there is no absolute home
-/// (`oso_platform::privacy::home`).
+/// The registry's directory: `sessions` under `$CLAUDE_CONFIG_DIR`, else under `~/.claude`. An
+/// empty `$CLAUDE_CONFIG_DIR` counts as unset, as it does for the CLI. `None` when it cannot be
+/// told: `$CLAUDE_CONFIG_DIR` is not an absolute path, which a session would read from its own
+/// directory, or there is no absolute home (`oso_platform::privacy::home`).
 pub fn directory() -> Option<PathBuf> {
     directory_from(
         std::env::var_os(CONFIG_VARIABLE),
@@ -94,7 +94,7 @@ pub fn directory() -> Option<PathBuf> {
 
 /// `home` is absolute, as `oso_platform::privacy::home` gives it.
 fn directory_from(config_dir: Option<OsString>, home: Option<PathBuf>) -> Option<PathBuf> {
-    if let Some(dir) = config_dir {
+    if let Some(dir) = config_dir.filter(|dir| !dir.is_empty()) {
         return Some(PathBuf::from(dir))
             .filter(|dir| dir.is_absolute())
             .map(|dir| dir.join("sessions"));
@@ -118,13 +118,37 @@ pub struct Listing {
     /// be told from it either. A directory that is not there is not unlistable: no session
     /// wrote to it.
     pub unlistable: bool,
+    /// A listed entry file could not be opened or read, for a reason other than its going: a
+    /// session it is for cannot be told either.
+    pub unread: bool,
+}
+
+/// Why a [`Listing`] is not complete.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Incomplete {
+    Cut,
+    Unlistable,
+    Unread,
 }
 
 impl Listing {
-    /// Whether every entry file was listed: neither cut nor unlistable. A listed file that does
-    /// not pass [`read`]'s checks is still left out.
+    /// Whether every entry file was listed and read: neither cut, unlistable nor unread. A file
+    /// read that does not pass [`read`]'s checks is still left out.
     pub fn complete(&self) -> bool {
-        !self.cut && !self.unlistable
+        self.incomplete().is_none()
+    }
+
+    /// Why it is not complete, if it is not; the first of unlistable, cut and unread.
+    pub fn incomplete(&self) -> Option<Incomplete> {
+        if self.unlistable {
+            Some(Incomplete::Unlistable)
+        } else if self.cut {
+            Some(Incomplete::Cut)
+        } else if self.unread {
+            Some(Incomplete::Unread)
+        } else {
+            None
+        }
     }
 }
 
@@ -148,21 +172,30 @@ pub fn list(dir: &Path) -> Listing {
         .collect();
     let cut = files.len() > MAX_FILES;
     files.truncate(MAX_FILES);
+    let mut unread = false;
     let entries = files
         .into_iter()
-        .filter_map(|(pid, path)| read_entry(&path, pid))
+        .filter_map(|(pid, path)| match read_entry(&path, pid) {
+            Ok(entry) => entry,
+            Err(e) => {
+                log::debug!("registry file {} cannot be read: {e}", path.display());
+                unread = true;
+                None
+            }
+        })
         .collect();
     Listing {
         entries,
         cut,
         unlistable,
+        unread,
     }
 }
 
 /// The entry in the file called `name` in `dir`, if `name` is one [`read`] opens and the file
 /// passes its checks.
 pub fn read_file(dir: &Path, name: &std::ffi::OsStr) -> Option<Entry> {
-    read_entry(&dir.join(name), pid_of(name)?)
+    read_entry(&dir.join(name), pid_of(name)?).ok().flatten()
 }
 
 /// Whether a file called `name` is one [`read`] opens: `<digits>.json`.
@@ -178,19 +211,27 @@ fn pid_of(name: &std::ffi::OsStr) -> Option<u32> {
     plain.then(|| digits.parse().ok()).flatten()
 }
 
-/// The entry in the file at `path`, which must be for `pid`.
-fn read_entry(path: &Path, pid: u32) -> Option<Entry> {
-    let (file, meta) = file_meta::open_regular_here(path).ok()??;
+/// The entry in the file at `path`, which must be for `pid`: `None` if the file went or does not
+/// pass the checks, and an error if it could not be opened or read.
+fn read_entry(path: &Path, pid: u32) -> io::Result<Option<Entry>> {
+    let opened = match file_meta::open_regular_here(path) {
+        Ok(opened) => opened,
+        // The session ended after the listing.
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    let Some((file, meta)) = opened else {
+        return Ok(None);
+    };
     if !is_this_users(&meta) || meta.len() > MAX_BYTES {
-        return None;
+        return Ok(None);
     }
     let mut bytes = Vec::new();
-    file.take(MAX_BYTES + 1).read_to_end(&mut bytes).ok()?;
+    file.take(MAX_BYTES + 1).read_to_end(&mut bytes)?;
     if bytes.len() as u64 > MAX_BYTES {
-        return None;
+        return Ok(None);
     }
-    let entry = parse(&bytes)?;
-    (entry.pid == pid).then_some(entry)
+    Ok(parse(&bytes).filter(|entry| entry.pid == pid))
 }
 
 /// An entry from a registry file's bytes, if they hold an object with a process id.
@@ -444,6 +485,12 @@ mod tests {
         );
         // A session would read a relative one from its own directory: oso cannot tell where.
         assert_eq!(directory_from(some("relative"), home.clone()), None);
+        assert_eq!(directory_from(some("~/c"), home.clone()), None);
+        // The CLI takes an empty one as unset.
+        assert_eq!(
+            directory_from(some(""), home.clone()),
+            Some(PathBuf::from("/h/.claude/sessions"))
+        );
         assert_eq!(
             directory_from(None, home),
             Some(PathBuf::from("/h/.claude/sessions"))
@@ -701,6 +748,27 @@ mod tests {
             assert_eq!(list(&shut).unlistable, !readable);
             std::fs::set_permissions(&shut, std::fs::Permissions::from_mode(0o700)).unwrap();
         }
+    }
+
+    #[test]
+    fn an_entry_file_that_cannot_be_read_leaves_the_listing_incomplete() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let scratch = Scratch::new("unread");
+        scratch.write("1.json", &entry_json(1, "Thu Nov 12 19:46:55 2026"));
+        // Not an entry, but read: left out, and the listing is complete.
+        scratch.write("2.json", "not json");
+        std::fs::create_dir(scratch.0.join("3.json")).unwrap();
+        let listing = list(&scratch.0);
+        assert!(listing.complete() && listing.entries.len() == 1);
+        let shut = scratch.0.join("4.json");
+        std::fs::write(&shut, entry_json(4, "Thu Nov 12 19:46:55 2026")).unwrap();
+        std::fs::set_permissions(&shut, std::fs::Permissions::from_mode(0o000)).unwrap();
+        // Root reads it anyway.
+        let readable = std::fs::File::open(&shut).is_ok();
+        let listing = list(&scratch.0);
+        assert_eq!(listing.unread, !readable);
+        assert_eq!(listing.complete(), readable);
+        assert_eq!(listing.entries.len(), if readable { 2 } else { 1 });
     }
 
     /// The pid of a child that has ended and been reaped.

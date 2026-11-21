@@ -1764,27 +1764,40 @@ Code's registry for the sessions oso did not start, and took a listing it could 
 one that held none of them: a session in the worktree could go unseen.
 
 - **An incomplete registry read refuses the removal,** as check 4, with `Check::Unknown` and one
-  of three reasons: the registry has more than 256 entry files (`registry::MAX_FILES`, the
-  listing is cut), its directory is there but cannot be listed, or no registry directory is
-  known (no home, or a `CLAUDE_CONFIG_DIR` that is not absolute). Each ends "so a session oso did
-  not start may run in it". A directory that is not there has no sessions and refuses nothing.
-  A resume already refused on a cut listing or an unknown directory.
+  of five reasons: the registry has more than 256 entry files (`registry::MAX_FILES`, the
+  listing is cut), its directory is there but cannot be listed, an entry file in it cannot be
+  opened or read for a reason other than its going, a live session oso did not start has no
+  directory oso can use (`Entry::cwd` missing, too long, relative or with `..`), or no registry
+  directory is known (no home, or a `CLAUDE_CONFIG_DIR` that is not absolute). Each ends "so a
+  session oso did not start may run in it", or "so it may run in it". A directory that is not
+  there has no sessions and refuses nothing.
+- **An empty `CLAUDE_CONFIG_DIR` counts as unset,** as the CLI takes it: the registry is the one
+  under `~/.claude`. One that is not absolute, such as an unexpanded `~/x`, is still not known.
+- **A resume refuses on the same incomplete reads** (`registry::Listing::complete`): a cut or
+  unlistable listing, an entry file that cannot be read, or an unknown directory. It counts
+  these as live and offers `session-fork`, as for an unknown liveness; before, it refused on a
+  cut listing or an unknown directory only.
 - **Its refusal comes after check 3 and before a busy session's:** an entry left unread leaves
   a settled hosted session busy too, and the reason that can be acted on is the registry's.
 - **What the person sees:** the reason in the echo, the `*Worktrees*` row, an agent's
   `worktree_remove` reply and an orchestrator's listing, as for any check that cannot be run.
   ADR 0126's planned `C-u` removal must keep check 4.
-- **Built with** `registry::Listing::{unlistable, complete}`, `RepoFacts::registry_unread` and
-  `Looked::registry_unread`, inside the `oso` binary crate; `RepoFacts::gather` takes the
-  registry directory, which the jobs give from `registry::directory()` and the tests from a
-  scratch directory. No public item of a library crate. The unit tests cover the listing (cut,
-  missing, a file in its place, a directory with no permissions), the order against checks 3
+- **Built with** `registry::Listing::{unlistable, unread, complete, incomplete}` and
+  `registry::Incomplete`, `RepoFacts::registry_untold` and `Looked::registry_untold`, inside the
+  `oso` binary crate; `RepoFacts::gather` takes the registry directory, which `worktree::Jobs`
+  is made with: `registry::directory()` in the app, a scratch directory in the tests, so that no
+  test reads the person's registry. No public item of a library crate. The unit tests
+  cover the listing (cut, missing, a file in its place, a directory or an entry file with no
+  permissions), the configuration directory, the resume's refusal, the order against checks 3
   and 4, and a merged worktree kept for each reason and let go with an empty or missing
   registry.
 - **Not covered:** stale entry files of processes that ended count towards the 256, so a
-  registry that keeps many refuses every removal until the person deletes them. A listed file
-  that does not pass the registry's checks (a link, another user's, too large, not JSON) is
-  still left out without a refusal.
+  registry that keeps many refuses every removal until the person deletes them. One entry file
+  that cannot be read refuses every removal and resume the same way; the refusal does not name
+  it, and the log does at debug level. A file that is read but does not pass the registry's
+  checks is still left out without a refusal. The ask before a second session in one directory
+  and the warning of two live processes for one id still read what the registry gives, and do
+  not refuse on an incomplete read: neither guards against a loss.
 
 ## Consequences
 

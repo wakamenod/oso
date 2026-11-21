@@ -339,6 +339,7 @@ impl Jobs {
     ) {
         let failed_path = path.clone();
         let gh_host = self.gh_host.clone();
+        let registry = self.registry.clone();
         let report_later = Arc::clone(&self.send);
         // Entered now, so that a stop finds it while it waits for a thread.
         let held = self.removals.enter(token, &path);
@@ -355,7 +356,14 @@ impl Jobs {
                     }
                 });
                 let ready = resolved.and_then(|()| {
-                    match (check(repo, gh_host.as_deref(), &path, &snapshot), asked) {
+                    let checked = check(
+                        repo,
+                        gh_host.as_deref(),
+                        registry.as_deref(),
+                        &path,
+                        &snapshot,
+                    );
+                    match (checked, asked) {
                         (Err(check), _) => Err(check.why()),
                         (Ok(ignored), Asked::Named(named)) if ignored.len() > named => Err(
                             "git ignores more there than the question named: run worktree-remove \

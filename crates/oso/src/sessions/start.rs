@@ -439,17 +439,22 @@ fn launch_of(
 }
 
 /// A live process of the session `id`, by the registry: its pid and directory. With no pid,
-/// the registry could not tell: its directory is not known, or it holds more entries than are
-/// read. A resume is then refused too, as the safe side.
+/// the registry could not tell: its directory is not known, or it was not listed and read in
+/// full (`registry::Listing::complete`). A resume is then refused too, as the safe side.
 fn live(id: &SessionId) -> Option<(Option<u32>, Option<PathBuf>)> {
-    let Some(directory) = registry::directory() else {
+    live_in(registry::directory().as_deref(), id)
+}
+
+/// [`live`] in the registry `directory`, `None` if it is not known.
+fn live_in(directory: Option<&Path>, id: &SessionId) -> Option<(Option<u32>, Option<PathBuf>)> {
+    let Some(directory) = directory else {
         return Some((None, None));
     };
-    let listing = registry::list(&directory);
+    let listing = registry::list(directory);
     let live = registry::live_with(&listing.entries, id, process::start_time);
     match live.first() {
         Some(entry) => Some((Some(entry.pid), entry.cwd.clone())),
-        None => listing.cut.then_some((None, None)),
+        None => (!listing.complete()).then_some((None, None)),
     }
 }
 
@@ -524,6 +529,53 @@ mod tests {
     use super::launch::inherit;
     use super::{SESSION_VARIABLE, set};
     use crate::sessions::identity::SessionId;
+
+    // Hosted sessions run on Unix only (ADR 0120).
+    #[cfg(unix)]
+    mod live {
+        use super::super::live_in;
+        use crate::sessions::identity::SessionId;
+
+        /// A scratch directory, removed when dropped.
+        struct Scratch(std::path::PathBuf);
+
+        impl Drop for Scratch {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+
+        #[test]
+        fn a_resume_counts_a_registry_not_read_in_full_as_live() {
+            use std::os::unix::fs::PermissionsExt as _;
+            let id = SessionId::from_random([7; 16]);
+            let scratch = Scratch(std::env::temp_dir().join(format!(
+                "oso-start-live-{}-{:?}",
+                std::process::id(),
+                std::time::SystemTime::now()
+            )));
+            let dir = scratch.0.as_path();
+            std::fs::create_dir(dir).unwrap();
+            // Nothing there: no session wrote to it.
+            assert_eq!(live_in(Some(&dir.join("missing")), &id), None);
+            assert_eq!(live_in(Some(dir), &id), None);
+            assert_eq!(live_in(None, &id), Some((None, None)));
+            // An entry file that cannot be read. Root reads it anyway.
+            let shut = dir.join("1.json");
+            std::fs::write(&shut, "{}").unwrap();
+            std::fs::set_permissions(&shut, std::fs::Permissions::from_mode(0o000)).unwrap();
+            let want = std::fs::File::open(&shut).is_err().then_some((None, None));
+            assert_eq!(live_in(Some(dir), &id), want);
+            std::fs::remove_file(&shut).unwrap();
+            // A file where the directory should be cannot be listed.
+            std::fs::write(dir.join("file"), "").unwrap();
+            assert_eq!(live_in(Some(&dir.join("file")), &id), Some((None, None)));
+            for pid in 1..=crate::sessions::registry::MAX_FILES + 1 {
+                std::fs::write(dir.join(format!("{pid}.json")), "{}").unwrap();
+            }
+            assert_eq!(live_in(Some(dir), &id), Some((None, None)));
+        }
+    }
 
     #[test]
     fn a_session_passes_on_its_names_and_the_config_and_socket_directories_once_each() {
