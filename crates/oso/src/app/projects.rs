@@ -117,7 +117,12 @@ impl App {
     /// The thread found projects: gives them to their buffers, and asks for a frame, as the
     /// modeline may name one.
     pub(super) fn projects_found(&mut self) {
-        let answers = self.projects.take();
+        let (answers, roots) = self.projects.take();
+        // A start in a space's repository or worktree (ADR 0163).
+        if !roots.is_empty() {
+            self.review_roots_found(roots);
+            self.request_redraw();
+        }
         if answers.is_empty() {
             return;
         }

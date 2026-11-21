@@ -21,7 +21,7 @@ use oso_core::review::{Author, Seek};
 
 #[cfg(test)]
 pub(crate) use menu::menu_heads;
-pub use menu::review_menu;
+pub use menu::{review_menu, review_start_menu};
 
 /// The keys of a review buffer and their commands, which `bindings` binds in the review
 /// keymap and `review-keys` lists.
@@ -96,6 +96,7 @@ mod keys;
 mod quit;
 mod saved;
 mod send;
+mod start;
 mod visit;
 
 pub use comments::COMMANDS as COMMENT_COMMANDS;
@@ -107,6 +108,9 @@ pub(crate) use files::{prompt_text, review_shown};
 pub use saved::COMMANDS as SAVED_COMMANDS;
 pub(crate) use saved::{SAVED_LIST, lost};
 pub use send::{COMMANDS as SEND_COMMANDS, MESSAGE_KEYS};
+pub use start::{
+    COMMANDS as START_COMMANDS, REVIEW_REPOSITORIES_LIST, REVIEW_START_MENU, REVIEW_WORKTREES_LIST,
+};
 pub use visit::COMMANDS as VISIT_COMMANDS;
 
 /// The commands of reviews.
@@ -166,7 +170,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "review-pull-request",
-        doc: "Review a pull request of the current buffer's project's GitHub repository, its number read in a prompt.\n\n`gh` says its base and head, and their commits are fetched from the remote when this clone lacks them, as objects alone: no ref moves, and `FETCH_HEAD` stays as it was. The old side is where the head left the base (`git merge-base`), as GitHub's \"Files changed\" shows it; the new side is its head, or the work tree when its head branch is the one checked out and holds its head. `g` asks `gh` again. Comments go to the session whose worktree has its head branch checked out. git and `gh` run only in a trusted project, on a worker.",
+        doc: "Review a pull request of the current buffer's project's GitHub repository, its number read in a prompt.\n\n`gh` says its base and head, and their commits are fetched from the remote when this clone lacks them, as objects alone: no ref moves, and `FETCH_HEAD` stays as it was. The old side is where the head left the base (`git merge-base`), as GitHub's \"Files changed\" shows it; the new side is its head, or the work tree when its head branch is the one checked out and holds its head. `g` asks `gh` again. Comments go to the session whose worktree has its head branch checked out. From `review-start`'s menu in a space, it first finds the worktree its head is checked out in, holding its head commit, and opens the review there. git and `gh` run only in a trusted project, on a worker.",
         args: ArgSpec::Text {
             prompt: "Review pull request #",
             history: "review-pull-request",
@@ -219,7 +223,7 @@ pub const COMMANDS: &[Command] = &[
     ),
     Command {
         name: "review-layout",
-        doc: "Show the review layout, go back to the review from its slot, or restore the windows from before it.\n\nWith no review open, it opens the review menu, whose reviews open in the layout: the review at the left and one window at the right, the slot, where `RET` shows the source and `C-u RET` the old side, each in place of the last. In the slot, it selects the review again where it was. In the review, it restores the windows as they were before the layout, as `q` does. With a prefix argument, it opens the review menu.",
+        doc: "Show the review layout, go back to the review from its slot, or restore the windows from before it.\n\nWith no review open, it opens the review menu, whose reviews open in the layout: the review at the left and one window at the right, the slot, where `RET` shows the source and `C-u RET` the old side, each in place of the last. In the slot, it selects the review again where it was. In the review, it restores the windows as they were before the layout, as `q` does. With a prefix argument, it opens the review menu. In a space whose orchestrator is recorded, the menu is for one of the space's repositories: it asks which, when the space has two or more oso trusts, then `review-start`'s menu what of it to review, a pull request, a worktree or this checkout; the review menu's scopes then take that worktree in place of the current buffer's project.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: quit::review_layout,
@@ -256,9 +260,15 @@ pub const COMMANDS: &[Command] = &[
     ),
 ];
 
-/// The project reviews start from: the review's when the selected window shows a review
-/// buffer, which has no project of its own, else the project of the buffer it shows.
+/// The project reviews start from: the one a start in a space chose while the review menu is
+/// open for it (ADR 0163), else the selected window's ([`selected_project`]).
 pub(crate) fn review_project(editor: &Editor) -> Option<ProjectId> {
+    editor.review_target().or_else(|| selected_project(editor))
+}
+
+/// The selected window's project: the review's when it shows a review buffer, which has no
+/// project of its own, else the project of the buffer it shows.
+pub(crate) fn selected_project(editor: &Editor) -> Option<ProjectId> {
     let buffer = editor.tiled().0.buffer();
     match editor.review_of(buffer) {
         Some(review) => editor

@@ -113,6 +113,9 @@ pub struct Dispatcher {
     from_socket: bool,
     /// Where each `session-yank-image` the host has not taken came from (ADR 0142).
     image_yanks: clipboard::ImageYanks,
+    /// The host opens `review-layout`'s menu itself, as the space in front has an orchestrator
+    /// recorded, whose start asks for a repository first (ADR 0163).
+    review_menu_by_host: bool,
     /// The keys received last, for `view-lossage` (ADR 0150).
     lossage: lossage::Lossage,
     /// The sequence `describe-key` reads (ADR 0150).
@@ -186,6 +189,7 @@ impl Dispatcher {
             held_during_all: hold_all::HeldDuringAll::default(),
             from_socket: false,
             image_yanks,
+            review_menu_by_host: false,
             lossage,
             describe,
             completion_held: None,

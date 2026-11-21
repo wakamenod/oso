@@ -788,6 +788,7 @@ fn the_orchestrator_starts_in_the_spaces_directory_with_its_trusted_repositories
         .find(|arg| arg.starts_with("--append-system-prompt="))
         .expect("the orchestrator's text");
     assert!(prompt.contains("You are the orchestrator of an issue space"));
+    assert!(prompt.contains("Reviews of a worker's change:"), "{prompt}");
     assert!(prompt.contains("# This space: fix-login"));
     assert!(prompt.contains("can edit too): Fix login\n"), "{prompt}");
 

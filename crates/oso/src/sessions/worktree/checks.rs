@@ -119,6 +119,9 @@ pub struct Looked {
     pub ignored: Vec<PathBuf>,
     /// Sessions oso did not start that run in it, by name or process id.
     pub external: Vec<String>,
+    /// Why Claude Code's registry could not be listed in full, if it could not: check 4 cannot
+    /// tell whether a session oso did not start runs in it.
+    pub registry_unread: Option<&'static str>,
     /// The hosted sessions in it that were busy when the job looked, by name: the registry's
     /// half of check 4, which only the job reads.
     pub busy: Vec<String>,
@@ -173,6 +176,7 @@ pub fn look(
         merged: None,
         ignored: Vec::new(),
         external: Vec::new(),
+        registry_unread: None,
         busy: held.busy.clone(),
         gh_pending: None,
         removing: false,
@@ -197,6 +201,7 @@ pub fn look(
         }
     }
     looked.external = facts.external_in(&looked.listed.path);
+    looked.registry_unread = facts.registry_unread;
     if stop(&looked) {
         return looked;
     }
@@ -263,6 +268,14 @@ pub fn first(looked: &Looked, held: &Held) -> Option<Check> {
         && (status.changed > 0 || status.untracked > 0)
     {
         return Some(Check::Dirty(status));
+    }
+    // 4 cannot be run on a registry not listed in full. Its refusal comes before a busy
+    // session's, as an entry not read leaves a settled session busy too.
+    if let Some(why) = looked.registry_unread
+        && held.unsaved == 0
+        && !held.unsent
+    {
+        return Some(Check::Unknown(why.to_owned()));
     }
     if let Some(check) = held_refusal(held) {
         return Some(check);
@@ -351,12 +364,11 @@ mod tests {
         }
     }
 
-    #[test]
-    fn a_clean_merged_worktree_is_its_sessions_work_merged() {
-        use super::super::merged::Merged;
+    /// A clean linked worktree, its merge not asked yet, with nothing else in it.
+    fn looked() -> super::Looked {
         use super::super::porcelain::Status;
         use crate::git::ListedWorktree;
-        let mut looked = super::Looked {
+        super::Looked {
             listed: ListedWorktree {
                 path: PathBuf::from("/r/.claude/worktrees/a"),
                 head: None,
@@ -368,14 +380,23 @@ mod tests {
             },
             linked: Ok(()),
             status: Some(Status::default()),
-            merged: Some(Merged::Ancestor("origin/main".to_owned())),
+            merged: None,
             ignored: Vec::new(),
             external: Vec::new(),
+            registry_unread: None,
             busy: Vec::new(),
             gh_pending: None,
             removing: false,
             looked_at: std::time::Instant::now(),
-        };
+        }
+    }
+
+    #[test]
+    fn a_clean_merged_worktree_is_its_sessions_work_merged() {
+        use super::super::merged::Merged;
+        use super::super::porcelain::Status;
+        let mut looked = looked();
+        looked.merged = Some(Merged::Ancestor("origin/main".to_owned()));
         assert!(looked.work_merged());
         looked.status = Some(Status {
             changed: 0,
@@ -392,6 +413,31 @@ mod tests {
         assert!(!looked.work_merged());
         looked.merged = None;
         assert!(!looked.work_merged(), "not asked yet");
+    }
+
+    #[test]
+    fn a_registry_not_listed_in_full_refuses_after_check_3_and_before_busy() {
+        use super::super::merged::Merged;
+        use super::{Check, Held, removable};
+        let mut looked = looked();
+        looked.merged = Some(Merged::Ancestor("origin/main".to_owned()));
+        assert_eq!(removable(&looked, &Held::default()), Ok(()));
+        looked.registry_unread = Some("not listed");
+        let unknown = Err(Check::Unknown("not listed".to_owned()));
+        assert_eq!(removable(&looked, &Held::default()), unknown);
+        let busy = Held {
+            busy: vec!["a".to_owned()],
+            ..Held::default()
+        };
+        assert_eq!(removable(&looked, &busy), unknown);
+        looked.busy = vec!["a".to_owned()];
+        looked.external = vec!["b".to_owned()];
+        assert_eq!(removable(&looked, &Held::default()), unknown);
+        let unsaved = Held {
+            unsaved: 1,
+            ..Held::default()
+        };
+        assert_eq!(removable(&looked, &unsaved), Err(Check::Unsaved(1)));
     }
 
     #[test]

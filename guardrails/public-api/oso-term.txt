@@ -407,6 +407,7 @@ pub fn oso_term::Terminal::set_focused(&self, bool)
 pub fn oso_term::Terminal::set_palette(&self, oso_term::Palette)
 pub fn oso_term::Terminal::start(oso_term::Start, alloc::boxed::Box<(dyn core::ops::function::Fn() + core::marker::Send)>) -> std::io::error::Result<oso_term::Terminal>
 pub fn oso_term::Terminal::take_snapshot(&self) -> core::option::Option<oso_term::Snapshot>
+pub fn oso_term::Terminal::wait_started(&self, core::time::Duration) -> core::option::Option<u32>
 impl core::fmt::Debug for oso_term::Terminal
 pub fn oso_term::Terminal::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::ops::drop::Drop for oso_term::Terminal

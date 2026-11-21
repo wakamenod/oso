@@ -91,11 +91,23 @@ impl Dispatcher {
         self.open_menu(editor, &set, menu)
     }
 
+    /// Says whether the host opens `review-layout`'s menu itself, as in a space whose
+    /// orchestrator is recorded, where a start asks for the repository first (ADR 0163). The
+    /// host says it at each sync, so a macro that enters another space and runs `C-x v r` in
+    /// one replay goes by the space it was in; and the host falls back to the review menu where
+    /// no repository of the space is trusted.
+    pub fn set_review_menu_by_host(&mut self, by_host: bool) {
+        self.review_menu_by_host = by_host;
+    }
+
     /// Opens the review menu `review-layout` asked for as it ended (ADR 0160), at once, as a
-    /// menu key opens one, so that a macro's next key goes to it. The other review requests
-    /// stay for the host.
+    /// menu key opens one, so that a macro's next key goes to it, unless the host opens it
+    /// ([`Self::set_review_menu_by_host`]). The other review requests stay for the host.
     pub(super) fn open_asked_review_menu(&mut self, editor: &mut Editor) -> Effects {
         const ASKED: ReviewRequest = ReviewRequest::Layout { menu: true };
+        if self.review_menu_by_host {
+            return Effects::default();
+        }
         let requests = editor.take_review_requests();
         let asked = requests.contains(&ASKED);
         for request in requests.into_iter().filter(|request| *request != ASKED) {

@@ -495,6 +495,13 @@ project and how long ago the baseline was taken. Only a trusted project runs git
   nothing is pasted. A refused question shows the terminal and says why; a stopped orchestrator
   is offered to be resumed (`y`), the question held for it two minutes, its file judged for
   secrets again before it goes.
+- **Starting one in a space** whose orchestrator is recorded (ADR 0163): `review-layout`'s menu
+  asks for the repository by completion over the space's trusted ones, only with two or more,
+  then opens `review-start` (`p` a pull request, `w` a worktree by completion, `.` this
+  checkout), whose line names the repository; `w` and `.` open the review menu for the worktree,
+  its line and counts that worktree's. `w` is unavailable, saying why, while the repository has
+  one worktree. `p` says "Finding #N's worktree…" and opens the review on the worktree its head
+  is checked out in, else on the main checkout.
 - `C-x k` closes the review, asking first while comments of yours that were not sent, or a draft,
   would be lost; a review not shown is shown before the question.
 - **The review layout** ([ADR 0160](adr/0160-the-review-layout.md)): a review a person opens
@@ -1208,7 +1215,8 @@ a switch made with its command stands until that setting changes in the file
   - it has nothing uncommitted or untracked;
   - no buffer in it is unsaved and no brief for it is unsent;
   - no session in it is busy: one oso hosts is busy unless its state is idle, done or ready for
-    review and Claude Code's registry calls it idle;
+    review and Claude Code's registry calls it idle; none oso did not start runs in it, and
+    the registry was listed in full;
   - its branch is merged, into a remote's main branch or through a merged pull request that
     `gh` knows of.
 

@@ -12,7 +12,7 @@ use oso_term::Terminal;
 
 use super::super::launch::{self, Launch};
 use super::super::stream::Stream;
-use super::{NativeOrder, Runs, Started};
+use super::{NativeOrder, Runs, SPAWN_WAIT, Started};
 
 /// Starts the session as `runs` says: in its terminal, or a native session's `claude -p`.
 pub(super) fn start_runs(
@@ -39,9 +39,13 @@ pub(super) fn start_runs(
                 // or an agent: none of them reaches the log (ADR 0145).
                 args_logged: false,
             };
-            Terminal::start(start, given.ready)
-                .map(|terminal| (given.buffer, Started::Terminal(terminal)))
-                .map_err(|e| format!("The session's terminal did not start: {e}"))
+            let terminal = Terminal::start(start, given.ready)
+                .map_err(|e| format!("The session's terminal did not start: {e}"))?;
+            // `start` returns before the child is spawned: the session's record has its id from
+            // the start, or check 4 and the registry's poll take its `claude` for another's. The
+            // UI reads it when it takes the terminal, so that a child reaped meanwhile gives none.
+            terminal.wait_started(SPAWN_WAIT);
+            Ok((given.buffer, Started::Terminal(terminal)))
         }
         Runs::Native(given) => start_native(launch, directory, project, &set, brief, given)
             .map_err(|e| format!("The session did not start: {e}")),

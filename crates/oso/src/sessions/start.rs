@@ -16,6 +16,8 @@
 //!   that runs the wrapper, as [`launch`](super::launch) has it.
 //! - The terminal starts here too, with ADR 0120's environment, `[sessions] env`'s names and
 //!   `CLAUDE_CONFIG_DIR` and `OSO_SESSION`, so that the UI thread never waits on the spawn.
+//!   The thread waits for the spawn, at most [`SPAWN_WAIT`], before it reports [`Ready`]: oso's
+//!   record has its own `claude`'s process id from its first check on.
 //! - A native session (ADR 0165) starts `claude -p` here instead, with the same variables and
 //!   pipes for its stream, in a session of its own; [`stream`](super::stream) reads it.
 
@@ -51,6 +53,10 @@ pub const BASELINE_WAIT: Duration = Duration::from_secs(2);
 /// The longest a baseline is waited for at all, after the session started: git's own runs are
 /// bounded, so this only ends a wait that went wrong.
 const BASELINE_GIVE_UP: Duration = Duration::from_secs(60);
+
+/// How long the start thread waits for the terminal's thread to spawn the child before it
+/// reports the start anyway, with no process id yet; a bridge's claim reads it again.
+pub const SPAWN_WAIT: Duration = Duration::from_secs(5);
 
 /// How long after a resume the registry is read again (ADR 0121).
 pub const RECHECK_AFTER: Duration = Duration::from_secs(5);
@@ -166,6 +172,8 @@ pub struct Ready {
     pub token: u64,
     pub id: SessionId,
     pub buffer: BufferId,
+    /// A terminal past its child's start, unless that took longer than [`SPAWN_WAIT`]: its
+    /// `pid` is the child's while it runs. Or a native session's stream.
     pub started: Started,
     /// The shell's path and the shells passed over before it, for `*Messages*`.
     pub shell: PathBuf,
@@ -553,6 +561,8 @@ impl Baseline {
 #[cfg(test)]
 mod tests {
     use std::path::Path;
+    #[cfg(unix)]
+    use std::time::Duration;
 
     use super::launch::inherit;
     use super::{SESSION_VARIABLE, set};
@@ -593,5 +603,80 @@ mod tests {
         assert_eq!(get("SHELL").as_deref(), Some("/bin/zsh"));
         assert_eq!(get("TERM_PROGRAM").as_deref(), Some("oso"));
         assert_eq!(get(SESSION_VARIABLE).as_deref(), Some(id.as_str()));
+    }
+
+    /// A hosted session's start reports its `claude`'s process id: `Terminal::start` returns
+    /// before the spawn, and a record with none took its own `claude` for another's.
+    #[cfg(unix)]
+    #[test]
+    fn a_started_session_is_ready_with_its_childs_id() {
+        use std::os::unix::fs::PermissionsExt;
+
+        use oso_platform::process::pty::Size;
+        use oso_term::{Palette, Rgb};
+
+        use super::{Kind, Order, Report, Runs, Started, TerminalOrder, spawn};
+
+        let dir = std::fs::canonicalize(std::env::temp_dir())
+            .unwrap()
+            .join(format!("oso-start-child-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        // A fresh private directory: one made by anyone else meanwhile fails the test.
+        std::fs::create_dir(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        // A stand-in `claude` that prints its id and waits for its terminal to hang up.
+        let claude = dir.join("claude");
+        std::fs::write(&claude, "#!/bin/sh\necho \"pid $$\"\nexec sleep 30\n").unwrap();
+        std::fs::set_permissions(&claude, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let mut editor = oso_core::editor::Editor::default();
+        let buffer = editor.add_terminal_buffer("*claude: test*");
+        let order = Order {
+            token: 7,
+            kind: Kind::New,
+            name: "test".to_owned(),
+            directory: dir.clone(),
+            project: None,
+            trusted: None,
+            state: None,
+            claude: Some(claude),
+            runs: Runs::Terminal(TerminalOrder {
+                buffer,
+                settings: crate::terminal::shell::Settings::default(),
+                env: Vec::new(),
+                size: Size {
+                    rows: 6,
+                    columns: 40,
+                    width: 0,
+                    height: 0,
+                },
+                palette: Palette {
+                    foreground: Rgb::default(),
+                    background: Rgb::default(),
+                    cursor: None,
+                    ansi: [Rgb::default(); 16],
+                },
+                ready: Box::new(|| {}),
+            }),
+            brief: None,
+            steer_worktrees: false,
+            check_shared: false,
+            space: None,
+        };
+        let (tx, reports) = std::sync::mpsc::channel();
+        let tx = std::sync::Mutex::new(tx);
+        spawn(order, move |report| {
+            let _ = tx.lock().unwrap().send(report);
+        });
+        let ready = match reports.recv_timeout(Duration::from_secs(30)).unwrap() {
+            Report::Ready(ready) => ready,
+            other => panic!("not started: {other:?}"),
+        };
+        let Started::Terminal(terminal) = &ready.started else {
+            panic!("not a terminal");
+        };
+        assert!(terminal.pid().is_some(), "no process id with the start");
+        // Dropping the terminal hangs its own child up.
+        drop(ready);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

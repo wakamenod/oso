@@ -1,6 +1,7 @@
 //! A terminal as the host holds it: a handle to the thread that owns the PTY, the child and
-//! the engine (ADR 0120, Q4). Nothing here blocks: input and requests queue, and the UI takes
-//! a snapshot when one is ready. At most one snapshot is in flight, so bulk output costs the UI
+//! the engine (ADR 0120, Q4). Nothing here blocks but [`Terminal::wait_started`], which is for
+//! threads other than the UI's: input and requests queue, and the UI takes a snapshot when one
+//! is ready. At most one snapshot is in flight, so bulk output costs the UI
 //! one snapshot per frame. Keys and pastes are encoded on the thread, against the modes the
 //! program has set by then.
 //!
@@ -17,7 +18,7 @@ use std::fmt;
 use std::io;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
-use std::sync::{Arc, mpsc};
+use std::sync::{Arc, Condvar, Mutex, PoisonError, mpsc};
 use std::time::Duration;
 
 use oso_core::key::KeyPress;
@@ -110,6 +111,9 @@ struct Shared {
     /// The child's process id while it runs and is not reaped; 0 before it starts and once
     /// the thread reaps it, or leaves it to a reaper.
     pid: AtomicU32,
+    /// Whether the thread is past the child's start: started, failed to, or never to.
+    started: Mutex<bool>,
+    started_changed: Condvar,
     /// How many times the thread read again after an export (ADR 0120, step 11).
     resumes: std::sync::atomic::AtomicU64,
 }
@@ -130,6 +134,14 @@ impl Shared {
     /// Gives back `n` bytes held: written, or never needed.
     fn release(&self, n: usize) {
         self.queued.fetch_sub(n, Ordering::AcqRel);
+    }
+
+    /// The thread is past the child's start: `pid` holds its id if it runs. Wakes whoever
+    /// waits in [`Terminal::wait_started`]; once is enough, and more do nothing.
+    #[cfg(unix)]
+    fn mark_started(&self) {
+        *self.started.lock().unwrap_or_else(PoisonError::into_inner) = true;
+        self.started_changed.notify_all();
     }
 }
 
@@ -292,6 +304,25 @@ impl Terminal {
             0 => None,
             pid => Some(pid),
         }
+    }
+
+    /// Waits, for at most `within`, until the thread has started the child, failed to, or
+    /// ended, and then gives [`Terminal::pid`]. `Terminal::start` returns before the child is
+    /// started, so `pid` right after it is `None` most of the time; this is how a caller that
+    /// needs the child's id from the start gets it (ADR 0121). It blocks: never call it on the
+    /// UI thread. `None` if the child did not start, ended already, or `within` ran out.
+    pub fn wait_started(&self, within: Duration) -> Option<u32> {
+        let started = self
+            .shared
+            .started
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let kept = self
+            .shared
+            .started_changed
+            .wait_timeout_while(started, within, |started| !*started);
+        drop(kept.unwrap_or_else(PoisonError::into_inner));
+        self.pid()
     }
 
     /// Sends `SIGHUP` to the terminal's foreground process group, as closing a terminal does.

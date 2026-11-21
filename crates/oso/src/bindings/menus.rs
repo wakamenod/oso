@@ -256,6 +256,23 @@ const REVIEW: BuiltInMenu = BuiltInMenu {
     describe: Some(crate::commands::review::review_menu),
 };
 
+/// What of a space's repository to review (ADR 0163): `review-layout` opens it in a space whose
+/// orchestrator is recorded, once the repository is chosen; `w` and `.` open the review menu
+/// for the worktree.
+const REVIEW_START: BuiltInMenu = BuiltInMenu {
+    name: crate::commands::review::REVIEW_START_MENU,
+    title: "Review",
+    groups: &[(
+        "Review",
+        &[
+            exit("p", "review-pull-request", "a pull request\u{2026}"),
+            exit("w", "review-worktree", "a worktree\u{2026}"),
+            exit(".", "review-checkout", "this checkout"),
+        ],
+    )],
+    describe: Some(crate::commands::review::review_start_menu),
+};
+
 /// Issue spaces (ADR 0136, step 1b): the space in front's repositories, instructions,
 /// directory and name, and closing and reopening. `o` and `O` are kept for the orchestrator's
 /// start and replacement (steps 3 and 5).
@@ -359,7 +376,7 @@ const AGENTS: BuiltInMenu = BuiltInMenu {
 };
 
 /// The built-in menus, in the order their ids are given.
-const BUILT_IN: [&BuiltInMenu; 16] = [
+const BUILT_IN: [&BuiltInMenu; 17] = [
     &TOGGLES,
     &WINDOWS,
     &JUMPS,
@@ -376,6 +393,7 @@ const BUILT_IN: [&BuiltInMenu; 16] = [
     &vcs::PULL_REQUEST,
     &vcs::PULL_REQUEST_MERGE,
     &AGENTS,
+    &REVIEW_START,
 ];
 
 /// The built-in menus over the commands in `registry`. A head whose command `registry` lacks is

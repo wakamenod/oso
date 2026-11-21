@@ -1,7 +1,8 @@
 //! What a worktree job reads of a repository once, for every worktree it looks at (ADR 0121):
 //! the remotes, the remote branches that count as main lines, the local branches whose work
 //! went to a remote, the GitHub repository `gh` is asked about, the live sessions oso did not
-//! start, and which of the sessions oso hosts Claude Code's registry calls idle.
+//! start, which of the sessions oso hosts Claude Code's registry calls idle, and whether the
+//! registry was listed in full.
 //!
 //! Must not depend on: `app`, `dispatch` or the UI thread; this runs on a worktree
 //! job's thread.
@@ -38,15 +39,25 @@ pub struct RepoFacts {
     /// Live sessions in the registry that oso does not host, by their directory and a name to
     /// show.
     pub external: Vec<(PathBuf, String)>,
+    /// Why the registry could not be listed in full, if it could not: then a session oso does
+    /// not host may run in any worktree, and check 4 refuses every one.
+    pub registry_unread: Option<&'static str>,
     /// The process ids of the `claude`s oso hosts whose live registry entry's `status` is
     /// `idle`: the registry's half of check 4.
     pub hosted_idle: HashSet<u32>,
 }
 
 impl RepoFacts {
-    /// Reads them from `repo`; `gh_host` is `GH_HOST` from oso's environment, and `hosted` the
-    /// process ids of the `claude`s oso hosts. A fact that cannot be read is left empty.
-    pub fn gather(repo: &Repo, gh_host: Option<&str>, hosted: &[u32]) -> RepoFacts {
+    /// Reads them from `repo`; `gh_host` is `GH_HOST` from oso's environment, `hosted` the
+    /// process ids of the `claude`s oso hosts, and `registry` Claude Code's registry directory,
+    /// `None` if it is not known (`registry::directory`). A fact that cannot be read is left
+    /// empty, but for the registry, which says why in `registry_unread`.
+    pub fn gather(
+        repo: &Repo,
+        gh_host: Option<&str>,
+        hosted: &[u32],
+        registry: Option<&Path>,
+    ) -> RepoFacts {
         let remotes = repo.remotes();
         let (mains, mut pushed) = if remotes.is_empty() {
             (Ok(HashSet::new()), HashSet::new())
@@ -60,10 +71,16 @@ impl RepoFacts {
             pushed.extend(with_upstream(repo));
         }
         let github = super::git::github_of(repo, &remotes, gh_host);
-        let (external, hosted_idle) = registry::directory().map_or_else(Default::default, |dir| {
-            sessions_in_registry(registry::read(&dir), hosted, |entry| {
-                registry::liveness(entry, process::start_time) != registry::Live::No
-            })
+        let (listing, registry_unread) = match registry {
+            Some(dir) => {
+                let listing = registry::list(dir);
+                let unread = unread(&listing);
+                (listing, unread)
+            }
+            None => (registry::Listing::default(), Some(REGISTRY_UNKNOWN)),
+        };
+        let (external, hosted_idle) = sessions_in_registry(listing.entries, hosted, |entry| {
+            registry::liveness(entry, process::start_time) != registry::Live::No
         });
         RepoFacts {
             remotes,
@@ -71,6 +88,7 @@ impl RepoFacts {
             pushed,
             github,
             external,
+            registry_unread,
             hosted_idle,
         }
     }
@@ -82,6 +100,29 @@ impl RepoFacts {
             .filter(|(cwd, _)| cwd.starts_with(path))
             .map(|(_, name)| name.clone())
             .collect()
+    }
+}
+
+/// Why check 4 refuses when Claude Code's registry directory is not known.
+pub const REGISTRY_UNKNOWN: &str =
+    "Claude Code's session registry is not known, so a session oso did not start may run in it";
+
+/// Why check 4 refuses when the registry holds more entry files than are read.
+pub const REGISTRY_CUT: &str = "Claude Code's session registry has more than 256 entry files, \
+     so a session oso did not start may run in it";
+
+/// Why check 4 refuses when the registry directory is there but cannot be listed.
+pub const REGISTRY_UNLISTABLE: &str = "Claude Code's session registry cannot be listed, so a \
+     session oso did not start may run in it";
+
+/// Why check 4 refuses when the registry `listing` is incomplete, if it is.
+fn unread(listing: &registry::Listing) -> Option<&'static str> {
+    if listing.complete() {
+        None
+    } else if listing.unlistable {
+        Some(REGISTRY_UNLISTABLE)
+    } else {
+        Some(REGISTRY_CUT)
     }
 }
 
@@ -176,8 +217,8 @@ fn sessions_in_registry(
 mod tests {
     use std::path::PathBuf;
 
-    use super::sessions_in_registry;
-    use crate::sessions::registry::Entry;
+    use super::{REGISTRY_CUT, REGISTRY_UNLISTABLE, sessions_in_registry, unread};
+    use crate::sessions::registry::{Entry, Listing, MAX_FILES};
 
     fn entry(pid: u32, status: &str) -> Entry {
         Entry {
@@ -209,5 +250,21 @@ mod tests {
             });
         assert!(idle.is_empty());
         assert_eq!(external.len(), 1);
+    }
+
+    #[test]
+    fn an_incomplete_registry_read_gives_why() {
+        assert_eq!(unread(&Listing::default()), None);
+        let cut = Listing {
+            cut: true,
+            ..Listing::default()
+        };
+        assert_eq!(unread(&cut), Some(REGISTRY_CUT));
+        assert!(REGISTRY_CUT.contains(&MAX_FILES.to_string()));
+        let unlistable = Listing {
+            unlistable: true,
+            ..Listing::default()
+        };
+        assert_eq!(unread(&unlistable), Some(REGISTRY_UNLISTABLE));
     }
 }

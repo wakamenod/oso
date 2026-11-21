@@ -96,8 +96,17 @@ impl App {
         }
     }
 
-    /// Opens the review menu, as `C-x v r` did before the layout, and starts its counts.
+    /// Opens the review menu, as `C-x v r` did before the layout, and starts its counts; in a
+    /// space whose orchestrator is recorded, the start that asks for its repository first
+    /// (ADR 0163).
     fn open_review_menu(&mut self) {
+        if !self.start_review_in_space() {
+            self.open_review_menu_now();
+        }
+    }
+
+    /// Opens the review menu, and starts its counts.
+    pub(super) fn open_review_menu_now(&mut self) {
         let effects = self.dispatcher.open_menu_named(&mut self.editor, "review");
         self.sync_review_menu();
         if effects.redraw {
@@ -222,7 +231,7 @@ pub(super) fn press(
 /// buffer's project, else of any, else the one of that project opened last, else the one
 /// opened last.
 fn to_lay_out(editor: &Editor) -> Option<ReviewId> {
-    let project = crate::commands::review::review_project(editor);
+    let project = crate::commands::review::selected_project(editor);
     let project_of = |review: ReviewId| {
         (editor.reviews()).find_map(|(id, project)| (id == review).then_some(project))
     };
