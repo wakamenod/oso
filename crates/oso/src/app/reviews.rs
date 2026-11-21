@@ -116,6 +116,7 @@ impl App {
         self.sync_review_watches();
         self.sync_review_comments();
         self.sync_review_message();
+        self.sync_review_ask();
         self.sync_review_saves();
     }
 
@@ -141,6 +142,7 @@ impl App {
                 }
             }
             ReviewRequest::Send(id) => self.send_review(id),
+            ReviewRequest::Ask { review, question } => self.ask_question(review, &question),
             ReviewRequest::MessageSend { buffer, to } => self.send_review_message(buffer, to),
             ReviewRequest::MessageDrop { buffer } => self.drop_review_message(buffer),
             ReviewRequest::Resume(pick) => self.resume_review(&pick),
@@ -560,6 +562,7 @@ impl App {
     }
 }
 
+mod ask;
 mod baseline;
 mod comments;
 mod decide;
@@ -576,6 +579,7 @@ mod send;
 mod slot;
 mod state;
 mod store;
+mod target;
 #[cfg(test)]
 #[path = "reviews_tests.rs"]
 mod tests;

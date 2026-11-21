@@ -20,6 +20,7 @@ mod watch;
 mod worktrees;
 pub(super) use conversations::conversations;
 pub(super) use hosting::Hosting;
+pub(super) use spaces::Orchestrator;
 pub(super) use watch::Watch;
 
 use super::{App, UserEvent, Waker};

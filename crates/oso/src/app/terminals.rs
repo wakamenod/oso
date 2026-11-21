@@ -127,7 +127,9 @@ impl App {
         match send {
             TerminalSend::Keys(keys) => self.send_keys(buffer, &keys),
             TerminalSend::Text(text) => self.send_text(buffer, &text),
-            TerminalSend::Paste(text) => self.paste(buffer, text),
+            TerminalSend::Paste(text) => {
+                self.paste(buffer, text);
+            }
             TerminalSend::PasteLines => {
                 let text = self
                     .terminals
