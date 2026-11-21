@@ -36,9 +36,8 @@ pub struct RepoFacts {
     /// The first remote whose address names a GitHub repository `gh` is asked about, `origin`
     /// first, and that repository.
     pub github: Option<(String, GhRepo)>,
-    /// Live sessions in the registry that oso does not host, by their directory and a name to
-    /// show.
-    pub external: Vec<(PathBuf, String)>,
+    /// Live sessions in the registry that oso does not host.
+    pub external: Vec<External>,
     /// Why the registry could not be read in full, or names a live session oso does not host
     /// with no directory, if it does: then such a session may run in any worktree, and check 4
     /// refuses every one.
@@ -89,19 +88,52 @@ impl RepoFacts {
             mains,
             pushed,
             github,
-            external: found.external,
+            external: found.external.into_iter().map(External::new).collect(),
             registry_untold: untold.or(found.placeless.then_some(REGISTRY_PLACELESS)),
             hosted_idle: found.hosted_idle,
         }
     }
 
-    /// The live sessions oso does not host whose directory is in `path`, by name or process id.
+    /// The live sessions oso does not host whose directory is in `path`, by name or process id:
+    /// by the paths as given or with links resolved, so that another name for the same
+    /// directory is in it too.
     pub fn external_in(&self, path: &Path) -> Vec<String> {
+        let real = std::fs::canonicalize(path).ok();
+        let paths = [Some(path), real.as_deref()];
         self.external
             .iter()
-            .filter(|(cwd, _)| cwd.starts_with(path))
-            .map(|(_, name)| name.clone())
+            .filter(|session| {
+                [Some(session.cwd.as_path()), session.real.as_deref()]
+                    .into_iter()
+                    .flatten()
+                    .any(|cwd| {
+                        paths
+                            .into_iter()
+                            .flatten()
+                            .any(|path| cwd.starts_with(path))
+                    })
+            })
+            .map(|session| session.name.clone())
             .collect()
+    }
+}
+
+/// A live session in the registry that oso does not host.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct External {
+    /// Its directory, as the registry gives it.
+    pub cwd: PathBuf,
+    /// That directory with links resolved, if it can be.
+    pub real: Option<PathBuf>,
+    /// A name to show.
+    pub name: String,
+}
+
+impl External {
+    /// The session in `cwd` called `name`, resolving `cwd` on the disk.
+    fn new((cwd, name): (PathBuf, String)) -> External {
+        let real = std::fs::canonicalize(&cwd).ok();
+        External { cwd, real, name }
     }
 }
 
@@ -245,10 +277,14 @@ fn sessions_in_registry(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
     use std::path::PathBuf;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-    use super::{REGISTRY_CUT, REGISTRY_UNLISTABLE, REGISTRY_UNREAD, sessions_in_registry, untold};
+    use super::{
+        External, REGISTRY_CUT, REGISTRY_UNLISTABLE, REGISTRY_UNREAD, RepoFacts,
+        sessions_in_registry, untold,
+    };
     use crate::sessions::registry::{self, Entry, Listing, Live, MAX_FILES};
 
     fn entry(pid: u32, status: &str) -> Entry {
@@ -395,5 +431,41 @@ mod tests {
             ..Listing::default()
         };
         assert_eq!(untold(&unread_file), Some(REGISTRY_UNREAD));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_session_in_another_name_for_the_worktree_is_in_it() {
+        let dir = std::env::temp_dir().join(format!(
+            "oso-facts-alias-{}-{:?}",
+            std::process::id(),
+            std::time::SystemTime::now()
+        ));
+        let worktree = dir.join("real/wt");
+        std::fs::create_dir_all(worktree.join("sub")).unwrap();
+        std::os::unix::fs::symlink(dir.join("real"), dir.join("alias")).unwrap();
+        let facts = |cwd: PathBuf| RepoFacts {
+            remotes: Vec::new(),
+            mains: Ok(HashSet::new()),
+            pushed: HashSet::new(),
+            github: None,
+            external: vec![External::new((cwd, "other".to_owned()))],
+            registry_untold: None,
+            hosted_idle: HashSet::new(),
+        };
+        let other = ["other".to_owned()];
+        // The session by a link, the worktree by its own path, and the other way round.
+        assert_eq!(
+            facts(dir.join("alias/wt/sub")).external_in(&worktree),
+            other
+        );
+        assert_eq!(
+            facts(worktree.clone()).external_in(&dir.join("alias/wt")),
+            other
+        );
+        // A directory that is not there is matched by its text.
+        assert_eq!(facts(worktree.join("gone")).external_in(&worktree), other);
+        assert!(facts(dir.join("real")).external_in(&worktree).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

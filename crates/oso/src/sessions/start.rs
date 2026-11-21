@@ -562,7 +562,7 @@ mod tests {
             assert_eq!(live_in(None, &id), Some((None, None)));
             // An entry file that cannot be read. Root reads it anyway.
             let shut = dir.join("1.json");
-            std::fs::write(&shut, "{}").unwrap();
+            std::fs::write(&shut, r#"{"pid":1}"#).unwrap();
             std::fs::set_permissions(&shut, std::fs::Permissions::from_mode(0o000)).unwrap();
             let want = std::fs::File::open(&shut).is_err().then_some((None, None));
             assert_eq!(live_in(Some(dir), &id), want);

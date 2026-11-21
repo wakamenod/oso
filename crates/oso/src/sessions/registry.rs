@@ -8,7 +8,8 @@
 //! - Only names of the form `<digits>.json` are opened. Other files sit beside them, and oso
 //!   never reads them.
 //! - At most [`MAX_FILES`] files, each a regular file of this user's, opened without following
-//!   a link, and at most [`MAX_BYTES`] of each. A larger one is left out.
+//!   a link, and at most [`MAX_BYTES`] of each. A larger one, and one that holds no entry for
+//!   its process, is left out, and the listing says it was not read in full.
 //! - Only the fields oso needs are kept, each bounded; the rest of an entry is not.
 //! - An entry is live if its process started when the entry says, within [`PROC_START_SLACK`]
 //!   of `procStart` or [`STARTED_AT_SLACK`] of `startedAt`: a process id the system gave
@@ -120,8 +121,9 @@ pub struct Listing {
     /// be told from it either. A directory that is not there is not unlistable: no session
     /// wrote to it.
     pub unlistable: bool,
-    /// A listed entry file could not be opened or read, for a reason other than its going: a
-    /// session it is for cannot be told either.
+    /// A listed entry file could not be opened or read, for a reason other than its going, or
+    /// was larger than [`MAX_BYTES`] or held no entry for its process: a session it is for
+    /// cannot be told either.
     pub unread: bool,
 }
 
@@ -213,8 +215,9 @@ fn pid_of(name: &std::ffi::OsStr) -> Option<u32> {
     plain.then(|| digits.parse().ok()).flatten()
 }
 
-/// The entry in the file at `path`, which must be for `pid`: `None` if the file went or does not
-/// pass the checks, and an error if it could not be opened or read.
+/// The entry in the file at `path`, which must be for `pid`: `None` if the file went, is not a
+/// regular file or is another user's, and an error if it could not be opened or read, is larger
+/// than [`MAX_BYTES`] or holds no entry for `pid`.
 fn read_entry(path: &Path, pid: u32) -> io::Result<Option<Entry>> {
     let opened = match file_meta::open_regular_here(path) {
         Ok(opened) => opened,
@@ -225,15 +228,22 @@ fn read_entry(path: &Path, pid: u32) -> io::Result<Option<Entry>> {
     let Some((file, meta)) = opened else {
         return Ok(None);
     };
-    if !is_this_users(&meta) || meta.len() > MAX_BYTES {
+    if !is_this_users(&meta) {
         return Ok(None);
+    }
+    let too_large = || io::Error::new(io::ErrorKind::FileTooLarge, "larger than an entry is read");
+    if meta.len() > MAX_BYTES {
+        return Err(too_large());
     }
     let mut bytes = Vec::new();
     file.take(MAX_BYTES + 1).read_to_end(&mut bytes)?;
     if bytes.len() as u64 > MAX_BYTES {
-        return Ok(None);
+        return Err(too_large());
     }
-    Ok(parse(&bytes).filter(|entry| entry.pid == pid))
+    parse(&bytes)
+        .filter(|entry| entry.pid == pid)
+        .map(Some)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "no entry for its process"))
 }
 
 /// An entry from a registry file's bytes, if they hold an object with a process id.
@@ -757,11 +767,27 @@ mod tests {
         use std::os::unix::fs::PermissionsExt as _;
         let scratch = Scratch::new("unread");
         scratch.write("1.json", &entry_json(1, "Thu Nov 12 19:46:55 2026"));
-        // Not an entry, but read: left out, and the listing is complete.
-        scratch.write("2.json", "not json");
+        // Not a regular file: left out, and the listing is complete.
         std::fs::create_dir(scratch.0.join("3.json")).unwrap();
         let listing = list(&scratch.0);
         assert!(listing.complete() && listing.entries.len() == 1);
+        // Read, but no entry for its process, or too large to read: not complete.
+        for (name, text) in [
+            ("2.json", "not json".to_owned()),
+            ("2.json", "{}".to_owned()),
+            ("2.json", entry_json(5, "Thu Nov 12 19:46:55 2026")),
+            ("2.json", " ".repeat(super::MAX_BYTES as usize + 1)),
+        ] {
+            scratch.write(name, &text);
+            let listing = list(&scratch.0);
+            assert!(
+                listing.unread && !listing.complete(),
+                "{}",
+                &text[..text.len().min(20)]
+            );
+            assert_eq!(listing.entries.len(), 1);
+        }
+        std::fs::remove_file(scratch.0.join("2.json")).unwrap();
         let shut = scratch.0.join("4.json");
         std::fs::write(&shut, entry_json(4, "Thu Nov 12 19:46:55 2026")).unwrap();
         std::fs::set_permissions(&shut, std::fs::Permissions::from_mode(0o000)).unwrap();

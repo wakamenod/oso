@@ -46,7 +46,12 @@ fn a_registry_not_listed_in_full_keeps_a_merged_worktree() {
     // More entry files than are read, none of a process that runs.
     fs::create_dir(&registry).unwrap();
     for n in 0..=MAX_FILES {
-        fs::write(registry.join(format!("{}.json", 4_000_000_000 + n)), "{}").unwrap();
+        let pid = 4_000_000_000 + n;
+        fs::write(
+            registry.join(format!("{pid}.json")),
+            format!(r#"{{"pid":{pid}}}"#),
+        )
+        .unwrap();
     }
     let unknown = |why: &str| Some(Check::Unknown(why.to_owned()));
     assert_eq!(
@@ -85,7 +90,7 @@ fn a_registry_not_listed_in_full_keeps_a_merged_worktree() {
     {
         use std::os::unix::fs::PermissionsExt as _;
         let shut = registry.join("4000000000.json");
-        fs::write(&shut, "{}").unwrap();
+        fs::write(&shut, r#"{"pid":4000000000}"#).unwrap();
         fs::set_permissions(&shut, fs::Permissions::from_mode(0o000)).unwrap();
         let want = fs::File::open(&shut)
             .is_err()
