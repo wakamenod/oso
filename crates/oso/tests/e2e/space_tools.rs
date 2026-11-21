@@ -17,7 +17,9 @@
 //! path through a link, a worktree and a member are refused; one oso does not trust asks even
 //! as the configuration allows starts, `n` refusing it for a minute and `y` adding it
 //! restricted; a trusted one is added without asking and the person offered the `/add-dir`
-//! paste (ADR 0161).
+//! paste (ADR 0161). Reviewers the orchestrator starts with `session_start` in the
+//! implementer's worktree get no shared-directory question: one starts without asking, and
+//! past the limit the one question says another session runs there (ADR 0162).
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test: which repository
 //! `repo` names and the scope have their own tests.
@@ -447,6 +449,61 @@ fn an_orchestrator_resumes_the_stopped_sessions_of_its_space() {
     assert_eq!(state_of(&mut bridge, "wb"), "stopped");
     let _ = other.kill();
     let _ = other.wait();
+    flow.exit_with(0);
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn an_orchestrator_starts_reviewers_where_its_implementer_runs_with_no_shared_question() {
+    let spaces = PrivateRoot::new("space-review");
+    let config = format!(
+        "agents_start_without_asking = true\nagents_start_limit = 2\n\n[spaces]\nroot = \"{}\"\n",
+        spaces.0.display()
+    );
+    let flow = Flow::with_fake("space-review", &config, FAKE);
+    let (mut app, mut bridge, _) = orchestrated(&flow, &spaces);
+    let (_, implementer) = worker(&flow, &mut bridge, "impl", None);
+    let worktree = implementer.cwd.display().to_string();
+    let review = |name: &str| json!({ "repo": "repo", "directory": worktree, "name": name, "brief": "Review." });
+
+    // Below the limit, a reviewer starts in the implementer's worktree with no question at all:
+    // an agent's start never asks "Start here anyway?" (ADR 0162).
+    let (started, error) = bridge.tool("session_start", review("review-a"));
+    assert!(!error, "{started}");
+    assert_eq!(started["asked"], false, "{started}");
+    assert_eq!(app.state()["prompts"], json!([]), "nobody was asked");
+
+    // At the limit, the one question says another session runs there, and `y` starts it with no
+    // second question.
+    let id = bridge.call("session_start", review("review-b"));
+    let question = answer(&mut app, &bridge, "y");
+    assert!(
+        question.ends_with("? Another session runs there. (y or n)"),
+        "{question}"
+    );
+    let (started, error) = bridge.result(id);
+    assert!(!error, "{started}");
+    assert_eq!(started["asked"], true, "{started}");
+    // The fake writes its run once it runs, which may be after the start's reply.
+    let deadline = Instant::now() + DEADLINE;
+    let in_worktree = || {
+        runs(&flow)
+            .iter()
+            .filter(|run| run.cwd == implementer.cwd)
+            .count()
+    };
+    while in_worktree() < 3 {
+        assert!(
+            Instant::now() < deadline,
+            "the implementer and both reviewers"
+        );
+        thread::sleep(Duration::from_millis(100));
+    }
+    assert_eq!(in_worktree(), 3, "the implementer and both reviewers");
+    assert_eq!(app.state()["prompts"], json!([]), "no second question");
+    let (status, _) = bridge.tool("space_status", json!({}));
+    let sessions = status["sessions"].as_array().unwrap();
+    assert_eq!(sessions.len(), 4, "the reviewers are the space's: {status}");
     flow.exit_with(0);
 }
 

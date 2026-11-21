@@ -1,6 +1,6 @@
 # 0136. Issue spaces
 
-- Status: Accepted, amended by 0140, 0143, 0151, 0153, 0155, 0159, 0161 and 0163
+- Status: Accepted, amended by 0140, 0143, 0151, 0153, 0155, 0159, 0161, 0162 and 0163
 - Date: 2026-11-15
 
 ## Context
