@@ -1,6 +1,6 @@
 # 0049. End-to-end test harness
 
-- Status: Accepted
+- Status: Accepted, amended by 0166
 - Date: 2026-11-04
 
 ## Context
