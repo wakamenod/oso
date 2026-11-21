@@ -448,8 +448,8 @@ Part 1b-2a, the session itself:
   terminal's hang-up would. The bridge takes the stream's process as the session's `claude`
   until it is reaped.
 - **The record** keeps whether a session is native; the next oso brings a stopped native
-  session back as a native buffer with no process. Resuming it waits for part 1b-2b, and a fork
-  of it runs in a terminal until then. A send, a paste or `session-explain` to a native session
+  session back as a native buffer with no process. Resuming it waits for step 2, and a fork of
+  it runs in a terminal until then (R1 below). A send, a paste or `session-explain` to a native session
   says why not until step 2.
 - **A brief is the person's:** the agent channel's changes are refused in `*Brief*`, a worktree
   session's or a native session's first message, as in a commit's message.
@@ -485,7 +485,21 @@ Part 1b-2b, the buffer's keys (B1 and B2 (a), as the author chose):
   that need a terminal say why. The keys are carried out by the host from the row ledger,
   through `SessionRequest::Native` and `NativeAction` (the author approved the public API's
   change).
-- Resume and fork of a native session come in part 1b-2c.
+
+Resume, fork and a restart, as the author chose on 2026-11-22 (the plan for step 2):
+
+- **R1 (c):** a native session's resume and fork wait for step 2, as a resumed session could
+  take no message before the composer. Until then its resume refuses and says that
+  `session-fork` continues it in a terminal, and a fork of it runs in a terminal. Step 1 ends
+  with part 1b-2b.
+- **R2 (a):** Q8's resume after an oso restart comes later still: until then a native session
+  comes back stopped, and the person resumes it.
+- **When it is built:** a session resumes as it ran, a native one natively and a TUI one in
+  its terminal. A native resume reuses its buffer and keeps its rows, with one "Resumed" row;
+  it takes no baseline, but its project's trust is looked at again before the spawn, apart
+  from the baseline's root. In a project no longer trusted it refuses and points to
+  `session-fork`. A fork follows the mode: native in a new buffer in a trusted project under
+  `mode = "native"`, else in a terminal. New starts follow the mode, as now.
 
 ## Questions
 

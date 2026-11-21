@@ -645,7 +645,8 @@ message: `C-c C-c` starts the session, `C-c C-k` drops it. In the session's buff
 or unfolds the row at point, `RET` shows a tool call's whole result in `*result: NAME*`, which
 agents cannot read, `n` and `p` move between your messages, and `]` and `[` between tool rows.
 The `C-c` keys of a session's terminal work there too, except `C-c +` and `C-c -`. For now such
-a session takes only its first message.
+a session takes only its first message, and does not resume: `M-x session-fork` continues
+it in a terminal.
 
 `agents_start_without_asking` lets a session you started, with a key or a `y`, start sessions
 through `start_worktree_session` and `session_start`, and a space's orchestrator resume a stopped

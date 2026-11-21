@@ -1294,7 +1294,8 @@ a switch made with its command stands until that setting changes in the file
   messages and `]`/`[` between tool rows; session mode's `C-c` keys work there too, but
   `C-c +` and `C-c -`, as it has no screen for an agent to read. In this step
   it takes no message after
-  its first, and a send, a paste or `session-explain` to it says so; elsewhere, an agent's
+  its first, and a send, a paste, `session-explain` or a resume to it says so (`session-fork`
+  continues it in a terminal); elsewhere, an agent's
   start with no brief, and a restricted project, keep the terminal.
 
   `claude` is started as the login shell would start it, so its `PATH`, version managers and
