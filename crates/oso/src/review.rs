@@ -46,6 +46,7 @@
 //!   agent session (step 12), [`hunk_header`] writes a hunk's header for it and the view, and
 //!   `saved` is a saved review's file format (step 6), which the app's store reads and writes.
 
+pub(crate) mod ask;
 mod batch;
 pub(crate) mod count;
 mod debug;

@@ -57,10 +57,22 @@ fn message(review: &Review, ids: &[CommentId], secret: &[&[u8]], max: usize) -> 
             }
         })
         .collect();
-    let message = compose("uncommitted, in oso", &items, max, |path| {
+    let message = compose(HEAD, "uncommitted, in oso", &items, max, |path| {
         secret.contains(&path)
     });
     (message.text, message.taken)
+}
+
+#[test]
+fn a_message_to_an_orchestrator_names_the_worktree_escaped() {
+    let head = super::relay_head("/w/oso-wt\n## x");
+    assert_eq!(head.lines().count(), 1, "{head}");
+    assert!(
+        head.starts_with("Review comments on the changes in worktree /w/oso-wt"),
+        "{head}"
+    );
+    let message = compose(&head, "uncommitted, in oso", &[], 1 << 10, |_| false);
+    assert!(message.text.starts_with(&head), "{}", message.text);
 }
 
 #[test]

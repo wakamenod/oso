@@ -1,6 +1,8 @@
 //! Sending to a session, carried out (ADR 0121, Q17, step 5): the one delivery path,
-//! [`App::send_to_session`], which refuses a session that cannot take a paste, pastes as the
-//! person's bracketed paste, not submitted, and shows the session; the completions of
+//! [`App::paste_into_session`], which refuses a session that cannot take a paste and pastes as
+//! the person's bracketed paste, not submitted, and [`App::send_to_session`], which then shows
+//! the session; [`App::submit_paste`], the one submit, for a review's question the person
+//! confirmed in oso's prompt (ADR 0163); the completions of
 //! `session-send` and `session-mention`; and who last messaged each session, for its row and
 //! `session-follow-message`. `images` keeps its own state here: the session an image is read
 //! for, and the thread that keeps the images (ADR 0142).
@@ -102,25 +104,57 @@ impl App {
     }
 
     /// Pastes `text` into hosted session `key`'s terminal as the person's bracketed paste,
-    /// not submitted, then shows and selects the session in its space (Q2). Refused, with
-    /// why, while the session cannot take a paste: not running, not judged yet since it
-    /// started, asking for input, or held by a full-screen view.
-    ///
-    /// The one delivery path: what is sent to a session goes through here.
+    /// not submitted, then shows and selects the session in its space (Q2). Refused, as
+    /// [`App::paste_into_session`] refuses it.
     pub(in crate::app) fn send_to_session(
         &mut self,
         key: SessionKey,
         text: String,
     ) -> Result<(), String> {
-        let buffer = self.paste_target(key)?;
-        self.paste(buffer, text);
+        self.paste_into_session(key, text)?;
         self.show_session(key);
         Ok(())
     }
 
+    /// Pastes `text` into hosted session `key`'s terminal as the person's bracketed paste, not
+    /// submitted, showing nothing, and returns the terminal's buffer. Refused, with why, while
+    /// the session cannot take a paste: not running, not judged yet since it started, asking
+    /// for input, or held by a full-screen view.
+    ///
+    /// The one delivery path: what is sent to a session goes through here.
+    pub(in crate::app) fn paste_into_session(
+        &mut self,
+        key: SessionKey,
+        text: String,
+    ) -> Result<oso_core::buffer::BufferId, String> {
+        let buffer = self.paste_target(key)?;
+        if !self.paste(buffer, text) {
+            return Err("Nothing was pasted".to_owned());
+        }
+        Ok(buffer)
+    }
+
+    /// Submits what was pasted into `buffer`, session `key`'s terminal: one Enter, as a key of
+    /// its own, while the session still takes a paste there; else why not, and nothing is
+    /// sent. The only submit to a session: ADR 0163's exception to Q17, for a review's question
+    /// the person confirmed in oso's prompt.
+    pub(in crate::app) fn submit_paste(
+        &mut self,
+        key: SessionKey,
+        buffer: oso_core::buffer::BufferId,
+    ) -> Result<(), String> {
+        match self.paste_target(key)? {
+            shown if shown == buffer => {
+                self.send_text(buffer, "\r");
+                Ok(())
+            }
+            _ => Err("its terminal changed".to_owned()),
+        }
+    }
+
     /// The terminal of hosted session `key`, if a paste may go there now; else why not, as
     /// [`App::send_to_session`] refuses it.
-    pub(super) fn paste_target(
+    pub(in crate::app) fn paste_target(
         &self,
         key: SessionKey,
     ) -> Result<oso_core::buffer::BufferId, String> {

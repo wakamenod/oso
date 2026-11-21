@@ -21,7 +21,7 @@ pub const SESSION: &[(&str, &str)] = &[
     ("C-c C-e", "session-explain"),
     ("C-c C-f", "session-follow-message"),
     ("C-c C-z", "space-zoom"),
-    ("C-c C-v", "review-session"),
+    ("C-c C-v", "review-layout"),
     ("C-c @", "session-mention"),
     ("C-c +", "terminal-allow-agent-read"),
     ("C-c -", "terminal-deny-agent-read"),

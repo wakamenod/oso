@@ -165,7 +165,7 @@ It is refused while the orchestrator works or needs input. The old one is stoppe
     },
     Command {
         name: "space-confirm",
-        doc: "Do what the space question just answered with y offers: paste `/add-dir` into the space's orchestrator, not sent, or replace its orchestrator.",
+        doc: "Do what the space question just answered with y offers: paste `/add-dir` into the space's orchestrator, not sent, replace its orchestrator, or resume it for a review's question (ADR 0163).",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: space_confirm,
