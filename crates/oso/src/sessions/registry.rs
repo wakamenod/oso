@@ -116,16 +116,35 @@ pub struct Listing {
     /// It holds more than [`MAX_FILES`] entry files, so some were not read: whether a session
     /// runs cannot be told from it.
     pub cut: bool,
+    /// The directory is there but could not be listed in full: whether a session runs cannot
+    /// be told from it either. A directory that is not there is not unlistable: no session
+    /// wrote to it.
+    pub unlistable: bool,
+}
+
+impl Listing {
+    /// Whether every entry file was listed: neither cut nor unlistable. A listed file that does
+    /// not pass [`read`]'s checks is still left out.
+    pub fn complete(&self) -> bool {
+        !self.cut && !self.unlistable
+    }
 }
 
 /// The entries in `dir`, in no order, and whether files were left unread. A directory that
 /// cannot be listed has none.
 pub fn list(dir: &Path) -> Listing {
-    let Ok(listing) = std::fs::read_dir(dir) else {
-        return Listing::default();
+    let listing = match std::fs::read_dir(dir) {
+        Ok(listing) => listing,
+        Err(e) => {
+            return Listing {
+                unlistable: e.kind() != io::ErrorKind::NotFound,
+                ..Listing::default()
+            };
+        }
     };
+    let mut unlistable = false;
     let mut files: Vec<(u32, PathBuf)> = listing
-        .filter_map(Result::ok)
+        .filter_map(|item| item.map_err(|_| unlistable = true).ok())
         .filter_map(|item| pid_of(&item.file_name()).map(|pid| (pid, item.path())))
         .take(MAX_FILES + 1)
         .collect();
@@ -135,7 +154,11 @@ pub fn list(dir: &Path) -> Listing {
         .into_iter()
         .filter_map(|(pid, path)| read_entry(&path, pid))
         .collect();
-    Listing { entries, cut }
+    Listing {
+        entries,
+        cut,
+        unlistable,
+    }
 }
 
 /// The entry in the file called `name` in `dir`, if `name` is one [`read`] opens and the file
@@ -657,6 +680,29 @@ mod tests {
             std::fs::remove_file(scratch.0.join(format!("{pid}.json"))).unwrap();
         }
         assert!(!list(&scratch.0).cut, "exactly as many as are read");
+        assert!(list(&scratch.0).complete());
+    }
+
+    #[test]
+    fn a_missing_directory_is_complete_and_an_unlistable_one_is_not() {
+        let scratch = Scratch::new("unlistable");
+        let missing = list(&scratch.0.join("missing"));
+        assert!(missing.complete() && missing.entries.is_empty());
+        // A file where the directory should be cannot be listed.
+        scratch.write("file", "");
+        let listing = list(&scratch.0.join("file"));
+        assert!(listing.unlistable && !listing.complete());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            let shut = scratch.0.join("shut");
+            std::fs::create_dir(&shut).unwrap();
+            std::fs::set_permissions(&shut, std::fs::Permissions::from_mode(0o000)).unwrap();
+            // Root lists it anyway.
+            let readable = std::fs::read_dir(&shut).is_ok();
+            assert_eq!(list(&shut).unlistable, !readable);
+            std::fs::set_permissions(&shut, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
     }
 
     /// The pid of a child that has ended and been reaped.

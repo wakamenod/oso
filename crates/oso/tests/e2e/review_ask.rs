@@ -30,6 +30,21 @@ fn show_review(app: &mut App) {
     rows_until(app, |rows| has(rows, "+changed"));
 }
 
+/// [`show_review`] in a space whose orchestrator is recorded, where the menu first asks what
+/// of the space's repository to review (ADR 0163): this checkout, then its uncommitted changes.
+fn show_review_in_space(app: &mut App) {
+    app.send_keys("C-u C-x v r");
+    wait_saying(app, "review-start's menu", |state| {
+        state["menu"] == "review-start"
+    });
+    // The review menu opens from the host once `.` ran, so `w` waits for it.
+    app.send_keys(".");
+    wait_saying(app, "the review menu", |state| state["menu"] == "review");
+    app.send_keys("w");
+    wait_saying(app, "the review", |state| state["buffer"]["name"] == REVIEW);
+    rows_until(app, |rows| has(rows, "+changed"));
+}
+
 /// The rule of [`boxed_screen`]'s input box, 30 columns.
 const NARROW: &str = "\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\
                       \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\
@@ -219,7 +234,7 @@ fn in_a_space_questions_and_comments_go_to_its_orchestrator() {
                 .as_str()
                 .is_some_and(|line| line.contains("  repo  "))
     });
-    show_review(&mut app);
+    show_review_in_space(&mut app);
 
     // `Q` goes to the orchestrator, naming the worktree, and its terminal shows in the slot.
     ask(&mut app, "Why");

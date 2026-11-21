@@ -125,6 +125,7 @@ const TABLES: &[&[Command]] = &[
     review::FILES_COMMANDS,
     review::SAVED_COMMANDS,
     review::SEND_COMMANDS,
+    review::START_COMMANDS,
     save::COMMANDS,
     scroll::COMMANDS,
     session::COMMANDS,
@@ -164,7 +165,11 @@ fn not_in_prompt(ctx: &Ctx<'_>) -> Result<(), CommandError> {
 
 /// `place` as the person reads it in a question or a message: under `home` as `~`, and only its
 /// last `cells` characters, after `…`, when it is longer, as its end tells it from others.
-fn shown_place(place: &std::path::Path, home: Option<&std::path::Path>, cells: usize) -> String {
+pub(crate) fn shown_place(
+    place: &std::path::Path,
+    home: Option<&std::path::Path>,
+    cells: usize,
+) -> String {
     let shown = match home.and_then(|home| place.strip_prefix(home).ok()) {
         Some(rest) => format!("~/{}", rest.display()),
         None => place.display().to_string(),
@@ -314,6 +319,11 @@ mod tests {
         "review-mark-baseline",
         "review-pull-request",
         "review-range",
+        // A start in a space finds its repositories' projects and opens the review menu for
+        // one (ADR 0163).
+        "review-checkout",
+        "review-repository",
+        "review-worktree",
         "review-refresh",
         "review-session",
         "review-staged",

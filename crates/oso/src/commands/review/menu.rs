@@ -163,3 +163,39 @@ pub fn review_menu(editor: &Editor, open: &Open) -> Notes {
     }
     notes
 }
+
+/// Why `review-start`'s `w` is unavailable while the repository has one worktree.
+const ONE_WORKTREE: &str = "one worktree: . reviews it";
+/// Why `review-start`'s heads are unavailable with no repository chosen.
+const NOT_CHOSEN: &str = "no repository was chosen: C-x v r asks";
+
+/// `review-start`'s notes (ADR 0163): the chosen repository on the line under the title, and
+/// `w` unavailable while it has one worktree, which `.` reviews.
+pub fn review_start_menu(editor: &Editor, open: &Open) -> Notes {
+    let mut notes = Notes::default();
+    let target = editor.review_target();
+    if let Some(found) = target.and_then(|id| editor.project(id)) {
+        let root = super::super::shown_place(found.root(), editor.home(), 40);
+        let name = one_line(found.name(), MAX_NAME);
+        notes.line = Some(format!("Review \u{b7} {name} \u{b7} {root}"));
+    }
+    let worktrees = editor.listed_candidates(super::REVIEW_WORKTREES_LIST).len();
+    let worktree: KeySequence = "w".parse().unwrap_or_default();
+    for (index, head) in open.definition().heads().iter().enumerate() {
+        let unavailable = if target.is_none() {
+            Some(NOT_CHOSEN)
+        } else if head.keys == worktree && worktrees <= 1 {
+            Some(ONE_WORKTREE)
+        } else {
+            None
+        };
+        if let Some(why) = unavailable {
+            let note = Note {
+                unavailable: Some(why.into()),
+                ..Note::default()
+            };
+            notes.heads.push((index, note));
+        }
+    }
+    notes
+}

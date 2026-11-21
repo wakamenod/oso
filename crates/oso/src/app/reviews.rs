@@ -51,6 +51,8 @@ pub(crate) enum ReviewEvent {
     Counted(Counted),
     /// The saved reviews' store found or did something (step 6).
     Stored(store::Stored),
+    /// Where a pull request's head is checked out, for a start in a space (ADR 0163).
+    Head(start::HeadFound),
 }
 
 impl fmt::Debug for ReviewEvent {
@@ -71,6 +73,7 @@ impl fmt::Debug for ReviewEvent {
                 .finish_non_exhaustive(),
             Self::Counted(counted) => f.debug_tuple("Counted").field(counted).finish(),
             Self::Stored(stored) => f.debug_tuple("Stored").field(stored).finish(),
+            Self::Head(found) => f.debug_tuple("Head").field(found).finish(),
         }
     }
 }
@@ -96,6 +99,7 @@ impl App {
     /// holds them.
     pub(super) fn sync_reviews(&mut self) {
         self.start_review_store();
+        self.sync_review_start();
         self.revoke_untrusted_reviews();
         // Before the requests, so that a head that closed the menu, as `b` does, stops the
         // menu's counts before a request starts its own.
@@ -103,6 +107,7 @@ impl App {
         for request in self.editor.take_review_requests() {
             self.review_request(request);
         }
+        self.sync_review_target();
         // What a restart carried, once its projects are known (step 6).
         self.reopen_handed_reviews();
         self.put_in_review_texts();
@@ -126,7 +131,14 @@ impl App {
                 project,
                 scope,
                 revision,
-            } => self.open_review(project, scope, revision),
+            } => {
+                let started = scope == ScopeKind::PullRequest
+                    && self.open_started_pull_request(project, revision.as_deref());
+                if !started {
+                    self.open_review(project, scope, revision);
+                }
+            }
+            ReviewRequest::Start(step) => self.review_start(step),
             ReviewRequest::Baseline { project } => self.take_baseline(project),
             ReviewRequest::Refresh(id) => self.refresh_review(id, true),
             ReviewRequest::Close(id) => {
@@ -377,6 +389,7 @@ impl App {
             },
             ReviewEvent::Counted(counted) => self.scope_counted(counted),
             ReviewEvent::Stored(stored) => self.review_stored(stored),
+            ReviewEvent::Head(found) => self.review_head_found(found),
         }
     }
 
@@ -556,6 +569,8 @@ impl App {
         let editor = &self.editor;
         self.reviews
             .revoke_untrusted(|project| editor.project_trusted(project));
+        // And a start's look for a pull request's head (ADR 0163).
+        self.revoke_untrusted_start();
         self.revoke_untrusted_session_baselines();
         // And the looks for a session's changes (ADR 0121, step 3).
         self.revoke_untrusted_looks();
@@ -577,6 +592,7 @@ mod scope;
 mod secrets;
 mod send;
 mod slot;
+mod start;
 mod state;
 mod store;
 mod target;

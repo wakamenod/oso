@@ -1,5 +1,6 @@
 //! Finding the project a file is in (ADR 0114), on a thread of its own, after the file's text
-//! has come; and the way up from a file that detection and EditorConfig both walk
+//! has come, and the project whose root a repository or worktree with no buffer is, for a
+//! review started in a space (ADR 0163); and the way up from a file that detection and EditorConfig both walk
 //! ([`upward`], ADR 0115).
 //!
 //! Must not depend on: `app`, `config` or the UI thread; this touches the file system, and the
@@ -41,6 +42,16 @@ use oso_core::project::{
 /// A request answered: the project found, or none.
 pub type Answer = (ProjectRequest, Option<Found>);
 
+/// A root asked about with no buffer answered: the project whose root it is, or none
+/// (ADR 0163).
+pub type RootAnswer = (PathBuf, Option<Found>);
+
+/// What the thread is asked: a buffer's file's project, or a root's.
+enum Asked {
+    File(ProjectRequest),
+    Root(PathBuf),
+}
+
 /// The roots the record of trusted projects held when a request was made, by path.
 pub type Trusted = Arc<[PathBuf]>;
 
@@ -48,8 +59,21 @@ pub type Trusted = Arc<[PathBuf]>;
 pub struct Detector {
     home: Option<PathBuf>,
     wake: Arc<dyn Fn() -> bool + Send + Sync>,
-    requests: Option<Sender<(ProjectRequest, Trusted)>>,
-    answers: Arc<Mutex<Vec<Answer>>>,
+    requests: Option<Sender<(Asked, Trusted)>>,
+    answers: Arc<Mutex<Answers>>,
+}
+
+/// The answers that wait for the UI thread.
+#[derive(Default)]
+struct Answers {
+    files: Vec<Answer>,
+    roots: Vec<RootAnswer>,
+}
+
+impl Answers {
+    fn len(&self) -> usize {
+        self.files.len() + self.roots.len()
+    }
 }
 
 impl Detector {
@@ -67,23 +91,40 @@ impl Detector {
     /// Finds the project of `request`'s file, on the thread, checking a worktree's claim
     /// only against the roots `trusted`.
     pub fn find(&mut self, request: ProjectRequest, trusted: Trusted) {
+        self.ask(Asked::File(request), trusted);
+    }
+
+    /// Finds the project whose root is `root`, a repository or worktree no buffer may be in,
+    /// on the thread, as [`Self::find`] finds a file's (ADR 0163). The answer is `None` unless
+    /// the project found has that root, where it leads.
+    pub fn find_root(&mut self, root: PathBuf, trusted: Trusted) {
+        self.ask(Asked::Root(root), trusted);
+    }
+
+    fn ask(&mut self, asked: Asked, trusted: Trusted) {
         if self.requests.is_none() {
             self.requests = self.start();
         }
         if let Some(requests) = &self.requests
-            && requests.send((request, trusted)).is_err()
+            && requests.send((asked, trusted)).is_err()
         {
             self.requests = None;
         }
     }
 
-    /// The answers that came since the last call.
-    pub fn take(&self) -> Vec<Answer> {
-        std::mem::take(&mut *lock(&self.answers))
+    /// The answers about files and about roots that came since the last call, both taken at
+    /// once: the thread wakes the UI only when the answers were empty, so a list left behind
+    /// would keep it from waking again.
+    pub fn take(&self) -> (Vec<Answer>, Vec<RootAnswer>) {
+        let mut answers = lock(&self.answers);
+        (
+            std::mem::take(&mut answers.files),
+            std::mem::take(&mut answers.roots),
+        )
     }
 
-    fn start(&self) -> Option<Sender<(ProjectRequest, Trusted)>> {
-        let (requests, received) = mpsc::channel::<(ProjectRequest, Trusted)>();
+    fn start(&self) -> Option<Sender<(Asked, Trusted)>> {
+        let (requests, received) = mpsc::channel::<(Asked, Trusted)>();
         let answers = Arc::clone(&self.answers);
         let wake = Arc::clone(&self.wake);
         let home = self.home.clone();
@@ -92,18 +133,30 @@ impl Detector {
             .spawn(move || {
                 // The home directory as the person's environment names it, not a repository.
                 let home = home.and_then(|home| fs::canonicalize(home).ok());
-                for (request, trusted) in received {
-                    // A panic leaves the file in no project, and the thread goes on.
-                    let found = std::panic::catch_unwind(|| {
-                        let location = real_place(&request.location)?;
-                        detect(&location, home.as_deref(), &trusted)
-                    })
-                    .ok()
-                    .flatten();
-                    let was_empty = {
-                        let mut answers = lock(&answers);
-                        answers.push((request, found));
-                        answers.len() == 1
+                for (asked, trusted) in received {
+                    let was_empty = match asked {
+                        Asked::File(request) => {
+                            // A panic leaves the file in no project, and the thread goes on.
+                            let found = std::panic::catch_unwind(|| {
+                                let location = real_place(&request.location)?;
+                                detect(&location, home.as_deref(), &trusted)
+                            })
+                            .ok()
+                            .flatten();
+                            let mut answers = lock(&answers);
+                            answers.files.push((request, found));
+                            answers.len() == 1
+                        }
+                        Asked::Root(root) => {
+                            let found = std::panic::catch_unwind(|| {
+                                detect_root(&root, home.as_deref(), &trusted)
+                            })
+                            .ok()
+                            .flatten();
+                            let mut answers = lock(&answers);
+                            answers.roots.push((root, found));
+                            answers.len() == 1
+                        }
                     };
                     if was_empty && !wake() {
                         return;
@@ -139,7 +192,15 @@ fn real_place(location: &Path) -> Option<PathBuf> {
     }
 }
 
-fn lock(answers: &Mutex<Vec<Answer>>) -> std::sync::MutexGuard<'_, Vec<Answer>> {
+/// The project whose root is `root`, where it leads: `None` if the walk from it finds another
+/// root, or none.
+fn detect_root(root: &Path, home: Option<&Path>, trusted: &[PathBuf]) -> Option<Found> {
+    let real = fs::canonicalize(root).ok()?;
+    let found = detect(&real.join(DIRECTORY_STANDIN), home, trusted)?;
+    (found.root.path == real).then_some(found)
+}
+
+fn lock(answers: &Mutex<Answers>) -> std::sync::MutexGuard<'_, Answers> {
     answers.lock().unwrap_or_else(PoisonError::into_inner)
 }
 

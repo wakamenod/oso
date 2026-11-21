@@ -166,6 +166,46 @@ order, each step skipped when it has one choice:
 
 Reviewing several repositories at once is out of scope: one repository at a time.
 
+**As built** (the second PR; the author chose (a) on two more questions on 2026-11-21):
+
+- The steps are commands, all `Person`, whose answers go to the host as
+  `ReviewRequest::Start(ReviewStart)`: `review-repository` (completion over the list
+  `review-repositories`, the space's trusted members by their names in it),
+  `review-worktree` (completion over `review-worktrees`) and `review-checkout`. The menu of step
+  2 is the built-in `review-start`: `p` is `review-pull-request` itself, `w` `review-worktree`
+  and `.` `review-checkout`; its line names the repository.
+- In a space whose orchestrator is recorded, the dispatcher leaves `review-layout`'s menu to
+  the host (`Dispatcher::set_review_menu_by_host`, set at each sync), which asks for the
+  repository, or takes the one there is; with no trusted repository the review menu opens as
+  before. The default is offered as `M-n` gives it.
+- Each root's project is found on the detector's thread, which now takes a root with no buffer
+  (`Detector::find_root`): the answer is a project only when the walk from the root finds that
+  same root, where it leads. The host adds it with `Editor::add_project`, and it must be trusted,
+  as a buffer's would (a worktree through its main repository's record, ADR 0114), and be the
+  chosen repository itself or a worktree whose claim was checked against it, by device and
+  inode where both are known. A repository found once is taken again at once while it is
+  trusted and its root is the same directory by device and inode; a worktree is always found
+  again, as is a repository where the system gives no identity.
+- The worktrees listed are the main checkout, those git listed under the repository for
+  `*Spaces*`, and those the open spaces hold in it. With only the main checkout, `w` is
+  unavailable and says that `.` reviews it: the worktree step is skipped that way.
+- `.` takes the selected buffer's project when it is trusted and one of those worktrees, else
+  the main checkout's.
+- The target stays while `review-start` or the review menu is open, and while the prompt a head
+  of theirs opened is (`c`, `r`, `p`, `w`); another prompt, or none, clears it, and a menu that
+  would open beneath a prompt does not. The start then ends, its lists emptied, once nothing it
+  asked for is on its way; a step whose start ended, or whose space is no longer in front, or
+  whose repository is no longer a trusted one of it, is refused, and an answer that comes once
+  another space is in front is dropped.
+- Only `review-start`'s `p` finds the head's worktree; the review menu's `p` opens as before.
+- `p`: before the review opens, `oso-review-head` asks `gh` for the pull request as the review's
+  thread does (`review::pr::head_worktree`), and git for the worktree on its head branch holding
+  its head commit, or the root itself; nothing is fetched. The echo area says "Finding #N's
+  worktree…" meanwhile. The review opens on that worktree's project, else, as on any failure, on
+  the main checkout's, where its own reading says why. `gh` runs twice, once here and once in
+  the review. A new start stops a look still running, and its root is revoked as its project
+  stops being trusted, before anything else runs, as a review's is.
+
 ### Public items
 
 The author approved these on 2026-11-21, through the coordinator:
@@ -183,7 +223,12 @@ The author approved these on 2026-11-21, through the coordinator:
   the menu was opened for it, set by the chain and cleared when the review menu closes.
   `commands::review::review_project` reads it first.
 
-The rest is in the tip crate: `review/ask.rs` (the text and a region's rows, pure functions),
+The second PR also adds **`ReviewRequest::Start(ReviewStart)`**, with `ReviewStart { Repository(String),
+Worktree(String), Checkout }`, approved by the author on 2026-11-21: the commands of the steps have
+no other way to give their answers to the host, which alone knows each root's project.
+
+The rest is in the tip crate: `app/reviews/start.rs` (the steps, the target and the head's look),
+`review/pr.rs`'s `head_worktree`, the detector's `find_root`, `review/ask.rs` (the text and a region's rows, pure functions),
 `sessions/send.rs`'s `input_box`, `app/reviews/target.rs` (where a review's texts go),
 `app/reviews/ask.rs` (the paste and its Enter, the offer and the held question),
 `app/sessions/spaces/orchestrator.rs`'s `space_orchestrator_of` and `ask_confirm` (every
@@ -206,6 +251,14 @@ The rest is in the tip crate: `review/ask.rs` (the text and a region's rows, pur
     (second PR).
 - [ADR 0160](0160-the-review-layout.md), "The slot shows one thing at a time (Q7)": the
   orchestrator's terminal, or the review's session, shows there for `review-ask`, not selected.
+  And the review menu `review-layout` asks for opens at once as the command ends, so that a
+  macro's next key goes to it, only outside a space whose orchestrator is recorded: there the
+  host asks for the repository, and `review-start` opens once its project is found, so a macro
+  does not drive the start (second PR).
+- [ADR 0114](0114-projects-trust-finding-files-and-searching-a-project.md): the editor's table
+  of projects also holds the projects of a space's repositories and worktrees that no buffer is
+  in (`Editor::add_project`), and the detector also finds the project whose root a directory
+  is, walking up from that directory as from a file there, judged the same way (second PR).
 - [ADR 0136](0136-issue-spaces.md): a review in a space talks to its orchestrator (`Q`, `C-c C-c`),
   and starts from the space's members (second PR). `space-confirm` also answers a review's offer to
   resume the orchestrator.
@@ -213,6 +266,10 @@ The rest is in the tip crate: `review/ask.rs` (the text and a region's rows, pur
   `review-layout`, `D` is `review-session`; session mode's `C-c C-v` is `review-layout`.
 
 ## Consequences
+
+- **A start's lookups (second PR):** a root is found on the one `oso-project` thread, so a
+  space's repository on a hung mount delays the projects of the files opened after it, as a file
+  there would. `gh` runs twice for a pull request asked for from `review-start`.
 
 - The author asks about a hunk with `Q`, a question and `RET`, and reads the answer at the right
   while staying in the diff. Comments go to the orchestrator, which relays them.
@@ -225,6 +282,11 @@ The rest is in the tip crate: `review/ask.rs` (the text and a region's rows, pur
   captured screens. Between the last look at the box and the Enter's write, a dialog may still
   appear, as it may under the person's own Enter.
 - `C-c a v` and `C-c C-v` change meaning; `C-c a D` reviews the session's changes.
+- **Tests (second PR):** the target and `add_project` in oso-core; the steps' requests; the
+  dispatcher leaving the menu to the host; `review-start`'s notes; a root's detection; the
+  default repository and the worktrees listed; the head's worktree against a stand-in `gh` (none,
+  another worktree, a fork's, one behind, the root). End-to-end flows in a space: `C-x v r`, `.`
+  and `w` review this checkout; `p` and a number open the review on the head's worktree.
 - **Tests:** the question's text (place, hunk, region, unchanged line, file, secret file, fences,
   cuts, escapes, lines that stay lines once pasted); a region's rows, their signs, place and
   file, a long one read only to its first lines and named to its end; a row's bounded text; the

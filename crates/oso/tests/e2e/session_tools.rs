@@ -12,7 +12,8 @@
 //! session whose turn leaves work not merged is ready for review until the person's listing,
 //! or an agent's of its space, finds it merged; a turn that ends on merged work leaves it done, and a removal takes a worktree whose
 //! session is ready for review once its work is merged (ADR 0121, "Merged work is not ready for
-//! review, as amended").
+//! review, as amended"). A worktree session whose agent never called oso is known by its
+//! process all the same, and its finished worktree is removed.
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test: the tools' table,
 //! the questions' wording, the loop guard and the refusals have their own tests.
@@ -253,6 +254,22 @@ impl Bridge {
     pub(super) fn tool(&mut self, name: &str, arguments: Value) -> (Value, bool) {
         let id = self.call(name, arguments);
         self.result(id)
+    }
+
+    /// As [`Bridge::tool`], called again, as an agent does, while the channel says the person
+    /// is busy, typing or so (ADR 0085), for at most [`DEADLINE`]. A slow machine can keep a
+    /// call within that wait however long the flow sleeps first.
+    pub(super) fn tool_when_free(&mut self, name: &str, arguments: &Value) -> (Value, bool) {
+        let deadline = Instant::now() + DEADLINE;
+        loop {
+            let (said, error) = self.tool(name, arguments.clone());
+            if !(error && said.to_string().contains("try again in a moment"))
+                || Instant::now() > deadline
+            {
+                return (said, error);
+            }
+            thread::sleep(Duration::from_millis(300));
+        }
     }
 }
 
@@ -499,8 +516,8 @@ fn worktree_with_work(
         terminal(state, &format!("*claude: {branch}*")).is_some()
     });
     registered_idle(flow, &run, &place);
-    // Its own bridge connects, as a real session's does once it starts: only then does oso
-    // know its process, which the registry's half of check 4 needs.
+    // Its own bridge connects, as a real session's does at its agent's first oso call. oso
+    // knows its process from its start either way, which the registry's half of check 4 needs.
     let mut own = Bridge::start(flow, &run);
     let (_, error) = own.tool("session_list", json!({}));
     assert!(!error);
@@ -654,6 +671,63 @@ fn an_idle_registry_entry_with_no_start_time_keeps_its_worktree() {
     let (removed, error) = bridge.tool("worktree_remove", json!({ "path": path }));
     assert!(!error, "{removed}");
     assert!(!place.exists(), "the worktree is still there");
+    flow.exit_with(0);
+}
+
+/// A worktree session whose agent never called oso, so that no bridge of its own ever claimed
+/// it, is known by its process from its start. Done after its turn and idle in Claude Code's
+/// registry, by an entry that carries no id oso gave, it is not listed as another's session,
+/// and its finished worktree is removed with the session stopped. oso read the process id
+/// before the terminal's thread had spawned it, and every such removal was refused as busy.
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn an_idle_session_with_no_bridge_of_its_own_is_known_and_its_worktree_removed() {
+    let flow = Flow::with_fake("session-tools-unbridged-idle", "", FAKE);
+    let (mut app, mut bridge) = hosted(&flow);
+    let name = "e2e-unbridged";
+    let place = flow.repo.join(".claude/worktrees").join(name);
+    let id = bridge.call(
+        "start_worktree_session",
+        json!({ "branch": name, "brief": "Fix the parser" }),
+    );
+    answer(&mut app, &bridge, "y");
+    let (started, error) = bridge.result(id);
+    assert!(!error, "{started}");
+    let run = run_in(&flow, &place);
+    app.wait_for("the worktree session's terminal", |state| {
+        terminal(state, &format!("*claude: {name}*")).is_some()
+    });
+    registered_idle(&flow, &run, &place);
+    fs::write(place.join("work.txt"), "work\n").unwrap();
+    flow.git(&place, &["add", "work.txt"]);
+    flow.git(&place, &["commit", "-q", "--no-gpg-sign", "-m", "work"]);
+    merge(&flow, name);
+    // A turn that ends on merged work leaves it done, settled as a session at its prompt is.
+    let ended = turn(&mut app, &flow, &run, name);
+    assert!(
+        matches!(ended.as_str(), "done" | "ready for review"),
+        "{ended}"
+    );
+
+    // The listing finds it merged and removable, and names no session of another's in it.
+    let (listed, error) = bridge.tool_when_free("worktree_list", &json!({}));
+    assert!(!error, "{listed}");
+    let row = (listed["worktrees"].as_array().into_iter().flatten())
+        .find(|row| row["branch"] == name)
+        .unwrap_or_else(|| panic!("not listed: {listed}"));
+    assert_eq!(row["other_sessions"], json!([]), "{row}");
+    assert_eq!(row["merged"], true, "{row}");
+    assert_eq!(row["removable"], true, "{row}");
+
+    thread::sleep(AFTER_TYPING);
+    let path = place.display().to_string();
+    let (removed, error) = bridge.tool_when_free("worktree_remove", &json!({ "path": path }));
+    assert!(!error, "{removed}");
+    assert!(!place.exists(), "the worktree is still there");
+    app.wait_for("its session stopped, as an idle one is", |state| {
+        terminal(state, &format!("*claude: {name}*"))
+            .is_some_and(|terminal| terminal["ended"] == "stopped: session-resume to continue")
+    });
     flow.exit_with(0);
 }
 

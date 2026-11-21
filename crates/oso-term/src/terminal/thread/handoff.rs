@@ -219,6 +219,7 @@ pub(in crate::terminal) fn adopt(adopt: Adopt, hold_limit: Duration, channels: C
         // snapshot already sees the pid (the host asks for it as soon as the buffer appears).
         let shared = channels.shared;
         shared.pid.store(pid.unwrap_or(0), Ordering::Release);
+        shared.mark_started();
         let mut first = Snapshot::new(size);
         engine.snapshot(&mut first, &mut Vec::new());
         channels.shared.in_flight.store(true, Ordering::Release);
@@ -244,6 +245,7 @@ pub(in crate::terminal) fn adopt(adopt: Adopt, hold_limit: Duration, channels: C
     }));
     // Whatever ended it, the id is no longer said to be the terminal's.
     channels.shared.pid.store(0, Ordering::Release);
+    channels.shared.mark_started();
     send_end(outcome, last, channels);
 }
 
