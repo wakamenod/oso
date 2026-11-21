@@ -1,42 +1,88 @@
 # Performance results and regression checks (ADR 0024, ADR 0025, ADR 0046,
-# ADR 0081).
-# Results go to the job summary and to JSON artifacts. Pushes to main only
-# report: their results become the baseline, so a regression accepted on
-# purpose does not fail every later pull request. A change to docs alone has
-# no run: it cannot change a result, and the baseline stays the last run that
-# has one.
+# ADR 0081, ADR 0166).
+# Results go to the job summary and to JSON artifacts. Pull requests run this only when
+# labelled perf; pushes to main and the nightly run always do. Every run compares with
+# the last push to main and fails on a regression. A push's result becomes the baseline
+# all the same, so a regression accepted on purpose fails once, not on every later run;
+# a failure on main or nightly also opens or updates the "Performance regression on main"
+# issue. A change to docs alone has no push run: it cannot change a result, and the
+# baseline stays the last run that has one.
 name: Perf
 
 on:
   push:
     branches: [main]
     paths-ignore: ["docs/**"]
+  # Only with the perf label, which only people with triage access can add.
   pull_request:
-    paths-ignore: ["docs/**"]
-  # Runs a branch's macOS benchmarks, which pull requests skip (ADR 0081).
+    types: [opened, synchronize, reopened, labeled]
+  schedule:
+    # Nightly, 17:00 UTC. It measures only a head of main that no push run measured, as
+    # when a later push cancelled it (ADR 0166).
+    - cron: "0 17 * * *"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # A pull request's run that measures nothing (no perf label, or another label added) has
+  # a group of its own, so it never cancels one that does. The event is in the group, so a
+  # nightly run does not cancel a push's.
+  group: >-
+    ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{
+    (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'perf')
+    && (github.event.action != 'labeled' || github.event.label.name == 'perf')) && 'measure' || 'none' }}
   cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Whether this run measures: a pull request only with the perf label, not when another
+  # label is added; a nightly run only when no push run measured main's head.
+  gate:
+    # Skipped, with no runner, on a pull request without the label: the jobs below then
+    # skip too.
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'perf') && (github.event.action != 'labeled' || github.event.label.name == 'perf')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      # To list the runs of this workflow.
+      actions: read
+    outputs:
+      measure: ${{ steps.decide.outputs.measure }}
+    steps:
+      - id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          LABELLED: ${{ contains(github.event.pull_request.labels.*.name, 'perf') && (github.event.action != 'labeled' || github.event.label.name == 'perf') }}
+        run: |
+          measure=true
+          case "$GITHUB_EVENT_NAME" in
+            pull_request) measure=$LABELLED ;;
+            schedule)
+              # A push run that finished, failed included, measured this head; a cancelled
+              # one did not.
+              done=$(gh api "repos/$GH_REPO/actions/workflows/perf.yml/runs?branch=main&event=push&head_sha=$GITHUB_SHA&status=completed&per_page=20" \
+                --jq '[.workflow_runs[] | select(.conclusion == "success" or .conclusion == "failure")] | length')
+              [ "$done" -eq 0 ] || measure=false ;;
+          esac
+          echo "measure=$measure" | tee -a "$GITHUB_OUTPUT"
+
   benchmarks:
     name: benchmarks (${{ matrix.os }})
+    needs: gate
+    if: needs.gate.outputs.measure == 'true'
     strategy:
       fail-fast: false
       matrix:
-        # Not Windows: the control socket does not support it yet (ADR 0032).
-        # Not macOS on pull requests: its jobs wait for a free runner, and
-        # pull requests are measured on a Mac with `just perf-remote` instead
-        # (ADR 0081).
-        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["ubuntu-latest", "macos-latest"]') }}
+        # Not Windows: the control socket does not support it yet (ADR 0032). macOS runs
+        # on GitHub's runners, not the self-hosted Mac, whose thresholds are not set and
+        # whose other jobs would add noise (ADR 0166).
+        os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     permissions:
@@ -75,16 +121,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: sh .github/scripts/perf-baseline.sh "perf-$RUNNER_OS" target/perf/baseline
+      # Fails on a regression, on main too. The result is uploaded below all the same, so a
+      # push's becomes the baseline (ADR 0166).
       - name: Compare
         env:
-          ON_MAIN: ${{ github.ref == 'refs/heads/main' }}
+          ON_MAIN: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
         run: |
           status=0
           just perf-compare target/perf/baseline/perf.json target/perf/perf.json || status=$?
           cat target/perf/summary.md >> "$GITHUB_STEP_SUMMARY"
-          if [ "$ON_MAIN" = true ]; then
-            [ "$status" -eq 0 ] || echo "::warning::performance regressed; this result is the new baseline"
-            exit 0
+          if [ "$ON_MAIN" = true ] && [ "$status" -ne 0 ]; then
+            echo "::error::performance regressed; this result is the new baseline all the same"
           fi
           exit "$status"
       - uses: actions/upload-artifact@v7.0.2
@@ -94,11 +141,21 @@ jobs:
           path: target/perf/perf.json
           if-no-files-found: error
           retention-days: 90
+      # For the regression issue (perf-report), which runs no repository code.
+      - uses: actions/upload-artifact@v7.0.2
+        if: ${{ failure() && github.event_name != 'pull_request' }}
+        with:
+          name: summary-perf-${{ runner.os }}
+          path: target/perf/summary.md
+          if-no-files-found: ignore
+          retention-days: 30
 
   # ADR 0024: every platform records the time; the author's Mac alone decides
-  # the 2 s budget.
+  # the 2 s budget. On GitHub's runners, as the benchmarks (ADR 0166).
   build-time:
     name: build time (${{ matrix.os }})
+    needs: gate
+    if: needs.gate.outputs.measure == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -132,16 +189,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: sh .github/scripts/perf-baseline.sh "build-time-$RUNNER_OS" target/perf/baseline
+      # Fails on a regression, on main too, and the result is the baseline all the same.
       - name: Compare
         env:
-          ON_MAIN: ${{ github.ref == 'refs/heads/main' }}
+          ON_MAIN: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
         run: |
           status=0
           just perf-compare target/perf/baseline/build-time.json target/perf/build-time.json || status=$?
           cat target/perf/summary.md >> "$GITHUB_STEP_SUMMARY"
-          if [ "$ON_MAIN" = true ]; then
-            [ "$status" -eq 0 ] || echo "::warning::the build time regressed; this result is the new baseline"
-            exit 0
+          if [ "$ON_MAIN" = true ] && [ "$status" -ne 0 ]; then
+            echo "::error::the build time regressed; this result is the new baseline all the same"
           fi
           exit "$status"
       - uses: actions/upload-artifact@v7.0.2
@@ -151,3 +208,60 @@ jobs:
           path: target/perf/build-time.json
           if-no-files-found: error
           retention-days: 90
+      - uses: actions/upload-artifact@v7.0.2
+        if: ${{ failure() && github.event_name != 'pull_request' }}
+        with:
+          name: summary-build-time-${{ runner.os }}
+          path: target/perf/summary.md
+          if-no-files-found: ignore
+          retention-days: 30
+
+  # A regression on main or nightly opens or updates one issue, so it is not missed in a
+  # job summary (ADR 0166). Holds the only write token, and runs no repository code: no
+  # checkout, no build. It reads the summaries the jobs above uploaded.
+  perf-report:
+    needs: [benchmarks, build-time]
+    if: failure() && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      issues: write
+    steps:
+      - name: Open or update the regression issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN: ${{ github.run_id }}
+          URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          dir="$RUNNER_TEMP/summaries"
+          mkdir -p "$dir"
+          gh run download "$RUN" --pattern 'summary-*' --dir "$dir" || true
+          body="$RUNNER_TEMP/body.md"
+          {
+            echo "A run of perf.yml on main failed: $URL"
+            echo
+            echo "Commit: $GITHUB_SHA ($GITHUB_EVENT_NAME)"
+            echo
+            echo "A push's result is the baseline all the same, so the next run compares with it."
+            echo "Close this issue once the regression is fixed or accepted (ADR 0166)."
+            # One folder per artifact, named after it.
+            find "$dir" -name summary.md | sort | while read -r f; do
+              echo
+              echo "## $(basename "$(dirname "$f")")"
+              echo
+              cat "$f"
+            done
+          } >"$body"
+          title="Performance regression on main"
+          # Only an issue this workflow opened: anyone can open an issue with the same title
+          # on a public repository.
+          number=$(gh issue list --state open --author "app/github-actions" \
+            --search "in:title \"$title\"" --json number,title,author \
+            --jq ".[] | select(.title == \"$title\" and .author.is_bot) | .number" | head -n 1)
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --body-file "$body"
+          else
+            gh issue create --title "$title" --body-file "$body"
+          fi
