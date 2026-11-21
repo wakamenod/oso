@@ -486,6 +486,30 @@ Part 1b-2b, the buffer's keys (B1 and B2 (a), as the author chose):
   through `SessionRequest::Native` and `NativeAction` (the author approved the public API's
   change).
 
+Step 1's measurements (2026-11-22, CLI 2.1.330, `--model=haiku`, made-up prompts, the
+person's own settings and hooks loaded, on the author's Mac):
+
+- **Start to first event:** `system/init` arrives 0.24 to 0.57 s after the spawn, in three
+  runs; the replay of the first message and the reply's first delta come together, at 1.1 to
+  1.2 s, once the model answers; a one-word turn's `result` follows at 1.1 to 1.25 s.
+- **Memory:** a native session is two processes holding about 300 MiB together (299.7 to
+  306.6 MiB), the same after its turn as at its peak. The person's long-running TUI sessions on
+  the same machine held 430 to 990 MiB each (mean 716 MiB), so a `-p` session costs no more
+  than a TUI one; they were not started alike, so this is no like-for-like comparison.
+- **`ExitPlanMode`** reaches a `--permission-prompt-tool` in `--permission-mode plan`: the tool
+  is called with `tool_name: "ExitPlanMode"` and its input, the plan's text and its
+  `planFilePath`, and a denial comes back to the model as a failed result and is listed in the
+  turn's `permission_denials`. Step 2's plan review needs no stdio route: the bridge's
+  permission method gets it as any other call. The plan file is written under
+  `~/.claude/plans/` before the call, whatever the answer.
+- **`SendMessage` reaches a `-p` session:** `system/init` carries `messaging_socket_path`, the
+  session is listed to its peers (as `interactive`, as ADR 0151's check found), and a peer's
+  message comes as a `user` line with `isReplay` and `isSynthetic`, then a turn of its own,
+  between oso's sends. The rows show it as a note, not as the person's (part 1a); step 2's
+  composer must expect turns it did not start.
+- The stream also carried `system/session_title_changed` and `command_lifecycle`, which the
+  fixtures lack; `wire` reads any unknown line as `Event::Other`, shown as nothing.
+
 Resume, fork and a restart, as the author chose on 2026-11-22 (the plan for step 2):
 
 - **R1 (c):** a native session's resume and fork wait for step 2, as a resumed session could
