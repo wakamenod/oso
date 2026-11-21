@@ -255,6 +255,22 @@ impl Bridge {
         let id = self.call(name, arguments);
         self.result(id)
     }
+
+    /// As [`Bridge::tool`], called again, as an agent does, while the channel says the person
+    /// is busy, typing or so (ADR 0085), for at most [`DEADLINE`]. A slow machine can keep a
+    /// call within that wait however long the flow sleeps first.
+    pub(super) fn tool_when_free(&mut self, name: &str, arguments: &Value) -> (Value, bool) {
+        let deadline = Instant::now() + DEADLINE;
+        loop {
+            let (said, error) = self.tool(name, arguments.clone());
+            if !(error && said.to_string().contains("try again in a moment"))
+                || Instant::now() > deadline
+            {
+                return (said, error);
+            }
+            thread::sleep(Duration::from_millis(300));
+        }
+    }
 }
 
 /// Starts an instance in `flow`'s repository and a session at its root, and returns the
@@ -648,7 +664,7 @@ fn an_idle_session_with_no_bridge_of_its_own_is_known_and_its_worktree_removed()
     );
 
     // The listing finds it merged and removable, and names no session of another's in it.
-    let (listed, error) = bridge.tool("worktree_list", json!({}));
+    let (listed, error) = bridge.tool_when_free("worktree_list", &json!({}));
     assert!(!error, "{listed}");
     let row = (listed["worktrees"].as_array().into_iter().flatten())
         .find(|row| row["branch"] == name)
@@ -659,7 +675,7 @@ fn an_idle_session_with_no_bridge_of_its_own_is_known_and_its_worktree_removed()
 
     thread::sleep(AFTER_TYPING);
     let path = place.display().to_string();
-    let (removed, error) = bridge.tool("worktree_remove", json!({ "path": path }));
+    let (removed, error) = bridge.tool_when_free("worktree_remove", &json!({ "path": path }));
     assert!(!error, "{removed}");
     assert!(!place.exists(), "the worktree is still there");
     app.wait_for("its session stopped, as an idle one is", |state| {
