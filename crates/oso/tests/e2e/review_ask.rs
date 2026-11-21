@@ -26,53 +26,106 @@ const REVIEW: &str = "*review: uncommitted repo*";
 /// added line.
 fn show_review(app: &mut App) {
     app.send_keys("C-u C-x v r w");
-    app.wait_for("the review", |state| state["buffer"]["name"] == REVIEW);
+    wait_saying(app, "the review", |state| state["buffer"]["name"] == REVIEW);
     rows_until(app, |rows| has(rows, "+changed"));
 }
 
-/// The working screen with Claude Code's folded paste in its input box, as the TUI shows a
-/// paste of several lines: oso submits a question only once its box shows that alone.
-fn pasted_screen() -> String {
-    let lines: Vec<&str> = WORKING.lines().collect();
-    let at = lines
-        .iter()
-        .rposition(|line| line.trim_end() == "\u{276f}")
-        .expect("the working screen's empty input box");
-    let mut lines: Vec<String> = lines.iter().map(|line| (*line).to_owned()).collect();
-    lines[at] = "\u{276f} [Pasted text #1 +12 lines]".to_owned();
-    lines.join("\n") + "\n"
+/// The rule of [`boxed_screen`]'s input box, 30 columns.
+const NARROW: &str = "\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\
+                      \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\
+                      \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}";
+
+/// A screen with Claude Code's input box holding `input`, its rules narrow enough for any
+/// window the flows show it in: the captured screens' rules are 100 columns, which wrap in a
+/// narrower terminal, and oso reads a wrapped box as none.
+fn boxed_screen(input: &str) -> String {
+    let rule = NARROW;
+    format!("talk\n{rule}\n\u{276f} {input}\n{rule}\n  ? for shortcuts\n")
+}
+
+/// Shows an empty input box in the fake's terminal, and waits until oso has it on screen.
+fn empty_box(app: &mut App, flow: &Flow, terminal_name: &str) {
+    flow.scratch.write("screen", boxed_screen("").as_bytes());
+    app.wait_for("the empty input box", |state| {
+        terminal(state, terminal_name).is_some_and(|terminal| {
+            (terminal["rows"].as_array())
+                .is_some_and(|rows| rows.iter().any(|row| row.as_str() == Some(NARROW)))
+        })
+    });
+}
+
+/// Waits until `holds` holds of the state, saying the echo area and the buffer if it never
+/// does.
+fn wait_saying(app: &mut App, what: &str, holds: impl Fn(&Value) -> bool) -> Value {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let state = app.state();
+        if holds(&state) {
+            return state;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "no {what}; echo {:?}, buffer {}; state {}",
+            echo(&state),
+            state["buffer"]["name"],
+            state.to_string().chars().take(4000).collect::<String>()
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
 }
 
 /// Waits for the fake to read the question's paste, then shows the folded paste in its box,
 /// as the TUI would.
-fn fold_paste(flow: &Flow, pastes_before: usize) {
+fn fold_paste(app: &mut App, flow: &Flow, pastes_before: usize, terminal_name: &str) {
     pastes(flow, pastes_before + 1);
-    flow.scratch.write("screen", pasted_screen().as_bytes());
+    flow.scratch.write(
+        "screen",
+        boxed_screen("[Pasted text #1 +12 lines]").as_bytes(),
+    );
+    let folded = "\u{276f} [Pasted text #1 +12 lines]";
+    wait_saying(app, "the folded paste on screen", |state| {
+        terminal(state, terminal_name).is_some_and(|terminal| {
+            (terminal["rows"].as_array())
+                .is_some_and(|rows| rows.iter().any(|row| row.as_str() == Some(folded)))
+        })
+    });
 }
 
 /// What the fake has read once its input ends with a submitted paste, the `pastes`th.
-fn submitted(flow: &Flow, pastes: usize) -> String {
+fn submitted(app: &mut App, flow: &Flow, pastes: usize) -> String {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         let read = fs::read_to_string(flow.scratch.path().join("input")).unwrap_or_default();
         if read.matches(END).count() >= pastes && read.ends_with(&format!("{END}\r")) {
             return read;
         }
-        assert!(
-            Instant::now() < deadline,
-            "{pastes} submitted, read {read:?}"
-        );
+        if Instant::now() >= deadline {
+            let state = app.state();
+            let waiting = flow.scratch.path().join("screen").exists();
+            panic!(
+                "{pastes} submitted, read {read:?}; screen file still waiting: {waiting}; echo \
+                 {:?}; state {}",
+                echo(&state),
+                state.to_string().chars().take(4000).collect::<String>()
+            );
+        }
         std::thread::sleep(Duration::from_millis(50));
     }
 }
 
 /// The names of the buffers the frame's windows show.
 fn shown(state: &Value) -> Vec<String> {
+    let buffers = state["buffers"].as_array().cloned().unwrap_or_default();
+    let name = |id: &Value| {
+        (buffers.iter())
+            .find(|buffer| buffer["id"] == *id)
+            .and_then(|buffer| buffer["name"].as_str().map(str::to_owned))
+    };
     let windows = state["windows"].as_array().cloned().unwrap_or_default();
-    let names = windows
+    windows
         .iter()
-        .filter_map(|window| window["buffer"].as_str());
-    names.map(str::to_owned).collect()
+        .filter_map(|window| name(&window["buffer"]))
+        .collect()
 }
 
 /// Asks `question` with `Q` on the review's first added line.
@@ -82,6 +135,9 @@ fn ask(app: &mut App, question: &str) {
         super::worktrees::asks(state).is_some_and(|prompt| prompt.starts_with("Ask about this"))
     });
     app.send_keys(&format!("{} RET", typing(question)));
+    wait_saying(app, "the question asked", |state| {
+        echo(state).starts_with("Asked ")
+    });
 }
 
 #[test]
@@ -89,11 +145,13 @@ fn ask(app: &mut App, question: &str) {
 fn a_question_goes_to_the_review_s_session_submitted_and_shows_beside_the_review() {
     let flow = Flow::with_fake("review-ask", "", FAKE);
     let (mut app, _bridge) = hosted(&flow);
+    empty_box(&mut app, &flow, "*claude: repo*");
     back_to(&mut app, "README.md");
     show_review(&mut app);
 
     ask(&mut app, "Why");
-    let read = submitted(&flow, 1);
+    fold_paste(&mut app, &flow, 0, "*claude: repo*");
+    let read = submitted(&mut app, &flow, 1);
     assert!(
         read.contains("A question from the person, asked in a review."),
         "{read:?}"
@@ -152,13 +210,21 @@ fn in_a_space_questions_and_comments_go_to_its_orchestrator() {
                 .any(|row| row["name"] == "fix-login" && row["state"] == "working")
         })
     });
+    empty_box(&mut app, &flow, orchestrator);
     app.open_file(&flow.repo.join("README.md"));
+    // Its project is found off the UI thread; the review menu needs it.
+    wait_saying(&mut app, "README.md in its project", |state| {
+        state["buffer"]["name"] == "README.md"
+            && state["modeline"]
+                .as_str()
+                .is_some_and(|line| line.contains("  repo  "))
+    });
     show_review(&mut app);
 
     // `Q` goes to the orchestrator, naming the worktree, and its terminal shows in the slot.
     ask(&mut app, "Why");
-    fold_paste(&flow, 0);
-    let read = submitted(&flow, 1);
+    fold_paste(&mut app, &flow, 0, orchestrator);
+    let read = submitted(&mut app, &flow, 1);
     let root = fs::canonicalize(&flow.repo).unwrap();
     assert!(
         read.contains(&format!("Worktree: {}.", root.display()))
