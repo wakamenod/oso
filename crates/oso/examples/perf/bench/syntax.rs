@@ -210,12 +210,26 @@ fn set_font_lock(app: &mut App, on: bool) -> Result<(), String> {
     Ok(())
 }
 
-/// Waits until the shown buffer has highlights, so that typing measures them.
+/// Waits until the shown buffer has highlights, so that typing measures them. If none come, the
+/// error carries what the echo area says, where a highlighting that stopped says why, and the
+/// buffer's state.
 fn wait_for_highlights(app: &mut App) -> Result<(), String> {
     let started = Instant::now();
     while !highlighted(app)? {
         if started.elapsed() > REPORTED_WITHIN {
-            return Err(format!("no highlights in {REPORTED_WITHIN:?}"));
+            let state = app.call("get-state", None)?;
+            let buffer = &state["buffer"];
+            return Err(format!(
+                "no highlights in {REPORTED_WITHIN:?}; echo {}, modeline {}, buffer: \
+                 highlighted {}, syntax {}, secret {}, loading {}, bytes {}",
+                state["echo"],
+                state["modeline"],
+                buffer["highlighted"],
+                buffer["syntax"],
+                buffer["secret"],
+                buffer["loading"],
+                buffer["bytes"],
+            ));
         }
         thread::sleep(POLL_KEYS);
     }
