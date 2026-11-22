@@ -2,7 +2,8 @@
 //! stopped one, and explaining a saved screen with the rules in force, for writing a rule; and
 //! seeing what needs the person: `*Spaces*`, the switch float, the next session waiting or
 //! done, spaces and zoom, and a session's live explanation. `list` holds `*Spaces*`'s own
-//! keys, `mode` session mode's commands on a session's own buffer (ADR 0132), and `send` sending
+//! keys, `mode` session mode's commands on a session's own buffer (ADR 0132), `native` a native
+//! session's buffer's keys (ADR 0165), and `send` sending
 //! to a session and mentioning one. `session.rs` beside it is the editing session's: cancelling and exiting.
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the host-owned state
@@ -16,6 +17,7 @@
 
 mod list;
 mod mode;
+mod native;
 mod search;
 mod send;
 mod spaces;
@@ -23,6 +25,7 @@ mod spaces;
 pub use list::COMMANDS as LIST_COMMANDS;
 pub use list::{FOLDS, GUIDES, ROW_MARKS, SESSION_RENAME_TO, row_mark};
 pub use mode::{ARCHIVE_LABEL, COMMANDS as MODE_COMMANDS, PIN_LABEL, SESSION_HELP, agents_menu};
+pub use native::COMMANDS as NATIVE_COMMANDS;
 pub use search::COMMANDS as SEARCH_COMMANDS;
 pub use send::{
     COMMANDS as SEND_COMMANDS, MAX_SEND_BYTES, MENTION_LIST, SEND_LIST, YANK_IMAGE, too_large,

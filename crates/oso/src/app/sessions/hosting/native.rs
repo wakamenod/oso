@@ -11,12 +11,16 @@
 //!   last line only (ADR 0165, "Step 1, as built"). A frame is asked for only when a shown
 //!   session's rows changed, or a session ended.
 //! - A native session runs only in a trusted project (Q5): elsewhere a session is a terminal.
+//! - Its buffer's keys, `TAB`, `RET`, `n`/`p` and `]`/`[`, are carried out in `keys`.
 //! - Its first message is its brief; a person's start with none opens `*Brief*` for it first.
 //! - Its process is stopped when its buffer is killed, which archives the session as a
 //!   terminal's does, when the session list stops it, and killed as oso exits. A stopped
 //!   native session comes back at oso's next start as a native buffer with no process.
 
+mod keys;
+
 use std::collections::HashMap;
+use std::ops::Range;
 use std::path::PathBuf;
 
 use oso_core::buffer::{Buffer, BufferId, Mode};
@@ -66,6 +70,11 @@ struct Native {
     /// Its process ended before the start thread said it started: its status and the end of
     /// its standard error, said once the session is in the table.
     ended: Option<(Option<i32>, String)>,
+    /// Its `*result: NAME*`, once `RET` showed a call's whole result, and that call's id.
+    result: Option<BufferId>,
+    result_of: Option<String>,
+    /// Where each call of each open row of several is in the row, as drawn last.
+    calls: HashMap<usize, Vec<(usize, Range<usize>)>>,
 }
 
 impl NativeSessions {
@@ -234,6 +243,9 @@ impl App {
             stream: None,
             first: first.is_some(),
             ended: None,
+            result: None,
+            result_of: None,
+            calls: HashMap::new(),
         };
         self.hosting.natives.map.insert(key, native);
         buffer
@@ -496,6 +508,13 @@ fn draw(
                 render::render(row, native.rows.directory())
             }
         };
+        if !matches!(change, RowChange::Grew { .. }) {
+            if rendered.calls.is_empty() {
+                native.calls.remove(&at);
+            } else {
+                native.calls.insert(at, rendered.calls.clone());
+            }
+        }
         let runs = runs(&rendered);
         editor.replace_native_rows(native.buffer, range.clone(), &rendered.text, &runs);
         native.placed.put(at, range, rendered.text.len());

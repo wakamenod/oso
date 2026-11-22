@@ -207,6 +207,29 @@ fn a_native_session_starts_with_its_first_message_and_shows_its_stream() {
     assert!(shown.contains("Bash ls"), "{shown}");
     assert!(shown.contains("1.5 s · $0.0100"), "{shown}");
 
+    // Its keys: `]` goes to the call's row, `TAB` opens it, `RET` shows its whole result,
+    // read-only and withheld, and `p` goes back to the message.
+    app.send_keys("M-<");
+    app.send_keys("]");
+    app.wait_for("point on the call", |state| state["cursor"]["row"] == 2);
+    app.send_keys("TAB");
+    app.wait_for("the call open", |state| {
+        text(state).contains("▾ Bash ls\n    notes.md")
+    });
+    app.send_keys("RET");
+    let state = app.wait_for("the result", |state| {
+        state["buffer"]["name"] == "*result: proj*"
+    });
+    assert!(text(&state).starts_with("Bash ls\n\nnotes.md"), "{state}");
+    app.send_keys("C-x b");
+    app.send_keys(&keys("*claude: proj*"));
+    app.send_keys("RET");
+    app.wait_for("the session again", |state| {
+        state["buffer"]["name"] == "*claude: proj*"
+    });
+    app.send_keys("p");
+    app.wait_for("point on the message", |state| state["cursor"]["row"] == 0);
+
     // Its process ends: the session is stopped, and the modeline says so.
     flow.scratch.write("go", b"0");
     app.wait_for("the session stopped", |state| {

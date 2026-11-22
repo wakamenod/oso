@@ -1289,8 +1289,14 @@ a switch made with its command stands until that setting changes in the file
   person's messages after `› `, replies after `● `, thinking as `∴ Thought for N s`, each tool
   call as one line with what came of it, an edit as a diff, and each turn's time and cost. A
   start with no brief opens `*Brief*` for its first message: `C-c C-c` starts the session,
-  `C-c C-k` drops it. Its state comes from its stream. In this step it takes no message after
-  its first, and a send, a paste or `session-explain` to it says so; elsewhere, an agent's
+  `C-c C-k` drops it. Its state comes from its stream. In its buffer, `TAB` folds or unfolds
+  the row at point (a call of an open row of several on its own), `RET` shows a call's whole
+  result read-only in `*result: NAME*`, withheld from agents, `n`/`p` move between the person's
+  messages and `]`/`[` between tool rows; session mode's `C-c` keys work there too, but
+  `C-c +` and `C-c -`, as it has no screen for an agent to read. In this step
+  it takes no message after
+  its first, and a send, a paste, `session-explain` or a resume to it says so (`session-fork`
+  continues it in a terminal); elsewhere, an agent's
   start with no brief, and a restricted project, keep the terminal.
 
   `claude` is started as the login shell would start it, so its `PATH`, version managers and

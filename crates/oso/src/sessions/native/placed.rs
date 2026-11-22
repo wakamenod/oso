@@ -23,10 +23,17 @@ impl Placed {
         self.ends.last().copied().unwrap_or(0)
     }
 
-    fn start(&self, row: usize) -> usize {
+    /// Where row `row` starts.
+    pub fn start(&self, row: usize) -> usize {
         row.checked_sub(1)
             .and_then(|before| self.ends.get(before).copied())
             .unwrap_or(0)
+    }
+
+    /// The row that holds byte `offset`, `None` past the last.
+    pub fn row_at(&self, offset: usize) -> Option<usize> {
+        let row = self.ends.partition_point(|end| *end <= offset);
+        (row < self.ends.len()).then_some(row)
     }
 
     /// The bytes `change` replaces: none for a row added at the end, the whole row for one
@@ -62,5 +69,24 @@ impl Placed {
         for later in &mut self.ends[at..] {
             *later = (*later + end).saturating_sub(old);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::rows::RowChange;
+    use super::Placed;
+
+    #[test]
+    fn a_byte_is_in_the_row_whose_end_is_past_it() {
+        let mut placed = Placed::default();
+        placed.put(0, 0..0, 4);
+        placed.put(1, 4..4, 6);
+        assert_eq!(placed.range(RowChange::Added(2), |_, _| 0), Some(10..10));
+        assert_eq!(
+            [0, 3, 4, 9, 10].map(|at| placed.row_at(at)),
+            [Some(0), Some(0), Some(1), Some(1), None]
+        );
+        assert_eq!((placed.start(0), placed.start(1)), (0, 4));
     }
 }

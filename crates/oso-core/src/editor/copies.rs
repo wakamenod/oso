@@ -77,7 +77,8 @@ impl Editor {
     /// Replaces the whole text of the internal buffer `id` with `text`, with no undo record,
     /// and puts the cursors of the windows showing it at its start. Nothing happens to a buffer
     /// that is not internal. It costs one pass over the old text and the new: a report the host
-    /// writes, such as `*Session explain*`'s (ADR 0121), of some 50 KiB at most.
+    /// writes, such as `*Session explain*`'s (ADR 0121), of some 50 KiB, or a native session's
+    /// call's whole result, of at most 1 MiB and its change's headers (ADR 0165).
     pub fn set_internal_text(&mut self, id: BufferId, text: &str) {
         let Some(buffer) = self.buffer(id).filter(|buffer| buffer.is_internal()) else {
             return;

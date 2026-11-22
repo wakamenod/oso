@@ -101,6 +101,8 @@ pub(super) struct Keymaps {
     /// A terminal's own keys and session mode's, in a terminal's buffer that hosts a session
     /// (ADR 0132).
     pub(super) session: Keymap,
+    /// A native session's buffer's own keys and session mode's (ADR 0165).
+    pub(super) native: Keymap,
     /// The user's keys from `[keys.session]`, above `session` in a session's terminal
     /// (ADR 0132, step 2). Empty without any, and then not a layer.
     pub(super) user_session: Keymap,
@@ -158,6 +160,7 @@ impl Keymaps {
             review_message: bindings::review_message_keymap(registry),
             review_files: bindings::review_files_keymap(registry),
             terminal: bindings::terminal_keymap(registry),
+            native: bindings::native_session_keymap(registry),
             session_help: SessionHelp::new(&session, registry),
             session,
             user_session: Keymap::new(),
@@ -171,7 +174,7 @@ impl Keymaps {
         clippy::too_many_lines,
         reason = "one line for each keymap, named twice so that none is left out"
     )]
-    pub(super) fn all(&self) -> [&Keymap; 40] {
+    pub(super) fn all(&self) -> [&Keymap; 41] {
         let Self {
             global,
             user,
@@ -211,6 +214,7 @@ impl Keymaps {
             review_files,
             terminal,
             session,
+            native,
             user_session,
             lsp,
             session_help: _,
@@ -254,6 +258,7 @@ impl Keymaps {
             review_files,
             terminal,
             session,
+            native,
             user_session,
             lsp,
         ]
@@ -388,8 +393,8 @@ impl Keymaps {
             | Mode::Yaml
             | Mode::Latex
             | Mode::Swift
-            | Mode::SessionMove
-            | Mode::NativeSession => None,
+            | Mode::SessionMove => None,
+            Mode::NativeSession => Some(&self.native),
             Mode::Review => Some(&self.review),
             Mode::Directory => Some(&self.dired),
             Mode::RenamePreview => Some(&self.rename_preview),
