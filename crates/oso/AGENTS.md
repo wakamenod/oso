@@ -95,7 +95,8 @@ often, so it must rebuild within 2 s.
   `sessions/native/queue.rs`, what oso composed put in or sent there `composer/composed.rs`
   (part 2f), escaped by `sessions/send/escape.rs` as every send is, its interrupt `native/interrupting.rs`, over the control layer's
   rules in `sessions/native/control.rs` and the interrupt's in `sessions/native/interrupt.rs`,
-  its slash commands `native/slash.rs`, over `sessions/native/slash.rs`, and its resume and a
+  its slash commands `native/slash.rs`, over `sessions/native/slash.rs`, its prompt
+  suggestion and recap `native/suggesting.rs`, over `sessions/native/suggest.rs` (part 3f), and its resume and a
   native fork `native/resume.rs`, under the trust `app/sessions/hosting/trust.rs` judges
   (ADR 0165, step 2); its whole replies are highlighted as Markdown on the syntax threads, as
   documents no buffer owns, by `app/sessions/hosting/native/markdown.rs`, and their runs put

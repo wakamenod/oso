@@ -26,6 +26,8 @@
 //!   fallback, a signal and a resume (step 2c).
 //! - `markdown`: which replies are highlighted as Markdown, and their runs on their row
 //!   (step 2, part 2g).
+//! - `suggest`: which prompt suggestion is kept, and its row; `recap`: the recap of a turn
+//!   that ended out of sight (part 3f).
 //! - `todo`: the session's to-do list from its to-do tools' results, and the strip that
 //!   shows it (step 3, part 3e).
 
@@ -37,9 +39,11 @@ pub mod markdown;
 pub mod placed;
 pub mod point;
 pub mod queue;
+pub mod recap;
 pub mod render;
 pub mod rows;
 pub mod slash;
+pub mod suggest;
 pub mod todo;
 pub mod turns;
 pub mod wire;

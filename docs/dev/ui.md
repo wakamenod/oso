@@ -1315,7 +1315,12 @@ a switch made with its command stands until that setting changes in the file
   `C-c +` and `C-c -`, as it has no screen for an agent to read. Its next messages are
   written in its composer (step 2, ADR 0170), `*compose: NAME*`, docked under the transcript
   and withheld from agents: `i` goes there and `C-c C-o` back, `C-c C-c` sends (at most
-  64 KiB), and `M-p`/`M-n` walk the messages sent. Sent while a turn runs, a message waits in
+  64 KiB), and `M-p`/`M-n` walk the messages sent. Once a turn ends, the CLI's suggestion of
+  the next message shows dim at the transcript's end, `Suggested: …`, until a turn starts, the
+  person sends or the process ends; `M-n` past the newest message, in an empty composer, puts it in, escaped
+  as composed text is (ADR 0165, part 3f). Coming back to a session whose turn ended out of
+  sight, the echo area says `NAME (last reply): …`, the first sentence of its last reply, withheld
+  from agents. Sent while a turn runs, a message waits in
   oso's queue, at most 20, shown grey at the transcript's end as `Queued (N)` and counted in the
   modeline; the first goes when the turn ends. On a queued row `RET` takes it back into the
   composer, `e` edits it in its place (`C-c C-c` puts it back, `C-c C-k` gives the edit up),
