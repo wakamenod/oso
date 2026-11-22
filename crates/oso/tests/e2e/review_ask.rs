@@ -46,27 +46,29 @@ fn show_review_in_space(app: &mut App) {
     rows_until(app, |rows| has(rows, "+changed"));
 }
 
-/// The rule of [`boxed_screen`]'s input box, 30 columns.
+/// The rule of [`boxed_screen`]'s input box, 20 columns, the fewest oso reads as a box's.
 const NARROW: &str = "\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\
-                      \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\
                       \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}";
 
-/// The top rule of [`boxed_screen`]'s input box, 30 columns, with the session's name at its
+/// The top rule of [`boxed_screen`]'s input box, 20 columns, with the session's name at its
 /// right end, as Claude Code draws it for a session started with `--name`, as oso starts them.
 const NAMED: &str = "\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\
-                     \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\
                      \u{2500} worker \u{2500}";
 
 /// A screen with Claude Code's input box holding `input` after its sign and no-break space,
-/// its rules narrow enough for any window the flows show it in: the captured screens' rules
-/// are 100 columns, which wrap in a narrower terminal, and oso reads a wrapped box as none.
-fn boxed_screen(input: &str) -> String {
-    format!("talk\n{NAMED}\n\u{276f}\u{a0}{input}\n{NARROW}\n  ? for shortcuts\n")
+/// then the rows of `more`, its rules narrow enough for any window the flows show it in: the
+/// captured screens' rules are 100 columns, which wrap in a narrower terminal, and oso reads a
+/// wrapped box as none. The window below the review layout's slot, whose size the terminal
+/// takes (ADR 0169), is 22 columns on the end-to-end frame.
+fn boxed_screen(input: &str, more: &[&str]) -> String {
+    let more: String = more.iter().map(|row| format!("{row}\n")).collect();
+    format!("talk\n{NAMED}\n\u{276f}\u{a0}{input}\n{more}{NARROW}\n  ? for shortcuts\n")
 }
 
 /// Shows an empty input box in the fake's terminal, and waits until oso has it on screen.
 fn empty_box(app: &mut App, flow: &Flow, terminal_name: &str) {
-    flow.scratch.write("screen", boxed_screen("").as_bytes());
+    flow.scratch
+        .write("screen", boxed_screen("", &[]).as_bytes());
     app.wait_for("the empty input box", |state| {
         terminal(state, terminal_name).is_some_and(|terminal| {
             (terminal["rows"].as_array())
@@ -86,13 +88,37 @@ fn wait_saying(app: &mut App, what: &str, holds: impl Fn(&Value) -> bool) -> Val
         }
         assert!(
             Instant::now() < deadline,
-            "no {what}; echo {:?}, buffer {}; state {}",
+            "no {what}; echo {:?}, buffer {}; windows {}; terminals {}; state {}",
             echo(&state),
             state["buffer"]["name"],
+            windows_said(&state),
+            state["terminals"]
+                .to_string()
+                .chars()
+                .take(2000)
+                .collect::<String>(),
             state.to_string().chars().take(4000).collect::<String>()
         );
         std::thread::sleep(Duration::from_millis(100));
     }
+}
+
+/// Each window's id, buffer's name, area and text rows, for a failure to say.
+fn windows_said(state: &Value) -> String {
+    let buffers = state["buffers"].as_array().cloned().unwrap_or_default();
+    let windows = state["windows"].as_array().cloned().unwrap_or_default();
+    (windows.iter())
+        .map(|window| {
+            let name = (buffers.iter())
+                .find(|buffer| buffer["id"] == window["buffer"])
+                .map_or(Value::Null, |buffer| buffer["name"].clone());
+            format!(
+                "#{} {name} {} rows {}",
+                window["id"], window["area"], window["rows"]
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" | ")
 }
 
 /// Waits for the fake to read the question's paste, then shows the folded paste in its box,
@@ -104,14 +130,19 @@ fn fold_paste(app: &mut App, flow: &Flow, pastes_before: usize, terminal_name: &
         .and_then(|paste| paste.split(END).next())
         .unwrap_or_default();
     let breaks = paste.matches(['\n', '\r']).count() - paste.matches("\r\n").count();
-    let folding = format!("[Pasted text #1 +{breaks} lines]");
-    flow.scratch
-        .write("screen", boxed_screen(&folding).as_bytes());
-    let folded = format!("\u{276f}\u{a0}{folding}");
+    // Wrapped at a space with the box's indent, as the TUI wraps it in a narrow terminal, so
+    // that it fits the window below the slot: `[Pasted text #1 +N lines]`.
+    let rest = format!("  +{breaks} lines]");
+    flow.scratch.write(
+        "screen",
+        boxed_screen("[Pasted text #1", &[&rest]).as_bytes(),
+    );
+    let folded = ["\u{276f}\u{a0}[Pasted text #1", rest.as_str()];
     wait_saying(app, "the folded paste on screen", |state| {
         terminal(state, terminal_name).is_some_and(|terminal| {
-            (terminal["rows"].as_array())
-                .is_some_and(|rows| rows.iter().any(|row| row.as_str() == Some(folded.as_str())))
+            (terminal["rows"].as_array()).is_some_and(|rows| {
+                (rows.windows(2)).any(|pair| pair[0] == folded[0] && pair[1] == folded[1])
+            })
         })
     });
 }
@@ -153,7 +184,8 @@ fn shown(state: &Value) -> Vec<String> {
         .collect()
 }
 
-/// The frame's windows: what each shows, and its top row and left column.
+/// The frame's windows: what each shows, empty for a buffer the state does not list, as the
+/// review's own, and its top row and left column.
 fn placed(state: &Value) -> Vec<(String, u64, u64)> {
     let buffers = state["buffers"].as_array().cloned().unwrap_or_default();
     let name = |id: &Value| {
@@ -166,7 +198,7 @@ fn placed(state: &Value) -> Vec<(String, u64, u64)> {
         .filter_map(|window| {
             let area = &window["area"];
             Some((
-                name(&window["buffer"])?,
+                name(&window["buffer"]).unwrap_or_default(),
                 area["row"].as_u64()?,
                 area["column"].as_u64()?,
             ))
@@ -174,18 +206,22 @@ fn placed(state: &Value) -> Vec<(String, u64, u64)> {
         .collect()
 }
 
-/// Waits until the frame shows the review at the left, `top` in the slot's upper half and
-/// `below` under it in the same column (ADR 0169), and gives the state.
+/// Waits until the frame shows `top` in the slot's upper half and `below` under it, the two
+/// alone in the slot's column at the right, every other window, the review's, at its left
+/// (ADR 0169), and gives the state.
 fn split_slot(app: &mut App, top: &str, below: &str) -> Value {
     wait_saying(app, "the slot split, the session below", |state| {
         let placed = placed(state);
         let at = |name: &str| placed.iter().find(|(shows, ..)| shows == name);
-        placed.len() == 3
-            && matches!(
-                (at(REVIEW), at(top), at(below)),
-                (Some((_, _, left)), Some((_, upper, column)), Some((_, lower, under)))
-                    if left < column && column == under && upper < lower
-            )
+        let (Some((_, upper, column)), Some((_, lower, under))) = (at(top), at(below)) else {
+            return false;
+        };
+        let in_slot = (placed.iter()).filter(|(.., left)| left == column).count();
+        column == under
+            && upper < lower
+            && in_slot == 2
+            && (placed.iter()).all(|(.., left)| left <= column)
+            && placed.len() > 2
     })
 }
 
@@ -233,8 +269,9 @@ fn a_question_goes_to_the_review_s_session_submitted_and_shows_beside_the_review
     empty_box(&mut app, &flow, "*claude: repo*");
     // Another file than the source, so that `RET` is seen to change the slot's top.
     app.open_file(&flow.repo.join(".gitignore"));
-    app.wait_for(".gitignore", |state| {
+    app.wait_for(".gitignore in its project", |state| {
         state["buffer"]["name"] == ".gitignore"
+            && (state["modeline"].as_str()).is_some_and(|modeline| modeline.contains("  repo  "))
     });
     show_review(&mut app);
 
@@ -270,10 +307,9 @@ fn a_question_goes_to_the_review_s_session_submitted_and_shows_beside_the_review
 
     // `RET` to the source changes the top alone, selected there.
     app.send_keys("M-< n C-n RET");
-    let state = wait_saying(&mut app, "the source on top", |state| {
+    wait_saying(&mut app, "the source on top", |state| {
         state["buffer"]["name"] == "README.md"
     });
-    assert_eq!(placed(&state).len(), 3, "{:?}", placed(&state));
     split_slot(&mut app, "README.md", "*claude: repo*");
 
     // Back in the review, a second question reuses the window below.
@@ -313,6 +349,8 @@ fn a_restart_keeps_the_split_slot_and_a_question_after_it_reuses_the_window_belo
     let state = split_slot(&mut new, "README.md", "*claude: repo*");
     assert_eq!(state["buffer"]["name"], REVIEW, "{state}");
     sized_below(&mut new, "*claude: repo*");
+    // The review read again, as the new instance opens it.
+    rows_until(&mut new, |rows| has(rows, "+changed"));
 
     empty_box(&mut new, &flow, "*claude: repo*");
     ask(&mut new, "And");
