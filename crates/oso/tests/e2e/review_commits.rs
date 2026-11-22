@@ -61,7 +61,12 @@ fn m_n_steps_to_each_commit_and_c_c_c_c_sends_them_grouped() {
     let (mut app, first, second) = pull_request_of_two(&scratch);
 
     // The whole pull request, from the review menu's `p`.
-    app.send_keys("C-u C-x v r p 7 RET");
+    // From the project's file, as `review_pr` opens the menu: the status's own keys aside.
+    app.send_keys(&format!("C-x b {} RET", typing("a.txt")));
+    app.wait_for("the file", |state| state["buffer"]["name"] == "a.txt");
+    app.send_keys("C-u C-x v r");
+    app.wait_for("the review menu", |state| state["menu"] == "review");
+    app.send_keys("p 7 RET");
     app.wait_for("the review", |state| state["buffer"]["name"] == WHOLE);
     wait_echo(&mut app, "what gh said", "Reviewing #7");
     wait_text(&mut app, "the pull request's lines", "+sea");
@@ -78,7 +83,8 @@ fn m_n_steps_to_each_commit_and_c_c_c_c_sends_them_grouped() {
     wait_echo(&mut app, "the step", "Reviewing #7, commit 1/2 ");
     let shown = wait_text(&mut app, "its message", "    It holds a bee.");
     assert!(shown.contains("    Add b"), "{shown}");
-    assert!(shown.contains("+bee") && !shown.contains("+sea"), "{shown}");
+    let shown = wait_text(&mut app, "its line", "+bee");
+    assert!(!shown.contains("+sea"), "{shown}");
     assert!(
         app.state()["modeline"]
             .as_str()

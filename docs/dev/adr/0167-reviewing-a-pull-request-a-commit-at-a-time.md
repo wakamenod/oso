@@ -178,6 +178,14 @@ The author chose (a) on each of the plan's ten questions on 2026-11-22, through 
   rows of at most about 240 characters, when the list is made or a listing comes; else only
   the rows that changed. A subject is kept to 200 characters in the host.
 
+### The benchmark
+
+- The performance harness gains a scenario of its own (`bench/review_commits.rs`, the author's
+  approval of 2026-11-22): a pull request of 200 commits against a stand-in `gh`.
+  `review_commits_list_ms` is the time from `RET` on its number to its modeline naming its
+  commits, and `review_commit_step_ms` the median of five steps from `M-n` to the next
+  commit's review read whole. Both are recorded with no threshold, on Unix alone.
+
 ### Public items
 
 In `oso_core`:
