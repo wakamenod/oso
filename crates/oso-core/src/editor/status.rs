@@ -38,6 +38,8 @@ const GONE_WARNING: &str = "[deleted on disk] ";
 const NO_POSITION: &str = "secret";
 /// Says that an emergency copy of the file waits for an answer (ADR 0064).
 const COPY_WARNING: &str = "[emergency copy] ";
+/// What a window too short for its docked windows says (ADR 0170).
+const DOCKS_HIDDEN: &str = "[docked hidden] ";
 /// The cells a name keeps in a narrow window, at the expense of what follows it.
 const MIN_NAME_CELLS: usize = 20;
 /// The blank cells after a part of the modeline.
@@ -378,14 +380,39 @@ fn push_state(out: &mut String, window: &Window, buffer: &Buffer) {
     push_encoding(out, buffer.file_info(), !buffer.invalid_bytes().is_empty());
 }
 
+/// The warnings a modeline starts with, of `buffer`, into `out`; `docks_hidden` if the window is
+/// too short for the windows docked under it (ADR 0170).
+fn warnings_into(buffer: &crate::buffer::Buffer, docks_hidden: bool, out: &mut String) {
+    out.clear();
+    if buffer.has_bidi_controls() {
+        out.push_str(BIDI_WARNING);
+    }
+    if buffer.gone_from_disk() {
+        out.push_str(GONE_WARNING);
+    } else if buffer.changed_on_disk() && (buffer.is_modified() || buffer.reload_failed()) {
+        out.push_str(DISK_WARNING);
+    }
+    if buffer.copy_waits() {
+        out.push_str(COPY_WARNING);
+    }
+    if docks_hidden {
+        out.push_str(DOCKS_HIDDEN);
+    }
+}
+
 impl Editor {
     /// Fills in what the modeline of the tiled window `id` and the echo area say now, reusing
     /// `status`'s strings. Segments about the frame, as `Agent`, are only in the modeline of
     /// the selected tiled window, also beneath a prompt (ADR 0112). A window that is not tiled
     /// gets the echo area alone.
     pub fn status_into(&self, id: WindowId, status: &mut Status) {
-        // A prompt has no modeline: it speaks of the window beneath (ADR 0072).
-        let tiled = self.tiled_id();
+        // A prompt has no modeline: it speaks of the window beneath (ADR 0072). Nor has a
+        // docked window: its host's speaks for it while it is selected (ADR 0170).
+        let tiled = if self.dock_selected() {
+            self.tree_id()
+        } else {
+            self.tiled_id()
+        };
         let Some((window, buffer, regions)) = self.window_in_tree(id) else {
             let mut echo = std::mem::take(&mut status.echo);
             echo.clear();
@@ -409,18 +436,7 @@ impl Editor {
         if frame_segments {
             self.session_marks().write(&mut status.sessions);
         }
-        status.warnings.clear();
-        if buffer.has_bidi_controls() {
-            status.warnings.push_str(BIDI_WARNING);
-        }
-        if buffer.gone_from_disk() {
-            status.warnings.push_str(GONE_WARNING);
-        } else if buffer.changed_on_disk() && (buffer.is_modified() || buffer.reload_failed()) {
-            status.warnings.push_str(DISK_WARNING);
-        }
-        if buffer.copy_waits() {
-            status.warnings.push_str(COPY_WARNING);
-        }
+        warnings_into(buffer, self.docks_hidden(id), &mut status.warnings);
         status.state.clear();
         push_state(&mut status.state, window, buffer);
         self.review_status_into(window.buffer(), &mut status.state);
@@ -465,7 +481,7 @@ impl Editor {
 
         status.echo.clear();
         self.write_echo_line(&mut status.echo);
-        status.warnings_on_echo_row = regions.modeline.rows == 0;
+        status.warnings_on_echo_row = regions.modeline.rows == 0 && window.docked().is_none();
         status.messages_in_view =
             (window.buffer() == self.messages_buffer).then(|| buffer.revision());
     }

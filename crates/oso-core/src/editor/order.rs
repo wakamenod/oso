@@ -121,17 +121,19 @@ impl Editor {
     /// Raises what the window at `index` leaves and then `buffer`, which it is to show, when
     /// it is the selected one: a show other than a walk's step or a fallback (ADR 0171).
     pub(super) fn raise_shown(&mut self, index: usize, buffer: BufferId) {
-        if index != self.tiled_index() {
+        // A docked window is its host's: what it shows never rises (ADR 0170).
+        if index != self.tiled_index() || self.windows[index].docked().is_some() {
             return;
         }
         self.buffer_order.raise(self.windows[index].buffer());
         self.buffer_order.raise(buffer);
     }
 
-    /// Raises the buffer of the window at `index`, as it is selected (ADR 0171).
+    /// Raises the buffer of the window at `index`, as it is selected (ADR 0171); for a docked
+    /// window, its host's, as the window it is part of is selected (ADR 0170).
     pub(super) fn raise_selected(&mut self, index: usize) {
         if let Some(window) = self.windows.get(index) {
-            let buffer = window.buffer();
+            let buffer = window.docked().map_or(window.buffer(), |(host, _)| host);
             self.buffer_order.raise(buffer);
         }
     }

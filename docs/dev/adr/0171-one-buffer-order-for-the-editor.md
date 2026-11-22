@@ -1,6 +1,6 @@
 # 0171. One buffer order for the editor
 
-- Status: Accepted
+- Status: Accepted, amended by 0170
 - Date: 2026-11-22
 
 ## Context

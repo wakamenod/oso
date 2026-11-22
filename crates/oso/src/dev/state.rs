@@ -476,6 +476,7 @@ fn window_state(
         "rows": size.rows,
         "columns": columns(editor, window),
     });
+    state["docked"] = crate::channel::state::docked_state(window).unwrap_or_default();
     if !shown.is_secret() {
         let display = shown.display();
         let selections = &window.selections;
@@ -784,6 +785,7 @@ mod tests {
                     "selected": true,
                     "rows": 5,
                     "columns": 2,
+                    "docked": null,
                     "scroll": { "start": 0, "top": 0, "left": 3 },
                     "primary": 0,
                     "selections": [

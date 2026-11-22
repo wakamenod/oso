@@ -52,6 +52,8 @@ impl Editor {
                 .find_map(|&(other, gutter, _)| (other == id).then_some(gutter))
                 .unwrap_or(0)
         });
+        // Docked windows take their rows from the windows they are docked in (ADR 0170).
+        self.lay_out_docks();
         // The selected window always has cells: the side window gives them up first.
         if !self
             .frame
@@ -63,10 +65,13 @@ impl Editor {
         let tiled = self.tiled_index();
         let mut added = Vec::with_capacity(count);
         for window in &mut self.windows[..count] {
-            let view = self
-                .frame
-                .regions(window.id())
-                .map_or(ViewSize::new(1, 1), |regions| regions.text.view_size());
+            let regions = self.frame.regions(window.id());
+            // A hidden docked window keeps its size and view for when it shows again (ADR 0170).
+            if regions.is_none() && window.docked().is_some() {
+                added.push(0);
+                continue;
+            }
+            let view = regions.map_or(ViewSize::new(1, 1), |regions| regions.text.view_size());
             added.push(view.rows.saturating_sub(window.size().rows));
             window.set_size(view);
         }
@@ -77,7 +82,9 @@ impl Editor {
         let mut followed = self.follow_cursor();
         // The frame changed under every window, so each follows its own cursor.
         for index in 0..count {
-            if index != tiled {
+            let hidden_dock = self.windows[index].docked().is_some()
+                && self.frame.regions(self.windows[index].id()).is_none();
+            if index != tiled && !hidden_dock {
                 followed |= self.follow_window(index);
             }
         }

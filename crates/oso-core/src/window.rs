@@ -26,12 +26,14 @@ use crate::display_map::{DisplayPoint, DisplaySnapshot};
 use crate::motion::{self, Edge};
 use crate::selection::SelectionSet;
 
+mod dock;
 mod jumps;
 mod places;
 mod row_map;
 mod rows;
 mod screen;
 
+pub use dock::DockSlot;
 pub use jumps::{JUMPS_MAX, Jumps};
 pub use places::Place;
 pub(crate) use places::{Places, Walk};
@@ -126,6 +128,8 @@ pub struct Window {
     way_back: Vec<BufferId>,
     /// Its history of jumps (ADR 0138).
     jumps: Jumps,
+    /// The host buffer and slot it is docked under, if it is a docked window (ADR 0170).
+    docked: Option<(BufferId, DockSlot)>,
 }
 
 #[cfg(test)]
@@ -170,6 +174,7 @@ impl Window {
             gutter_floor: None,
             way_back: Vec::new(),
             jumps: Jumps::default(),
+            docked: None,
         }
     }
 
@@ -193,6 +198,8 @@ impl Window {
             gutter_floor: self.gutter_floor,
             way_back: self.way_back.clone(),
             jumps: self.jumps.clone(),
+            // A split of a docked window is a tiled one.
+            docked: None,
         }
     }
 

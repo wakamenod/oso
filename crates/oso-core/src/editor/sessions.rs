@@ -1,5 +1,6 @@
 //! What commands ask of the host about agent sessions (ADR 0121), and what the editor keeps
-//! for them: the side window (`side`) and the window trees of spaces (`trees`).
+//! for them: the side window (`side`), the window trees of spaces (`trees`) and the windows
+//! docked under a native session's transcript (`docks`, ADR 0170).
 //!
 //! Must not depend on: the host's threads or I/O. A command asks; the host takes the request
 //! after the command, does the work on its sessions worker or its worktree jobs, and fills an
@@ -13,6 +14,7 @@ use crate::buffer::BufferId;
 use crate::complete::Candidate;
 use crate::diagnostic::Severity;
 
+mod docks;
 mod native;
 mod side;
 mod trees;
@@ -27,6 +29,8 @@ pub(super) struct Sessions {
     requests: Vec<SessionRequest>,
     /// The side window, while it is shown.
     pub(super) side: Option<SideWindow>,
+    /// What the docked windows asked and where they went at the last layout (ADR 0170).
+    pub(super) docks: docks::Docks,
     marks: SessionMarks,
     /// What the space in front is called, as the person sees it, for the selected window's
     /// modeline (ADR 0159); empty with none.

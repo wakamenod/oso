@@ -76,6 +76,9 @@ pub fn state(
             .windows()
             .iter()
             .filter_map(|(id, regions)| Some((editor.window_by_id(*id)?, regions)))
+            // A docked window of a buffer withheld is left out: its size says how much the
+            // person wrote (ADR 0170).
+            .filter(|(window, _)| window.docked().is_none() || !unreadable(editor.shown(window)))
             .map(|(window, regions)| window_state(editor, window, regions))
             .collect::<Vec<_>>(),
         "text": (!unreadable(buffer)).then(|| visible_text(window, buffer.text(), &buffer.display())),
@@ -224,6 +227,17 @@ fn buffer_state(
     state
 }
 
+/// Where a window is docked, by its host buffer and slot, if it is docked (ADR 0170).
+pub(crate) fn docked_state(window: &Window) -> Option<Value> {
+    let (host, slot) = window.docked()?;
+    let slot = match slot {
+        oso_core::window::DockSlot::Card => "card",
+        oso_core::window::DockSlot::Strip => "strip",
+        oso_core::window::DockSlot::Composer => "composer",
+    };
+    Some(json!({ "host": host.get(), "slot": slot }))
+}
+
 /// A tiled window, in the tree's order (ADR 0112): its id, its cells, gutter, text and
 /// modeline together, so that a secret buffer's gutter says nothing of its lines (ADR 0097),
 /// and its positions only if what it shows may hold no secrets. The selected one is the
@@ -241,12 +255,16 @@ fn window_state(
         "area": {
             "row": area.row,
             "column": area.column,
-            "rows": area.rows + regions.modeline.rows,
+            // To its modeline's bottom: a host's rows given to its docks too (ADR 0170).
+            "rows": (regions.modeline.row + regions.modeline.rows).saturating_sub(area.row),
             "columns": area.columns,
         },
         "buffer": window.buffer().get(),
         "selected": window.id() == editor.tiled().0.id(),
     });
+    if let Some(docked) = docked_state(window) {
+        state["docked"] = docked;
+    }
     if !unreadable(shown) {
         let display = shown.display();
         let point = |offset| {
@@ -689,6 +707,31 @@ mod tests {
                 .unwrap()
                 .contains("Agent: Save over notes.md?")
         );
+    }
+
+    /// A docked composer whose buffer is withheld (ADR 0170) is not listed, and its host's
+    /// area is the same however much the person wrote.
+    #[test]
+    fn a_withheld_dock_is_not_listed_and_its_host_keeps_its_area() {
+        use oso_core::buffer::Buffer;
+        use oso_core::frame::FrameSize;
+        use oso_core::window::DockSlot;
+        let area = |typed: &str| {
+            let mut editor = Editor::with_buffer(Buffer::from_text("*claude: s*", "one\n"));
+            editor.set_frame_size(FrameSize {
+                rows: 30,
+                columns: 80,
+            });
+            let host = editor.window().buffer();
+            let mut buffer = Buffer::from_text("*compose: s*", typed);
+            buffer.withhold_from_agents();
+            let input = editor.add_buffer(buffer);
+            editor.set_dock(host, DockSlot::Composer, Some(input));
+            let windows = state(&editor, None, 0)["windows"].clone();
+            assert_eq!(windows.as_array().map(Vec::len), Some(1), "{windows}");
+            windows[0]["area"].clone()
+        };
+        assert_eq!(area(""), area(&"line\n".repeat(9)));
     }
 
     /// A native session's permission question is about text withheld from agents (ADR 0165,

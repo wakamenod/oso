@@ -31,6 +31,7 @@
 use crate::window::{ViewSize, WindowId};
 
 mod cells;
+pub(crate) mod docks;
 mod float;
 mod splits;
 pub(crate) use cells::match_cells_at;
@@ -140,10 +141,11 @@ impl WindowRegions {
         outer.rows > 0 && outer.columns > 0
     }
 
-    /// All its cells: its gutter, text, modeline and divider.
+    /// All its cells: its gutter, text, modeline and divider, and the rows it gives the
+    /// windows docked in it, which lie between its text and its modeline (ADR 0170).
     pub(crate) fn outer(&self) -> CellRect {
         CellRect {
-            rows: self.text.rows + self.modeline.rows,
+            rows: (self.modeline.row + self.modeline.rows).saturating_sub(self.text.row),
             columns: self.gutter.columns
                 + self.text.columns
                 + self.divider.map_or(0, |divider| divider.columns),
@@ -178,6 +180,10 @@ pub struct FrameLayout {
     /// many windows makes per window (ADR 0112).
     by_id: Vec<(WindowId, usize)>,
     pub echo: CellRect,
+    /// The hosts that hide their docked windows, as they have too few rows (ADR 0170).
+    docks_hidden: Vec<WindowId>,
+    /// Each docked window laid out, with its host, top to bottom.
+    docked_in: Vec<(WindowId, WindowId)>,
 }
 
 impl FrameLayout {
@@ -187,8 +193,9 @@ impl FrameLayout {
     }
 
     /// Each tiled window's regions: the side window's first, while there is one (ADR 0121),
-    /// then the tree's in its order, left to right, top to bottom. A window the frame has no
-    /// room for has none.
+    /// then the tree's in its order, left to right, top to bottom, each host followed by the
+    /// windows docked in it, top to bottom (ADR 0170). A window the frame has no room for has
+    /// none.
     pub fn windows(&self) -> &[(WindowId, WindowRegions)] {
         &self.windows
     }
@@ -248,24 +255,33 @@ impl FrameLayout {
 
     /// The window next to `window` on `side` at `cell`: a row for the left and right, a
     /// column for up and down, where the window's primary cursor is.
+    /// Up and down step between a host and the windows docked in it, top to bottom, and left
+    /// and right go as the host does (ADR 0170).
     pub(crate) fn neighbour(&self, window: WindowId, side: Side, cell: usize) -> Option<WindowId> {
+        if let Some(near) = self.docked_neighbour(window, side, cell) {
+            return near;
+        }
         let me = self.regions(window)?.outer();
-        self.windows.iter().find_map(|(id, regions)| {
-            let other = regions.outer();
-            let touches = match side {
-                Side::Left => other.column + other.columns == me.column,
-                Side::Right => other.column == me.column + me.columns,
-                Side::Up => other.row + other.rows == me.row,
-                Side::Down => other.row == me.row + me.rows,
-            };
-            let across = match side {
-                Side::Left | Side::Right => (other.row..other.row + other.rows).contains(&cell),
-                Side::Up | Side::Down => {
-                    (other.column..other.column + other.columns).contains(&cell)
-                }
-            };
-            (*id != window && regions.has_cells() && touches && across).then_some(*id)
-        })
+        let docked = |id: &WindowId| self.docked_in.iter().any(|(docked, _)| docked == id);
+        self.windows
+            .iter()
+            .filter(|(id, _)| !docked(id))
+            .find_map(|(id, regions)| {
+                let other = regions.outer();
+                let touches = match side {
+                    Side::Left => other.column + other.columns == me.column,
+                    Side::Right => other.column == me.column + me.columns,
+                    Side::Up => other.row + other.rows == me.row,
+                    Side::Down => other.row == me.row + me.rows,
+                };
+                let across = match side {
+                    Side::Left | Side::Right => (other.row..other.row + other.rows).contains(&cell),
+                    Side::Up | Side::Down => {
+                        (other.column..other.column + other.columns).contains(&cell)
+                    }
+                };
+                (*id != window && regions.has_cells() && touches && across).then_some(*id)
+            })
     }
 }
 
@@ -297,6 +313,8 @@ pub(crate) fn layout(
         size,
         windows: Vec::new(),
         by_id: Vec::new(),
+        docks_hidden: Vec::new(),
+        docked_in: Vec::new(),
         echo: CellRect::EMPTY,
     };
     layout_into(&mut frame, size, (splits, None), keep, gutter);
@@ -349,10 +367,19 @@ pub(crate) fn layout_into(
         frame.windows.push((side.window, regions));
     }
     splits.lay_out(tree, keep, &gutter, &mut frame.windows);
-    frame.by_id.clear();
-    let places = frame.windows.iter().enumerate();
-    frame.by_id.extend(places.map(|(at, (id, _))| (*id, at)));
-    frame.by_id.sort_unstable();
+    frame.docks_hidden.clear();
+    frame.docked_in.clear();
+    frame.index();
+}
+
+impl FrameLayout {
+    /// Indexes each window's place by its id.
+    fn index(&mut self) {
+        self.by_id.clear();
+        let places = self.windows.iter().enumerate();
+        self.by_id.extend(places.map(|(at, (id, _))| (*id, at)));
+        self.by_id.sort_unstable();
+    }
 }
 
 /// A rectangle on the surface, in physical pixels.

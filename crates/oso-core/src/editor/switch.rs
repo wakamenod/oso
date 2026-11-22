@@ -70,7 +70,8 @@ impl Editor {
         if self.buffer(buffer).is_none() {
             return;
         }
-        if self.side_window() == Some(id) {
+        // A docked window's buffer is its host's to say (ADR 0170): its host shows it.
+        if self.side_window() == Some(id) || self.is_docked(id) {
             return self.show(buffer);
         }
         let Some(index) = self.window_index(id).filter(|&i| i < self.tiled_count()) else {
@@ -94,6 +95,7 @@ impl Editor {
     /// the order of the buffers as it is, as Emacs's `switch-to-prev-buffer` does for a step of
     /// `M-,` or `M-/` and for what `q` or a kill puts back in a window (ADR 0171).
     pub(super) fn window_shows_unrecorded(&mut self, index: usize, buffer: BufferId) {
+        let before = self.windows[index].buffer();
         // A pair holds while each window shows what it was paired with (ADR 0122).
         self.leave_pair(index, buffer);
         // A search keeps to the buffer it began in (ADR 0082).
@@ -126,6 +128,8 @@ impl Editor {
         // says how many lines that one has (ADR 0097).
         self.fit_gutter();
         self.note_secret_shown();
+        // The docks of a host it left, or now shows, go where that host is shown (ADR 0170).
+        self.docks_follow(before, buffer);
     }
 
     /// Where the tiled window selected most recently that showed `buffer`, other than the one at
@@ -188,6 +192,10 @@ impl Editor {
     /// reads, `*Messages*`, the list of emergency copies, `*Agent*` (ADR 0088) and `*LSP*`
     /// (ADR 0138).
     pub(super) fn listed(&self, id: BufferId, buffer: &Buffer) -> bool {
+        // A docked window's buffer, as a session's composer, is its host's (ADR 0170).
+        if self.docked_buffer(id) {
+            return false;
+        }
         !buffer.is_internal()
             || kept_as_users(buffer)
             || id == self.messages_buffer
@@ -390,6 +398,8 @@ impl Editor {
         if self.buffer(id).is_none() {
             return;
         }
+        // A host's docked windows go with it, and one that shows it (ADR 0170).
+        self.forget_docks_of(id);
         self.forget_listing(id);
         self.forget_git_status(id);
         let shown = self.windows.iter().any(|window| window.buffer() == id);

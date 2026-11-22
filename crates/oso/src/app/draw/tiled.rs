@@ -29,6 +29,7 @@ use crate::sessions::list::SpaceBands;
 use crate::terminal::hosted::Terminals;
 
 mod modeline;
+pub(in crate::app) use modeline::{statuses_into, tiled_status};
 
 use modeline::{MODELINE_SPANS, modeline_face, modeline_spans};
 
@@ -122,28 +123,6 @@ pub(super) fn selected_screen<'a>(editor: &Editor, cells: &'a [WindowCells]) -> 
     let windows = editor.frame().windows();
     let index = windows.iter().position(|(id, _)| *id == selected)?;
     cells.get(index).map(|cells| &cells.screen)
-}
-
-/// Every tiled window's status, in the tree's order, into `out`, reusing its strings.
-pub(in crate::app) fn statuses_into(editor: &Editor, out: &mut Vec<(WindowId, Status)>) {
-    let windows = editor.frame().windows();
-    out.resize_with(windows.len(), || (windows[0].0, Status::default()));
-    for ((id, status), (window, _)) in out.iter_mut().zip(windows) {
-        *id = *window;
-        editor.status_into(*window, status);
-    }
-}
-
-/// The status of the selected tiled window, or the one beneath the prompts, among
-/// `statuses`, which says the echo area too.
-pub(super) fn tiled_status<'a>(
-    editor: &Editor,
-    statuses: &'a [(WindowId, Status)],
-) -> Option<&'a Status> {
-    let tiled = editor.tiled().0.id();
-    statuses
-        .iter()
-        .find_map(|(id, status)| (*id == tiled).then_some(status))
 }
 
 /// The face a diagnostic of `severity` is drawn in, its line, its sign and its count: none for
@@ -408,6 +387,8 @@ pub(super) fn panes<'a>(editor: &'a Editor, drawn: &Drawn<'a>, list: &mut Vec<Pa
     let empty = Status::default();
     let selected =
         |index: usize, id: WindowId| status_of(drawn.statuses, (index, id), &empty).selected;
+    // A docked window's text is drawn over the float's face, as a prompt's answer is, so that
+    // the composer reads as a place to type.
     let pane = |id, region, background, content| Pane {
         id,
         region,
@@ -418,6 +399,12 @@ pub(super) fn panes<'a>(editor: &'a Editor, drawn: &Drawn<'a>, list: &mut Vec<Pa
         content,
     };
     let shown = || windows.iter().zip(drawn.cells).enumerate();
+    // The docked windows of this frame, found once (ADR 0170).
+    let docked: Vec<WindowId> = (editor.windows())
+        .filter(|window| window.docked().is_some())
+        .map(oso_core::window::Window::id)
+        .collect();
+    let docked_face = |id: WindowId| docked.contains(&id).then_some(Face::Float);
     // The selected window's text last, or the text of the one beneath the prompts.
     let tiled = editor.tiled().0.id();
     for last in [false, true] {
@@ -428,7 +415,13 @@ pub(super) fn panes<'a>(editor: &'a Editor, drawn: &Drawn<'a>, list: &mut Vec<Pa
             runs = labels.0.end;
             if (*id == tiled) == last {
                 let content = text(editor, (*id, selected), cells, drawn, labels);
-                list.push(pane(pane_id(*id, Part::Text), regions.text, None, content));
+                let background = docked_face(*id);
+                list.push(pane(
+                    pane_id(*id, Part::Text),
+                    regions.text,
+                    background,
+                    content,
+                ));
             }
         }
     }
@@ -447,7 +440,8 @@ pub(super) fn panes<'a>(editor: &'a Editor, drawn: &Drawn<'a>, list: &mut Vec<Pa
         let content = PaneContent::Lines(gutter);
         list.push(pane(pane_id(*id, Part::Gutter), numbers, None, content));
     }
-    for (index, ((id, regions), _)) in shown() {
+    // A docked window has no modeline: its host's is under it (ADR 0170).
+    for (index, ((id, regions), _)) in shown().filter(|(_, ((id, _), _))| !docked.contains(id)) {
         let modeline = drawn.modelines.get(index).map_or(&[][..], |row| &row[..]);
         let face = modeline_face(status_of(drawn.statuses, (index, *id), &empty));
         let content = PaneContent::Lines(modeline);

@@ -1,6 +1,6 @@
 # 0112. Window splits
 
-- Status: Accepted, amended by 0122, 0160 and 0171
+- Status: Accepted, amended by 0122, 0160, 0170 and 0171
 - Date: 2026-11-12
 
 ## Context

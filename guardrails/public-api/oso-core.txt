@@ -3246,6 +3246,9 @@ pub fn oso_core::editor::Editor::take_diagnostics_request(&mut self) -> core::op
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::directory_answer_waits(&self) -> bool
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::dock_window(&self, oso_core::buffer::BufferId, oso_core::window::DockSlot) -> core::option::Option<oso_core::window::WindowId>
+pub fn oso_core::editor::Editor::set_dock(&mut self, oso_core::buffer::BufferId, oso_core::window::DockSlot, core::option::Option<oso_core::buffer::BufferId>)
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::draft(&self) -> core::option::Option<(oso_core::editor::ReviewId, &oso_core::editor::DraftFor)>
 pub fn oso_core::editor::Editor::kill_review_comment(&mut self, oso_core::editor::ReviewId, oso_core::review::CommentId) -> core::result::Result<usize, oso_core::review::CommentError>
 pub fn oso_core::editor::Editor::open_draft(&mut self, oso_core::editor::ReviewId, oso_core::editor::DraftFor, &str) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
@@ -6562,6 +6565,25 @@ impl core::marker::StructuralPartialEq for oso_core::syntax::Splice
 pub const oso_core::syntax::MAX_BYTES: usize
 pub fn oso_core::syntax::compose(&[oso_core::syntax::Splice], &[oso_core::syntax::Splice]) -> core::option::Option<alloc::vec::Vec<oso_core::syntax::Splice>>
 pub mod oso_core::window
+pub enum oso_core::window::DockSlot
+pub oso_core::window::DockSlot::Card
+pub oso_core::window::DockSlot::Composer
+pub oso_core::window::DockSlot::Strip
+impl core::clone::Clone for oso_core::window::DockSlot
+pub fn oso_core::window::DockSlot::clone(&self) -> oso_core::window::DockSlot
+impl core::cmp::Eq for oso_core::window::DockSlot
+impl core::cmp::Ord for oso_core::window::DockSlot
+pub fn oso_core::window::DockSlot::cmp(&self, &oso_core::window::DockSlot) -> core::cmp::Ordering
+impl core::cmp::PartialEq for oso_core::window::DockSlot
+pub fn oso_core::window::DockSlot::eq(&self, &oso_core::window::DockSlot) -> bool
+impl core::cmp::PartialOrd for oso_core::window::DockSlot
+pub fn oso_core::window::DockSlot::partial_cmp(&self, &oso_core::window::DockSlot) -> core::option::Option<core::cmp::Ordering>
+impl core::fmt::Debug for oso_core::window::DockSlot
+pub fn oso_core::window::DockSlot::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::window::DockSlot
+pub fn oso_core::window::DockSlot::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::window::DockSlot
+impl core::marker::StructuralPartialEq for oso_core::window::DockSlot
 pub enum oso_core::window::Recenter
 pub oso_core::window::Recenter::Line(isize)
 pub oso_core::window::Recenter::Middle
@@ -6741,6 +6763,8 @@ pub fn oso_core::window::Window::size(&self) -> oso_core::window::ViewSize
 pub fn oso_core::window::Window::top_row(&self, &oso_core::display_map::DisplaySnapshot) -> usize
 pub fn oso_core::window::Window::wrap(&self) -> core::option::Option<&oso_core::display_map::wrap_map::WrapSnapshot>
 pub fn oso_core::window::Window::wrap_of(&self, &oso_core::display_map::DisplaySnapshot) -> core::option::Option<&oso_core::display_map::wrap_map::WrapSnapshot>
+impl oso_core::window::Window
+pub fn oso_core::window::Window::docked(&self) -> core::option::Option<(oso_core::buffer::BufferId, oso_core::window::DockSlot)>
 impl oso_core::window::Window
 pub fn oso_core::window::Window::jumps(&self) -> &oso_core::window::Jumps
 impl oso_core::window::Window

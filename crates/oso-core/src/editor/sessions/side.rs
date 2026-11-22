@@ -9,6 +9,9 @@
 //! `windmove-left` reach it. While it is selected, the tree's commands act on the tree's window
 //! selected last, and select it: a split, a resize, `C-x 1` and showing a buffer, so that what
 //! a command shows never lands in the side window. `C-x 0` in it hides it.
+//!
+//! A docked window (ADR 0170, `docks`) is outside the tree too, and these rules hold for it
+//! the same way, with its host as the window the tree's commands act on.
 
 use crate::buffer::BufferId;
 use crate::editor::Editor;
@@ -44,14 +47,7 @@ impl Editor {
             None => {
                 let window = self.new_window(buffer);
                 let id = window.id();
-                let at = self.tiled_count();
-                self.windows.insert(at, window);
-                if self.selected >= at {
-                    self.selected += 1;
-                }
-                self.sync_wrap(at);
-                self.fit_gutter();
-                self.note_secret_shown();
+                self.insert_outside_tree(window);
                 id
             }
         };
@@ -85,9 +81,10 @@ impl Editor {
         })
     }
 
-    /// Whether `id` is a tiled window: one of the tree's, or the side window.
+    /// Whether `id` is a tiled window: one of the tree's, the side window or a docked one
+    /// (ADR 0170).
     pub(in crate::editor) fn is_tiled_id(&self, id: WindowId) -> bool {
-        self.splits.contains(id) || self.side_window() == Some(id)
+        self.splits.contains(id) || self.side_window() == Some(id) || self.is_docked(id)
     }
 
     /// Whether the side window is the selected tiled window, or the one beneath the prompts.
@@ -96,9 +93,15 @@ impl Editor {
     }
 
     /// The tree's window the tree's commands act on: the selected tiled window, or, while the
-    /// side window is, the tree's window selected last.
+    /// side window is, the tree's window selected last; while a docked window is, the window
+    /// it is laid out in (ADR 0170).
     pub(in crate::editor) fn tree_id(&self) -> WindowId {
-        if !self.side_selected() {
+        if self.dock_selected()
+            && let Some(host) = self.dock_host(self.tiled_id())
+        {
+            return host;
+        }
+        if !self.side_selected() && !self.dock_selected() {
             return self.tiled_id();
         }
         let last = self.recent.iter().find(|id| self.splits.contains(**id));
@@ -113,10 +116,10 @@ impl Editor {
             .unwrap_or_else(|| self.tiled_index())
     }
 
-    /// Selects the tree's window selected last while the side window is selected, as the
-    /// tree's commands do before they act.
+    /// Selects the tree's window selected last while the side window is selected, or a docked
+    /// window's host while it is, as the tree's commands do before they act.
     pub(in crate::editor) fn leave_side(&mut self) {
-        if self.side_selected() {
+        if self.side_selected() || self.dock_selected() {
             self.make_tiled(self.tree_id());
         }
     }
