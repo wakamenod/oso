@@ -258,6 +258,21 @@ fn show_explanation(editor: &mut Editor, kept: &mut Option<BufferId>, text: &str
     show_withheld(editor, kept, BUFFER, text)
 }
 
+/// A new editable buffer named `name` in `mode` holding `text`, for a message the person writes:
+/// a brief or a composer. No agent reads it before it is sent, and the agent channel's changes
+/// leave it alone (`dispatch::agent`).
+pub(in crate::app) fn withheld_draft(
+    editor: &mut Editor,
+    name: &str,
+    mode: Mode,
+    text: &str,
+) -> BufferId {
+    let mut buffer = Buffer::from_text(name, text);
+    buffer.set_mode(mode);
+    buffer.withhold_from_agents();
+    editor.add_buffer(buffer)
+}
+
 /// Puts `text` in the internal buffer `kept` names, or in a new one named `name` if it is
 /// gone, withholds it from the agent channel, and shows it: `*Session explain*`, a native
 /// session's `*result: NAME*` (ADR 0165). Never a buffer that is not internal: one of that

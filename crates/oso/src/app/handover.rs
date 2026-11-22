@@ -82,6 +82,8 @@ impl App {
         &self,
         terminals: Option<(&[BufferId], usize)>,
     ) -> Result<(Value, pieces::Exported), String> {
+        // What a native session's queue holds is lost by a restart: it is refused instead.
+        self.unsent_queue()?;
         let reviews = self.reviews_to_hand_over();
         carry::export(
             &self.editor,
@@ -163,6 +165,7 @@ impl App {
                 "cannot hand over: the terminals carried here wait for their masters".into(),
             );
         }
+        self.unsent_queue()?;
         let answer = carry::check(&self.editor, terminals)?;
         if terminals {
             let running: Vec<BufferId> = self.editor.running_terminals().collect();

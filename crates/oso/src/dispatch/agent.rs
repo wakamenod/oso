@@ -983,22 +983,25 @@ mod tests {
     }
 
     #[test]
-    fn a_brief_in_front_is_never_changed() {
+    fn a_brief_or_a_composer_in_front_is_never_changed() {
         use oso_core::buffer::Mode;
-        let (mut dispatcher, mut editor) = (Dispatcher::new(), editor("ab"));
-        let mut brief = Buffer::from_text("*Brief*", "Fix it\n");
-        assert!(brief.set_mode(Mode::Brief));
-        let id = editor.add_buffer(brief);
-        editor.show(id);
-        let why = refusal(
-            &mut dispatcher,
-            &mut editor,
-            "insert",
-            Given::Text("rm -rf ~"),
-            Reach::Change,
-        );
-        assert!(why.contains("the person's to write"), "{why}");
-        assert_eq!(editor.current().1.text().to_string(), "Fix it\n");
+        // A composer shown in a window of its own too, not docked (ADR 0165, step 2).
+        for (name, mode) in [("*Brief*", Mode::Brief), ("*compose: s*", Mode::Composer)] {
+            let (mut dispatcher, mut editor) = (Dispatcher::new(), editor("ab"));
+            let mut brief = Buffer::from_text(name, "Fix it\n");
+            assert!(brief.set_mode(mode));
+            let id = editor.add_buffer(brief);
+            editor.show(id);
+            let why = refusal(
+                &mut dispatcher,
+                &mut editor,
+                "insert",
+                Given::Text("rm -rf ~"),
+                Reach::Change,
+            );
+            assert!(why.contains("the person's to write"), "{name}: {why}");
+            assert_eq!(editor.current().1.text().to_string(), "Fix it\n");
+        }
     }
 
     #[test]

@@ -575,6 +575,8 @@ mod buffer_tests;
 #[cfg(test)]
 mod complete_tests;
 #[cfg(test)]
+mod composer_tests;
+#[cfg(test)]
 mod cursor_tests;
 #[cfg(test)]
 mod directory_and_text_tests;

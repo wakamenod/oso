@@ -32,7 +32,7 @@
 //! Parsing changes nothing, so a state with another version or a bad field
 //! leaves the new instance clean, and the old one is kept.
 
-use oso_core::buffer::{Buffer, BufferId, Verdict};
+use oso_core::buffer::{Buffer, BufferId, Mode, Verdict};
 use oso_core::editor::{Editor, SCRATCH};
 use oso_core::frame::Tiling;
 use oso_core::key::KeyPress;
@@ -331,6 +331,17 @@ fn handed(buffer: &Buffer) -> Result<Handed<'_>, String> {
     // An ended terminal holds no text; a running one holds the restart in `held`.
     if buffer.is_terminal() {
         return Ok(Handed::Nothing);
+    }
+    // A native session's composer is made again with its session, empty: one that holds a
+    // message refuses the restart, which would lose it (ADR 0165, step 2).
+    if buffer.mode() == Mode::Composer {
+        if buffer.text().is_empty() {
+            return Ok(Handed::Nothing);
+        }
+        return Err(format!(
+            "cannot hand over {}: it holds a message not sent; send or clear it",
+            buffer.name()
+        ));
     }
     let path = buffer.path().map(|path| {
         path.to_str().ok_or_else(|| {

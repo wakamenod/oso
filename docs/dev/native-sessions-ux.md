@@ -110,7 +110,7 @@ the rest).
 | 7 | **Streaming Markdown with highlighting** (decided: a follow-up inside step 1). | H | M | 1 |
 | 8 | **A permission card docked above the composer,** not in the transcript: the tool, its target, a preview (the command, or the edit as a diff in ADR 0122's faces), the reason (Bash's `description`, else the reply's last line), and the keys as chips (ADR 0075's look). Answered, it goes, and the tool row's mark says `allowed` or `denied: NOTE`. Never the same diff twice. | H | M | 2 |
 | 9 | **Edits lead to the review:** `v` on an edit row opens ADR 0122's review at that hunk; keeping and undoing happen there, on one surface. No changed-files list in the session (the author never looked at ECC's). | H | S–M | 2 |
-| 10 | **Queued messages** grey above the composer, `M-p` takes the last back. | M | S | 2 |
+| 10 | **Queued messages** grey above the composer, `M-p` takes the last back. Built differently (ADR 0165 part 2a): grey at the transcript's end, `RET` on a queued row takes it back, `M-p` walks the messages sent. | M | S | 2 |
 | 11 | **A focus toggle** (`C-c C-f`): only prompts, replies and turn footers; tool rows hidden. | M | S | 2 |
 | 12 | **The composer's `@`** completes files with the preview float of `C-x p f`, and puts a chip (`@auth/redirect.rs`); a pasted image is a chip, `[image 1 · 1280×720]`. | M | M | 2 |
 | 13 | **Status in the session window's modeline:** model · mode · `ctx 41%` · cost · `5h 63%`, each a word or a unit, once. A narrow window drops from the right. | H | S | 3 |

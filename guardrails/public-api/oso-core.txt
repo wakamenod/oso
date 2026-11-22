@@ -54,6 +54,7 @@ impl core::marker::Copy for oso_core::buffer::EditError
 impl core::marker::StructuralPartialEq for oso_core::buffer::EditError
 pub enum oso_core::buffer::Mode
 pub oso_core::buffer::Mode::Brief
+pub oso_core::buffer::Mode::Composer
 pub oso_core::buffer::Mode::Conversation
 pub oso_core::buffer::Mode::CopyList
 pub oso_core::buffer::Mode::CopyView
@@ -1921,10 +1922,20 @@ pub fn oso_core::editor::MergeMethod::fmt(&self, &mut core::fmt::Formatter<'_>) 
 impl core::marker::Copy for oso_core::editor::MergeMethod
 impl core::marker::StructuralPartialEq for oso_core::editor::MergeMethod
 pub enum oso_core::editor::NativeAction
+pub oso_core::editor::NativeAction::Compose
+pub oso_core::editor::NativeAction::DropQueued
+pub oso_core::editor::NativeAction::EditQueued
+pub oso_core::editor::NativeAction::GiveUp
+pub oso_core::editor::NativeAction::History(isize)
+pub oso_core::editor::NativeAction::MoveQueued(isize)
 pub oso_core::editor::NativeAction::Open
 pub oso_core::editor::NativeAction::Prompt(isize)
+pub oso_core::editor::NativeAction::Queue
+pub oso_core::editor::NativeAction::Send
+pub oso_core::editor::NativeAction::SendNow
 pub oso_core::editor::NativeAction::Toggle
 pub oso_core::editor::NativeAction::Tool(isize)
+pub oso_core::editor::NativeAction::Transcript
 impl core::clone::Clone for oso_core::editor::NativeAction
 pub fn oso_core::editor::NativeAction::clone(&self) -> oso_core::editor::NativeAction
 impl core::cmp::Eq for oso_core::editor::NativeAction

@@ -304,12 +304,14 @@ pub enum RowAction {
     Rename,
 }
 
-/// What a key of a native session's buffer does at the row it is on (ADR 0165, step 1).
+/// What a key of a native session's transcript does at the row it is on (ADR 0165, step 1),
+/// or a key of its composer does (step 2).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NativeAction {
     /// Fold or unfold the row, or in a row of several calls shown open, the call.
     Toggle,
-    /// Show the whole result of the call, read-only, in `*result: NAME*`.
+    /// Show the whole result of the call, read-only, in `*result: NAME*`; on a queued
+    /// message's row (step 2), take it back into the composer.
     Open,
     /// Move to the start of the person's message this many after, before if negative.
     Prompt(isize),

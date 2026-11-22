@@ -662,9 +662,17 @@ With `mode = "native"`, a new session in a trusted project shows its conversatio
 message: `C-c C-c` starts the session, `C-c C-k` drops it. In the session's buffer, `TAB` folds
 or unfolds the row at point, `RET` shows a tool call's whole result in `*result: NAME*`, which
 agents cannot read, `n` and `p` move between your messages, and `]` and `[` between tool rows.
-The `C-c` keys of a session's terminal work there too, except `C-c +` and `C-c -`. For now such
-a session takes only its first message, and does not resume: `M-x session-fork` continues
-it in a terminal.
+The `C-c` keys of a session's terminal work there too, except `C-c +` and `C-c -`.
+
+You write the next messages in the composer under the conversation, which agents cannot read:
+`i` goes there and `C-c C-o` back, `C-c C-c` sends, and `M-p` and `M-n` bring back what you
+sent. A message you send while Claude is working waits in a queue, grey at the end of the
+conversation, and goes when the turn ends. On a queued message, `RET` takes it back into the
+composer, `e` edits it where it is (`C-c C-c` puts it back, `C-c C-k` leaves it as it was), `d`
+drops it, and `M-<up>` and `M-<down>` move it; `C-c C-q` goes to the queue. If the session
+stops, the queue waits for you: `C-c C-c` with an empty composer sends the next. oso does not
+restart while a composer or a queue holds a message: send, clear or drop it first. For now such
+a session does not resume: `M-x session-fork` continues it in a terminal.
 
 `agents_start_without_asking` lets a session you started, with a key or a `y`, start sessions
 through `start_worktree_session` and `session_start`, and a space's orchestrator resume a stopped

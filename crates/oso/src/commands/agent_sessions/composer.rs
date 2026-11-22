@@ -1,6 +1,6 @@
 //! A native session's composer and queue, as keys (ADR 0165, step 2; ADR 0170's composer
 //! dock): `C-c C-c` sends, or queues while a turn runs, `C-u C-c C-c` sends at once, `C-c C-k`
-//! gives up a queued message's edit, `M-p`/`M-n` walk the messages sent, `C-c C-o` goes back to
+//! cancels a queued message's edit, `M-p`/`M-n` walk the messages sent, `C-c C-o` goes back to
 //! the transcript and `i` there to the composer; and on a queued message's row `e` edits it in
 //! its place, `d` drops it and `M-<up>`/`M-<down>` move it (`RET` takes it back, as the
 //! transcript's `RET` asks). Each asks the host, which keeps the queue.
@@ -11,9 +11,10 @@
 //! Every key is `Person`: what the composer holds is the person's message, withheld from
 //! agents, and the host sends it or moves it after the command.
 
-use oso_core::buffer::Mode;
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
-use oso_core::editor::{NativeAction, SessionRequest};
+use oso_core::editor::NativeAction;
+
+use super::native::at_point as ask;
 
 /// The commands of a native session's composer and of its queued messages.
 pub const COMMANDS: &[Command] = &[
@@ -26,11 +27,11 @@ pub const COMMANDS: &[Command] = &[
         state: None,
     },
     Command {
-        name: "native-composer-give-up",
+        name: "native-composer-cancel",
         doc: "Give up the edit of a queued message in a native session's composer: it stays as it was.",
         args: ArgSpec::None,
         reach: Reach::Person,
-        run: give_up,
+        run: cancel,
         state: None,
     },
     Command {
@@ -107,24 +108,6 @@ pub const COMMANDS: &[Command] = &[
     },
 ];
 
-/// Asks the host to `action` at point's line of the native session's transcript or composer
-/// in front.
-fn ask(ctx: &mut Ctx<'_>, action: NativeAction) -> Result<(), CommandError> {
-    super::super::not_in_prompt(ctx)?;
-    let (window, buffer) = ctx.editor.current();
-    if !buffer.is_native_session() && buffer.mode() != Mode::Composer {
-        return Err(CommandError::new("This buffer is no native session's"));
-    }
-    let id = window.buffer();
-    let line = ctx.editor.cursor_line();
-    ctx.editor.request_session(SessionRequest::Native {
-        buffer: id,
-        line,
-        action,
-    });
-    Ok(())
-}
-
 fn send(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
     let action = if args.raw().is_some() {
         NativeAction::SendNow
@@ -134,7 +117,7 @@ fn send(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
     ask(ctx, action)
 }
 
-fn give_up(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+fn cancel(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     ask(ctx, NativeAction::GiveUp)
 }
 
@@ -172,4 +155,56 @@ fn up(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
 
 fn down(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
     ask(ctx, NativeAction::MoveQueued(args.count()))
+}
+
+#[cfg(test)]
+mod tests {
+    use oso_core::buffer::{Buffer, Mode};
+    use oso_core::command::{Args, Ctx, Invocation, Prefix};
+    use oso_core::editor::{Editor, NativeAction, SessionRequest};
+
+    fn run(editor: &mut Editor, name: &str, args: Args) -> Result<(), String> {
+        let registry = crate::commands::registry();
+        let id = registry.lookup(name).unwrap();
+        let mut ctx = Ctx::invoked(editor, Invocation::default());
+        registry
+            .execute(id, &mut ctx, args)
+            .map_err(|error| error.to_string())
+    }
+
+    #[test]
+    fn the_composers_keys_ask_the_host_and_a_prefix_sends_at_once() {
+        let mut editor = Editor::default();
+        let mut buffer = Buffer::from_text("*compose: x*", "hi");
+        buffer.set_mode(Mode::Composer);
+        let id = editor.add_buffer(buffer);
+        editor.show(id);
+        run(&mut editor, "native-composer-send", Args::NONE).unwrap();
+        let prefix = Args::with_prefix(Some(Prefix::universal(None)));
+        run(&mut editor, "native-composer-send", prefix).unwrap();
+        run(&mut editor, "native-composer-previous", Args::numeric(2)).unwrap();
+        let at = |action| SessionRequest::Native {
+            buffer: id,
+            line: 0,
+            action,
+        };
+        assert_eq!(
+            editor.take_session_requests(),
+            [
+                at(NativeAction::Send),
+                at(NativeAction::SendNow),
+                at(NativeAction::History(2)),
+            ]
+        );
+    }
+
+    #[test]
+    fn elsewhere_they_say_why_not() {
+        let mut editor = Editor::default();
+        let id = editor.add_internal_buffer("*x*", Mode::Fundamental);
+        editor.show(id);
+        let refused = run(&mut editor, "native-composer-send", Args::NONE);
+        assert!(refused.unwrap_err().contains("no native session"));
+        assert!(editor.take_session_requests().is_empty());
+    }
 }

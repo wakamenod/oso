@@ -10,6 +10,7 @@
 //! and what it says would tell an agent of the rows; and a result shown puts a buffer withheld
 //! from agents in front of the person, as `session-explain`'s report does.
 
+use oso_core::buffer::Mode;
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
 use oso_core::editor::{NativeAction, SessionRequest};
 
@@ -65,11 +66,12 @@ pub const COMMANDS: &[Command] = &[
     },
 ];
 
-/// Asks the host to `action` at point's line of the native session's buffer in front.
-fn at_point(ctx: &mut Ctx<'_>, action: NativeAction) -> Result<(), CommandError> {
+/// Asks the host to `action` at point's line of the native session's buffer in front, or of
+/// its composer (step 2), which the host carries out for the session it is docked under.
+pub(super) fn at_point(ctx: &mut Ctx<'_>, action: NativeAction) -> Result<(), CommandError> {
     super::super::not_in_prompt(ctx)?;
     let (window, buffer) = ctx.editor.current();
-    if !buffer.is_native_session() {
+    if !buffer.is_native_session() && buffer.mode() != Mode::Composer {
         return Err(CommandError::new("This buffer is no native session"));
     }
     let id = window.buffer();

@@ -52,7 +52,7 @@ pub const NATIVE: &[(&str, &str)] = &[
 /// The keys of a native session's composer (ADR 0165, step 2), above the global ones in it.
 pub const COMPOSER: &[(&str, &str)] = &[
     ("C-c C-c", "native-composer-send"),
-    ("C-c C-k", "native-composer-give-up"),
+    ("C-c C-k", "native-composer-cancel"),
     ("M-p", "native-composer-previous"),
     ("M-n", "native-composer-next"),
     ("C-c C-o", "native-composer-transcript"),

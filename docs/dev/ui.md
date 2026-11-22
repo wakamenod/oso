@@ -1311,11 +1311,19 @@ a switch made with its command stands until that setting changes in the file
   the row at point (a call of an open row of several on its own), `RET` shows a call's whole
   result read-only in `*result: NAME*`, withheld from agents, `n`/`p` move between the person's
   messages and `]`/`[` between tool rows; session mode's `C-c` keys work there too, but
-  `C-c +` and `C-c -`, as it has no screen for an agent to read. In this step
-  it takes no message after
-  its first, and a send, a paste, `session-explain` or a resume to it says so (`session-fork`
-  continues it in a terminal); elsewhere, an agent's
-  start with no brief, and a restricted project, keep the terminal.
+  `C-c +` and `C-c -`, as it has no screen for an agent to read. Its next messages are
+  written in its composer (step 2, ADR 0170), `*compose: NAME*`, docked under the transcript
+  and withheld from agents: `i` goes there and `C-c C-o` back, `C-c C-c` sends (at most
+  64 KiB), and `M-p`/`M-n` walk the messages sent. Sent while a turn runs, a message waits in
+  oso's queue, at most 20, shown grey at the transcript's end as `Queued (N)` and counted in the
+  modeline; the first goes when the turn ends. On a queued row `RET` takes it back into the
+  composer, `e` edits it in its place (`C-c C-c` puts it back, `C-c C-k` gives the edit up),
+  `d` drops it and `M-<up>`/`M-<down>` move it; `C-c C-q` goes to the queue. The queue pauses
+  when the process ends: `C-c C-c` with an empty composer sends the next. A restart is refused
+  while a composer holds text or a queue holds messages. A send, a paste, `session-explain` or
+  a resume to it from elsewhere says it takes none yet (`session-fork` continues it in a
+  terminal); elsewhere, an agent's start with no brief, and a restricted project, keep the
+  terminal.
 
   `claude` is started as the login shell would start it, so its `PATH`, version managers and
   proxies apply; set `claude` when the shell is not `sh`, `bash`, `zsh`, `dash` or `ksh`. `env`

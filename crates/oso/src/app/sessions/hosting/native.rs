@@ -20,6 +20,7 @@
 //!   native session comes back at oso's next start as a native buffer with no process.
 
 mod composer;
+mod first;
 mod keys;
 mod permissions;
 
@@ -27,7 +28,7 @@ use std::collections::HashMap;
 use std::ops::Range;
 use std::path::PathBuf;
 
-use oso_core::buffer::{Buffer, BufferId, Mode};
+use oso_core::buffer::{Buffer, BufferId};
 use oso_core::project::ProjectId;
 use oso_core::syntax::Highlight;
 
@@ -45,14 +46,11 @@ use crate::sessions::start::{NativeOrder, Ready, Started};
 use crate::sessions::state::{Exit, Target};
 use crate::sessions::stream::{Out, Stream};
 use crate::sessions::worker::{Job, SessionKey};
-use crate::sessions::worktree::brief::MAX_BRIEF;
 
 /// What a stopped native session's modeline says.
 const STOPPED: &str = "stopped";
 /// The most of a failed process's standard error shown, its end.
 const MAX_ERR_SHOWN: usize = 2048;
-/// The buffer a native session's first message is written in.
-const FIRST_MESSAGE: &str = "*Brief*";
 
 /// The native sessions the app runs or shows.
 #[derive(Debug, Default)]
@@ -130,74 +128,6 @@ impl App {
         None
     }
 
-    /// Opens `*Brief*` for the first message of the native session `begin` starts: `C-c C-c`
-    /// starts it with the message, `C-c C-k` drops it. One is written at a time, as a worktree
-    /// session's brief.
-    fn write_first_message(&mut self, begin: Begin) {
-        let open = (self.hosting.natives.briefs.keys())
-            .chain(self.hosting.worktrees.brief_buffers())
-            .next()
-            .copied();
-        if let Some(open) = open {
-            self.editor.show(open);
-            return self
-                .editor
-                .message("A brief is being written: send it with C-c C-c or drop it with C-c C-k");
-        }
-        let mut buffer = Buffer::from_text(FIRST_MESSAGE, "");
-        buffer.set_mode(Mode::Brief);
-        // The person's message: no agent reads it before it is sent, and the agent channel's
-        // changes leave a brief alone (`dispatch::agent`).
-        buffer.withhold_from_agents();
-        let id = self.editor.add_buffer(buffer);
-        self.editor.show(id);
-        self.hosting.natives.briefs.insert(id, begin);
-        self.editor.message(
-            "Write the session's first message: C-c C-c starts the session, C-c C-k drops it",
-        );
-    }
-
-    /// `brief-send` in a native session's `*Brief*`: the session starts with it as its first
-    /// message. Whether `buffer` was one.
-    pub(in crate::app) fn send_first_message(&mut self, buffer: BufferId) -> bool {
-        if !self.hosting.natives.briefs.contains_key(&buffer) {
-            return false;
-        }
-        let Some(text) = self.editor.buffer(buffer).map(Buffer::text) else {
-            return true;
-        };
-        // Measured before it is copied.
-        if text.len() > MAX_BRIEF {
-            self.editor.message("The message is over 64 KiB");
-            return true;
-        }
-        let text = text.to_string();
-        if text.trim().is_empty() {
-            self.editor.message("The message is empty");
-            return true;
-        }
-        let Some(begin) = self.hosting.natives.briefs.remove(&buffer) else {
-            return true;
-        };
-        self.editor.kill_buffer(buffer);
-        self.begin_session(Begin {
-            brief: Some(text),
-            ..begin
-        });
-        true
-    }
-
-    /// `brief-cancel` in a native session's `*Brief*`: nothing starts. Whether `buffer` was
-    /// one.
-    pub(in crate::app) fn cancel_first_message(&mut self, buffer: BufferId) -> bool {
-        if self.hosting.natives.briefs.remove(&buffer).is_none() {
-            return false;
-        }
-        self.editor.kill_buffer(buffer);
-        self.editor.message("Session not started");
-        true
-    }
-
     /// The buffer a native session `key`, named `name`, in `directory`, is shown in: made now,
     /// and shown unless not `shown`. Its start's order for the start thread, which writes
     /// `first` as the person's first message: its replay is the person's.
@@ -213,7 +143,7 @@ impl App {
         self.start_sessions_socket();
         let buffer = self.add_native_buffer(key, name, directory, first);
         self.editor.set_running(buffer, true);
-        self.editor.set_mode_note(buffer, "starting".to_owned());
+        self.set_native_state(key, "starting");
         if shown {
             self.editor.show(buffer);
         }
@@ -274,7 +204,7 @@ impl App {
         let (name, directory) = (session.name.clone(), session.directory.clone());
         let buffer = self.add_native_buffer(key, &name, directory, None);
         self.editor.set_running(buffer, false);
-        self.editor.set_mode_note(buffer, STOPPED.to_owned());
+        self.set_native_state(key, STOPPED);
         if let Some(native) = self.hosting.natives.map.get_mut(&key) {
             let change = native
                 .rows
@@ -316,7 +246,7 @@ impl App {
         session.archived = false;
         session.native = true;
         let name = session.name.clone();
-        self.editor.set_mode_note(buffer, String::new());
+        self.set_native_state(key, "");
         self.editor.note_unlogged(format!(
             "Started native session {name} in {}",
             directory.display()
@@ -374,7 +304,7 @@ impl App {
         for event in events {
             if let Some(target) = turns::target(&event) {
                 // A turn under way, oso's or one it did not start, holds what is sent back.
-                native.composing.busy = matches!(target, Target::Working);
+                native.composing.busy = !matches!(target, Target::Idle { .. });
                 targets.push(target);
             }
             for change in native.rows.apply(event) {
@@ -390,13 +320,8 @@ impl App {
         for target in targets {
             self.tell_tracker(key, target);
         }
-        let busy = self
-            .hosting
-            .natives
-            .map
-            .get(&key)
-            .is_some_and(|n| n.composing.busy);
-        if idle && !busy {
+        // A turn ended: the queue's first may go.
+        if idle {
             self.send_queued(key);
         }
         if changed
@@ -426,6 +351,11 @@ impl App {
         }
         native.stream = None;
         let buffer = native.buffer;
+        // No turn runs any more, and what is queued waits for the person.
+        self.composer_ended(key);
+        let Some(native) = self.hosting.natives.map.get_mut(&key) else {
+            return;
+        };
         let status = if self.watch.take_hung_up(key) {
             Some(0)
         } else {
@@ -452,24 +382,24 @@ impl App {
         let Some(exit) = self.hosting.table.ended(key, status, now_ms()) else {
             return;
         };
-        let note = match exit {
+        let state = match exit {
             Exit::Stopped => STOPPED,
             Exit::Failed => "failed",
         };
-        self.editor.set_mode_note(buffer, note.to_owned());
+        self.set_native_state(key, state);
         if let Some(worker) = &self.sessions {
             worker.send(Job::Exited(key, exit));
         }
         self.remember_sessions();
         self.replaced_orchestrator_ended(key, status.is_some());
-        // No turn runs any more, and what is queued waits for the person.
-        self.composer_ended(key);
     }
 
     /// After each event: a native session whose buffer was killed is stopped and archived, as
-    /// a terminal's is (ADR 0121, Q3), and a `*Brief*` killed unsent is forgotten.
+    /// a terminal's is (ADR 0121, Q3), a `*Brief*` killed unsent is forgotten, and a queue that
+    /// may go does.
     pub(in crate::app) fn sync_native_sessions(&mut self) {
         self.sync_sessions_socket();
+        self.send_waiting_queues();
         let editor = &self.editor;
         self.hosting
             .natives
@@ -567,7 +497,7 @@ fn draw(
         native.placed.put(at, range, rendered.text.len());
         debug_assert_eq!(
             editor.buffer(native.buffer).map(|b| b.text().len()),
-            Some(native.placed.end() + native.composing.queue_len)
+            Some(native.placed.end() + native.composing.rows.len())
         );
     }
 }
