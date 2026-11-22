@@ -155,7 +155,7 @@ fn the_agent_going_while_a_call_connects_ends_that_call() {
     let mut bridge = Bridge::new(Box::new(|| Err("unused".into())));
     let interrupt = Arc::clone(&bridge.interrupt);
     let link = Arc::clone(&waited);
-    bridge.connect = Box::new(move || {
+    bridge.channel.connect = Box::new(move || {
         // stdin ends after the bridge checked for it, and before the connection can be closed.
         interrupt.end();
         Ok(Box::new(Waiting(Arc::clone(&link))) as Box<dyn Link>)
@@ -196,7 +196,7 @@ fn a_cancel_that_lands_as_the_call_ends_makes_the_next_call_connect_again() {
     let mut bridge = Bridge::new(Box::new(|| Err("unused".into())));
     let interrupt = Arc::clone(&bridge.interrupt);
     let (shut, counted) = (Arc::clone(&closed), Arc::clone(&connects));
-    bridge.connect = Box::new(move || {
+    bridge.channel.connect = Box::new(move || {
         *counted.lock().unwrap() += 1;
         let link = CancelledAsItEnds(Arc::clone(&interrupt), Arc::clone(&shut));
         Ok(Box::new(link) as Box<dyn Link>)

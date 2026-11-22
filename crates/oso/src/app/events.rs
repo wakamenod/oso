@@ -51,6 +51,10 @@ impl App {
         // What the person's events changed is looked at before the agent channel's turn, so
         // that what the channel changes is told apart (ADR 0127).
         self.sync_git(false, false);
+        // A native session's permission question takes its answer before any other agent
+        // question opens, as opening one forgets the last `y`, and opens only once theirs are
+        // taken (ADR 0165, step 2).
+        self.sync_permissions();
         self.sync_agent();
         self.sync_restart();
         self.sync_sessions();
@@ -118,6 +122,8 @@ impl App {
                 self.handle_agent(event_loop, request);
             }
             UserEvent::AgentStarted(started) => self.agent_started(started),
+            UserEvent::SessionSocket(request) => self.handle_session_socket(request),
+            UserEvent::SessionSocketStarted(started) => self.sessions_socket_started(started),
             UserEvent::Sessions(out) => self.sessions_reported(out),
             UserEvent::SessionStart(report) => self.session_start_reported(report),
             UserEvent::NativeSession(key, out) => self.native_reported(key, out),

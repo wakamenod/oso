@@ -11,10 +11,11 @@
 use std::fmt;
 
 use super::{Editor, FIRST_WINDOW};
+use crate::buffer::BufferId;
 use crate::frame::{
     self, BadTiling, FrameLayout, FrameSize, Part, Side, Splits, Tiling, TooSmall, Way,
 };
-use crate::window::{ViewSize, WindowId};
+use crate::window::{ViewSize, Window, WindowId};
 
 /// `delete-window` refused: the window is the only one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -76,6 +77,28 @@ pub(super) fn first_frame() -> FrameLayout {
 }
 
 impl Editor {
+    /// Every window.
+    pub fn windows(&self) -> impl ExactSizeIterator<Item = &Window> {
+        self.windows.iter()
+    }
+
+    /// The window named `id`, if there is one.
+    pub fn window_by_id(&self, id: WindowId) -> Option<&Window> {
+        self.windows.iter().find(|window| window.id() == id)
+    }
+
+    /// A new window showing `buffer`, with a name no window had before.
+    pub(super) fn new_window(&mut self, buffer: BufferId) -> Window {
+        let id = WindowId::new(self.next_window);
+        self.next_window += 1;
+        Window::new(id, buffer)
+    }
+
+    /// The position of the selected window in [`Editor::windows`].
+    pub fn selected_window(&self) -> usize {
+        self.selected
+    }
+
     /// The position of the window named `id` in [`Editor::windows`].
     pub(super) fn window_index(&self, id: WindowId) -> Option<usize> {
         self.windows.iter().position(|window| window.id() == id)
@@ -240,6 +263,8 @@ impl Editor {
         }
         self.recent.retain(|other| *other != id);
         self.recent.insert(0, id);
+        // As Emacs's `select-window` records its buffer in `buffer-list` (ADR 0171).
+        self.raise_selected(index);
     }
 
     /// The tiled window the wheel scrolls with the pointer on the frame's cell at `cell`, a

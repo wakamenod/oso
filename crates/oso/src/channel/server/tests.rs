@@ -20,6 +20,7 @@ use crate::channel::wire::{request, response_result};
 /// A scratch control directory with the channel listening in it, and what reaches the UI.
 struct Running {
     dir: ControlDir,
+    socket: Socket,
     path: PathBuf,
     shared: Arc<Shared>,
     events: mpsc::Receiver<Request>,
@@ -30,10 +31,23 @@ impl Running {
         Self::with(|_, _| true)
     }
 
+    /// The sessions' socket (ADR 0165, step 2), listening as [`Running::new`]'s channel does.
+    fn sessions() -> Self {
+        Self::on(Socket::Session, Shared::sessions(7), |_, _| true)
+    }
+
     /// As [`Running::new`], with `hook` shown each request and the channel's state as it is
     /// sent, before the UI gets it; one it answers `false` for never reaches the UI, as when the
     /// editor shuts down.
     fn with(hook: impl Fn(&Request, &Shared) -> bool + Clone + Send + 'static) -> Self {
+        Self::on(Socket::Agent, Shared::new(7), hook)
+    }
+
+    fn on(
+        socket: Socket,
+        shared: Shared,
+        hook: impl Fn(&Request, &Shared) -> bool + Clone + Send + 'static,
+    ) -> Self {
         // Each test runs on a thread of its own. Short: socket paths are limited to about
         // 100 bytes.
         let thread = format!("{:?}", std::thread::current().id());
@@ -41,8 +55,8 @@ impl Running {
         let path = std::env::temp_dir().join(format!("osoa-{}-{n}", std::process::id()));
         let _ = std::fs::remove_dir_all(&path);
         let dir = ControlDir::at(&path).unwrap();
-        let listener = dir.listen(Socket::Agent).unwrap();
-        let shared = Arc::new(Shared::new(7));
+        let listener = dir.listen(socket).unwrap();
+        let shared = Arc::new(shared);
         let (sent, events) = mpsc::channel();
         let seen = Arc::clone(&shared);
         spawn(listener, Arc::clone(&shared), move |request| {
@@ -51,6 +65,7 @@ impl Running {
         .unwrap();
         Self {
             dir,
+            socket,
             path,
             shared,
             events,
@@ -60,7 +75,7 @@ impl Running {
     fn connect(&self) -> Client {
         let (_, stream) = self
             .dir
-            .connect(Socket::Agent, Some(std::process::id()))
+            .connect(self.socket, Some(std::process::id()))
             .unwrap();
         stream
             .set_read_timeout(Some(Duration::from_secs(5)))
@@ -98,7 +113,7 @@ impl Running {
 impl Drop for Running {
     fn drop(&mut self) {
         self.shared.stop.store(true, Ordering::Release);
-        let _ = self.dir.connect(Socket::Agent, Some(std::process::id()));
+        let _ = self.dir.connect(self.socket, Some(std::process::id()));
         let _ = std::fs::remove_dir_all(&self.path);
     }
 }
@@ -471,4 +486,86 @@ fn a_call_that_asks_the_person_replies_with_what_the_ui_says() {
         .send(Ok(json!({ "session": { "name": "x" } })))
         .unwrap();
     assert_eq!(client.reply().unwrap()["session"]["name"], "x");
+}
+
+/// The sessions' socket lets in only a claim the UI believes, never asks the person, and
+/// answers only `version` and `permission` (ADR 0165, step 2).
+#[test]
+fn the_sessions_socket_takes_only_a_bridge_and_only_its_permission() {
+    let running = Running::sessions();
+    // No claim: refused at once, and nothing reaches the UI.
+    let mut stranger = running.connect();
+    stranger.send("version", None);
+    assert!(stranger.reply().unwrap_err().contains("only the bridges"));
+    // A claim the UI does not believe: refused, unasked.
+    let mut forged = running.connect();
+    forged.send("version", Some(json!({ "session": "s-1" })));
+    claim(&running, "s-1", false);
+    assert!(forged.reply().unwrap_err().contains("only the bridges"));
+    // A bridge: let in, and only its `permission` reaches the UI.
+    let mut bridge = running.connect();
+    bridge.send("version", Some(json!({ "session": "s-1" })));
+    let connection = claim(&running, "s-1", true);
+    assert_eq!(bridge.reply().unwrap()["protocol"], PROTOCOL_VERSION);
+    bridge.send("state", None);
+    assert!(
+        bridge
+            .reply()
+            .unwrap_err()
+            .contains("only a native session's permission")
+    );
+    bridge.send(
+        "permission",
+        Some(json!({ "tool_name": "Bash", "tool_use_id": "toolu_1" })),
+    );
+    let asked = running.next();
+    assert_eq!(asked.connection, connection);
+    let Event::Op(Op::Permission(call)) = &asked.event else {
+        panic!("{:?}", asked.event);
+    };
+    assert_eq!(
+        (call.tool_name.as_str(), call.tool_use_id.as_str()),
+        ("Bash", "toolu_1")
+    );
+    // Held past the usual wait: the person takes as long as they like.
+    std::thread::sleep(Duration::from_millis(300));
+    asked
+        .reply
+        .unwrap()
+        .send(Ok(json!({ "behavior": "allow" })))
+        .unwrap();
+    assert_eq!(bridge.reply().unwrap()["behavior"], "allow");
+    // A question waiting when the bridge goes ends, so that the UI closes it.
+    bridge.send(
+        "permission",
+        Some(json!({ "tool_name": "Bash", "tool_use_id": "toolu_2" })),
+    );
+    let waiting = running.next();
+    drop(bridge);
+    let gone = running.next();
+    assert_eq!(gone.connection, connection);
+    assert!(matches!(gone.event, Event::Gone), "{:?}", gone.event);
+    drop(waiting);
+}
+
+/// The agent channel never asks a permission: only the sessions' socket does.
+#[test]
+fn the_channel_refuses_permission() {
+    let running = Running::new();
+    let mut bridge = running.connect();
+    bridge.send("version", Some(json!({ "session": "s-1" })));
+    claim(&running, "s-1", true);
+    bridge.reply().unwrap();
+    bridge.send(
+        "permission",
+        Some(json!({ "tool_name": "Bash", "tool_use_id": "toolu_1" })),
+    );
+    assert!(bridge.reply().unwrap_err().contains("sessions' socket"));
+    bridge.send("commands", None);
+    let request = running.next();
+    assert!(
+        matches!(request.event, Event::Op(Op::Commands)),
+        "{:?}",
+        request.event
+    );
 }

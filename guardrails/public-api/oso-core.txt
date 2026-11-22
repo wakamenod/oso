@@ -2872,13 +2872,10 @@ pub fn oso_core::editor::Editor::buffer_mut(&mut self, oso_core::buffer::BufferI
 pub fn oso_core::editor::Editor::buffers(&self) -> impl core::iter::traits::iterator::Iterator<Item = (oso_core::buffer::BufferId, &oso_core::buffer::Buffer)>
 pub fn oso_core::editor::Editor::current(&self) -> (&oso_core::window::Window, &oso_core::buffer::Buffer)
 pub fn oso_core::editor::Editor::current_mut(&mut self) -> (&mut oso_core::window::Window, &oso_core::buffer::Buffer)
-pub fn oso_core::editor::Editor::selected_window(&self) -> usize
 pub fn oso_core::editor::Editor::show(&mut self, oso_core::buffer::BufferId)
 pub fn oso_core::editor::Editor::shown(&self, &oso_core::window::Window) -> &oso_core::buffer::Buffer
 pub fn oso_core::editor::Editor::shows_secret(&self) -> bool
 pub fn oso_core::editor::Editor::window(&self) -> &oso_core::window::Window
-pub fn oso_core::editor::Editor::window_by_id(&self, oso_core::window::WindowId) -> core::option::Option<&oso_core::window::Window>
-pub fn oso_core::editor::Editor::windows(&self) -> impl core::iter::traits::exact_size::ExactSizeIterator<Item = &oso_core::window::Window>
 pub fn oso_core::editor::Editor::with_buffer(oso_core::buffer::Buffer) -> Self
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::add_git_graph(&mut self, oso_core::project::ProjectId, impl core::convert::Into<alloc::string::String>) -> oso_core::buffer::BufferId
@@ -2990,6 +2987,7 @@ pub fn oso_core::editor::Editor::agent_channel(&self) -> oso_core::editor::Agent
 pub fn oso_core::editor::Editor::agent_log(&mut self, &str)
 pub fn oso_core::editor::Editor::allow_agent(&mut self)
 pub fn oso_core::editor::Editor::ask_for_agent(&mut self, impl core::convert::Into<alloc::string::String>, &'static str, [&'static str; 2]) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
+pub fn oso_core::editor::Editor::ask_for_agent_withheld(&mut self, impl core::convert::Into<alloc::string::String>, &'static str, [&'static str; 2]) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
 pub fn oso_core::editor::Editor::for_agent<R>(&mut self, impl core::ops::function::FnOnce(&mut Self) -> R) -> R
 pub fn oso_core::editor::Editor::request_agent_channel(&mut self, bool)
 pub fn oso_core::editor::Editor::runs_for_agent(&self) -> bool
@@ -3068,11 +3066,14 @@ pub fn oso_core::editor::Editor::delete_window(&mut self) -> core::result::Resul
 pub fn oso_core::editor::Editor::other_window(&mut self, isize)
 pub fn oso_core::editor::Editor::resize_window(&mut self, oso_core::frame::Way, isize) -> core::result::Result<(), oso_core::editor::CannotResize>
 pub fn oso_core::editor::Editor::select_window(&mut self, oso_core::window::WindowId)
+pub fn oso_core::editor::Editor::selected_window(&self) -> usize
 pub fn oso_core::editor::Editor::set_tiling(&mut self, &oso_core::frame::Tiling) -> core::result::Result<alloc::vec::Vec<oso_core::window::WindowId>, oso_core::frame::BadTiling>
 pub fn oso_core::editor::Editor::split_window(&mut self, oso_core::frame::Way, bool) -> core::result::Result<oso_core::window::WindowId, oso_core::frame::TooSmall>
 pub fn oso_core::editor::Editor::tiling(&self) -> oso_core::frame::Tiling
 pub fn oso_core::editor::Editor::wheel_window(&self, core::option::Option<(usize, usize)>) -> oso_core::window::WindowId
 pub fn oso_core::editor::Editor::windmove(&mut self, oso_core::frame::Side) -> core::result::Result<(), oso_core::editor::NoWindow>
+pub fn oso_core::editor::Editor::window_by_id(&self, oso_core::window::WindowId) -> core::option::Option<&oso_core::window::Window>
+pub fn oso_core::editor::Editor::windows(&self) -> impl core::iter::traits::exact_size::ExactSizeIterator<Item = &oso_core::window::Window>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::begin_crossing(&mut self, isize) -> core::result::Result<(), oso_core::buffer::EditError>
 pub fn oso_core::editor::Editor::cancel_crossing(&mut self) -> bool
@@ -3081,7 +3082,6 @@ pub fn oso_core::editor::Editor::go_on_crossing(&mut self) -> core::option::Opti
 pub fn oso_core::editor::Editor::take_crossing_freed(&mut self) -> core::option::Option<alloc::boxed::Box<dyn core::marker::Send>>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::buffer_named(&self, &str) -> core::option::Option<oso_core::buffer::BufferId>
-pub fn oso_core::editor::Editor::buffers_by_recency(&self) -> alloc::vec::Vec<oso_core::buffer::BufferId>
 pub fn oso_core::editor::Editor::home(&self) -> core::option::Option<&std::path::Path>
 pub fn oso_core::editor::Editor::kill_asked(&self) -> core::option::Option<oso_core::buffer::BufferId>
 pub fn oso_core::editor::Editor::kill_buffer(&mut self, oso_core::buffer::BufferId)
@@ -3091,7 +3091,9 @@ pub fn oso_core::editor::Editor::set_home(&mut self, core::option::Option<std::p
 pub fn oso_core::editor::Editor::show_in(&mut self, oso_core::window::WindowId, oso_core::buffer::BufferId)
 pub fn oso_core::editor::Editor::switch_to_named(&mut self, &str) -> core::result::Result<(), &'static str>
 pub fn oso_core::editor::Editor::take_freed(&mut self) -> alloc::vec::Vec<oso_core::buffer::Buffer>
-pub fn oso_core::editor::Editor::walk_buffers(&mut self, isize) -> core::result::Result<(), &'static str>
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::buffers_by_recency(&self) -> alloc::vec::Vec<oso_core::buffer::BufferId>
+pub fn oso_core::editor::Editor::restore_buffer_order(&mut self, &[oso_core::buffer::BufferId])
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::candidate_rows(&self) -> usize
 pub fn oso_core::editor::Editor::insert_completion(&mut self) -> core::result::Result<(), oso_core::minibuffer::PromptError>
@@ -3485,6 +3487,9 @@ pub fn oso_core::editor::Editor::screen(&self, &mut oso_core::window::Screen)
 pub fn oso_core::editor::Editor::screen_of(&self, oso_core::window::WindowId, &mut oso_core::window::Screen)
 pub fn oso_core::editor::Editor::shown_ranges(&self, &mut alloc::vec::Vec<(oso_core::buffer::BufferId, core::ops::range::Range<usize>)>)
 pub fn oso_core::editor::Editor::text_screen(&self, &mut oso_core::window::Screen)
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::quit_window(&mut self)
+pub fn oso_core::editor::Editor::walk_buffers(&mut self, isize) -> core::result::Result<(), &'static str>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::replace_answer(&mut self, oso_core::editor::ReplaceAnswer)
 impl oso_core::editor::Editor

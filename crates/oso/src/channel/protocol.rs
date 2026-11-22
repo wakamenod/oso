@@ -19,6 +19,8 @@
 //! - `diagnostics`: `{"buffer": 3, "project": true}` gives the language servers' diagnostics
 //!   of a buffer, the selected one by default, or of its whole project (ADR 0138, step 11).
 //! - The session methods, one for each session tool (ADR 0121), in [`sessions`].
+//! - `permission`: a native session's bridge asks the person about a call (ADR 0165, step 2), in
+//!   [`permission`]. Only the sessions' socket answers it; the agent channel refuses it.
 //! - `move_wait`: no parameters. Held up to [`MOVE_WAIT_WITHIN`] and answered only for the
 //!   bridge of a session that moves into a space, once its turn ended (ADR 0151, step 2). No
 //!   tool names it.
@@ -53,7 +55,7 @@ pub const MAX_ROWS: usize = 2000;
 /// The methods, and the ones the dev socket has, which the channel must never answer. A
 /// unit test checks that no name is in both.
 #[cfg(test)]
-pub const METHODS: [&str; 9] = [
+pub const METHODS: [&str; 10] = [
     "version",
     "state",
     "commands",
@@ -63,8 +65,10 @@ pub const METHODS: [&str; 9] = [
     "text",
     "diagnostics",
     "move_wait",
+    "permission",
 ];
 
+pub mod permission;
 pub mod sessions;
 
 /// A parsed request.
@@ -111,6 +115,9 @@ pub enum Op {
     /// step 2): the reply names the process the bridge stops, if its own parent. No tool calls
     /// it: the bridge does, after the reply to its `move_to_space`.
     MoveWait,
+    /// A native session's bridge asks the person about a call (ADR 0165, step 2). Held until
+    /// the person answers or the bridge goes.
+    Permission(permission::Call),
 }
 
 /// How long the server holds `move_wait`: the app answers it by the wait's 120 s.
@@ -174,6 +181,9 @@ pub fn parse(line: &str) -> Result<Request, BadRequest> {
         "commands" => none(&parts.params).map(|()| Method::Ui(Op::Commands))?,
         "cancel" => none(&parts.params).map(|()| Method::Ui(Op::Cancel))?,
         "move_wait" => none(&parts.params).map(|()| Method::Ui(Op::MoveWait))?,
+        "permission" => Method::Ui(Op::Permission(
+            permission::parse(&parts.params).map_err(bad)?,
+        )),
         "run" => Method::Ui(parse_run(&parts.params).map_err(bad)?),
         "open" => Method::Ui(parse_open(&parts.params).map_err(bad)?),
         "text" => Method::Ui(Op::Text(parse_text(&parts.params).map_err(bad)?)),

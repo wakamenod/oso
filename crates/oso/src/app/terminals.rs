@@ -102,6 +102,7 @@ impl App {
         self.dispatcher
             .forget_terminals(|id| editor.buffer(id).is_some());
         self.note_terminal_selected();
+        self.lend_review_ask_size();
         self.size_terminals();
         self.focus_terminals();
         self.want_pointer_motion();
@@ -158,7 +159,8 @@ impl App {
         }
     }
 
-    /// The window selected now owns its terminal's size (ADR 0120).
+    /// The window selected now owns its terminal's size (ADR 0120), and a size lent to it
+    /// becomes its own by the selection (ADR 0169).
     fn note_terminal_selected(&mut self) {
         let (window, buffer) = {
             let window = self.editor.tiled().0;
@@ -168,7 +170,7 @@ impl App {
             .terminals
             .map
             .get(buffer)
-            .is_some_and(|hosted| hosted.owner != Some(window))
+            .is_some_and(|hosted| hosted.owner != Some(window) || hosted.lent_from.is_some())
         {
             self.terminals.map.selected(buffer, window);
         }
@@ -207,7 +209,8 @@ impl App {
         })
     }
 
-    /// Gives each PTY the size of the window that last selected it, when that changed.
+    /// Gives each PTY the size of the window that owns it, when that changed: the last that
+    /// selected it, or the review layout's window below the slot it was lent to (ADR 0169).
     fn size_terminals(&mut self) {
         let sizes: Vec<(BufferId, Size)> = self
             .terminals
@@ -216,7 +219,7 @@ impl App {
             .filter_map(|(id, hosted)| {
                 let window = hosted.owner?;
                 // A window gone, or showing another buffer, leaves the size as it was.
-                let shows = self.editor.window_by_id(window)?.buffer() == id;
+                let shows = window_shows(&self.editor, Some(window), id);
                 let size = shows.then(|| self.window_size(window))??;
                 (hosted.sized != Some(size)).then_some((id, size))
             })
@@ -370,4 +373,15 @@ impl App {
         .flatten()
         .min()
     }
+}
+
+/// Whether `window` is one of the editor's and shows `buffer`: the window owning a terminal's
+/// size sizes it only then.
+pub(in crate::app) fn window_shows(
+    editor: &oso_core::editor::Editor,
+    window: Option<oso_core::window::WindowId>,
+    buffer: BufferId,
+) -> bool {
+    (window.and_then(|window| editor.window_by_id(window)))
+        .is_some_and(|window| window.buffer() == buffer)
 }

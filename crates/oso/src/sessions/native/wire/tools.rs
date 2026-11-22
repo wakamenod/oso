@@ -103,8 +103,27 @@ impl std::io::Write for Counter {
     }
 }
 
+/// Whether a call's input `value` names nothing but `keys` (ADR 0165, step 2): what a question
+/// shows of a call is then all it says.
+pub fn only_keys(value: &Value, keys: &[&str]) -> bool {
+    value
+        .as_object()
+        .is_some_and(|object| object.keys().all(|key| keys.contains(&key.as_str())))
+}
+
+/// A call's input `value` as indented JSON, cut to at most `max` bytes at a character, for the
+/// person to read whole (ADR 0165, step 2).
+pub fn pretty(value: &Value, max: usize) -> String {
+    written(value, max, true)
+}
+
 /// `value` as JSON, cut to at most `max` bytes at a character, never written whole.
 fn json_cut(value: &Value, max: usize) -> String {
+    written(value, max, false)
+}
+
+/// `value` as JSON, indented if `indented`, cut to at most `max` bytes at a character.
+fn written(value: &Value, max: usize, indented: bool) -> String {
     struct Kept(Vec<u8>, usize);
     impl std::io::Write for Kept {
         fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
@@ -121,7 +140,11 @@ fn json_cut(value: &Value, max: usize) -> String {
         }
     }
     let mut kept = Kept(Vec::new(), max);
-    let _ = serde_json::to_writer(&mut kept, value);
+    let _ = if indented {
+        serde_json::to_writer_pretty(&mut kept, value)
+    } else {
+        serde_json::to_writer(&mut kept, value)
+    };
     let valid = std::str::from_utf8(&kept.0).map_or_else(|error| error.valid_up_to(), str::len);
     String::from_utf8_lossy(&kept.0[..valid]).into_owned()
 }

@@ -14,7 +14,7 @@ const NAME_CELLS: usize = 40;
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "switch-to-buffer",
-        doc: "Show a buffer, read with completion, the one shown before first.\n\nRecent files no buffer visits are listed after the buffers, and open as `C-x C-r` opens them. A name that matches neither makes an empty buffer with no file; `M-RET` makes it when another matches.",
+        doc: "Show a buffer, read with completion: those no window shows first, the most recently used first, then those other windows show, then this one.\n\nRecent files no buffer visits are listed after the buffers, and open as `C-x C-r` opens them. A name that matches neither makes an empty buffer with no file; `M-RET` makes it when another matches.",
         args: ArgSpec::Buffer {
             prompt: "Switch to buffer:",
             history: "buffer",
@@ -62,7 +62,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "quit-window",
-        doc: "Leave the buffer in this window, showing the one shown before it.\n\nThe buffer stays; `C-x b` goes back to it. A directory listing binds it to `q`.",
+        doc: "Leave the buffer in this window, showing the one shown before it.\n\nThe buffer stays, buried: `C-x b` lists it last of those no window shows. A directory listing binds it to `q`.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: quit_window,
@@ -161,16 +161,7 @@ fn walk(ctx: &mut Ctx<'_>, count: isize) -> Result<(), CommandError> {
 
 fn quit_window(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     super::not_in_prompt(ctx)?;
-    let here = ctx.editor.window().buffer();
-    let Some(back) = ctx
-        .editor
-        .buffers_by_recency()
-        .into_iter()
-        .find(|id| *id != here)
-    else {
-        return Ok(());
-    };
-    ctx.editor.show(back);
+    ctx.editor.quit_window();
     ctx.request_redraw();
     Ok(())
 }

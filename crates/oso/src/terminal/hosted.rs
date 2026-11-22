@@ -29,8 +29,12 @@ pub(crate) struct Hosted {
     /// Its thread, once the start thread handed it over; `None` before, and after the end.
     pub terminal: Option<Terminal>,
     pub grid: Grid,
-    /// The window whose size the PTY takes: the last that selected it (ADR 0120).
+    /// The window whose size the PTY takes: the last that selected it (ADR 0120), or the
+    /// review layout's window below the slot it was lent to (ADR 0169).
     pub owner: Option<WindowId>,
+    /// While the owner was lent rather than selected, the owner before, which gets it back once
+    /// the lent window no longer shows the terminal and it does (ADR 0169).
+    pub lent_from: Option<Option<WindowId>>,
     /// The size last given to the PTY.
     pub sized: Option<Size>,
     /// The program's title (OSC 0, 1, 2), already cleaned by the policy.
@@ -72,6 +76,7 @@ impl Hosted {
             terminal: None,
             grid: Grid::default(),
             owner: None,
+            lent_from: None,
             sized: None,
             title: String::new(),
             progress: None,
@@ -215,10 +220,12 @@ impl Terminals {
     /// window whose size it takes: a stopped session resumed in its buffer (ADR 0121), so no
     /// shell of the person's.
     pub(crate) fn restart(&mut self, buffer: BufferId) -> &mut Hosted {
-        let owner = self.map.get(&buffer).and_then(|hosted| hosted.owner);
+        let (owner, lent_from) =
+            (self.map.get(&buffer)).map_or((None, None), |hosted| (hosted.owner, hosted.lent_from));
         self.map.insert(buffer, Hosted::new());
         let hosted = self.add(buffer);
         hosted.owner = owner;
+        hosted.lent_from = lent_from;
         hosted
     }
 
@@ -248,6 +255,34 @@ impl Terminals {
         if let Some(hosted) = self.map.get_mut(&buffer) {
             hosted.selected = self.clock;
             hosted.owner = Some(window);
+            hosted.lent_from = None;
+        }
+    }
+
+    /// Lends `buffer`'s terminal's size to `window` without a selection: the review layout's
+    /// window below the slot, while no window showing the terminal owns it (ADR 0169). The
+    /// terminal selected last stays the one it was (ADR 0144), and the owner before is kept for
+    /// [`Terminals::give_back`].
+    pub(crate) fn lend(&mut self, buffer: BufferId, window: WindowId) {
+        if let Some(hosted) = self.map.get_mut(&buffer) {
+            if hosted.lent_from.is_none() {
+                hosted.lent_from = Some(hosted.owner);
+            }
+            hosted.owner = Some(window);
+        }
+    }
+
+    /// Gives each lent terminal's size back to the window that owned it before, while `shows`
+    /// says the lent window no longer shows it and that one does (ADR 0169).
+    pub(crate) fn give_back(&mut self, shows: impl Fn(Option<WindowId>, BufferId) -> bool) {
+        for (id, hosted) in &mut self.map {
+            let Some(before) = hosted.lent_from else {
+                continue;
+            };
+            if !shows(hosted.owner, *id) && shows(before, *id) {
+                hosted.owner = before;
+                hosted.lent_from = None;
+            }
         }
     }
 
@@ -257,6 +292,7 @@ impl Terminals {
         if let Some(hosted) = self.map.get_mut(&buffer) {
             hosted.selected = 0;
             hosted.owner = None;
+            hosted.lent_from = None;
         }
     }
 
@@ -443,6 +479,44 @@ mod tests {
         assert_eq!(hosted.owner, Some(window));
         // Only a session is started over in its buffer: never `terminal`'s to switch to.
         assert_eq!(terminals.last_shell(), None);
+    }
+
+    #[test]
+    fn a_lent_size_is_no_selection_and_goes_back_to_the_window_before() {
+        let (a, b) = ids();
+        let mut editor = Editor::default();
+        editor.set_frame_size(oso_core::frame::FrameSize {
+            rows: 40,
+            columns: 80,
+        });
+        let first = editor.window().id();
+        let second = (editor.split_window(oso_core::frame::Way::Down, false)).unwrap();
+        let mut terminals = Terminals::default();
+        terminals.add_shell(a);
+        terminals.add_shell(b);
+        terminals.selected(a, first);
+        terminals.selected(b, first);
+        terminals.lend(a, second);
+        let owner = |terminals: &Terminals| terminals.get(a).unwrap().owner;
+        assert_eq!(owner(&terminals), Some(second));
+        assert_eq!(terminals.last_shell(), Some(b), "a lending is no selection");
+        // Lent again: the owner before the first lending is kept.
+        terminals.lend(a, second);
+        assert_eq!(terminals.get(a).unwrap().lent_from, Some(Some(first)));
+        // While the lent window shows it, or the one before does not, it stays lent.
+        terminals.give_back(|window, _| window == Some(second));
+        assert_eq!(owner(&terminals), Some(second));
+        terminals.give_back(|_, _| false);
+        assert_eq!(owner(&terminals), Some(second));
+        // Once only the one before shows it, it goes back.
+        terminals.give_back(|window, _| window == Some(first));
+        assert_eq!(owner(&terminals), Some(first));
+        assert_eq!(terminals.get(a).unwrap().lent_from, None);
+        // A selection of the lent window ends the lending, and counts.
+        terminals.lend(a, second);
+        terminals.selected(a, second);
+        assert_eq!(terminals.get(a).unwrap().lent_from, None);
+        assert_eq!(terminals.last_shell(), Some(a));
     }
 
     #[test]
