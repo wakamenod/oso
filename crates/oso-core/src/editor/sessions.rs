@@ -13,9 +13,11 @@ use crate::buffer::BufferId;
 use crate::complete::Candidate;
 use crate::diagnostic::Severity;
 
+mod native;
 mod side;
 mod trees;
 
+pub(super) use native::takes_session_flags;
 use side::SideWindow;
 pub use trees::WindowTree;
 

@@ -76,6 +76,7 @@ pub oso_core::buffer::Mode::JavaScript
 pub oso_core::buffer::Mode::Json
 pub oso_core::buffer::Mode::Latex
 pub oso_core::buffer::Mode::Markdown
+pub oso_core::buffer::Mode::NativeSession
 pub oso_core::buffer::Mode::RenamePreview
 pub oso_core::buffer::Mode::Review
 pub oso_core::buffer::Mode::ReviewFiles
@@ -297,6 +298,7 @@ pub fn oso_core::buffer::Buffer::naming(&self) -> u32
 pub fn oso_core::buffer::Buffer::project(&self) -> core::option::Option<oso_core::project::ProjectId>
 impl oso_core::buffer::Buffer
 pub fn oso_core::buffer::Buffer::is_internal(&self) -> bool
+pub fn oso_core::buffer::Buffer::is_native_session(&self) -> bool
 impl oso_core::buffer::Buffer
 pub fn oso_core::buffer::Buffer::server(&self) -> core::option::Option<oso_core::buffer::ServerMark>
 pub fn oso_core::buffer::Buffer::set_server(&mut self, core::option::Option<oso_core::buffer::ServerMark>)
@@ -2853,6 +2855,10 @@ pub fn oso_core::editor::Editor::set_listing_text(&mut self, oso_core::buffer::B
 pub fn oso_core::editor::Editor::set_operation_running(&mut self, bool)
 pub fn oso_core::editor::Editor::take_listing_requests(&mut self) -> alloc::vec::Vec<oso_core::editor::ListingRequest>
 pub fn oso_core::editor::Editor::take_operation_stop(&mut self) -> bool
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::add_native_session_buffer(&mut self, impl core::convert::Into<alloc::string::String>) -> oso_core::buffer::BufferId
+pub fn oso_core::editor::Editor::busy_native_sessions(&self) -> impl core::iter::traits::iterator::Iterator<Item = oso_core::buffer::BufferId> + '_
+pub fn oso_core::editor::Editor::replace_native_rows(&mut self, oso_core::buffer::BufferId, core::ops::range::Range<usize>, &str, &[(usize, core::option::Option<oso_core::syntax::Highlight>)])
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::add_project(&mut self, oso_core::project::Found) -> oso_core::project::ProjectId
 pub fn oso_core::editor::Editor::project(&self, oso_core::project::ProjectId) -> core::option::Option<&oso_core::project::Project>

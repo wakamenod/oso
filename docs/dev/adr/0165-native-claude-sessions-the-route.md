@@ -412,6 +412,24 @@ reviews' findings:
   lists; a proptest target checks that a buffer kept by the changes alone holds what rendering
   every row gives.
 
+Part 1b-1, the editor's part:
+
+- **`Mode::NativeSession`**, shown as `Session` in the modeline: an internal buffer whose text
+  and highlights the host writes, read-only to keys, withheld from agents until the person
+  allows them, and listed and killed as a person's buffer is.
+- **One row at a time:** `Editor::replace_native_rows` puts a row's text and runs in place of a
+  byte range, at the cost of the change; the rest keeps its highlights, and a cursor at the end
+  follows new rows.
+- **A terminal's session flags** (hosting a session, running, a turn under way, agents' reads)
+  apply to a native session's buffer too, so ADR 0132's keys, ADR 0133's quit-wait and the
+  agents' read gate take it; carrying over a restart still takes terminals only.
+
+The author approved the process this step starts (REVIEW.md's gate on spawning): a long-lived
+`claude -p` child with pipes, started through `launch` and `process::spawn` as ADR 0159's
+naming run is, with no new spawn API and no new variables. `RET` on a long result opens it in a
+read-only buffer withheld from agents, and `n`, `p`, `]` and `[` move between prompts and tool
+rows from part 1b-2 on.
+
 ## Questions
 
 The author chose (a) on each, on 2026-11-21. The options are kept as they were put.
