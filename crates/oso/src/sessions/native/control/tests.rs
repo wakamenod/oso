@@ -13,6 +13,7 @@ pub(in crate::sessions::native) fn ok(id: u64) -> Answer {
     Answer {
         id: Some(id),
         error: None,
+        commands: None,
     }
 }
 
@@ -20,6 +21,7 @@ pub(in crate::sessions::native) fn refused(id: u64) -> Answer {
     Answer {
         id: Some(id),
         error: Some("no".to_owned()),
+        commands: None,
     }
 }
 
@@ -107,7 +109,8 @@ fn an_answer_goes_to_the_request_that_waits_by_its_id_once() {
     assert_eq!(
         control.answered(&Answer {
             id: None,
-            error: None
+            error: None,
+            commands: None,
         }),
         Answered::Other
     );
@@ -153,6 +156,7 @@ fn the_requests_and_their_answers_go_through_the_wire() {
         Answer {
             id: Some(0),
             error: Some("Unsupported control request subtype: x".to_owned()),
+            commands: None,
         }
     );
     assert_eq!(
@@ -162,6 +166,7 @@ fn the_requests_and_their_answers_go_through_the_wire() {
         Answer {
             id: None,
             error: Some("no reason given".to_owned()),
+            commands: None,
         },
         "another's id is no answer of oso's"
     );
@@ -182,6 +187,7 @@ fn the_requests_and_their_answers_go_through_the_wire() {
     let Answered::Initialize(Some(said)) = control.answered(&Answer {
         id: Some(INITIALIZE),
         error: Some(error),
+        commands: None,
     }) else {
         panic!("a log line");
     };

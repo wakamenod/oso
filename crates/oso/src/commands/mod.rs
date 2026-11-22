@@ -437,6 +437,7 @@ mod tests {
         "native-session-toggle",
         // A native session's composer and queue, the person's message (ADR 0165, step 2).
         "native-composer-cancel",
+        "native-composer-command",
         "native-composer-next",
         "native-composer-previous",
         "native-composer-send",

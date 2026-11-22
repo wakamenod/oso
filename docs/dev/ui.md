@@ -1328,7 +1328,11 @@ a switch made with its command stands until that setting changes in the file
   `interrupt_receipt_v1`, else, or when the request goes unanswered (2 s) or its turn goes on
   (5 s), `SIGINT` and a resume with `--resume` (Windows, which has no `SIGINT`, says so
   instead); the modeline says `interrupting` meanwhile, and the queue pauses until the next
-  send. `C-u C-c C-c` interrupts and sends the composer's text first, ahead of the queue,
+  send. `/` as an empty composer's first character, or `C-c /`, completes over the session's
+  slash commands in the minibuffer (step 2d), each with its argument hint and description, and
+  puts the one chosen first; a command sent shows as the person's row at once, and `/clear`
+  is refused, as oso would not follow its new conversation. `C-u C-c C-c` interrupts and sends
+  the composer's text first, ahead of the queue,
   which then goes on; with no turn under way it is `C-c C-c`. Nothing queued goes while oso
   waits to quit when idle. A message holding secret text a yank brought is not sent. A restart
   is refused while a composer holds text or a queue holds messages. A send, a paste or `session-explain` to

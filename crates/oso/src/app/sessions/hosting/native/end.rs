@@ -47,6 +47,7 @@ impl App {
         native.control = None;
         let resumes = std::mem::replace(&mut native.interrupt, Interrupt::new(SIGNALS)).resumes()
             && native.spoke
+            && !native.moved
             && !hung_up
             && !self.hosting.spaces.replacing.contains_key(&key)
             && free;
@@ -144,6 +145,7 @@ impl App {
         self.sweep_killed_natives();
         // After the sweep: no message goes to a session whose buffer was just killed.
         self.send_waiting_queues();
+        self.sync_slash_commands();
     }
 
     /// Stops and archives each native session whose buffer was killed; one given no message is

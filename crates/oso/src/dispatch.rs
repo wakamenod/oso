@@ -46,6 +46,7 @@ mod prompts;
 mod run_command;
 mod session_help;
 mod shown;
+mod slash;
 mod terminal;
 mod text_input;
 mod transient;
@@ -388,6 +389,7 @@ impl Dispatcher {
         // `review-layout`'s menu opens as it ends, as a menu key's (ADR 0160).
         if result.is_ok() {
             effects = effects.union(self.open_asked_review_menu(editor));
+            effects = effects.union(self.complete_slash(editor, id));
         }
         if let Err(error @ ExecuteError::Panicked { .. }) = &result {
             // This names the command and nothing else (ADR 0028).

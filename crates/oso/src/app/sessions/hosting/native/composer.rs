@@ -182,6 +182,11 @@ impl App {
             return self.editor.message("The message is over 64 KiB");
         }
         let text = buffer.text().to_string();
+        // `/clear` would leave the conversation oso follows (step 2d, Q2 (a)).
+        let refused = (self.hosting.natives.map.get(&key)).and_then(|n| n.commands.refused(&text));
+        if let Some(why) = refused {
+            return self.editor.message(why);
+        }
         let Some(turn) = self.turn(key) else {
             return;
         };
@@ -237,9 +242,20 @@ impl App {
         let Some(stream) = &native.stream else {
             return false;
         };
+        // Every message passes here: one queued before the list named an alias too.
+        if let Some(why) = native.commands.refused(text) {
+            self.editor.message(why);
+            return false;
+        }
         match stream.send(text) {
             Ok(()) => {
-                native.rows.sent(text);
+                // The CLI replays no command it runs: the person's row is shown now (step 2d).
+                if native.commands.runs(text) {
+                    let change = native.rows.sent_command(text);
+                    super::draw(&mut self.editor, native, [change]);
+                } else {
+                    native.rows.sent(text);
+                }
                 native.composing.busy = true;
                 native.spoke = true;
                 let history = &mut native.composing.history;
@@ -289,6 +305,15 @@ impl App {
             let Some(text) = native.composing.queue.idle(turn) else {
                 continue;
             };
+            // Refused, it goes back first and the queue waits: the person drops it.
+            if native.commands.refused(&text).is_some() {
+                native.composing.queue.failed(Some(text));
+                self.editor.message(
+                    "The first queued message would /clear, which oso does not follow: d on its row drops it",
+                );
+                self.draw_queue(key);
+                continue;
+            }
             let buffer = native.buffer;
             if !self.deliver(key, &text) {
                 self.not_sent(key, Some(text));
@@ -413,7 +438,7 @@ impl App {
     }
 
     /// Puts `text` in native session `key`'s composer, in place of what is there.
-    fn set_composer_text(&mut self, key: SessionKey, text: &str) {
+    pub(super) fn set_composer_text(&mut self, key: SessionKey, text: &str) {
         let Some(id) = self.composer(key) else {
             return;
         };

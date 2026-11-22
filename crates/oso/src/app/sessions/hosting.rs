@@ -265,13 +265,9 @@ impl App {
         self.turn_agent_channel_on_for_a_session();
         // An agent's tool's start stays behind what the person is doing (ADR 0144).
         let shown = begin.origin == Origin::Person && !begin.behind;
+        let mut brief = begin.brief.clone();
         let runs = if native {
-            // A blank brief is none: the person writes the first message in the composer.
-            let first = begin
-                .brief
-                .as_deref()
-                .filter(|brief| native::has_brief(Some(brief)));
-            Runs::Native(self.native_session_buffer(key, &name, directory.clone(), shown, first))
+            Runs::Native(self.native_start_buffer(key, &name, directory.clone(), shown, &mut brief))
         } else {
             Runs::Terminal(self.session_terminal(key, &name, None, shown))
         };
@@ -293,7 +289,7 @@ impl App {
             state: super::super::reviews::state(),
             claude: self.configuration.session_claude().map(Path::to_path_buf),
             runs,
-            brief: begin.brief,
+            brief,
             steer_worktrees: self.configuration.steer_worktrees(),
             check_shared: begin.check_shared,
             space,

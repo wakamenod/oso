@@ -21,7 +21,7 @@
 //!   when rows came after, is marked so that its row says so. Each call in a row folds on its
 //!   own.
 //! - A message is the person's only when oso sent its text ([`Rows::sent`]) and the CLI
-//!   replayed it. Any other replay is a note, or nothing when a command or hook wrapped it, so
+//!   replayed it, or as a listed slash command, never replayed (step 2d). Any other replay is a note, or nothing when a command or hook wrapped it, so
 //!   no text from elsewhere is shown as the person's words.
 //! - Rows are kept for the session's life; each holds at most what `wire`'s limits let in.
 
@@ -32,9 +32,9 @@ use super::wire::{
     Assistant, Block, BlockKind, Event, PartKind, Partial, Task, ToolInput, ToolResult, TurnResult,
     User,
 };
-use crate::sessions::transcripts::WRAPPERS;
 
 mod calls;
+mod sent;
 
 use calls::new_call;
 
@@ -46,11 +46,6 @@ const EDITS: [&str; 4] = ["Edit", "MultiEdit", "Write", "NotebookEdit"];
 
 /// The most calls one row holds.
 pub const MAX_GROUP: usize = 50;
-/// The most texts oso sent that wait for the CLI to replay them.
-const MAX_SENT: usize = 64;
-
-/// A command's output that the CLI replays as a message: shown as a note.
-const COMMAND_OUTPUT: (&str, &str) = ("<local-command-stdout>", "</local-command-stdout>");
 
 /// One row of a session's buffer.
 #[derive(Clone, Debug, PartialEq)]
@@ -237,14 +232,6 @@ impl Rows {
     /// The session's directory, which paths are shown relative to.
     pub fn directory(&self) -> &Path {
         &self.directory
-    }
-
-    /// Notes that oso sent `text` as the person's message: its replay is a prompt.
-    pub fn sent(&mut self, text: &str) {
-        if self.sent.len() == MAX_SENT {
-            self.sent.pop_front();
-        }
-        self.sent.push_back(text.to_owned());
     }
 
     /// Adds a note of oso's own, such as a resumed session's first line.
@@ -516,37 +503,6 @@ impl Rows {
             changes.extend(self.replayed(text));
         }
         changes
-    }
-
-    /// A message the CLI replayed: the person's when oso sent it, else a note or nothing.
-    fn replayed(&mut self, text: String) -> Option<RowChange> {
-        if let Some(at) = self.sent.iter().position(|sent| *sent == text) {
-            // What was sent before it and never replayed, such as a command, is dropped.
-            self.sent.drain(..=at);
-            return Some(self.push(Kind::Prompt(text), 0, false));
-        }
-        let trimmed = text.trim();
-        if let Some(output) = trimmed
-            .strip_prefix(COMMAND_OUTPUT.0)
-            .and_then(|rest| rest.strip_suffix(COMMAND_OUTPUT.1))
-        {
-            let output = output.trim();
-            // `/compact` says so twice: its boundary, then its output.
-            let said = output == "Compacted"
-                && matches!(
-                    self.rows.last(),
-                    Some(Row {
-                        kind: Kind::Compacted { .. },
-                        ..
-                    })
-                );
-            return (!said && !output.is_empty())
-                .then(|| self.push(Kind::Note(output.to_owned()), 0, false));
-        }
-        if WRAPPERS.iter().any(|start| trimmed.starts_with(start)) {
-            return None;
-        }
-        Some(self.push(Kind::Note(text), 0, false))
     }
 
     /// A turn ended: what still streams or runs is closed, and the result is a row. The calls

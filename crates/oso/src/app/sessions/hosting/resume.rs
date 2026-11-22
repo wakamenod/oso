@@ -74,6 +74,12 @@ impl App {
         // A native session resumes natively, in its own buffer, only where its project is
         // trusted now (ADR 0165, step 2): looked at before anything changes.
         let native = self.hosting.natives.has(key);
+        if native && self.hosting.natives.moved(key) {
+            return Err(format!(
+                "Session {name}'s conversation moved to a session id oso does not follow: \
+                 resuming it would reach the conversation before, so start a new session"
+            ));
+        }
         if native && !self.native_spoke(key) {
             return Err(format!(
                 "Session {name} was never given a message, so Claude Code has no conversation \
