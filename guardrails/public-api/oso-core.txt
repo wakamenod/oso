@@ -3053,6 +3053,7 @@ pub fn oso_core::editor::Editor::clear_echo_saying(&mut self, &str)
 pub fn oso_core::editor::Editor::echo(&mut self, impl core::convert::Into<alloc::string::String>)
 pub fn oso_core::editor::Editor::echo_unless_news(&mut self, &str, impl core::convert::Into<alloc::string::String>)
 pub fn oso_core::editor::Editor::echo_withheld(&self) -> bool
+pub fn oso_core::editor::Editor::echo_withheld_text(&mut self, impl core::convert::Into<alloc::string::String>)
 pub fn oso_core::editor::Editor::end_command(&mut self)
 pub fn oso_core::editor::Editor::keys_withheld(&self) -> bool
 pub fn oso_core::editor::Editor::message(&mut self, impl core::convert::Into<alloc::string::String>)

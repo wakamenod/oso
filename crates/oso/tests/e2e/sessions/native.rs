@@ -191,14 +191,15 @@ fn a_native_session_starts_with_its_first_message_and_shows_its_stream() {
     let run = flow.wait_for_file("run.");
     let args: Vec<&str> = run.lines().filter_map(|l| l.strip_prefix("arg ")).collect();
     assert_eq!(
-        args[..6],
+        args[..7],
         [
             "-p",
             "--input-format=stream-json",
             "--output-format=stream-json",
             "--verbose",
             "--include-partial-messages",
-            "--replay-user-messages"
+            "--replay-user-messages",
+            "--prompt-suggestions=true"
         ]
     );
     assert!(args.iter().any(|arg| arg.starts_with("--session-id=")));
@@ -472,6 +473,7 @@ mod interrupt;
 mod markdown;
 mod resume;
 mod slash;
+mod suggest;
 
 /// Whether the selected window is the composer docked under a session.
 fn in_composer(state: &serde_json::Value) -> bool {

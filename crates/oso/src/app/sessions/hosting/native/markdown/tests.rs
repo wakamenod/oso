@@ -68,8 +68,8 @@ struct Setup {
 
 const SESSION: u64 = 7;
 
-/// A running native session over `buffer` with no rows yet.
-fn native(buffer: BufferId) -> Native {
+/// A running native session over `buffer` with no rows yet; `suggesting`'s tests take it too.
+pub(in crate::app::sessions::hosting::native) fn native(buffer: BufferId) -> Native {
     Native {
         buffer,
         rows: Rows::new(PathBuf::from("/w")),
@@ -91,6 +91,7 @@ fn native(buffer: BufferId) -> Native {
         cli_id: None,
         moved: false,
         markdown: Marks::default(),
+        unseen: false,
     }
 }
 

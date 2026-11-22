@@ -11,16 +11,21 @@ use oso_core::editor::NativeAction;
 use crate::app::App;
 use crate::sessions::native::queue::Move;
 use crate::sessions::native::render::{Face, queue_rows};
+use crate::sessions::native::suggest::suggestion_row;
 use crate::sessions::worker::SessionKey;
 
 impl App {
-    /// Draws native session `key`'s queue as grey rows at its transcript's end, when they
-    /// changed, and says how many wait in its modeline.
+    /// Draws native session `key`'s queue as grey rows at its transcript's end, and its
+    /// prompt suggestion's after them (part 3f), when they changed, and says how many wait in
+    /// its modeline.
     pub(in crate::app::sessions::hosting::native) fn draw_queue(&mut self, key: SessionKey) {
         let Some(native) = self.hosting.natives.map.get_mut(&key) else {
             return;
         };
-        let rows = queue_rows(&native.composing.queue);
+        let mut rows = queue_rows(&native.composing.queue);
+        if let Some(text) = &native.composing.suggestion {
+            rows.push_str(&suggestion_row(text));
+        }
         if rows != native.composing.rows {
             let start = native.placed.end();
             let range = start..start + native.composing.rows.len();
@@ -33,7 +38,7 @@ impl App {
     }
 
     /// The queued message whose row is at `offset` of native session `key`'s transcript; the
-    /// queue's heading names the first.
+    /// queue's heading names the first, and a row after the queue's is the suggestion's.
     pub(super) fn queued_at(&self, key: SessionKey, offset: usize) -> Option<u64> {
         let native = self.hosting.natives.map.get(&key)?;
         let start = native.placed.end();

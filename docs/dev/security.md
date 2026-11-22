@@ -910,6 +910,15 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     taking the selected window, and a composer a yank turned secret takes nothing. A kept image's `@PATH` is oso's own and
     goes as it is, as does what the person types. Only `claude -p`'s reading was measured;
     the TUI's is taken to be the same.
+  - A native session's prompt suggestion is Claude's text, which a file Claude read can
+    steer: `M-n` puts it into the composer escaped as composed text, unsent, so a suggested
+    `/command` or `@PATH` runs only if the person takes the escape out. One holding a line
+    break, a control, bidi or invisible character, or a variation selector that draws as
+    nothing, is dropped, so that what goes in is the one
+    line its row showed; a composer a yank turned secret takes none. The recap of a turn that ended unseen quotes the transcript, so it reaches only
+    the echo area, marked `NAME (last reply): …` so that it cannot pass for oso's own message,
+    unlogged and left out of what the control socket and the agent channel
+    read ([ADR 0165](adr/0165-native-claude-sessions-the-route.md), part 3f).
   - A session that is not running, not judged since it started, asking for input or held by a
     full-screen view is refused, as a paste into a dialog could choose an option. The check
     reads the last verdict, which can be some 100 to 200 ms old when the paste lands, and waits

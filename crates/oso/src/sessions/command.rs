@@ -26,14 +26,16 @@ use super::identity::SessionId;
 pub(crate) use crate::channel::mcp::SESSION_VARIABLE;
 
 /// What a native session's command line starts with (ADR 0165): print mode, stream-json in
-/// and out, every event, the parts of messages as they stream, and the messages it took.
-pub const NATIVE: [&str; 6] = [
+/// and out, every event, the parts of messages as they stream, the messages it took, and a
+/// suggestion of the next message after each turn (part 3f, Q-F1 (a)).
+pub const NATIVE: [&str; 7] = [
     "-p",
     "--input-format=stream-json",
     "--output-format=stream-json",
     "--verbose",
     "--include-partial-messages",
     "--replay-user-messages",
+    "--prompt-suggestions=true",
 ];
 
 /// The tool a native session's `claude` asks permission through: the `oso` server's
@@ -357,8 +359,8 @@ mod tests {
             ..line(Start::New { id: &a })
         };
         let args = strings(&arguments(&native).unwrap());
-        assert_eq!(args[..6], super::NATIVE.map(str::to_owned));
-        assert_eq!(args[6], format!("--session-id={a}"));
+        assert_eq!(args[..7], super::NATIVE.map(str::to_owned));
+        assert_eq!(args[7], format!("--session-id={a}"));
         assert!(args.iter().all(|arg| arg != "--" && arg != "go on"));
         let asks = format!("--permission-prompt-tool={}", super::PERMISSION_TOOL);
         assert_eq!(args.iter().filter(|arg| **arg == asks).count(), 1);
