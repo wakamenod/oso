@@ -667,10 +667,14 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   `bypassPermissions` or `dontAsk`, so neither can be sent. A later process of the session is
   given the mode it held, as `--resume` keeps none: the one oso gave its process until that
   process says one, else the one the CLI said last if it is `default` or `plan`, or if the
-  person switched to it here. The stream is not authenticated, as a tool the session runs can
-  write to it: a line that says `acceptEdits` or `auto` is shown but never carried unless the
-  person chose it, so it cannot start the next process asking less. Only the first
-  `initialize` answer is read. A new session gets no mode, and starts as the person's Claude
+  person switched to it here, else `default` once the person switched here. The stream is not
+  authenticated, as a tool the session runs can write to it: a line that says `acceptEdits`
+  or `auto` is shown but never carried unless the person chose it, and once the person
+  switched, a later process never falls back to the settings' mode, which may ask less. Only
+  the first `initialize` answer that succeeded is read; one after a refusal or a wait that
+  ended is still taken, as the CLI speaks the protocol (step 2c). A fork starts as its
+  source's next process would. A tier-1 switch whose resume is refused (the project not
+  trusted now) is over. A new session gets no mode, and starts as the person's Claude
   Code settings say; so does one that comes back after oso's restart. A tier-1 switch stops
   only an idle process, and only while a resume may start (no stop asked, no quit or restart
   waiting); the resume is judged under trust then. A mode that is not readable as itself

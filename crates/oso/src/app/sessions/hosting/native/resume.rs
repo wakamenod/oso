@@ -21,8 +21,8 @@ use oso_core::buffer::BufferId;
 use super::note::NativeState;
 use crate::app::App;
 use crate::app::sessions::hosting::trust::NotTrusted;
-use crate::channel::protocol::mode::PermissionMode;
 use crate::git::TrustedRoot;
+use crate::sessions::native::mode::ModeState;
 use crate::sessions::start::NativeOrder;
 use crate::sessions::worker::SessionKey;
 
@@ -104,21 +104,25 @@ impl App {
 
     /// Starts fork `key`, `name`, natively in a new buffer when `directory` is the root of a
     /// project trusted now, under `mode = "native"`: its order and trust. `None` for a terminal.
-    /// It starts in `mode`, the permission mode of the native session it copies (part 3b).
+    /// It starts with `mode`, the permission mode state of the native session it copies, as
+    /// that session's next process would (part 3b).
     pub(in crate::app::sessions::hosting) fn start_native_fork(
         &mut self,
         key: SessionKey,
         name: &str,
         directory: &Path,
         root: Option<&Path>,
-        mode: Option<PermissionMode>,
+        mode: Option<ModeState>,
     ) -> Option<(NativeOrder, TrustedRoot)> {
         if !self.configuration.native_sessions() {
             return None;
         }
         let trusted = self.native_trust_now(directory, root).ok()?;
         let mut order = self.native_session_buffer(key, name, directory.to_path_buf(), true, None);
-        order.permission_mode = mode;
+        if let (Some(mode), Some(native)) = (mode, self.hosting.natives.map.get_mut(&key)) {
+            native.mode = mode;
+            order.permission_mode = native.mode.for_start();
+        }
         Some((order, trusted))
     }
 }

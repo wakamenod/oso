@@ -54,12 +54,12 @@ use oso_core::project::ProjectId;
 use self::note::NativeState;
 use super::Begin;
 use crate::app::{App, UserEvent};
-use crate::channel::protocol::mode::PermissionMode;
 use crate::git::TrustedRoot;
 use crate::sessions::hosted::Run;
 use crate::sessions::identity::Origin;
 use crate::sessions::native::control::Control;
 use crate::sessions::native::interrupt::Interrupt;
+use crate::sessions::native::mode::ModeState;
 use crate::sessions::native::placed::Placed;
 use crate::sessions::native::render;
 use crate::sessions::native::rows::{Changes, RowChange, Rows};
@@ -132,7 +132,7 @@ struct Native {
     /// Its last turn ended out of the person's sight, and no recap said so yet (part 3f).
     unseen: bool,
     /// Its permission mode, as the CLI says it, and the person's switch of it (part 3b).
-    mode: crate::sessions::native::mode::ModeState,
+    mode: ModeState,
 }
 
 impl NativeSessions {
@@ -146,9 +146,9 @@ impl NativeSessions {
         self.map.get(&key).is_some_and(|native| native.moved)
     }
 
-    /// The permission mode a fork of native session `key` starts in (part 3b), if any.
-    pub(in crate::app) fn carried_mode(&self, key: SessionKey) -> Option<PermissionMode> {
-        self.map.get(&key)?.mode.carried()
+    /// The permission mode state a fork of native session `key` starts with (part 3b).
+    pub(in crate::app) fn forked_mode(&self, key: SessionKey) -> Option<ModeState> {
+        Some(self.map.get(&key)?.mode.forked())
     }
 
     /// The process id of session `key`'s `claude`, while it runs and is not reaped.
@@ -301,7 +301,7 @@ impl App {
             cli_id: None,
             moved: false,
             status: status::StatusState::default(),
-            mode: crate::sessions::native::mode::ModeState::default(),
+            mode: ModeState::default(),
         };
         self.hosting.natives.map.insert(key, native);
         // Its composer, docked under it (ADR 0170).
@@ -440,6 +440,7 @@ impl App {
     /// gives the worker what they say of its state.
     fn native_events(&mut self, key: SessionKey, events: Vec<Event>) {
         let seen = self.native_in_front(key);
+        let resumable = !self.native_resume_held(key);
         let Some(native) = self.hosting.natives.map.get_mut(&key) else {
             return;
         };
@@ -453,7 +454,7 @@ impl App {
         for mut event in events {
             suggested |= suggesting::suggestion_event(native, &event);
             recap::recap_event(native, &event, seen);
-            noted |= control::control_event(native, &mut event, &mut follows);
+            noted |= control::control_event(native, &mut event, &mut follows, resumable);
             noted |= native.mode.event(&event);
             let (changed, ask) = status::status_event(native, &event);
             noted |= changed;

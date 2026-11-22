@@ -123,8 +123,13 @@ impl App {
         };
         self.composer_ended(key);
         if let Some(native) = self.hosting.natives.map.get_mut(&key) {
-            let change = native.rows.note(&format!("It did not resume: {why}"));
-            draw(&mut self.editor, native, [change]);
+            let mut changes = vec![native.rows.note(&format!("It did not resume: {why}"))];
+            // A switch it was stopped for is over (part 3b).
+            if native.mode.respawns() {
+                native.mode.gave_up();
+                changes.push(native.rows.note("The mode did not change."));
+            }
+            draw(&mut self.editor, native, changes);
         }
     }
 

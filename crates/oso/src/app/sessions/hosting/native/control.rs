@@ -7,8 +7,8 @@
 //! Must not depend on: key presses or how a frame is drawn.
 //!
 //! - Only the first `initialize` answer is taken: its slash commands, models and mode.
-//! - A follow-up that needs more of the app than the session, such as where its process is for
-//!   a mode's fallback, is carried out after the batch's events were folded.
+//! - Each answer is noted in the stream's order; what it comes to, a step that needs more of
+//!   the app than the session, is carried out after the batch's events were folded.
 
 use std::time::Instant;
 
@@ -25,18 +25,22 @@ use crate::sessions::worker::SessionKey;
 pub(super) enum Follow {
     /// The interrupt's next step, or a log line.
     Interrupt(interrupt::Then),
-    /// The answer to the `set_permission_mode` request `id`, refused with `error` if `Some`.
-    Mode { id: u64, error: Option<String> },
+    /// What the answer to a `set_permission_mode` request comes to.
+    Mode(crate::sessions::native::mode::Then),
 }
 
 /// Notes what `event` of a native session says to its control layer and the requests it
-/// answers, and what that comes to in `follows`. Returns whether the mode shown changed:
+/// answers, in the stream's order, and what that comes to in `follows`; `resumable` if no
+/// resume of it is held now, for a mode's fallback. Returns whether the mode shown changed:
 /// `initialize`'s answer says it.
 pub(super) fn control_event(
     native: &mut Native,
     event: &mut Event,
     follows: &mut Vec<Follow>,
+    resumable: bool,
 ) -> bool {
+    // Where its process is now, as this event finds it, for a mode's fallback.
+    let process = mode::process(native, resumable);
     let Some(control) = native.control.as_mut() else {
         return false;
     };
@@ -58,7 +62,10 @@ pub(super) fn control_event(
                 request: Request::SetPermissionMode(_),
                 id,
                 error,
-            } => follows.push(Follow::Mode { id, error }),
+            } => {
+                let then = (native.mode).answered(control, id, error.as_deref(), process);
+                follows.extend(then.into_iter().map(Follow::Mode));
+            }
             Answered::Request {
                 request: Request::GetUsage,
                 id,
@@ -88,7 +95,7 @@ impl App {
     pub(super) fn follow(&mut self, key: SessionKey, follow: Follow) {
         match follow {
             Follow::Interrupt(then) => self.interrupt_step(key, then),
-            Follow::Mode { id, error } => self.mode_answered(key, id, error.as_deref()),
+            Follow::Mode(then) => self.mode_step(key, then),
         }
     }
 

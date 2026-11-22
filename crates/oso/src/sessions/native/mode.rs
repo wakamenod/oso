@@ -22,9 +22,10 @@
 //!   mode held, as `--resume` does not keep one (measured, CLI 2.1.330): the one a tier-1
 //!   switch asked for; else the one oso gave the process before, until that process said a
 //!   mode; else the one the CLI said last, if it is `default` or `plan`, or if it is one the
-//!   person switched to here. The stream is not authenticated: a line a tool wrote to it can
-//!   say any mode, so a mode that asks less is carried only from the person's switch. With
-//!   none, a process is given no mode, and starts as the person's Claude Code settings say.
+//!   person switched to here; else `default`, once the person switched here. The stream is
+//!   not authenticated: a line a tool wrote to it can say any mode, so a mode that asks less is
+//!   carried only from the person's switch. A session nobody switched is given no mode, and
+//!   starts as the person's Claude Code settings say. A fork starts as its source would.
 //! - One switch at a time.
 
 use std::time::{Duration, Instant};
@@ -208,7 +209,21 @@ impl ModeState {
         match self.said {
             Some(Said::Mode(mode @ (PermissionMode::Default | PermissionMode::Plan))) => Some(mode),
             Some(Said::Mode(mode)) if self.chosen == Some(mode) => Some(mode),
+            // Once the person switched here, the settings' mode, which may ask less, is not
+            // gone back to.
+            _ if self.chosen.is_some() => Some(PermissionMode::Default),
             _ => None,
+        }
+    }
+
+    /// The state a fork of this session starts with: the mode it is given pending, as its
+    /// source's would be, and the person's choice here carried over.
+    pub fn forked(&self) -> Self {
+        Self {
+            said: None,
+            switch: None,
+            pending: self.carried(),
+            chosen: self.chosen,
         }
     }
 

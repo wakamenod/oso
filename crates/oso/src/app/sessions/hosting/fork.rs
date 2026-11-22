@@ -123,7 +123,7 @@ impl App {
         // the permission mode of the native session it copies (part 3b).
         let mode = (self.hosting.table.iter())
             .find(|session| session.id == from)
-            .and_then(|session| self.hosting.natives.carried_mode(session.key));
+            .and_then(|session| self.hosting.natives.forked_mode(session.key));
         let (runs, trusted) =
             match self.start_native_fork(key, &name, &directory, root.as_deref(), mode) {
                 Some((order, trusted)) => {

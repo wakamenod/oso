@@ -34,15 +34,21 @@ pub(super) fn initialize_answered(native: &mut Native, answer: &mut Answer) -> b
     }
 }
 
+/// Where native session `native`'s process is, for the mode's rules, `resumable` if no resume
+/// of it is held now.
+pub(super) fn process(native: &Native, resumable: bool) -> Process {
+    Process {
+        idle: !native.composing.busy && !native.interrupt.interrupting(),
+        spoke: native.spoke,
+        resumable,
+    }
+}
+
 impl App {
     /// Where native session `key`'s process is, for the mode's rules.
     pub(super) fn mode_process(&self, key: SessionKey) -> Option<Process> {
         let native = self.hosting.natives.map.get(&key)?;
-        Some(Process {
-            idle: !native.composing.busy && !native.interrupt.interrupting(),
-            spoke: native.spoke,
-            resumable: !self.native_resume_held(key),
-        })
+        Some(process(native, !self.native_resume_held(key)))
     }
 
     /// `native-session-cycle-mode`: switches native session `key` to its next mode.
@@ -62,23 +68,6 @@ impl App {
         match native.mode.begin(control, process, Instant::now()) {
             Ok(then) => self.mode_step(key, then),
             Err(refusal) => self.editor.message(refusal.message()),
-        }
-    }
-
-    /// The answer to native session `key`'s `set_permission_mode` request `id`, refused with
-    /// `error` if `Some`.
-    pub(super) fn mode_answered(&mut self, key: SessionKey, id: u64, error: Option<&str>) {
-        let Some(process) = self.mode_process(key) else {
-            return;
-        };
-        let Some(native) = self.hosting.natives.map.get_mut(&key) else {
-            return;
-        };
-        let Some(control) = native.control.as_mut() else {
-            return;
-        };
-        for then in native.mode.answered(control, id, error, process) {
-            self.mode_step(key, then);
         }
     }
 

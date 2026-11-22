@@ -102,7 +102,30 @@ fn a_new_process_carries_a_mode_that_asks_or_one_the_person_chose_and_none_else(
     assert_eq!(modes.for_start(), Some(AcceptEdits));
     assert!(!modes.said("acceptEdits"), "the new process says it again");
     assert!(modes.said("auto"), "a line no switch asked for");
-    assert_eq!(modes.for_start(), None);
+    assert_eq!(
+        modes.for_start(),
+        Some(Default),
+        "not the settings' mode either"
+    );
+    assert!(modes.said("bypassPermissions"));
+    assert_eq!(modes.carried(), Some(Default));
+}
+
+#[test]
+fn a_fork_starts_as_its_source_would() {
+    let source = in_auto();
+    let mut fork = source.forked();
+    assert_eq!(fork.shown(), None, "until the fork says one");
+    assert_eq!(fork.for_start(), Some(Auto));
+    assert!(!fork.ended(false), "it ended before it spoke");
+    assert_eq!(
+        fork.carried(),
+        Some(Auto),
+        "the person chose it in the source"
+    );
+    assert!(fork.said("auto"));
+    assert_eq!(fork.carried(), Some(Auto));
+    assert_eq!(in_mode("auto").forked().carried(), None, "nobody switched");
 }
 
 #[test]
@@ -333,4 +356,15 @@ fn initialize_says_the_mode_the_session_is_in() {
         ),
         None
     );
+}
+
+#[test]
+fn a_mode_the_cli_says_after_an_answer_wins_over_the_one_asked() {
+    let now = Instant::now();
+    let (mut control, mut modes) = (on(now), in_mode("default"));
+    let (id, _) = asked(&mut modes, &mut control, now);
+    assert_eq!(modes.answered(&mut control, id, None, IDLE), Vec::new());
+    assert!(modes.said("plan"));
+    assert_eq!(modes.carried(), Some(Plan));
+    assert_eq!(asked(&mut modes, &mut control, now).1, Auto);
 }

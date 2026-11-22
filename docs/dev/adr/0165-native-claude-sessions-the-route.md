@@ -1107,8 +1107,9 @@ As built:
   approval gives the CLI a mode. It has no value for `bypassPermissions` or
   `dontAsk`, so neither can be sent. No agent or channel method takes one.
 - **The mode held** (`sessions::native::mode::ModeState`): the one the CLI said last, in
-  `system/init`, `system/status` or the first `initialize` answer (the control layer takes no
-  later one, for its commands and models either), held to what reads as itself as part 3a's
+  `system/init`, `system/status` or the first `initialize` answer that succeeded (the control
+  layer takes no later one, for its commands and models either; one after a refusal or a wait
+  that ended is still taken, as step 2c has it), held to what reads as itself as part 3a's
   parts are; a mode oso does not send is shown as the CLI says it. It is the one copy:
   the status line is given it to write (part 3a, amended).
 - **The key** (Q-B1 (a)): `S-TAB` in the transcript and the composer,
@@ -1138,8 +1139,13 @@ As built:
   switch asked for; else the one oso gave the process before, until that process said a mode,
   so that a step down is kept though the process ends before it speaks; else the one the CLI
   said last, if it is `default` or `plan`, or if the person switched to it here (a request
-  answered with success, or a tier-1 switch). Else none, and the process starts as the
-  settings say. One switch goes at a time.
+  answered with success, or a tier-1 switch); else `default`, once the person switched here,
+  so that a later process never goes back to the settings' mode, which may ask less. A session
+  nobody switched is given none, and starts as the settings say. A fork starts with its
+  source's state: the mode its source's next process would get, pending, and the person's
+  choice. A tier-1 switch whose resume is then refused (trust, or an orchestrator's start) is
+  over, and a row says the mode did not change. One switch goes at a time. A request's answer
+  is noted in the stream's order, so a mode the CLI says after it wins.
 - **The stream is not authenticated** (the security review): a tool the session runs, with
   the person's leave, can write a line to the stream that says any mode. So a mode that asks
   less, `acceptEdits` or `auto`, is shown as said but carried only when the person chose it;
