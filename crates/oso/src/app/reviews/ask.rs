@@ -16,11 +16,10 @@
 //!   Else to the review's session, as `C-c C-c` sends (ADR 0122, step 12a).
 //! - **Submitted (the one exception to ADR 0121's Q17):** the person typed the question and
 //!   confirmed it with `RET` in the prompt. Claude Code's input box is read from the screen the
-//!   UI holds (`sessions::send::input_box`): empty, the question is pasted, and Enter goes as a
-//!   key of its own only once the box shows the folded paste alone, of the question's line count
-//!   (`sessions::send::shows_paste`), at least [`ENTER_AFTER`]
-//!   later and at most [`ENTER_WAIT`]; with text typed, it is pasted and not submitted; with no
-//!   box, as when a dialog, a picker or another mode shows, nothing is pasted.
+//!   UI holds (`sessions::send::input_box`): while it shows, the question is pasted, and Enter
+//!   goes as a key of its own [`ENTER_AFTER`] later if the box still shows then, with any text
+//!   the box held (ADR 0163, "Submit once pasted, as amended"); with no box, as when a dialog,
+//!   a picker or another mode shows, nothing is pasted or submitted.
 //! - **Refused** as any send is, and then the session's terminal still shows in the slot, so
 //!   the person sees why; the question is in the prompt's history, `M-p` there brings it back.
 //! - A file that may hold secrets sends its place alone, judged again before a held question
@@ -39,17 +38,13 @@ use super::super::App;
 use super::super::sessions::Orchestrator;
 use crate::commands::agent_sessions::MAX_SEND_BYTES;
 use crate::review::ask::{About, Where, compose, region_rows, row_text};
-use crate::sessions::send::{InputBox, NoBox, input_box, shows_paste};
+use crate::sessions::send::{InputBox, NoBox, input_box};
 use crate::sessions::spaces::SpaceId;
 use crate::sessions::worker::SessionKey;
 
 /// How long after its paste a question's Enter may go, as a key of its own: a TUI may read a
 /// paste and a key that comes with it in one read as one paste.
 pub(super) const ENTER_AFTER: Duration = Duration::from_millis(150);
-/// How long the Enter waits for the input box to show the paste alone.
-pub(super) const ENTER_WAIT: Duration = Duration::from_secs(2);
-/// How often the input box is looked at meanwhile.
-const ENTER_POLL: Duration = Duration::from_millis(100);
 /// How long a question waits for an orchestrator being resumed to take it.
 pub(super) const HOLD_FOR: Duration = Duration::from_secs(120);
 
@@ -64,15 +59,12 @@ pub(in crate::app) struct Asking {
     held: Option<Held>,
 }
 
-/// An Enter for session `key`'s terminal `buffer`, for a paste of `newlines` line breaks,
-/// looked for at `next`, given up at `until`.
+/// An Enter for session `key`'s terminal `buffer`, due at `next`.
 #[derive(Debug)]
 struct Enter {
     key: SessionKey,
     buffer: BufferId,
-    newlines: usize,
     next: Instant,
-    until: Instant,
 }
 
 /// A question composed, with what is judged again before it goes later.
@@ -161,31 +153,24 @@ impl App {
                 why.said(&name)
             ));
         }
-        let newlines = question.text.matches('\n').count();
         if let Err(why) = self.paste_into_session(key, question.text) {
             return self.editor.message(why);
         }
-        let now = Instant::now();
-        if boxed == InputBox::Empty {
-            self.reviews.asking.enter = Some(Enter {
-                key,
-                buffer,
-                newlines,
-                next: now + ENTER_AFTER,
-                until: now + ENTER_WAIT,
-            });
-        }
+        self.reviews.asking.enter = Some(Enter {
+            key,
+            buffer,
+            next: Instant::now() + ENTER_AFTER,
+        });
         let shown = beside && self.show_in_review_slot(buffer, false);
-        let said = match (boxed, shown) {
-            (InputBox::Empty, true) => format!("Asked {name}: its answer shows beside the review"),
-            (InputBox::Empty, false) => {
-                let shows = self.dispatcher.where_is(&self.editor, "session-switch");
-                format!("Asked {name}: {shows} shows its answer")
-            }
-            _ => format!(
-                "Pasted into {name}, not submitted, as its input box held text: press Enter there"
-            ),
+        let mut said = if shown {
+            format!("Asked {name}: its answer shows beside the review")
+        } else {
+            let shows = self.dispatcher.where_is(&self.editor, "session-switch");
+            format!("Asked {name}: {shows} shows its answer")
         };
+        if boxed != InputBox::Empty {
+            said.push_str("; what its input box held went with it");
+        }
         self.editor.message(said);
         self.request_redraw();
     }
@@ -329,9 +314,9 @@ impl App {
             .any(|root| super::secrets::withheld(root, &held, &question.path))
     }
 
-    /// Looks for the Enter that waits, once its time came, or at once with `last`: it goes
-    /// when the input box shows the paste alone, and is given up once [`ENTER_WAIT`] passed
-    /// or with `last`, the question left in the box.
+    /// Sends the Enter that waits, once its time came, or at once with `last`, as a question
+    /// asked anew comes: only while the session still takes a paste and its input box still
+    /// shows, so that it never goes to a dialog or a picker that came meanwhile.
     fn look_for_enter(&mut self, now: Instant, last: bool) {
         let Some(enter) = &self.reviews.asking.enter else {
             return;
@@ -339,19 +324,12 @@ impl App {
         if now < enter.next && !last {
             return;
         }
-        let (key, buffer, until) = (enter.key, enter.buffer, enter.until);
-        let pasted = shows_paste(self.input_box_of(buffer), enter.newlines);
-        if !pasted && !last && now < until {
-            if let Some(enter) = &mut self.reviews.asking.enter {
-                enter.next = now + ENTER_POLL;
-            }
-            return;
-        }
+        let (key, buffer) = (enter.key, enter.buffer);
         self.reviews.asking.enter = None;
         let name = self.review_session_name(key);
-        let why = match pasted {
-            true => self.submit_paste(key, buffer).err(),
-            false => Some("its input box did not show the question's paste alone".to_owned()),
+        let why = match self.input_box_of(buffer) {
+            InputBox::Other(why) => Some(why.said(&name)),
+            _ => self.submit_paste(key, buffer).err(),
         };
         if let Some(why) = why {
             self.editor.message(format!(

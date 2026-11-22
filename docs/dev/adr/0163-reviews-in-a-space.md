@@ -1,6 +1,6 @@
 # 0163. Reviews in a space
 
-- Status: Accepted
+- Status: Accepted; "Submit once pasted, as amended" (2026-11-22)
 - Date: 2026-11-21
 
 ## Context
@@ -270,6 +270,27 @@ The rest is in the tip crate: `app/reviews/start.rs` (the steps, the target and 
   resume the orchestrator.
 - [ADR 0143](0143-agent-keys-on-c-c-a-and-an-agents-menu.md), the Agents menu: `v` is
   `review-layout`, `D` is `review-session`; session mode's `C-c C-v` is `review-layout`.
+
+## Submit once pasted, as amended
+
+Amended on 2026-11-22, the author's choice through the space's orchestrator. Once the input box
+was read for a named session, the author's questions were pasted but still not submitted: oso
+waited up to 2 s for the box to show the folded paste alone (`[Pasted text #N +M lines]`, `M` the
+question's line breaks), and on the author's machine it never matched, so the person had to go
+to the session and press Enter. Captured in a pty, Claude Code 2.1.330 and 2.1.326 fold oso's
+questions as expected, including after a resize, so why it did not match there is not known.
+The rule that holds now:
+
+- **While the input box shows** (empty, a folded paste, or other text on one row or several),
+  the question is pasted, and Enter goes as a key of its own 150 ms later,
+  with no wait for the folded paste and no check of what the box holds. Text the box held goes
+  with the question; the echo area says so.
+- **The one guard stays:** when no input box shows (no two rules, no prompt sign, a dialog's
+  options or a slash command's menu at the sign), nothing is pasted or submitted, and the echo
+  area says which. The Enter is sent only if the box still shows when it is due and the session
+  still takes a paste (the state rules: not needs input, not held by a full-screen view), so
+  that it never goes to a dialog or a picker that came meanwhile.
+- The passage above about **Empty**, **Typed** and the 2 s wait no longer holds.
 
 ## Consequences
 

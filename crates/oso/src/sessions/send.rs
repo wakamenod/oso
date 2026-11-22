@@ -226,7 +226,8 @@ pub enum InputBox {
     /// Only a paste the TUI folded, `[Pasted text #N +M lines]`, on one row or wrapped: `M`,
     /// or `None` for `[Pasted text #N]`.
     Pasted(Option<usize>),
-    /// One row of other text at the prompt sign: the person's draft, or an earlier paste.
+    /// Other text at the prompt sign, on one row or several: the person's draft, or an
+    /// earlier paste.
     Typed,
     /// No input box oso pastes into, and why.
     Other(NoBox),
@@ -243,8 +244,6 @@ pub enum NoBox {
     NoSign,
     /// A dialog's option at the sign, `❯ 1. Yes`, or a slash command's menu, `❯ /…`.
     Menu,
-    /// A draft of several rows, or a long one the terminal's width wrapped.
-    Rows,
 }
 
 impl NoBox {
@@ -261,12 +260,11 @@ impl NoBox {
             Self::Menu => {
                 format!("{name} shows a dialog's options or a command menu at its prompt")
             }
-            Self::Rows => format!("{name}'s input box holds a draft of several rows"),
         }
     }
 }
 
-/// The most rows a folded paste wraps to in a narrow terminal: more is a draft.
+/// The most rows a folded paste wraps to in a narrow terminal: more is other text.
 const MAX_WRAPPED_PASTE_ROWS: usize = 3;
 
 /// The fewest columns the input box's rules span: the TUI draws them the terminal's width.
@@ -277,9 +275,9 @@ const MIN_BOX_RULE_CHARS: usize = 20;
 /// (`screen::last_two_rules`): a run of `─`, or one with the session's name at its right end,
 /// as the TUI draws the top rule of a session started with `--name`; then held to more than
 /// the state rules ask, as the text model output can forge is: both at the row's start and at
-/// least [`MIN_BOX_RULE_CHARS`] long, the bottom one `─` alone. A dialog, a picker, a draft of
-/// several rows and a mode with another sign all read as [`InputBox::Other`], so that oso
-/// pastes nothing there; a folded paste the terminal's width wrapped still reads as one.
+/// least [`MIN_BOX_RULE_CHARS`] long, the bottom one `─` alone. A dialog, a picker and a mode
+/// with another sign read as [`InputBox::Other`], so that oso pastes and submits nothing
+/// there; a folded paste the terminal's width wrapped still reads as one.
 pub fn input_box(rows: &[String]) -> InputBox {
     let (Some(above), Some(below)) = super::screen::last_two_rules(rows) else {
         return InputBox::Other(NoBox::NoRules);
@@ -308,7 +306,7 @@ pub fn input_box(rows: &[String]) -> InputBox {
     if inside.len() > 1 {
         return match wrapped_paste(rest, &inside[1..]) {
             Some(lines) => InputBox::Pasted(lines),
-            None => InputBox::Other(NoBox::Rows),
+            None => InputBox::Typed,
         };
     }
     if rest.is_empty() || hint(rest) {
@@ -318,14 +316,6 @@ pub fn input_box(rows: &[String]) -> InputBox {
         Some(lines) => InputBox::Pasted(lines),
         None => InputBox::Typed,
     }
-}
-
-/// Whether `boxed` shows the paste of a text with `newlines` line breaks folded alone, as the
-/// TUI counts them (`+M lines`, one less than the lines; one more is taken too, should it count
-/// them otherwise): the Enter of `review-ask` waits for it. Text a model wrote cannot know the
-/// count of the question oso pasted, so it cannot pass for the paste.
-pub fn shows_paste(boxed: InputBox, newlines: usize) -> bool {
-    matches!(boxed, InputBox::Pasted(Some(lines)) if lines == newlines || lines == newlines + 1)
 }
 
 /// Whether `text` at an empty prompt is its hint, `Try "…"`, whole or cut with `…` in a
