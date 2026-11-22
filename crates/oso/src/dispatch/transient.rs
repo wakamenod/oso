@@ -27,14 +27,20 @@ impl Dispatcher {
     /// the agent's, a replayed macro's or a host's.
     pub(super) fn after_command(&self, editor: &mut Editor, id: CommandId, ran: bool) {
         editor.follow_completion_popup();
-        let typed = ran && !self.not_input && !editor.macro_replaying() && !editor.runs_for_agent();
-        if typed && self.keymaps.self_insert == Some(id) {
+        // A popup asks a server, so a macro's replay asks none.
+        if ran && self.persons_typing(editor, id) && !editor.macro_replaying() {
             editor.note_completion_typed();
         }
         // `C-g` stops a rename that waits for its server (ADR 0138, step 14, Q7).
         if ran && self.rename_waits && !self.not_input && self.keymaps.keyboard_quit == Some(id) {
             editor.request_server(oso_core::editor::ServerRequest::CancelRename);
         }
+    }
+
+    /// Whether command `id` was the person's typing of a character: not an agent's, nor what
+    /// the host runs as no input.
+    pub(super) fn persons_typing(&self, editor: &Editor, id: CommandId) -> bool {
+        !self.not_input && !editor.runs_for_agent() && self.keymaps.self_insert == Some(id)
     }
 
     /// Whether a rename waits for its server or its preview, which `C-g` then stops (ADR 0138,

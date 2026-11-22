@@ -277,6 +277,7 @@ pub(super) fn result(object: &Map<String, Value>) -> TurnResult {
             .get("permission_denials")
             .and_then(Value::as_array)
             .map_or(0, Vec::len),
+        session_id: string(object, "session_id"),
     }
 }
 

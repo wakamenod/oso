@@ -756,6 +756,69 @@ As built:
   `Child::interrupt`; on Windows, which has no `SIGINT`, the process ends at once, as
   `terminate` does there.
 
+### Part 2d: slash commands
+
+The author's (a) on each of Q1 to Q3 of 2026-11-22.
+
+Measured on 2026-11-22 (CLI 2.1.330, `--model=haiku`, made-up prompts, an empty directory):
+
+- `initialize`'s answer lists the commands, 71 here, each with `name`, `description` (up to
+  1.4 KB, a skill's from its file), `argumentHint`, `aliases` (a plugin's skill is aliased
+  `plugin:name`) and `builtin`. `system/init` lists their names only, and apart
+  `terminal_slash_commands` (`doctor`, `color`, `focus`, `reload-plugins`).
+- A listed command sent as text never comes back as the person's message, even with
+  `--replay-user-messages`: a local one (`/model`, `/effort`, `/usage`, `/context`, `/color`)
+  answers with a synthetic assistant message, a prompt one (`/init`, a skill, `/doctor`)
+  replays only its wrapped `<command-name>`. A text whose first word is no command
+  (`/tmp/x …`, `/notacommand`) is replayed and answered as a message.
+- `/clear` in `-p` starts a conversation with a new session id, which the next `system/init`
+  and `result` carry. A leading space, newline or U+FEFF, and another case (`/CLEAR`,
+  `/Clear`), make it a message, which clears nothing; a no-break space after it ends its word,
+  as other whitespace does (`/clear\u{a0}x` clears). `--resume` and `/compact` keep the
+  session id. `/rename` also writes `system/session_title_changed`.
+
+As built:
+
+- **The list** (`sessions::native::slash`, over `wire::slash`): the last `initialize` answer
+  of the session's processes; until a process gives one, as on tier 1, each `system/init`'s
+  names. A new process keeps the old list until its own comes. At most 512 commands and 8
+  aliases each, each hint and description cut to its first line and 256 bytes; a name or alias
+  longer than 256 bytes, or holding a space, a control, an invisible or a bidi character, is
+  dropped, as it could not be typed after a `/` or could pass for another's. It is the
+  project's text as much as the CLI's, so it is shown as completion rows show any text, its
+  controls and bidi characters escaped.
+- **Completion (Q1 (a)):** `/` typed as an empty composer's first character, by the person or
+  a macro's replay, opens a `Command:` minibuffer completion (`native-composer-command`), as
+  `M-x`'s does: each row the command's name, then its argument hint and description, with
+  `not built in` before a project's or a plugin's, once the list says whose each is, as a
+  skill may take a built-in's name;
+  orderless, `&` matching the annotation. `RET` puts `/name ` first in the composer, in place
+  of a word after a leading `/` that is, or begins, a listed name, ready for its arguments;
+  before the text otherwise, as before a path, point staying in it. `C-g` leaves the `/`.
+  `C-c /` opens it from anywhere in the composer. With no command listed yet, `/` is only a
+  `/`. The host lists the selected composer's session's rows, made once a version of its
+  list, again only when that session or its list changed. The dispatcher opens the prompt
+  after the person's `/`, as `review-layout` opens its menu, so no public item was needed.
+- **A command sent:** a text runs a command only when it starts with `/` itself and its first
+  word, ended by whitespace or U+FEFF as the CLI ends it, is a listed name or alias; its row is
+  the person's at once, as no replay comes. A first message given before the list is known (a
+  brief) shows no row of its own when it is a command.
+- **`/clear` (Q2 (a)):** refused at each write, the queue's included, saying to start a new
+  session instead, and left out of completion: oso's record would keep the old session id,
+  and a resume or a fork would reach the conversation before the clear. Once the list says
+  which commands are the CLI's own, a word that any listed `clear` of the CLI's answers to is
+  refused, whatever is listed before it, and not a project's skill of such a name alone; until
+  then, and with a CLI that marks none its own, its names (`/clear`, `/reset`, `/new`) are. A
+  refused queued message goes back first, and the queue waits for the person to drop it. A
+  brief that would clear, an agent's or a worktree's, is not written: it waits in the
+  composer, saying why.
+- **A conversation that moved anyway:** a `system/init` or `result` whose session id is not
+  the one its process's first `system/init` gave adds a row saying so, and the session neither
+  resumes after a signal (part 2c), nor by `session-resume`, nor forks, each saying why.
+  **Follow-up:** following the new id, as Q2's (b) would.
+- **A terminal's own commands (Q3 (a)):** left out of completion, and sent if typed; until
+  the first `system/init` lists them, the measured four.
+
 ### Part 2g: Markdown in replies
 
 The author chose (a) on Q8 and on each of the plan's questions (2026-11-22); the space's

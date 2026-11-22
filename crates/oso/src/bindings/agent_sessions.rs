@@ -60,6 +60,9 @@ pub const COMPOSER: &[(&str, &str)] = &[
     ("M-n", "native-composer-next"),
     ("C-c C-o", "native-composer-transcript"),
     ("C-c C-q", "native-session-queue"),
+    // The session's slash commands (step 2d); `/` as an empty composer's first character asks
+    // too, from the dispatcher.
+    ("C-c /", "native-composer-command"),
 ];
 
 /// Session mode's commands a native session's buffer does not bind: an agent's reads of a

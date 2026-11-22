@@ -18,6 +18,8 @@
 //!   answer (step 2), at the times the caller gives.
 //! - `queue`: the messages the person sent while a turn ran, held until the session is idle
 //!   (step 2).
+//! - `slash`: the slash commands a session's CLI offers, which run, and which are refused
+//!   (step 2d).
 //! - `control`: whether a session's CLI speaks the control layer, for which requests, and
 //!   which request an answer is to; `interrupt`: an interrupt from its request to its
 //!   fallback, a signal and a resume (step 2c).
@@ -33,6 +35,7 @@ pub mod point;
 pub mod queue;
 pub mod render;
 pub mod rows;
+pub mod slash;
 pub mod turns;
 pub mod wire;
 
