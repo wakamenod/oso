@@ -73,11 +73,17 @@ impl App {
     /// The session in front of the person: its terminal in the selected window of a focused
     /// oso window, with no prompt open.
     pub(super) fn watched_session(&self) -> Option<SessionKey> {
+        let buffer = self.buffer_in_front()?;
+        self.hosting.table().by_buffer(buffer).map(|s| s.key)
+    }
+
+    /// The buffer in front of the person: the selected window's, in a focused oso window, with
+    /// no prompt open.
+    pub(in crate::app) fn buffer_in_front(&self) -> Option<oso_core::buffer::BufferId> {
         if !self.terminals.focused || self.editor.prompt().is_some() {
             return None;
         }
-        let buffer = self.editor.window().buffer();
-        self.hosting.table().by_buffer(buffer).map(|s| s.key)
+        Some(self.editor.window().buffer())
     }
 
     /// Whether session `key`'s terminal is in a window of oso's.
