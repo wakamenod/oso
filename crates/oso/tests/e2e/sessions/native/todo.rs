@@ -137,7 +137,7 @@ fn the_to_do_strip_shows_opens_folds_and_goes_at_the_turns_end() {
     // One line, docked under the transcript.
     app.wait_for("the strip folded", |state| {
         state["buffer"]["name"] == "*claude: proj*"
-            && strip(state).is_some_and(|strip| strip["rows"] == 1)
+            && strip(state).is_some_and(|strip| strip["area"]["rows"] == 1)
     });
     let folded = strip_text(&mut app, "the strip selected");
     assert!(folded.starts_with("☐ 1/3 ▶ Run the auth tests"), "{folded}");
@@ -146,7 +146,7 @@ fn the_to_do_strip_shows_opens_folds_and_goes_at_the_turns_end() {
     // `C-c C-t` opens it to a row each, and folds it back.
     app.send_keys("C-c C-t");
     app.wait_for("the strip opened", |state| {
-        strip(state).is_some_and(|strip| strip["rows"] == 3)
+        strip(state).is_some_and(|strip| strip["area"]["rows"] == 3)
     });
     let opened = strip_text(&mut app, "the strip opened, selected");
     assert_eq!(
@@ -159,7 +159,7 @@ fn the_to_do_strip_shows_opens_folds_and_goes_at_the_turns_end() {
     );
     app.send_keys("C-c C-t");
     app.wait_for("the strip folded again", |state| {
-        strip(state).is_some_and(|strip| strip["rows"] == 1)
+        strip(state).is_some_and(|strip| strip["area"]["rows"] == 1)
     });
 
     // All done and the turn ended: it goes.

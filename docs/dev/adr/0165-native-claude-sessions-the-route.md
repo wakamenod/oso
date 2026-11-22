@@ -1064,8 +1064,9 @@ As built:
 - **Claude's text, fenced (ADR 0170):** oso's marks and keys are in faces of oso's own, and
   each item's text, after them, in a face of its own, its control characters as spaces, cut
   to the strip's width with `…`, measured as the display draws it: none of it runs past the
-  strip's edge, wraps, or stands where oso's keys are. It is drawn again when its window's
-  width changes.
+  strip's edge, wraps, or stands where oso's keys are. The strip's width is its window's
+  less the column a row keeps for the wrap mark. It is drawn again when its window's width
+  changes.
 - **After a resume (Q-E2 (a)):** a session resumed has no list until its next to-do call;
   oso never reads the CLI's task files. A restart of oso brings a stopped session back with
   none too. A tier-1 interrupt, which ends the process and resumes it, keeps the list, as the

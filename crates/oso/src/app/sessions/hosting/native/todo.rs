@@ -133,18 +133,20 @@ impl App {
     }
 
     /// The width session `key`'s strip is drawn at: its window's, else its transcript's
-    /// whole, as the strip has no gutter (ADR 0170).
+    /// whole, as the strip has no gutter (ADR 0170), less the column a row keeps for the wrap
+    /// mark, so that a row as wide as the window does not wrap to two.
     fn todo_width(&self, key: SessionKey) -> usize {
         let Some(native) = self.hosting.natives.map.get(&key) else {
             return UNSHOWN_WIDTH;
         };
-        if let Some(docked) = self.editor.dock_window(native.buffer, DockSlot::Strip) {
-            return (self.editor.regions(docked)).map_or(UNSHOWN_WIDTH, |r| r.text.columns);
-        }
-        (self.editor.windows())
-            .find(|window| window.buffer() == native.buffer)
-            .and_then(|window| self.editor.regions(window.id()))
-            .map_or(UNSHOWN_WIDTH, |regions| regions.area().columns)
+        let columns = match self.editor.dock_window(native.buffer, DockSlot::Strip) {
+            Some(docked) => (self.editor.regions(docked)).map(|regions| regions.text.columns),
+            None => (self.editor.windows())
+                .find(|window| window.buffer() == native.buffer)
+                .and_then(|window| self.editor.regions(window.id()))
+                .map(|regions| regions.area().columns),
+        };
+        columns.map_or(UNSHOWN_WIDTH, |columns| columns.saturating_sub(1))
     }
 
     /// Session `key`'s strip's buffer, made the first time.
