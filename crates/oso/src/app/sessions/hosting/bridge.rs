@@ -35,11 +35,14 @@ impl App {
             .iter()
             .filter(|session| matches!(session.run, Run::Running { .. }))
             .map(|session| {
-                let child = session
-                    .buffer
-                    .and_then(|buffer| self.terminals.map.get(buffer))
-                    .and_then(|hosted| hosted.terminal.as_ref())
-                    .and_then(oso_term::Terminal::pid);
+                // A native session's `claude` is its stream's process (ADR 0165).
+                let child = self.hosting.natives.pid(session.key).or_else(|| {
+                    session
+                        .buffer
+                        .and_then(|buffer| self.terminals.map.get(buffer))
+                        .and_then(|hosted| hosted.terminal.as_ref())
+                        .and_then(oso_term::Terminal::pid)
+                });
                 (session.key, child)
             })
             .collect();

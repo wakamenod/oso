@@ -9,6 +9,7 @@ use crate::buffer::{Buffer, BufferId};
 use crate::key::KeyPress;
 
 use super::Editor;
+use super::sessions::takes_session_flags;
 
 /// What a command asks of the host about the selected terminal, or about every terminal.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -57,10 +58,14 @@ impl Editor {
         name
     }
 
-    /// Notes whether a program runs in the terminal buffer `id`: killing it asks while one
-    /// does, and so does an exit. Nothing happens to a buffer that is not a terminal's.
+    /// Notes whether a program runs in the terminal buffer `id`, or a native session's
+    /// (ADR 0165): killing it asks while one does, and so does an exit. Nothing happens to
+    /// another buffer.
     pub fn set_running(&mut self, id: BufferId, running: bool) {
-        if let Some(buffer) = self.buffer_mut(id).filter(|buffer| buffer.is_terminal()) {
+        if let Some(buffer) = self
+            .buffer_mut(id)
+            .filter(|buffer| takes_session_flags(buffer))
+        {
             buffer.set_running(running);
         }
     }
@@ -74,11 +79,14 @@ impl Editor {
         }
     }
 
-    /// Notes whether the session hosted in the terminal buffer `id` has a turn under way or
-    /// asks a question, which makes it busy (ADR 0133). Nothing happens to a buffer that is
-    /// not a terminal's.
+    /// Notes whether the session hosted in the terminal buffer `id`, or shown in a native
+    /// session's, has a turn under way or asks a question, which makes it busy (ADR 0133).
+    /// Nothing happens to another buffer.
     pub fn set_session_turn(&mut self, id: BufferId, turn: bool) {
-        if let Some(buffer) = self.buffer_mut(id).filter(|buffer| buffer.is_terminal()) {
+        if let Some(buffer) = self
+            .buffer_mut(id)
+            .filter(|buffer| takes_session_flags(buffer))
+        {
             buffer.set_turn(turn);
         }
     }
@@ -116,20 +124,26 @@ impl Editor {
         }
     }
 
-    /// Lets the agent channel read the terminal buffer `id`'s rows, or takes it back
-    /// (ADR 0120, Q16). Nothing happens to a buffer that is not a terminal's.
+    /// Lets the agent channel read the terminal buffer `id`'s rows, or a native session's
+    /// text, or takes it back (ADR 0120, Q16; ADR 0165). Nothing happens to another buffer.
     pub fn set_agent_reads(&mut self, id: BufferId, reads: bool) {
-        if let Some(buffer) = self.buffer_mut(id).filter(|buffer| buffer.is_terminal()) {
+        if let Some(buffer) = self
+            .buffer_mut(id)
+            .filter(|buffer| takes_session_flags(buffer))
+        {
             buffer.set_agent_reads(reads);
         }
     }
 
-    /// Notes whether the terminal buffer `id` hosts an agent session (ADR 0132): session
-    /// mode's keys apply in it and its modeline says `Session`. Taking it back leaves the
-    /// buffer outside every project again. Nothing happens to a buffer that is not a
-    /// terminal's.
+    /// Notes whether the terminal buffer `id`, or a native session's, hosts an agent session
+    /// (ADR 0132, ADR 0165): session mode's keys apply in it and its modeline says
+    /// `Session`. Taking it back leaves the buffer outside every project again. Nothing
+    /// happens to another buffer.
     pub fn set_hosts_session(&mut self, id: BufferId, hosts: bool) {
-        let Some(buffer) = self.buffer_mut(id).filter(|buffer| buffer.is_terminal()) else {
+        let Some(buffer) = self
+            .buffer_mut(id)
+            .filter(|buffer| takes_session_flags(buffer))
+        else {
             return;
         };
         buffer.set_session(hosts);

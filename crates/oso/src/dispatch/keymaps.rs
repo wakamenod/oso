@@ -102,6 +102,8 @@ pub(super) struct Keymaps {
     /// A terminal's own keys and session mode's, in a terminal's buffer that hosts a session
     /// (ADR 0132).
     pub(super) session: Keymap,
+    /// A native session's buffer's own keys and session mode's (ADR 0165).
+    pub(super) native: Keymap,
     /// The user's keys from `[keys.session]`, above `session` in a session's terminal
     /// (ADR 0132, step 2). Empty without any, and then not a layer.
     pub(super) user_session: Keymap,
@@ -160,6 +162,7 @@ impl Keymaps {
             review_files: bindings::review_files_keymap(registry),
             review_commits: bindings::review_commits_keymap(registry),
             terminal: bindings::terminal_keymap(registry),
+            native: bindings::native_session_keymap(registry),
             session_help: SessionHelp::new(&session, registry),
             session,
             user_session: Keymap::new(),
@@ -214,6 +217,7 @@ impl Keymaps {
             review_commits,
             terminal,
             session,
+            native,
             user_session,
             lsp,
             session_help: _,
@@ -258,6 +262,7 @@ impl Keymaps {
             review_commits,
             terminal,
             session,
+            native,
             user_session,
             lsp,
         ]
@@ -393,6 +398,7 @@ impl Keymaps {
             | Mode::Latex
             | Mode::Swift
             | Mode::SessionMove => None,
+            Mode::NativeSession => Some(&self.native),
             Mode::Review => Some(&self.review),
             Mode::Directory => Some(&self.dired),
             Mode::RenamePreview => Some(&self.rename_preview),

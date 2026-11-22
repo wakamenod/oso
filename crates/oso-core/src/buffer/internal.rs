@@ -20,6 +20,12 @@ impl Buffer {
         }
     }
 
+    /// Whether it is a native agent session's conversation (ADR 0165), which takes a
+    /// terminal's session flags.
+    pub fn is_native_session(&self) -> bool {
+        self.internal && self.mode == crate::buffer::Mode::NativeSession
+    }
+
     /// An empty internal buffer for a server's description (ADR 0138, Hover): read-only, never
     /// read by the agent channel, and highlighted as the mode it is given says.
     pub(crate) fn described(name: impl Into<String>) -> Self {

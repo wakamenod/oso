@@ -76,6 +76,7 @@ pub oso_core::buffer::Mode::JavaScript
 pub oso_core::buffer::Mode::Json
 pub oso_core::buffer::Mode::Latex
 pub oso_core::buffer::Mode::Markdown
+pub oso_core::buffer::Mode::NativeSession
 pub oso_core::buffer::Mode::RenamePreview
 pub oso_core::buffer::Mode::Review
 pub oso_core::buffer::Mode::ReviewCommits
@@ -298,6 +299,7 @@ pub fn oso_core::buffer::Buffer::naming(&self) -> u32
 pub fn oso_core::buffer::Buffer::project(&self) -> core::option::Option<oso_core::project::ProjectId>
 impl oso_core::buffer::Buffer
 pub fn oso_core::buffer::Buffer::is_internal(&self) -> bool
+pub fn oso_core::buffer::Buffer::is_native_session(&self) -> bool
 impl oso_core::buffer::Buffer
 pub fn oso_core::buffer::Buffer::server(&self) -> core::option::Option<oso_core::buffer::ServerMark>
 pub fn oso_core::buffer::Buffer::set_server(&mut self, core::option::Option<oso_core::buffer::ServerMark>)
@@ -1915,6 +1917,20 @@ impl core::fmt::Debug for oso_core::editor::MergeMethod
 pub fn oso_core::editor::MergeMethod::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::MergeMethod
 impl core::marker::StructuralPartialEq for oso_core::editor::MergeMethod
+pub enum oso_core::editor::NativeAction
+pub oso_core::editor::NativeAction::Open
+pub oso_core::editor::NativeAction::Prompt(isize)
+pub oso_core::editor::NativeAction::Toggle
+pub oso_core::editor::NativeAction::Tool(isize)
+impl core::clone::Clone for oso_core::editor::NativeAction
+pub fn oso_core::editor::NativeAction::clone(&self) -> oso_core::editor::NativeAction
+impl core::cmp::Eq for oso_core::editor::NativeAction
+impl core::cmp::PartialEq for oso_core::editor::NativeAction
+pub fn oso_core::editor::NativeAction::eq(&self, &oso_core::editor::NativeAction) -> bool
+impl core::fmt::Debug for oso_core::editor::NativeAction
+pub fn oso_core::editor::NativeAction::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::NativeAction
+impl core::marker::StructuralPartialEq for oso_core::editor::NativeAction
 pub enum oso_core::editor::NoPair
 pub oso_core::editor::NoPair::NoBuffer
 pub oso_core::editor::NoPair::Paired
@@ -2346,6 +2362,10 @@ pub oso_core::editor::SessionRequest::ForkConversation::session: alloc::string::
 pub oso_core::editor::SessionRequest::GoToConversation
 pub oso_core::editor::SessionRequest::GoToConversation::message: usize
 pub oso_core::editor::SessionRequest::GoToConversation::session: alloc::string::String
+pub oso_core::editor::SessionRequest::Native
+pub oso_core::editor::SessionRequest::Native::action: oso_core::editor::NativeAction
+pub oso_core::editor::SessionRequest::Native::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::SessionRequest::Native::line: usize
 pub oso_core::editor::SessionRequest::NextDone
 pub oso_core::editor::SessionRequest::NextWaiting
 pub oso_core::editor::SessionRequest::OnBuffer(oso_core::buffer::BufferId, oso_core::editor::RowAction)
@@ -2904,6 +2924,10 @@ pub fn oso_core::editor::Editor::set_listing_text(&mut self, oso_core::buffer::B
 pub fn oso_core::editor::Editor::set_operation_running(&mut self, bool)
 pub fn oso_core::editor::Editor::take_listing_requests(&mut self) -> alloc::vec::Vec<oso_core::editor::ListingRequest>
 pub fn oso_core::editor::Editor::take_operation_stop(&mut self) -> bool
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::add_native_session_buffer(&mut self, impl core::convert::Into<alloc::string::String>) -> oso_core::buffer::BufferId
+pub fn oso_core::editor::Editor::busy_native_sessions(&self) -> impl core::iter::traits::iterator::Iterator<Item = oso_core::buffer::BufferId> + '_
+pub fn oso_core::editor::Editor::replace_native_rows(&mut self, oso_core::buffer::BufferId, core::ops::range::Range<usize>, &str, &[(usize, core::option::Option<oso_core::syntax::Highlight>)])
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::add_project(&mut self, oso_core::project::Found) -> oso_core::project::ProjectId
 pub fn oso_core::editor::Editor::project(&self, oso_core::project::ProjectId) -> core::option::Option<&oso_core::project::Project>

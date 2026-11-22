@@ -1,8 +1,8 @@
 //! What the commands of ADR 0121 step 3 ask, carried out: `*Spaces*` and its rows, showing a
 //! session (in its space, Q2), spaces and zoom, a live explain, and a stop that asks first
 //! while a session works or needs input (Q8); and step 5's sends and message follows, in
-//! `sending`. The question is the host's, as only the app
-//! knows a session's state.
+//! `sending`; and a native session's buffer's keys (ADR 0165), carried out in `hosting`. The
+//! question is the host's, as only the app knows a session's state.
 //!
 //! Must not depend on: how a frame is drawn, or key presses.
 
@@ -67,6 +67,11 @@ impl App {
                     None => self.editor.message("This buffer holds no session"),
                 }
             }
+            SessionRequest::Native {
+                buffer,
+                line,
+                action,
+            } => self.native_key(buffer, line, action),
             SessionRequest::Regroup => self.watch.list.regroup(),
             SessionRequest::CycleFolds => {
                 if !self.watch.list.cycle_folds(self.watch.view.open_to) {
@@ -264,6 +269,12 @@ impl App {
 
     /// Asks the worker to explain the last look at session `key`'s screen.
     fn explain_session(&mut self, key: SessionKey) {
+        // A native session's state is its stream's: there is no screen to explain (ADR 0165).
+        if self.hosting.natives.has(key) {
+            return self
+                .editor
+                .message("A native session's state comes from its stream: nothing to explain");
+        }
         match &self.sessions {
             Some(worker) => worker.send(Job::Explain(key)),
             None => self
@@ -408,6 +419,11 @@ impl App {
     /// Sends the hang-up to session `key`'s terminal: oso stopped it, so its end is no failure.
     /// A worktree's removal stops the worktree's idle sessions so too (ADR 0121 step 4).
     pub(in crate::app) fn hang_up_session(&mut self, key: SessionKey) {
+        if self.hang_up_native(key) {
+            // oso stopped it: its end is no failure (Q8).
+            self.watch.hung_up.insert(key);
+            return;
+        }
         let Some(buffer) = self.hosting.table().get(key).and_then(|s| s.buffer) else {
             return self.editor.message("That session does not run");
         };

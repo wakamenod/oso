@@ -12,7 +12,7 @@ use oso_term::End;
 use super::now_ms;
 use crate::app::{App, UserEvent};
 use crate::sessions::hosted::Run;
-use crate::sessions::start::{Ready, TerminalOrder};
+use crate::sessions::start::{Ready, Started, TerminalOrder};
 use crate::sessions::state::Exit;
 use crate::sessions::worker::{Job, SessionKey};
 use crate::terminal::hosted;
@@ -80,12 +80,15 @@ impl App {
         self.hosting.starting.remove(&key);
         let Ready {
             buffer,
-            terminal,
+            started: Started::Terminal(terminal),
             shell,
             passed_over,
             directory,
             ..
-        } = ready;
+        } = ready
+        else {
+            return false;
+        };
         // The start thread waited for the spawn: this is the child's id while it runs, and
         // none once it was reaped.
         let child = terminal.pid();
@@ -173,9 +176,14 @@ impl App {
     /// Brings session `key` back as a terminal buffer with no process, which says
     /// [`STOPPED`]. Nothing starts.
     pub(super) fn bring_back_stopped(&mut self, key: SessionKey) {
-        let Some(name) = self.hosting.table.get(key).map(|s| s.name.clone()) else {
+        let Some(session) = self.hosting.table.get(key) else {
             return;
         };
+        // A native session comes back as one (ADR 0165).
+        if session.native {
+            return self.bring_back_native(key);
+        }
+        let name = session.name.clone();
         let buffer = self.editor.add_terminal_buffer(&buffer_name(&name));
         self.terminals.map.add(buffer);
         self.editor.set_running(buffer, false);
@@ -189,7 +197,7 @@ impl App {
 
     /// `buffer` is session `key`'s terminal: session mode's keys apply in it, its modeline says
     /// `Session`, and it is in the project of the directory the session runs in (ADR 0132).
-    fn mark_session_buffer(&mut self, key: SessionKey, buffer: BufferId) {
+    pub(super) fn mark_session_buffer(&mut self, key: SessionKey, buffer: BufferId) {
         // A new session is only reserved yet, with its directory.
         let Some(directory) = self.hosting.table.directory(key).map(Path::to_path_buf) else {
             return;

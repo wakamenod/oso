@@ -59,11 +59,13 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos, windows-latest]
     # macOS runs on the author's self-hosted Mac (docs/dev/ci-runner.md, ADR 0166), except
-    # for a pull request from a fork, which gets a GitHub-hosted runner. The repository
+    # for a pull request from a fork, which gets a GitHub-hosted runner. The Mac has two
+    # runners: this job asks for oso-ci, the second one's label, and e2e asks for oso, the
+    # first one's, so that the two run at once and only one opens windows. The repository
     # variable OSO_MACOS_RUNNER, a runner label such as macos-latest, overrides the Mac while
     # it is offline. The runner's own job-started hook refuses a fork's job all the same,
     # since a fork can edit this line.
-    runs-on: ${{ matrix.os != 'macos' && matrix.os || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'macos-latest' || vars.OSO_MACOS_RUNNER || fromJSON('["self-hosted", "macOS", "ARM64", "oso"]') }}
+    runs-on: ${{ matrix.os != 'macos' && matrix.os || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'macos-latest' || vars.OSO_MACOS_RUNNER || fromJSON('["self-hosted", "macOS", "ARM64", "oso-ci"]') }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7.0.1
@@ -78,14 +80,23 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       # The self-hosted Mac keeps its build between jobs instead, outside the workspace, which
       # checkout cleans: pull requests and main each have their own, so main never builds on
-      # what a branch left (ADR 0166). git clean removes only the link.
+      # what a branch left (ADR 0166). Each runner has its own folder, named as the runner, and
+      # its hooks clean only that one. git clean removes only the link.
       - name: Keep the build on the runner
         if: runner.environment == 'self-hosted'
         env:
           KIND: ${{ github.ref == 'refs/heads/main' && 'main' || 'pr' }}
           JOB: ${{ github.job }}
+          # So that A-Z below means ASCII letters only.
+          LC_ALL: C
         run: |
-          dir="$HOME/ci-target/$KIND/$JOB"
+          # The hooks refuse the same names; pr and main were the folders of a single runner.
+          case "$RUNNER_NAME" in
+            '' | . | .. | pr | main | *[!A-Za-z0-9._-]*)
+              echo "error: the runner's name cannot name a build folder: '$RUNNER_NAME'"
+              exit 1 ;;
+          esac
+          dir="$HOME/ci-target/$RUNNER_NAME/$KIND/$JOB"
           mkdir -p "$dir"
           rm -rf target
           ln -s "$dir" target
@@ -139,7 +150,9 @@ jobs:
         # Not Windows: the control socket does not support it yet (ADR 0032).
         os: [ubuntu-latest, macos]
     # macOS runs on the author's self-hosted Mac (docs/dev/ci-runner.md, ADR 0166), except
-    # for a pull request from a fork, which gets a GitHub-hosted runner. The repository
+    # for a pull request from a fork, which gets a GitHub-hosted runner. The label oso is
+    # the Mac's first runner's alone, so e2e runs never overlap there and windows do not
+    # take the focus from each other; just ci runs on the second one. The repository
     # variable OSO_MACOS_RUNNER, a runner label such as macos-latest, overrides the Mac while
     # it is offline. The runner's own job-started hook refuses a fork's job all the same,
     # since a fork can edit this line.
@@ -157,14 +170,23 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       # The self-hosted Mac keeps its build between jobs instead, outside the workspace, which
       # checkout cleans: pull requests and main each have their own, so main never builds on
-      # what a branch left (ADR 0166). git clean removes only the link.
+      # what a branch left (ADR 0166). Each runner has its own folder, named as the runner, and
+      # its hooks clean only that one. git clean removes only the link.
       - name: Keep the build on the runner
         if: runner.environment == 'self-hosted'
         env:
           KIND: ${{ github.ref == 'refs/heads/main' && 'main' || 'pr' }}
           JOB: ${{ github.job }}
+          # So that A-Z below means ASCII letters only.
+          LC_ALL: C
         run: |
-          dir="$HOME/ci-target/$KIND/$JOB"
+          # The hooks refuse the same names; pr and main were the folders of a single runner.
+          case "$RUNNER_NAME" in
+            '' | . | .. | pr | main | *[!A-Za-z0-9._-]*)
+              echo "error: the runner's name cannot name a build folder: '$RUNNER_NAME'"
+              exit 1 ;;
+          esac
+          dir="$HOME/ci-target/$RUNNER_NAME/$KIND/$JOB"
           mkdir -p "$dir"
           rm -rf target
           ln -s "$dir" target

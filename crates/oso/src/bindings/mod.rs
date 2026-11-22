@@ -363,6 +363,23 @@ pub fn terminal_keymap(registry: &Registry) -> Keymap {
     keymap
 }
 
+/// The keymap of a native session's buffer (ADR 0165): its own keys and session mode's, which
+/// share no key. Empty for a registry without their commands, as in tests that bring their
+/// own.
+pub fn native_session_keymap(registry: &Registry) -> Keymap {
+    Keymap::from_table(registry, &native_session_rows()).unwrap_or_default()
+}
+
+/// A native session's buffer's keys: its own, and session mode's but those it has no use for.
+fn native_session_rows() -> Vec<(&'static str, &'static str)> {
+    let session = (agent_sessions::SESSION.iter())
+        .filter(|(_, name)| !agent_sessions::NOT_NATIVE.contains(name));
+    (agent_sessions::NATIVE.iter())
+        .chain(session)
+        .copied()
+        .collect()
+}
+
 /// The keymap of a terminal's buffer that hosts an agent session (ADR 0132): the terminal's own
 /// keys and session mode's, which share no key, so one keymap looks up as a minor mode's over
 /// the terminal's would. Empty for a registry without their commands, as in tests that bring
@@ -479,6 +496,24 @@ mod tests {
         assert_eq!(rigid_keymap(&registry).len(), indent::RIGID.len());
         assert_eq!(markdown_keymap(&registry).len(), markdown::MARKDOWN.len());
         assert_eq!(rigid_commands(&registry).len(), indent::RIGID.len());
+    }
+
+    #[test]
+    fn a_native_sessions_keymap_binds_its_rows_and_session_modes() {
+        let registry = commands::registry();
+        let keymap = super::native_session_keymap(&registry);
+        for (keys, name) in [agent_sessions::NATIVE, agent_sessions::SESSION].concat() {
+            let keys: KeySequence = keys.parse().unwrap();
+            let bound = keymap.lookup(&keys.0);
+            if agent_sessions::NOT_NATIVE.contains(&name) {
+                assert!(bound.is_none(), "{keys} is bound");
+                continue;
+            }
+            let Some(Binding::Command(id)) = bound else {
+                panic!("{keys} is not bound to a command");
+            };
+            assert_eq!(registry.get(id).unwrap().name, name);
+        }
     }
 
     #[test]

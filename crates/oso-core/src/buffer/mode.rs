@@ -97,6 +97,9 @@ pub enum Mode {
     /// What oso waits for while a session started outside it moves into a space,
     /// `*moving: NAME*`; killing it cancels the move (ADR 0151).
     SessionMove,
+    /// A native agent session's conversation, `*claude: NAME*`, which oso writes from the
+    /// session's stream (ADR 0165).
+    NativeSession,
 }
 
 impl Mode {
@@ -185,6 +188,7 @@ impl Mode {
             Self::Conversation => "Conversation",
             Self::RenamePreview => "Rename",
             Self::SessionMove => "Session Move",
+            Self::NativeSession => "Session",
         }
     }
 
@@ -236,7 +240,8 @@ impl Mode {
             | Self::GitDiscarded
             | Self::Conversation
             | Self::RenamePreview
-            | Self::SessionMove => None,
+            | Self::SessionMove
+            | Self::NativeSession => None,
         };
         given.unwrap_or_default()
     }
@@ -293,6 +298,7 @@ impl Mode {
             | Self::Conversation
             | Self::RenamePreview
             | Self::SessionMove
+            | Self::NativeSession
             | Self::GitDiscarded
             | Self::Sessions => None,
         }

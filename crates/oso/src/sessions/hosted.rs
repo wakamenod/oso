@@ -73,6 +73,8 @@ pub struct Hosted {
     pub pinned: bool,
     /// Archived with `C-x k`: not brought back at start, until step 3's list restores it.
     pub archived: bool,
+    /// A native session (ADR 0165): `claude -p` shown in oso's rows, not a terminal.
+    pub native: bool,
     /// When it last changed, in ms since the epoch.
     pub changed: u64,
     /// The bridge connection that holds it, at most one.
@@ -101,6 +103,7 @@ impl Hosted {
             origin: self.origin,
             pinned: self.pinned,
             archived: self.archived,
+            native: self.native,
             changed: self.changed,
             baseline: self.baseline.clone(),
             space: self.space.clone(),
@@ -136,6 +139,8 @@ pub struct New {
     /// The brief, kept only for a session started without asking.
     pub unasked_brief: Option<Arc<str>>,
     pub changed: u64,
+    /// A native session (ADR 0165).
+    pub native: bool,
 }
 
 impl Table {
@@ -188,6 +193,7 @@ impl Table {
             reads: Vec::new(),
             pinned: false,
             archived: false,
+            native: new.native,
             changed: new.changed,
             bridge: None,
             carried: false,
@@ -238,6 +244,7 @@ impl Table {
                 space: session.space,
                 reads: session.reads,
                 pinned: session.pinned,
+                native: session.native,
                 archived: session.archived,
                 changed: session.changed,
                 bridge: None,
@@ -477,6 +484,7 @@ mod tests {
 
     fn new(n: u8) -> New {
         New {
+            native: false,
             id: SessionId::from_random([n; 16]),
             root: None,
             parent: None,
@@ -493,6 +501,7 @@ mod tests {
 
     fn remembered(n: u8, archived: bool) -> Remembered {
         Remembered {
+            native: false,
             id: SessionId::from_random([n; 16]),
             name: format!("r{n}"),
             directory: PathBuf::from("/p"),

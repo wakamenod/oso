@@ -18,6 +18,7 @@ impl Rows {
     /// the row and the call's place in it.
     pub(super) fn add_call(&mut self, call: Tool, depth: u8) -> (RowChange, usize, usize) {
         let id = call.id.clone();
+        self.turn.push(id.clone());
         let last = self.rows.len().wrapping_sub(1);
         let shares = self.may_share(&call)
             && matches!(self.rows.last(), Some(Row { kind: Kind::Tools(tools), .. })
