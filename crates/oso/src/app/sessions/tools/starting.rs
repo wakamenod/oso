@@ -151,6 +151,7 @@ impl App {
                     origin: creating.origin,
                     check_shared: false,
                     trusted: Some(trusted),
+                    worktree: true,
                     space: App::worker_reads(reads),
                     behind: false,
                 });

@@ -1,8 +1,7 @@
 //! A native session's resume and fork (ADR 0165, step 2, R1 and the author's Q2 (a)): a
 //! stopped native session resumes natively, in its own buffer, keeping its rows with one
 //! "Resumed" row; a fork of a session at a trusted project's root under `mode = "native"` is
-//! native, in a new buffer. Neither opens `*Brief*`: the session starts at once, and the person
-//! writes in its composer. `resume_hosted` and `fork_from` order them.
+//! native, in a new buffer. Each starts at once, and the person writes in its composer. `resume_hosted` and `fork_from` order them.
 //!
 //! Must not depend on: key presses or how a frame is drawn; the start thread starts the process.
 //!
@@ -98,33 +97,6 @@ impl App {
         self.set_native_state(key, NativeState::Stopped);
         self.composer_ended(key);
         true
-    }
-
-    /// Native session `key` ended before it was given a message: Claude Code kept no
-    /// conversation, so nothing is left to resume, and the session and its buffers go.
-    pub(super) fn forget_unspoken_native(&mut self, key: SessionKey) {
-        let name = (self.hosting.table.get(key)).map_or_else(String::new, |s| s.name.clone());
-        if let Some(native) = self.hosting.natives.map.remove(&key) {
-            if let Some(composer) = native.composing.buffer {
-                self.editor.kill_buffer(composer);
-            }
-            self.editor.kill_buffer(native.buffer);
-        }
-        self.forget_session(key);
-        self.editor.message(format!(
-            "Session {name} ended before it was given a message: nothing is left to resume"
-        ));
-    }
-
-    /// Forgets session `key` everywhere: the table, its trust, the worker and the record.
-    pub(super) fn forget_session(&mut self, key: SessionKey) {
-        self.hosting.starting.remove(&key);
-        self.hosting.table.forget(key);
-        self.hosting.trusts.remove(&key);
-        if let Some(worker) = &self.sessions {
-            worker.send(crate::sessions::worker::Job::Forget(key));
-        }
-        self.remember_sessions();
     }
 
     /// Starts fork `key`, `name`, natively in a new buffer when `directory` is the root of a

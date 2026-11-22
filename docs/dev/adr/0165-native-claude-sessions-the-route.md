@@ -670,10 +670,15 @@ R1 as built, with the author's Q2 (a) and their choices of 2026-11-22:
   `*Brief*` is no longer a native start's (the worktree flow keeps its own), and an agent's
   start with no brief still runs in a terminal. A message sent before the process runs waits
   for it.
+- **Part 2a, amended:** with `*Brief*` gone from native starts, the first message is written
+  in the composer, so it goes into `M-p`'s history, and the secret check is the composer's.
 - **A session given no message:** Claude Code keeps no conversation for a `claude -p` that was
   written nothing, and `--resume` of it fails ("No conversation found", a probe of
   2026-11-22). A native session that ends, is killed or is left at oso's exit before it was
-  given a message is forgotten, not stopped or archived: nothing is left to resume.
+  given a message is forgotten, its line dropped from the record, when it ends cleanly with
+  nothing in its composer or queue, when its buffer is killed, and at oso's exit. Ended any
+  other way (a failure, or a draft or queue written), it stays, with its standard error and
+  what was written, and its resume says it has no conversation.
 - **The stream on a resume:** `claude -p --resume` with `stream-json` writes only the new
   turn's events (init, the replay of the new message, its reply, its result), never the earlier
   conversation (a probe of 2026-11-22): the rows kept are the transcript, and a resume costs

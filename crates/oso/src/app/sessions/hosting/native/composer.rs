@@ -393,7 +393,7 @@ impl App {
     }
 
     /// Whether native session `key`'s composer holds nothing, read without a copy.
-    fn composer_empty(&self, key: SessionKey) -> bool {
+    pub(super) fn composer_empty(&self, key: SessionKey) -> bool {
         let id = (self.hosting.natives.map.get(&key)).and_then(|native| native.composing.buffer);
         id.and_then(|id| self.editor.buffer(id))
             .is_none_or(|buffer| buffer.text().is_empty())

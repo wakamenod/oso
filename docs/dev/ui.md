@@ -1307,8 +1307,8 @@ a switch made with its command stands until that setting changes in the file
   person's messages after `› `, replies after `● `, thinking as `∴ Thought for N s`, each tool
   call as one line with what came of it, an edit as a diff, and each turn's time and cost. A
   start with no brief starts at once, with its composer selected, where the person writes the
-  first message (step 2); a session ended before it was given one leaves nothing to resume,
-  and goes. Its state comes from its stream. In its buffer, `TAB` folds or unfolds
+  first message (step 2); a session stopped or killed before it was given one leaves nothing
+  to resume, and goes (one that failed, or holds a draft, stays, saying why). Its state comes from its stream. In its buffer, `TAB` folds or unfolds
   the row at point (a call of an open row of several on its own), `RET` shows a call's whole
   result read-only in `*result: NAME*`, withheld from agents, `n`/`p` move between the person's
   messages and `]`/`[` between tool rows; session mode's `C-c` keys work there too, but
@@ -1329,8 +1329,8 @@ a switch made with its command stands until that setting changes in the file
   natively, in its own buffer, with a "Resumed" row and the composer selected, at the root of
   a project an open buffer says is trusted now (else it says why: a file of the project to
   open, or `session-fork`, which continues it in a terminal); `session-fork` forks a session
-  natively there under `mode = "native"`, and in a terminal elsewhere. Elsewhere, an agent's start with no brief, and a restricted project, keep the
-  terminal.
+  natively there under `mode = "native"`, and in a terminal elsewhere. An agent's start with
+  no brief, and a restricted project, keep the terminal.
 
   `claude` is started as the login shell would start it, so its `PATH`, version managers and
   proxies apply; set `claude` when the shell is not `sh`, `bash`, `zsh`, `dash` or `ksh`. `env`

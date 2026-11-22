@@ -27,8 +27,12 @@ pub(in crate::app) struct Begin {
     pub origin: Origin,
     /// Whether to ask first when another live session runs in its directory.
     pub check_shared: bool,
-    /// The trust of its directory, when it is no open project's: a worktree just made.
+    /// The trust it starts under, when its directory is no open project's root: a worktree
+    /// just made (`worktree`), or the trust of the agent's session that starts it.
     pub trusted: Option<TrustedRoot>,
+    /// Its directory is a worktree just made, whose own trust `trusted` is: the one start
+    /// that runs natively with no open buffer to say its project is trusted (ADR 0165, Q5).
+    pub worktree: bool,
     /// An issue space's orchestrator: what it starts with (ADR 0136, step 3).
     pub space: Option<crate::sessions::start::SpaceStart>,
     /// Its terminal is not shown though the person started it: an orchestrator `space-new`
@@ -46,6 +50,7 @@ impl Default for Begin {
             origin: Origin::Person,
             check_shared: false,
             trusted: None,
+            worktree: false,
             space: None,
             behind: false,
         }

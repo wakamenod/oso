@@ -15,7 +15,7 @@ use crate::git::TrustedRoot;
 
 /// Why a native session does not run natively where it runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(in crate::app) enum NotTrusted {
+pub(in crate::app::sessions::hosting) enum NotTrusted {
     /// No buffer of a project at its root is open, so its trust is not known now.
     NotOpen,
     /// The project at its root is not trusted now.
@@ -38,7 +38,7 @@ impl App {
 
     /// The trust a native session in `directory`, of the project at `root`, runs under now:
     /// only at its project's root, and only a trusted open project's.
-    pub(in crate::app) fn native_trust_now(
+    pub(in crate::app::sessions::hosting) fn native_trust_now(
         &self,
         directory: &Path,
         root: Option<&Path>,

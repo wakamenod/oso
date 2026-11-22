@@ -209,6 +209,7 @@ impl App {
             parent: brief.parent,
             check_shared: false,
             trusted: Some(trusted),
+            worktree: true,
             space: None,
             behind: false,
         });

@@ -86,7 +86,7 @@ pub(in crate::app) struct Hosting {
     pub(in crate::app) moves: Moves,
     /// A rename asked, and what Claude Code calls oso's running sessions (ADR 0155).
     pub(in crate::app) naming: naming::Naming,
-    /// The native sessions, and starts waiting for their first message (ADR 0165).
+    /// The native sessions (ADR 0165).
     pub(in crate::app) natives: NativeSessions,
 }
 
@@ -247,7 +247,7 @@ impl App {
             return None;
         }
         let project = self.project_at_root(&directory);
-        let native = self.native_start(&begin, project);
+        let native = self.native_start(&begin, &directory, project);
         let base = begin.name.clone().unwrap_or_else(|| base_name(&directory));
         let (key, name) = self.hosting.table.reserve(&directory, &base);
         if let Some(parent) = begin.parent.clone() {
@@ -266,7 +266,11 @@ impl App {
         // An agent's tool's start stays behind what the person is doing (ADR 0144).
         let shown = begin.origin == Origin::Person && !begin.behind;
         let runs = if native {
-            let first = begin.brief.as_deref();
+            // A blank brief is none: the person writes the first message in the composer.
+            let first = begin
+                .brief
+                .as_deref()
+                .filter(|brief| native::has_brief(Some(brief)));
             Runs::Native(self.native_session_buffer(key, &name, directory.clone(), shown, first))
         } else {
             Runs::Terminal(self.session_terminal(key, &name, None, shown))
@@ -469,6 +473,18 @@ impl App {
         revoke_untrusted(&mut self.hosting.baselines, |project| {
             editor.project_trusted(project)
         });
+    }
+
+    /// Forgets session `key`, which started and was written in the record but leaves nothing
+    /// to keep: the table, its trust, the worker and the record's line (ADR 0165, step 2).
+    pub(super) fn forget_started_session(&mut self, key: SessionKey) {
+        self.hosting.starting.remove(&key);
+        self.hosting.table.drop_started(key);
+        self.hosting.trusts.remove(&key);
+        if let Some(worker) = &self.sessions {
+            worker.send(crate::sessions::worker::Job::Forget(key));
+        }
+        self.remember_sessions();
     }
 
     /// A start that did not happen: a held name goes, and a resumed session is stopped again.

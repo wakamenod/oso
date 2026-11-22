@@ -123,7 +123,8 @@ impl App {
             Some(Orchestrator::Stopped { key, .. }) if self.hosting.natives.has(key) => {
                 let name = self.review_session_name(key);
                 self.editor.message(format!(
-                    "{name} is a native session, which takes no question from a review yet:                      nothing was sent"
+                    "{name} is a native session, which takes no question from a review yet: \
+                     nothing was sent"
                 ));
             }
             Some(Orchestrator::Stopped { key, .. }) => self.offer_resume(key, question),

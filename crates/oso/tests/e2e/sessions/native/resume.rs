@@ -96,3 +96,52 @@ fn a_stopped_native_session_resumes_in_its_buffer_and_forks_natively() {
     let _ = app.exchange("exit", None);
     app.wait_for_exit();
 }
+
+/// Whether a buffer named `name` is open.
+fn has_buffer(state: &Value, name: &str) -> bool {
+    (state["buffers"].as_array()).is_some_and(|buffers| buffers.iter().any(|b| b["name"] == name))
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_native_session_stopped_before_its_first_message_is_forgotten() {
+    let flow = Flow::new("native-unspoken");
+    let fake = flow.scratch.path().join("fake-claude");
+    let script = RESUME_FAKE.replace("DIR", &flow.scratch.path().display().to_string());
+    fs::write(&fake, script).unwrap();
+    let init = r#"{"type":"system","subtype":"init","cwd":"/w","session_id":"s","model":"m"}"#;
+    flow.scratch
+        .write("stream.jsonl", format!("{init}\n").as_bytes());
+    let mut app = flow.start();
+    app.open_file(&flow.project.join("notes.md"));
+    trust_restricted(&mut app, "proj");
+    app.wait_for("the project trusted", |state| {
+        !modeline(state).contains("restricted")
+    });
+    // `claude` starts it at once, its composer selected; it is stopped before anything is sent.
+    app.run_command("claude", None).unwrap();
+    app.wait_for("the composer", in_composer);
+    flow.wait_for_file("run.1");
+    app.send_keys("C-c C-o");
+    app.wait_for("the transcript", |state| {
+        state["buffer"]["name"] == "*claude: proj*"
+    });
+    app.run_command("session-stop", None).unwrap();
+    let state = app.wait_for("the session forgotten", |state| {
+        state["echo"]
+            .as_str()
+            .is_some_and(|echo| echo.contains("nothing is left to resume"))
+    });
+    assert!(
+        !has_buffer(&state, "*compose: proj*"),
+        "{}",
+        state["buffers"]
+    );
+    assert!(
+        !has_buffer(&state, "*claude: proj*"),
+        "{}",
+        state["buffers"]
+    );
+    let _ = app.exchange("exit", None);
+    app.wait_for_exit();
+}

@@ -74,6 +74,12 @@ impl App {
         // A native session resumes natively, in its own buffer, only where its project is
         // trusted now (ADR 0165, step 2): looked at before anything changes.
         let native = self.hosting.natives.has(key);
+        if native && !self.native_spoke(key) {
+            return Err(format!(
+                "Session {name} was never given a message, so Claude Code has no conversation \
+                 to resume: claude starts a new one"
+            ));
+        }
         let trusted = match native {
             true => Some(self.native_resume_trust(&name, &directory, root.as_deref())?),
             false => None,
