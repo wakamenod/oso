@@ -281,16 +281,25 @@ to the session and press Enter. Captured in a pty, Claude Code 2.1.330 and 2.1.3
 questions as expected, including after a resize, so why it did not match there is not known.
 The rule that holds now:
 
-- **While the input box shows** (empty, a folded paste, or other text on one row or several),
-  the question is pasted, and Enter goes as a key of its own 150 ms later,
-  with no wait for the folded paste and no check of what the box holds. Text the box held goes
-  with the question; the echo area says so.
-- **The one guard stays:** when no input box shows (no two rules, no prompt sign, a dialog's
-  options or a slash command's menu at the sign), nothing is pasted or submitted, and the echo
-  area says which. The Enter is sent only if the box still shows when it is due and the session
-  still takes a paste (the state rules: not needs input, not held by a full-screen view), so
-  that it never goes to a dialog or a picker that came meanwhile.
-- The passage above about **Empty**, **Typed** and the 2 s wait no longer holds.
+- **While the input box shows** (empty, or text at the sign on one row or several), the question
+  is pasted, and Enter goes as a key of its own, with no check of what the box holds: text the
+  box held goes with the question, and the echo area says so.
+- **The guard stays:** when no input box shows, nothing is pasted or submitted, and the echo area
+  says which: no two rules, no prompt sign, a dialog's options or a slash command's menu at the
+  sign, or rows under the sign that go on as a dialog's (another sign, an option, a row without
+  the box's two-space indent), as model-written text inside a dialog could draw.
+- **The Enter judges the newest screen** (added after the security review of the first version,
+  the same day): it goes at least 150 ms after the paste, once the screen the UI holds has
+  changed since the paste and the terminal's thread holds no newer one, taken at once rather
+  than at the few-times-a-second pace of a terminal no window shows; then only if that screen
+  still shows the box and the session still takes a paste (the state rules), so that it never
+  goes to a dialog or a picker that came meanwhile. With no such screen within 2 s, or another
+  question asked first, it is not sent, and the echo area says so. A paste that never arrived
+  usually leaves the screen as it was, so that a draft does not go alone; a screen that changes
+  anyway, as a spinner's, does not tell it.
+- No longer holding: the passage above about **Empty**, **Typed** and the wait for the folded
+  paste; "never … a draft" in the paragraph before them; and "a draft of several rows" among
+  **No box**.
 
 ## Consequences
 

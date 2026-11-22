@@ -58,7 +58,7 @@ pub const COMMANDS: &[Command] = &[
     ),
     Command {
         name: "review-ask",
-        doc: "Ask a question about the hunk or line at point, or the lines the region spans, sent at once to the space's orchestrator.\n\nThe question goes with the review's worktree, the file, the line numbers and the lines, as a comment's place and hunk go with `C-c C-c`, and is submitted: the orchestrator answers in its terminal, shown in the review layout's slot while you stay in the review. Outside a space with an orchestrator it goes to the review's session, as `C-c C-c` sends. A file that may hold secrets sends its place alone. A session asking for permission or another answer is refused; `M-p` in the prompt brings the question back.",
+        doc: "Ask a question about the hunk or line at point, or the lines the region spans, sent at once to the space's orchestrator.\n\nThe question goes with the review's worktree, the file, the line numbers and the lines, as a comment's place and hunk go with `C-c C-c`, and is submitted, with any text the session's input box held: the orchestrator answers in its terminal, shown in the review layout's slot while you stay in the review. Outside a space with an orchestrator it goes to the review's session, as `C-c C-c` sends. A file that may hold secrets sends its place alone. A session asking for permission or another answer is refused; `M-p` in the prompt brings the question back.",
         args: ArgSpec::Text {
             prompt: "Ask about this: ",
             history: "review-ask",

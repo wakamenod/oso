@@ -504,9 +504,8 @@ submitted, as you confirmed it in the prompt. The orchestrator's terminal shows 
 slot while you stay in the review, so you read the answer beside the diff. Outside a space with an
 orchestrator, or for a repository that is not one of the space's, it goes to the review's session.
 A file that may hold secrets sends its place alone. oso reads the orchestrator's input box on its
-screen: with nothing typed there, the question is pasted and submitted once the box shows it; with
-text you typed there, it is pasted and not submitted, for you to press Enter; and with no input box
-showing, as while it asks for permission, nothing is sent. Its terminal then shows so that you see
+screen: while it shows, the question is pasted and submitted, and text you had typed there goes
+with it; with no input box showing, as while it asks for permission, nothing is sent. Its terminal then shows so that you see
 why, and `M-p` in the prompt brings the question back. A stopped orchestrator is offered to be
 resumed, and the question waits for it for two minutes.
 
