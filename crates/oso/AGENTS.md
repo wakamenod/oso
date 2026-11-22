@@ -92,7 +92,8 @@ often, so it must rebuild within 2 s.
   `oso-native-err`, and written to on `oso-native-write` (`stream`);
   `app/sessions/hosting/native.rs` draws its rows on the UI thread, row by row. Its composer and
   queue are `app/sessions/hosting/native/composer.rs`, over the queue's rules in
-  `sessions/native/queue.rs`, its interrupt `native/interrupting.rs`, over the control layer's
+  `sessions/native/queue.rs`, what oso composed put in or sent there `composer/composed.rs`
+  (part 2f), escaped by `sessions/send/escape.rs` as every send is, its interrupt `native/interrupting.rs`, over the control layer's
   rules in `sessions/native/control.rs` and the interrupt's in `sessions/native/interrupt.rs`,
   its slash commands `native/slash.rs`, over `sessions/native/slash.rs`, and its resume and a
   native fork `native/resume.rs`, under the trust `app/sessions/hosting/trust.rs` judges

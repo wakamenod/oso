@@ -1,6 +1,7 @@
 # 0163. Reviews in a space
 
-- Status: Accepted, amended by 0169; "Submit once pasted, as amended" (2026-11-22)
+- Status: Accepted, amended by 0169; "Submit once pasted, as amended" (2026-11-22); "A native
+  session's question, as amended" (2026-11-22)
 - Date: 2026-11-21
 
 ## Context
@@ -300,6 +301,22 @@ The rule that holds now:
 - No longer holding: the passage above about **Empty**, **Typed** and the wait for the folded
   paste; "never … a draft" in the paragraph before them; and "a draft of several rows" among
   **No box**.
+
+## A native session's question, as amended
+
+Amended on 2026-11-22, the author's Q4 (a) of ADR 0165 part 2f, through the coordinator. A
+native session (ADR 0165) has no terminal, input box or Enter: the question cannot be pasted
+and submitted as above.
+
+- **To a native session, the question is sent** as a user message once the person confirmed it
+  in oso's prompt, or queued behind the turn under way: `send_confirmed`, the native route's
+  submit, beside `submit_paste`, the terminal's. These two are the only submits to a session.
+  It is escaped as every send is (ADR 0121, "Composed text, as amended"); the composer's draft,
+  a queued message edited there and a paused queue are left as they are.
+- **A stopped native session is refused**, "it has stopped: `session-resume` first", as it has no
+  terminal to resume into with the question waiting; the question is in the prompt's history.
+- **Shown** as a terminal is: the transcript in the review layout's slot while the space it was
+  asked in is in front, the review staying selected.
 
 ## Consequences
 

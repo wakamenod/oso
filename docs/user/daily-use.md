@@ -673,7 +673,13 @@ composer, `e` edits it where it is (`C-c C-c` puts it back, `C-c C-k` leaves it 
 drops it, and `M-<up>` and `M-<down>` move it; `C-c C-q` goes to the queue. `C-c C-k`, in the
 composer or the conversation, interrupts the turn under way; what is queued then waits until
 you send again (`C-c C-c` with an empty composer sends the next). `C-u C-c C-c` interrupts the
-turn and sends your message first, ahead of the queue. Typing `/` in an empty composer, or
+turn and sends your message first, ahead of the queue. What oso sends a native session, with
+`session-send`, a review's `C-c C-c`, a commit's draft or an orchestrator's offer, goes into
+its composer where point is, for you to read and send; `C-c C-y` there puts the clipboard's
+image in as `@` and its path. A review's `Q` question goes at once, or waits behind the turn
+under way. Text oso pastes or puts in, in any session, has a `/` it starts with and an `@`
+that starts a word escaped (` /`, `\@`), so that Claude reads it as text, not as a command or
+a file to attach. Typing `/` in an empty composer, or
 `C-c /`, lists the session's slash commands with what each takes; `RET` puts one in the
 composer. `/clear` is refused there: start a new session instead. If the session
 stops, what is queued stays there: take a message back with `RET`, or drop it with `d`. oso does not

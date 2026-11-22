@@ -21,6 +21,10 @@
 //!   amended"), at least [`ENTER_AFTER`] later and once the screen has changed since the paste,
 //!   read again then and still showing the box, within [`ENTER_WAIT`]; with no box, as when a
 //!   dialog, a picker or another mode shows, nothing is pasted or submitted.
+//! - **To a native session** (ADR 0165, part 2f; ADR 0163, "A native session's question, as
+//!   amended"): sent at once as a message, or queued behind the turn under way
+//!   (`send_confirmed`), the composer's draft untouched; a stopped one is refused, as it is
+//!   resumed first. Its transcript shows in the slot as a terminal does.
 //! - **Refused** as any send is, and then the session's terminal still shows in the slot, so
 //!   the person sees why; the question is in the prompt's history, `M-p` there brings it back.
 //! - A file that may hold secrets sends its place alone, judged again before a held question
@@ -36,7 +40,7 @@ use oso_core::review::{Anchor, Review as Model, RowKind, Rows};
 use oso_core::rope::Rope;
 
 use super::super::App;
-use super::super::sessions::Orchestrator;
+use super::super::sessions::{Orchestrator, Outgoing, Shown};
 use crate::commands::agent_sessions::MAX_SEND_BYTES;
 use crate::review::ask::{About, Where, compose, region_rows, row_text};
 use crate::sessions::send::{InputBox, NoBox, input_box};
@@ -118,14 +122,10 @@ impl App {
         self.look_for_enter(Instant::now(), true);
         match self.review_orchestrator(review) {
             Some(Orchestrator::Running(key)) => self.deliver_question(key, question),
-            // A native session takes messages in its composer: a question goes there with
-            // composed sends (ADR 0165, step 2f), not a resume that could not deliver it.
+            // A native session takes it or says why not: a stopped one is resumed first
+            // (ADR 0165, part 2f).
             Some(Orchestrator::Stopped { key, .. }) if self.hosting.natives.has(key) => {
-                let name = self.review_session_name(key);
-                self.editor.message(format!(
-                    "{name} is a native session, which takes no question from a review yet: \
-                     nothing was sent"
-                ));
+                self.deliver_question(key, question);
             }
             Some(Orchestrator::Stopped { key, .. }) => self.offer_resume(key, question),
             Some(stopped @ Orchestrator::NoTerminal { .. }) => {
@@ -152,6 +152,9 @@ impl App {
     fn deliver_question(&mut self, key: SessionKey, question: Question) {
         let name = self.review_session_name(key);
         let beside = question.space.is_some() && question.space == self.front_space_id();
+        if self.hosting.natives.has(key) {
+            return self.deliver_native_question(key, &name, beside, &question.text);
+        }
         let buffer = match self.paste_target(key) {
             Ok(buffer) => buffer,
             Err(why) => {
@@ -175,7 +178,8 @@ impl App {
             ));
         }
         let generation = self.screen_generation(buffer);
-        if let Err(why) = self.paste_into_session(key, question.text) {
+        let text = Outgoing::Composed(&question.text);
+        if let Err(why) = self.paste_into_session(key, text, Shown::Nothing) {
             return self.editor.message(why);
         }
         let now = Instant::now();
@@ -196,6 +200,28 @@ impl App {
         if boxed != InputBox::Empty {
             said.push_str("; what its input box held went with it");
         }
+        self.editor.message(said);
+        self.request_redraw();
+    }
+
+    /// [`App::deliver_question`] to native session `key`, named `name`: sent at once, or queued
+    /// behind the turn under way, its composer's draft untouched (ADR 0165, step 2f, Q4 (a)),
+    /// and its transcript shown in the slot while the space it was asked in is in front.
+    fn deliver_native_question(&mut self, key: SessionKey, name: &str, beside: bool, text: &str) {
+        let sent = self.send_confirmed(key, text);
+        let transcript = (self.hosting.table().get(key)).and_then(|session| session.buffer);
+        let shown =
+            beside && transcript.is_some_and(|buffer| self.show_in_review_slot(buffer, false));
+        let said = match sent {
+            Err(why) => format!(
+                "{name}: {why}; nothing was sent, and M-p in the question's prompt brings it back"
+            ),
+            Ok(how) if shown => format!("Asked {name}, {how}: its answer shows beside the review"),
+            Ok(how) => {
+                let shows = self.dispatcher.where_is(&self.editor, "session-switch");
+                format!("Asked {name}, {how}: {shows} shows its answer")
+            }
+        };
         self.editor.message(said);
         self.request_redraw();
     }

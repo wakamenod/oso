@@ -152,12 +152,15 @@ impl App {
                 (session.name.clone(), state, session.directory.clone())
             })
             .collect();
+        // Composed by oso of names agents choose: escaped as composed text is (ADR 0121,
+        // "An agent's brief, as amended").
         let brief = takeover_brief(
             &space_name,
             (&renamed, old.as_str()),
             transcript.as_deref(),
             &sessions,
         );
+        let brief = crate::sessions::send::for_claude(&brief, None).into_owned();
         let key = (table.iter())
             .find(|session| session.id == old)
             .map(|session| (session.key, session.runs() && session.buffer.is_some()));

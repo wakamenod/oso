@@ -13,7 +13,7 @@ mod images;
 mod pane;
 mod placing;
 mod requests;
-mod sending;
+pub(super) mod sending;
 mod shared;
 mod view;
 

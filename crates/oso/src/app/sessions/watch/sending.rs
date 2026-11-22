@@ -1,9 +1,12 @@
 //! Sending to a session, carried out (ADR 0121, Q17, step 5): the one delivery path,
-//! [`App::paste_into_session`], which refuses a session that cannot take a paste and pastes as
-//! the person's bracketed paste, not submitted, and [`App::send_to_session`], which then shows
-//! the session; [`App::submit_paste`], the one submit, for a review's question the person
-//! confirmed in oso's prompt (ADR 0163); the completions of
-//! `session-send` and `session-mention`; and who last messaged each session, for its row and
+//! [`App::paste_into_session`], which takes what is sent as [`Outgoing`], escapes it once
+//! (`sessions::send::for_claude`, ADR 0121's "Composed text, as amended"), refuses a session
+//! that cannot take it, and pastes it as the person's bracketed paste, not submitted, or puts it
+//! into a native session's composer at point, not sent (ADR 0165, part 2f), showing the session
+//! when asked; [`App::send_to_session`] is it, shown. The submits, for a review's question the
+//! person confirmed in oso's prompt (ADR 0163): [`App::submit_paste`] for a terminal, and a
+//! native session's `send_confirmed` (ADR 0165, part 2f). Also the completions of
+//! `session-send` and `session-mention`, and who last messaged each session, for its row and
 //! `session-follow-message`. `images` keeps its own state here: the session an image is read
 //! for, and the thread that keeps the images (ADR 0142).
 //!
@@ -27,6 +30,42 @@ use crate::sessions::list::{Entry, Key};
 use crate::sessions::send::{self, Standing, TooLarge};
 use crate::sessions::state::State;
 use crate::sessions::worker::SessionKey;
+
+/// What is sent to a session, which says how it is escaped.
+#[derive(Clone, Copy, Debug)]
+pub(in crate::app) enum Outgoing<'a> {
+    /// Text oso composed, from what others wrote too: escaped (`sessions::send::for_claude`).
+    Composed(&'a str),
+    /// oso's own reference, a kept image's `@PATH` (ADR 0142): as it is, but that it makes no
+    /// `@` after it the start of a word (`sessions::send::reference`).
+    Reference(&'a str),
+}
+
+impl<'a> Outgoing<'a> {
+    /// The text as it goes in before `next`, what follows it where it goes.
+    pub(in crate::app) fn escaped(self, next: Option<char>) -> std::borrow::Cow<'a, str> {
+        match self {
+            Self::Composed(text) => send::for_claude(text, next),
+            Self::Reference(text) => send::reference(text, next),
+        }
+    }
+
+    /// Its length before it is escaped, which escaping never shortens.
+    pub(in crate::app) fn len(self) -> usize {
+        match self {
+            Self::Composed(text) | Self::Reference(text) => text.len(),
+        }
+    }
+}
+
+/// Whether a send shows its session.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::app) enum Shown {
+    /// Shown and selected in its space.
+    Session,
+    /// Left where it is, as a review's question is shown in the review layout's slot.
+    Nothing,
+}
 
 /// What sending keeps of the hosted sessions.
 #[derive(Debug, Default)]
@@ -93,43 +132,69 @@ impl App {
                 .buffers()
                 .any(|(_, buffer)| buffer.name() == placed && buffer.is_secret())
         });
+        let put = self.sent_echo(key, &name);
         self.editor.message(if withheld {
-            format!(
-                "Pasted into {name}: press Enter there. Only the place went, as the buffer may \
-                 hold secrets"
-            )
+            format!("{put}. Only the place went, as the buffer may hold secrets")
         } else {
-            format!("Pasted into {name}: press Enter there")
+            put
         });
     }
 
-    /// Pastes `text` into hosted session `key`'s terminal as the person's bracketed paste,
-    /// not submitted, then shows and selects the session in its space (Q2). Refused, as
-    /// [`App::paste_into_session`] refuses it.
+    /// [`App::paste_into_session`] of `text`, composed by oso, the session shown and selected
+    /// in its space (Q2), point after the text in a native session's composer.
     pub(in crate::app) fn send_to_session(
         &mut self,
         key: SessionKey,
         text: String,
     ) -> Result<(), String> {
-        self.paste_into_session(key, text)?;
-        self.show_session(key);
-        Ok(())
+        let sent = self.paste_into_session(key, Outgoing::Composed(&text), Shown::Session);
+        sent.map(|_| ())
     }
 
-    /// Pastes `text` into hosted session `key`'s terminal as the person's bracketed paste, not
-    /// submitted, showing nothing, and returns the terminal's buffer. Refused, with why, while
-    /// the session cannot take a paste: not running, not judged yet since it started, asking
-    /// for input, or held by a full-screen view.
-    ///
-    /// The one delivery path: what is sent to a session goes through here.
+    /// How what was sent to session `key` goes from there: a native session's composer sends
+    /// with its own key (ADR 0165, part 2f).
+    pub(in crate::app) fn send_hint(&self, key: SessionKey) -> String {
+        match self.hosting.natives.has(key) {
+            true => {
+                let send = self
+                    .dispatcher
+                    .where_is(&self.editor, "native-composer-send");
+                format!("{send} in its composer sends it")
+            }
+            false => "press Enter there".to_owned(),
+        }
+    }
+
+    /// What the echo area says once session `key`, named `name`, was sent something.
+    pub(in crate::app) fn sent_echo(&self, key: SessionKey, name: &str) -> String {
+        match self.hosting.natives.has(key) {
+            true => format!("Put into {name}'s composer: {}", self.send_hint(key)),
+            false => format!("Pasted into {name}: {}", self.send_hint(key)),
+        }
+    }
+
+    /// The one delivery path: what is sent to a session goes through here. `text` is escaped
+    /// once, as [`Outgoing`] says, then pasted into hosted session `key`'s terminal as the
+    /// person's bracketed paste, not submitted, or put into a native session's composer at
+    /// point (ADR 0165, part 2f); with [`Shown::Session`] the session is shown and selected
+    /// too. Returns the buffer it went into. Refused, with why, while the session cannot take
+    /// it: a terminal not running, not judged yet since it started, asking for input, or held
+    /// by a full-screen view; a composer that would hold too much or holds secret text.
     pub(in crate::app) fn paste_into_session(
         &mut self,
         key: SessionKey,
-        text: String,
+        text: Outgoing<'_>,
+        shown: Shown,
     ) -> Result<oso_core::buffer::BufferId, String> {
+        if self.hosting.natives.has(key) {
+            return self.compose_into(key, text, shown == Shown::Session);
+        }
         let buffer = self.paste_target(key)?;
-        if !self.paste(buffer, text) {
+        if !self.paste(buffer, text.escaped(None).into_owned()) {
             return Err("Nothing was pasted".to_owned());
+        }
+        if shown == Shown::Session {
+            self.show_session(key);
         }
         Ok(buffer)
     }
@@ -164,11 +229,10 @@ impl App {
             .get(key)
             .ok_or_else(|| "That session is gone".to_owned())?;
         let name = session.name.clone();
-        // A native session takes messages from its composer, step 2 of ADR 0165.
+        // A native session takes messages in its composer, which has no terminal
+        // (ADR 0165, step 2f): `send_to_session` puts them there.
         if self.hosting.natives.has(key) {
-            return Err(format!(
-                "{name} is a native session: it takes messages in a later step"
-            ));
+            return Err(format!("{name} is a native session, with no terminal"));
         }
         let buffer = session
             .buffer

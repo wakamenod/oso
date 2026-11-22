@@ -63,6 +63,8 @@ pub const COMPOSER: &[(&str, &str)] = &[
     // The session's slash commands (step 2d); `/` as an empty composer's first character asks
     // too, from the dispatcher.
     ("C-c /", "native-composer-command"),
+    // The clipboard's image, as session mode's `C-c C-y` (ADR 0142): its `@PATH` at point.
+    ("C-c C-y", "session-yank-image"),
 ];
 
 /// Session mode's commands a native session's buffer does not bind: an agent's reads of a

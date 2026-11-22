@@ -880,7 +880,21 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
 - Sending to a hosted session (`session-send`, `session-mention`,
   [ADR 0121](adr/0121-agent-sessions-and-spaces.md) step 5) is the person's typing, `Person`:
   the agent channel never writes to a terminal. It goes through one path, which pastes as a
-  bracketed paste, cleaned as any paste is, and never sends Enter.
+  bracketed paste, cleaned as any paste is, and never sends Enter; a native session's goes
+  into its composer at point, unsent ([ADR 0165](adr/0165-native-claude-sessions-the-route.md),
+  step 2f).
+  - What it pastes is text oso composed from what others wrote, so it is escaped first, as is
+    an agent's brief: a leading `/` gets a space, as Claude Code runs a message that starts
+    with `/` as a command, and an `@` at the start or after whitespace (U+FEFF included) gets a
+    `\`, as Claude Code puts a file an `@PATH` names in the context there, wherever the file is
+    (ADR 0121, "Composed text, as amended" and "An agent's brief, as amended"). It is escaped
+    once, as the paste will read it: a control character the paste drops is looked through.
+    Text put into a draft, a kept image's reference included, also leaves no `@` of the draft at
+    the start of a word; the brief oso composes for an orchestrator's successor, of names agents
+    choose, is escaped too. An image kept after the person left the session goes in without
+    taking the selected window, and a composer a yank turned secret takes nothing. A kept image's `@PATH` is oso's own and
+    goes as it is, as does what the person types. Only `claude -p`'s reading was measured;
+    the TUI's is taken to be the same.
   - A session that is not running, not judged since it started, asking for input or held by a
     full-screen view is refused, as a paste into a dialog could choose an option. The check
     reads the last verdict, which can be some 100 to 200 ms old when the paste lands, and waits

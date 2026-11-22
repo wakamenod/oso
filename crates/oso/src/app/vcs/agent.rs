@@ -6,8 +6,9 @@
 //! it: the last subjects are read on the repository's run thread.
 //!
 //! - A request goes as the person's paste into the session's terminal, through the one
-//!   delivery path, not submitted: the person reads it in the session's input box and presses
-//!   Enter. The agent sees nothing else: the log stays withheld from the channel (Q1).
+//!   delivery path, escaped as every send is, not submitted: the person reads it in the
+//!   session's input box and presses Enter; a native session's goes into its composer, for the
+//!   person to send (ADR 0165, part 2f). The agent sees nothing else: the log stays withheld from the channel (Q1).
 //! - The session is the hosted one that runs in the repository's root, the one whose terminal
 //!   was shown last if several do.
 //! - A draft request names an id of 32 random bits, kept with the session it was pasted into;
@@ -157,8 +158,9 @@ impl App {
         match self.send_to_session(key, text) {
             Ok(()) => {
                 self.editor.message(format!(
-                    "Asked {} for {then}, in {lines} lines: read them, then press Enter there{note}",
-                    one_line(&name, 40)
+                    "Asked {} for {then}, in {lines} lines: read them, then {}{note}",
+                    one_line(&name, 40),
+                    self.send_hint(key),
                 ));
                 true
             }

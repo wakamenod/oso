@@ -819,6 +819,55 @@ As built:
 - **A terminal's own commands (Q3 (a)):** left out of completion, and sent if typed; until
   the first `system/init` lists them, the measured four.
 
+### Part 2f: composed sends
+
+The author's (a) on each of part 2f's Q1 to Q4 of 2026-11-22, and (a) on agents' briefs, through
+the coordinator; the escapes are step 2's Q5 (a). ADR 0121 ("Composed text" and "An agent's
+brief"), ADR 0122 ("Pasted messages are escaped") and ADR 0163 ("A native session's question")
+are amended in place for them.
+
+Measured on 2026-11-22 (CLI 2.1.330, `--model=haiku`, `--tools=`, a made-up file outside the
+directory): an `@PATH` puts the file in the context at the text's start and after a space, a
+tab, a line feed, VT, FF, NBSP, U+3000, U+2028 or U+FEFF, which is what Rust's
+`char::is_whitespace` takes and U+FEFF; not after `'`, `"`, `[`, `<`, `:`, `=`, `-`, `*`, `\`, a
+letter, U+0001, NEL or U+200B. A message
+starting with `/` runs a command (part 2d); one starting with a space does not.
+
+- **Escapes** (step 2's Q5 (a), now ADR 0121's "Composed text, as amended", on both routes,
+  part 2f's Q2 (a)): what oso composed gets a space before a leading `/`, and a `\` before an
+  `@` at the start or after whitespace (`sessions::send::for_claude`), once, at the one
+  delivery path, `paste_into_session`, a control character a terminal's paste drops looked
+  through. Put into a draft, a `\` also follows text that ends
+  in whitespace before an `@` of the draft, so that nothing put in makes the person's `x@y`
+  the start of a word, a kept image's `@PATH` (`sessions::send::reference`) included, which is
+  otherwise not escaped, nor is what the person types.
+- **A send to a native session** (Q1 (a)): `paste_into_session` and `send_to_session` put the
+  escaped text into its composer at point, not sent, and `send_to_session` shows the session
+  with point in the composer after it; the person sends it with `C-c C-c`. A stopped session's
+  composer takes it, its send waiting as part 2a says. Nothing goes in that would make the
+  composer hold more than 64 KiB, though a send may be 256 KiB: "The composer would hold over
+  64 KiB: nothing was put in"; nor into one a yank turned secret, which sends nothing. `session-send`, `session-mention`, review comments, git
+  drafts and orchestrator offers all go this way, and say "Put into NAME's composer: C-c C-c
+  in its composer sends it".
+- **A clipboard image** (Q3 (a)): `C-c C-y` in the composer, or the transcript, puts the kept
+  file's `@PATH` there, plain text in the composer's own face; the session is shown only if
+  the person is still in it when the image is kept, as a read and a save take a while.
+- **A review's question** (Q4 (a)), the person having confirmed it in oso's prompt: sent at
+  once, or queued behind the turn under way (`Queue::send_confirmed`, which leaves a queued
+  message edited in the composer as it is, and a paused queue paused), escaped, the
+  composer's draft untouched; the transcript shows in the review layout's slot as a terminal
+  does. A stopped session is still refused, as part 2b had it: "NAME: it has stopped: C-c C-r
+  first", the question kept in the prompt's history.
+- **An agent's brief** (ADR 0121, "An agent's brief, as amended") is escaped once where the
+  start takes it, so a native session's first message from an agent is escaped too; the
+  person's own `*Brief*` goes as typed, and part 2d's `/clear` check sees only the person's.
+- **Built with** `sessions::send::for_claude` and `reference` (pure, with unit tests for each
+  separator measured, a paste's dropped controls, what is not escaped and the draft's boundary),
+  `app/sessions/hosting/native/composer/composed.rs` (`compose_into`, `send_confirmed`), the
+  delivery path in `app/sessions/watch/sending.rs` (`paste_into_session` over `Outgoing`,
+  `Shown`), `Begin::brief_to_send`, and the e2e flow `sessions::native::composed`; the send
+  and worktree tool flows check the escapes in a terminal paste and a brief.
+
 ### Part 2g: Markdown in replies
 
 The author chose (a) on Q8 and on each of the plan's questions (2026-11-22); the space's

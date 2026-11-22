@@ -265,7 +265,7 @@ impl App {
         self.turn_agent_channel_on_for_a_session();
         // An agent's tool's start stays behind what the person is doing (ADR 0144).
         let shown = begin.origin == Origin::Person && !begin.behind;
-        let mut brief = begin.brief.clone();
+        let mut brief = begin.brief_to_send();
         let runs = if native {
             Runs::Native(self.native_start_buffer(key, &name, directory.clone(), shown, &mut brief))
         } else {

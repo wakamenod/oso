@@ -355,7 +355,7 @@ fn an_allowed_worktree_session_starts_and_its_finished_worktree_is_removed() {
 
     let id = bridge.call(
         "start_worktree_session",
-        json!({ "branch": "e2e-agent", "brief": "Fix the parser" }),
+        json!({ "branch": "e2e-agent", "brief": "Fix the parser in @src/lib.rs" }),
     );
     let question = answer(&mut app, &bridge, "y");
     assert!(question.contains("e2e-agent"), "{question}");
@@ -363,6 +363,15 @@ fn an_allowed_worktree_session_starts_and_its_finished_worktree_is_removed() {
     assert!(!error, "{started}");
     assert_eq!(started["session"]["name"], "e2e-agent");
     let run = run_in(&flow, &place);
+    // An agent's brief is escaped, as text oso was given (ADR 0121, "An agent's brief, as
+    // amended").
+    assert!(
+        run.args
+            .iter()
+            .any(|arg| arg == "Fix the parser in \\@src/lib.rs"),
+        "{:?}",
+        run.args
+    );
     app.wait_for("the worktree session's terminal", |state| {
         terminal(state, "*claude: e2e-agent*").is_some()
     });

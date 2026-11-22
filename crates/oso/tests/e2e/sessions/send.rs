@@ -216,12 +216,13 @@ fn a_send_is_one_bracketed_paste_not_submitted_and_a_dialog_refuses_it() {
         ("notes.md:1-3\n```\none\ntwo\nthree\n```", "")
     );
 
-    // No region: a note, as written.
+    // No region: a note, as written, but that a leading `/` and a word-initial `@` are
+    // escaped, so that the CLI reads them as text (ADR 0121, "Composed text, as amended").
     open(&mut app, &flow.project.join("notes.md"), false);
     app.send_keys("C-g");
-    send_to(&mut app, session, Some("look at this"));
+    send_to(&mut app, session, Some("/look at @notes.md"));
     let read = wait_for_pastes(&flow, "proj", 2);
-    assert_eq!(paste(&read, 2), ("look at this", ""));
+    assert_eq!(paste(&read, 2), (" /look at \\@notes.md", ""));
 
     // `C-u` with no region: the line at point, as its place only.
     open(&mut app, &flow.project.join("notes.md"), false);
