@@ -12,7 +12,9 @@
 //! - The reply is `{"behavior": "allow"}` or `{"behavior": "deny", "message": "…"}`; the
 //!   bridge gives the CLI the call's own input back with an `allow`. An `AskUserQuestion`'s
 //!   `allow` carries `"answers": {QUESTION: ANSWER}` too, which the bridge puts in that input
-//!   (step 2e-2).
+//!   (step 2e-2). An `ExitPlanMode`'s may carry `"plan"`, the person's edit, which the bridge
+//!   puts in the input in place of Claude's, and `"mode"`, one of [`PlanMode`]'s, which it
+//!   gives the CLI as the session's mode after the plan (part 3d).
 
 use serde_json::{Map, Value};
 
@@ -30,6 +32,34 @@ pub const MAX_MESSAGE: usize = 4096;
 /// The longest input sent, as JSON, in bytes: as much as a native session's rows read of a
 /// call's input.
 pub const MAX_INPUT: usize = 64 << 10;
+
+/// The longest edited plan an approval carries, in bytes: as much of a plan as a card keeps.
+pub const MAX_PLAN: usize = 64 << 10;
+
+/// The mode an approved plan leaves the session in, besides the CLI's own `default` (part 3d):
+/// only these are ever sent, and none lets calls run unchecked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlanMode {
+    AcceptEdits,
+    Auto,
+}
+
+impl PlanMode {
+    /// The mode as the CLI names it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::AcceptEdits => "acceptEdits",
+            Self::Auto => "auto",
+        }
+    }
+
+    /// The mode the CLI names `name`, if it is one of these.
+    pub fn named(name: &str) -> Option<Self> {
+        [Self::AcceptEdits, Self::Auto]
+            .into_iter()
+            .find(|mode| mode.name() == name)
+    }
+}
 
 /// A call a session's `claude` asks permission for.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -117,6 +147,40 @@ pub fn answers(reply: &Value) -> Option<Map<String, Value>> {
         .then(|| answers.clone())
 }
 
+/// The reply that approves an `ExitPlanMode` (part 3d): with `plan`, the person's edit of it,
+/// and with `mode`, the session's mode after it. `None` for an edit over [`MAX_PLAN`] bytes,
+/// which is never cut: the plan approved is the one the person saw.
+pub fn allow_plan(plan: Option<&str>, mode: Option<PlanMode>) -> Option<Value> {
+    let mut reply = allow();
+    if let Some(plan) = plan {
+        if plan.len() > MAX_PLAN {
+            return None;
+        }
+        reply["plan"] = Value::String(plan.to_owned());
+    }
+    if let Some(mode) = mode {
+        reply["mode"] = Value::String(mode.name().to_owned());
+    }
+    Some(reply)
+}
+
+/// What an `allow` of an `ExitPlanMode` carries: the person's edit of the plan, if any, and the
+/// session's mode after it, if any; `Err` if either is there but is not one oso sends, a string
+/// of at most [`MAX_PLAN`] bytes and one of [`PlanMode`]'s.
+pub fn plan_answer(reply: &Value) -> Result<(Option<String>, Option<PlanMode>), ()> {
+    let plan = match reply.get("plan") {
+        None => None,
+        Some(Value::String(plan)) if plan.len() <= MAX_PLAN => Some(plan.clone()),
+        Some(_) => return Err(()),
+    };
+    let mode = match reply.get("mode") {
+        None => None,
+        Some(Value::String(name)) => Some(PlanMode::named(name).ok_or(())?),
+        Some(_) => return Err(()),
+    };
+    Ok((plan, mode))
+}
+
 /// The reply that refuses the call, telling the CLI `message`, cut to [`MAX_MESSAGE`] bytes.
 pub fn deny(message: &str) -> Value {
     let end = message.floor_char_boundary(MAX_MESSAGE);
@@ -176,6 +240,39 @@ mod tests {
         ];
         for params_ in bad {
             assert!(parse(&params(params_.clone())).is_err(), "{params_}");
+        }
+    }
+
+    #[test]
+    fn a_plans_approval_carries_only_an_edit_and_a_mode_oso_sends() {
+        let reply = allow_plan(Some("Do it."), Some(PlanMode::AcceptEdits)).unwrap();
+        assert_eq!(
+            reply,
+            json!({"behavior": "allow", "plan": "Do it.", "mode": "acceptEdits"})
+        );
+        assert_eq!(
+            plan_answer(&reply),
+            Ok((Some("Do it.".into()), Some(PlanMode::AcceptEdits)))
+        );
+        assert_eq!(allow_plan(None, None), Some(allow()));
+        assert_eq!(plan_answer(&allow()), Ok((None, None)));
+        assert_eq!(
+            plan_answer(&allow_plan(None, Some(PlanMode::Auto)).unwrap()),
+            Ok((None, Some(PlanMode::Auto)))
+        );
+        // An edit past the bound is never cut and sent, nor taken.
+        let long = "x".repeat(MAX_PLAN + 1);
+        assert_eq!(allow_plan(Some(&long), None), None);
+        for bad in [
+            json!({"behavior": "allow", "plan": long}),
+            json!({"behavior": "allow", "plan": 7}),
+            json!({"behavior": "allow", "mode": "bypassPermissions"}),
+            json!({"behavior": "allow", "mode": "dontAsk"}),
+            json!({"behavior": "allow", "mode": "default"}),
+            json!({"behavior": "allow", "mode": "plan"}),
+            json!({"behavior": "allow", "mode": ["auto"]}),
+        ] {
+            assert_eq!(plan_answer(&bad), Err(()), "{bad}");
         }
     }
 

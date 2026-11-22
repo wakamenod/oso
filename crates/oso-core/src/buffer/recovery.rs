@@ -49,7 +49,7 @@ impl Buffer {
     /// Sets its mode, as a command or a visit does, and says whether it took: an internal
     /// buffer and a terminal's keep the mode they were made with, and the emergency copies'
     /// modes, whose keys read copies, are only an internal buffer's, as `Terminal` is only a
-    /// terminal's. A brief and a composer keep theirs. Highlights and edits logged for another mode
+    /// terminal's. A brief, a composer and a plan's edit keep theirs. Highlights and edits logged for another mode
     /// go, and the mode's revision moves on even for the same mode, as setting a mode again
     /// gives highlighting that stopped another try (ADR 0111). Its indentation stays as it
     /// was; the editor's `set_buffer_mode` gives it the mode's too (ADR 0115).
@@ -58,9 +58,9 @@ impl Buffer {
         if self.internal || self.terminal || mode.shows_copies() || mode == Mode::Terminal {
             return false;
         }
-        // A person's draft, a brief or a composer, keeps its mode: what may change it and how
-        // it is sent are the mode's (ADR 0121, ADR 0165).
-        if matches!(self.mode, Mode::Brief | Mode::Composer) && mode != self.mode {
+        // A person's draft, a brief, a composer or a plan's edit, keeps its mode: what may change
+        // it and how it is sent are the mode's (ADR 0121, ADR 0165).
+        if matches!(self.mode, Mode::Brief | Mode::Composer | Mode::Plan) && mode != self.mode {
             return false;
         }
         self.put_mode(mode);
@@ -260,8 +260,8 @@ mod tests {
     /// A person's draft keeps its mode, so that what refuses an agent's changes there, by its
     /// mode, holds (ADR 0165, step 2).
     #[test]
-    fn a_brief_and_a_composer_keep_their_mode() {
-        for draft in [Mode::Brief, Mode::Composer] {
+    fn a_brief_a_composer_and_a_plans_edit_keep_their_mode() {
+        for draft in [Mode::Brief, Mode::Composer, Mode::Plan] {
             let mut buffer = Buffer::from_text("*draft*", "");
             assert!(buffer.set_mode(draft));
             assert!(!buffer.set_mode(Mode::Fundamental), "{draft:?}");

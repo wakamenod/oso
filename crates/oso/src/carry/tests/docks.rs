@@ -46,3 +46,27 @@ fn an_empty_composer_is_left_behind_and_one_holding_a_message_refuses_the_restar
     assert!(refused.contains("*compose: s*"), "{refused}");
     assert!(!refused.contains("push it"), "{refused}");
 }
+
+/// A native session's plan's edit (ADR 0165, part 3d) goes with its call, which a restart
+/// denies: one as Claude wrote it is left behind, and one the person changed refuses the
+/// restart, naming it and quoting none of it.
+#[test]
+fn a_plans_edit_is_left_behind_unless_the_person_changed_it() {
+    use oso_core::buffer::{Mode, Replacement};
+    let mut editor = Editor::with_buffer(Buffer::from_text(oso_core::editor::SCRATCH, ""));
+    let mut plan = Buffer::from_text("*plan: s*", "Write hello.txt\n");
+    plan.set_mode(Mode::Plan);
+    plan.withhold_from_agents();
+    let id = editor.add_buffer(plan);
+    let state = crate::carry::export_value(&editor, &[], None, None).unwrap();
+    assert!(!state.to_string().contains("*plan: s*"), "{state}");
+    assert!(!state.to_string().contains("hello.txt"), "{state}");
+    let edit = Replacement {
+        range: 6..11,
+        text: "pelican",
+    };
+    editor.apply_edits(id, &[edit]).unwrap();
+    let refused = crate::carry::export_value(&editor, &[], None, None).unwrap_err();
+    assert!(refused.contains("*plan: s*"), "{refused}");
+    assert!(!refused.contains("pelican"), "{refused}");
+}
