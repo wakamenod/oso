@@ -189,7 +189,10 @@ fn row_step(ctx: &Ctx<'_>) -> Result<(ReviewId, Step), CommandError> {
         });
     let first = 1 + usize::from(since);
     let commit = |line: usize| (first..first + count).contains(&line).then(|| line - first);
+    // An active region, as `C-SPC` shows one: a mark `M-<` left behind is no range.
+    let active = window.selections.mark_active().is_active();
     if let Some(mark) = primary.mark.map(|mark| text.offset_to_point(mark).row)
+        && active
         && mark != line
     {
         return match (commit(mark), commit(line)) {
@@ -208,13 +211,11 @@ fn row_step(ctx: &Ctx<'_>) -> Result<(ReviewId, Step), CommandError> {
     }
 }
 
-/// Drops the mark a range was asked with, so that the next `RET` names one row.
+/// Hides the region a range was asked with, so that the next `RET` names one row.
 fn drop_mark(ctx: &mut Ctx<'_>, to: Step) {
     if matches!(to, Step::Range(..)) {
-        ctx.editor.current_mut().0.selections.update(|selection| {
-            selection.mark = None;
-            Ok::<(), ()>(())
-        });
+        let selections = &mut ctx.editor.current_mut().0.selections;
+        selections.set_mark_active(oso_core::selection::MarkActive::Inactive);
     }
 }
 

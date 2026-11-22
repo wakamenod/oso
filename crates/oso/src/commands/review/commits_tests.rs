@@ -186,6 +186,9 @@ fn the_since_row_a_marked_range_and_the_checkpoint_ask_the_host() {
             selection.mark = mark;
             Ok::<(), ()>(())
         });
+        if mark.is_some() {
+            set.set_mark_active(oso_core::selection::MarkActive::Active);
+        }
         editor.current_mut().0.selections = set;
     };
     go(&mut editor, 1, None);
@@ -200,8 +203,8 @@ fn the_since_row_a_marked_range_and_the_checkpoint_ask_the_host() {
         Ok(())
     );
     assert!(
-        editor.current().0.selections.primary().mark.is_none(),
-        "the mark goes"
+        !editor.current().0.selections.mark_active().is_active(),
+        "the region hides"
     );
     go(&mut editor, 3, Some(1));
     let refused = run(&mut editor, "review-commits-display", Args::NONE).0;
@@ -216,4 +219,24 @@ fn the_since_row_a_marked_range_and_the_checkpoint_ask_the_host() {
             .take_review_requests()
             .contains(&ReviewRequest::Checkpoint { review })
     );
+}
+
+#[test]
+fn a_mark_left_behind_with_no_region_shown_is_no_range() {
+    let (mut editor, review) = with_pull();
+    assert_eq!(run(&mut editor, "review-commits", Args::NONE).0, Ok(()));
+    // As `M-<` leaves one: a mark, the region hidden.
+    let text = editor.current().1.text();
+    let (at, mark) = (text.line_start(2), text.line_start(0));
+    let mut set = SelectionSet::new(at);
+    set.update(|selection| {
+        selection.mark = Some(mark);
+        Ok::<(), ()>(())
+    });
+    editor.current_mut().0.selections = set;
+    assert_eq!(
+        run(&mut editor, "review-commits-display", Args::NONE).0,
+        Ok(())
+    );
+    assert_eq!(steps(&mut editor), [(review, Step::Commit(1))]);
 }
