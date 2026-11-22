@@ -51,7 +51,7 @@ fn held_from_the_window(
 /// window to a file, where the same letter would type, and a held `y` must answer once
 /// (ADR 0072).
 fn answers_once(mode: Mode, question: bool, key: KeyPress) -> bool {
-    (mode.shows_copies() || question) && key.text().is_some()
+    (mode.shows_copies() || mode == Mode::Card || question) && key.text().is_some()
 }
 
 impl App {
@@ -263,6 +263,9 @@ mod tests {
     fn only_a_letter_among_the_copies_answers_once() {
         assert!(answers_once(Mode::CopyList, false, key("d")));
         assert!(answers_once(Mode::CopyView, false, key("r")));
+        // A held `y` on a native session's card answers once, and types nothing after it.
+        assert!(answers_once(Mode::Card, false, key("y")));
+        assert!(answers_once(Mode::Card, false, key("3")));
         assert!(
             !answers_once(Mode::CopyList, false, key("C-n")),
             "motion repeats"

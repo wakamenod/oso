@@ -242,6 +242,7 @@ impl Editor {
             | Mode::RenamePreview
             | Mode::SessionMove
             | Mode::NativeSession
+            | Mode::Card
             | Mode::GitDiscarded
             | Mode::Sessions => {}
             Mode::CopyList => self.leave_internal(),

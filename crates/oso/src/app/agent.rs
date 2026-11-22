@@ -95,6 +95,8 @@ pub(super) struct Agent {
     quiet_since: Option<Instant>,
     /// When the person last typed in the window.
     person_typed: Option<Instant>,
+    /// When the person typed the key before the last one, for a native session's card (ADR 0165).
+    key_before: Option<Instant>,
     /// The files the channel is opening.
     opening: Vec<open::Opening>,
     /// How many files each connection has opened.

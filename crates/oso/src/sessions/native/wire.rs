@@ -17,6 +17,7 @@
 //!   control protocol's lines and `slash` the slash commands listed: with this file, the
 //!   only places that touch JSON.
 
+pub mod card;
 pub mod control;
 mod messages;
 pub mod slash;

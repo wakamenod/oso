@@ -123,26 +123,6 @@ impl Editor {
         self.for_agent(|editor| editor.ask_with(question, yes, verbs))
     }
 
-    /// As [`Self::ask_for_agent`], about text withheld from agents, such as a native session's
-    /// call (ADR 0165, step 2): the prompt counts as one around a buffer that may hold secrets,
-    /// so the agent channel's state never gives its label.
-    ///
-    /// # Errors
-    ///
-    /// As [`Self::ask_with`].
-    pub fn ask_for_agent_withheld(
-        &mut self,
-        question: impl Into<String>,
-        yes: &'static str,
-        verbs: [&'static str; 2],
-    ) -> Result<PromptId, PromptError> {
-        let id = self.ask_for_agent(question, yes, verbs)?;
-        if let Some(prompt) = self.prompts.iter_mut().find(|prompt| prompt.id == id) {
-            prompt.around_secret = true;
-        }
-        Ok(id)
-    }
-
     /// Adds a row to `*Agent*`, which is made the first time. `row` is one line, which the
     /// caller builds from what it may show: never a text argument or buffer text.
     pub fn agent_log(&mut self, row: &str) {
@@ -199,21 +179,6 @@ mod tests {
             .ask_for_agent("Let it in?", "agent-channel-allow", ["allow", "refuse"])
             .unwrap();
         assert!(!editor.take_agent_allowed());
-    }
-
-    #[test]
-    fn a_question_about_withheld_text_counts_as_around_a_secret() {
-        let mut editor = Editor::default();
-        editor
-            .ask_for_agent("Allow it?", "agent-channel-allow", ["allow", "refuse"])
-            .unwrap();
-        assert!(!editor.prompt().unwrap().around_secret());
-        editor
-            .ask_for_agent_withheld("Run ls?", "agent-channel-allow", ["allow", "refuse"])
-            .unwrap();
-        let prompt = editor.prompt().unwrap();
-        assert!(prompt.from_agent() && prompt.around_secret());
-        assert_eq!(prompt.label(), "[2] Agent: Run ls? (y or n)");
     }
 
     #[test]

@@ -83,6 +83,7 @@ impl App {
             SessionRequest::Send { to, parts } => self.send_request(&to, &parts),
             SessionRequest::FollowMessage(buffer) => self.follow_message(buffer),
             SessionRequest::RenameTo(name) => self.session_rename_answered(&name),
+            SessionRequest::CardText(text) => self.card_written(&text),
             other => return Some(other),
         }
         self.watch.stale = true;

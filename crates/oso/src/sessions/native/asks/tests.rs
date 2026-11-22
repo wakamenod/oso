@@ -4,11 +4,10 @@
 
 use std::time::{Duration, Instant};
 
-use oso_core::editor::Editor;
-
 use super::{Ask, Asks, Denied, FIND_WITHIN, Look, Outcome, Question, Refused};
 use crate::channel::Connection;
 use crate::channel::protocol::permission::Call;
+use crate::sessions::native::card::Card;
 
 fn ask(from: u64, key: u64, id: &str, came: Instant) -> Ask<()> {
     Ask {
@@ -24,15 +23,19 @@ fn ask(from: u64, key: u64, id: &str, came: Instant) -> Ask<()> {
         },
         came,
         question: None,
-        asked: None,
+        shown: None,
         reply: (),
     }
 }
 
 fn question(label: &str) -> Question {
     Question {
-        label: label.into(),
-        details: String::new(),
+        card: Card::Call {
+            title: label.into(),
+            lines: Vec::new(),
+        },
+        details: None,
+        whole: false,
     }
 }
 
@@ -67,6 +70,28 @@ fn a_connection_waits_for_one_answer_and_a_call_is_asked_once() {
 }
 
 #[test]
+fn a_sessions_requests_on_two_connections_are_shown_one_at_a_time_in_turn() {
+    let start = Instant::now();
+    let mut asks = Asks::default();
+    asks.push(ask(1, 7, "t1", start));
+    asks.push(ask(2, 7, "t2", start));
+    let found = |ask: &Ask<()>| Look::Found(question(&ask.call.tool_use_id));
+    asks.look(start, found);
+    let first: Vec<String> = (asks.unshown())
+        .map(|a| a.call.tool_use_id.clone())
+        .collect();
+    assert_eq!(first, ["t1"]);
+    asks.unshown().next().unwrap().shown = Some(start);
+    // The second waits while the first card is shown, and is not shown with it.
+    assert!(asks.unshown().next().is_none());
+    assert_eq!(asks.take_shown(7).unwrap().call.tool_use_id, "t1");
+    let next: Vec<String> = (asks.unshown())
+        .map(|a| a.call.tool_use_id.clone())
+        .collect();
+    assert_eq!(next, ["t2"]);
+}
+
+#[test]
 fn a_call_that_does_not_show_in_time_is_denied_and_one_found_is_asked_in_turn() {
     let start = Instant::now();
     let mut asks = Asks::default();
@@ -82,13 +107,14 @@ fn a_call_that_does_not_show_in_time_is_denied_and_one_found_is_asked_in_turn() 
     let late = asks.look(start + FIND_WITHIN, found);
     assert_eq!(denied(&late), [("t1".to_owned(), Denied::NotFound)]);
     assert_eq!(asks.deadline(), None, "only found ones wait");
-    let next = asks.next().unwrap();
-    assert_eq!(next.question.as_ref().unwrap().label, "run make?");
-    let mut editor = Editor::default();
-    next.asked = Some(editor.ask("Run make?", "keyboard-quit").unwrap());
-    assert!(asks.next().is_none(), "one at a time");
-    assert!(asks.take_closed(|_| true).is_none(), "still open");
-    let answered = asks.take_closed(|_| false).unwrap();
+    let next = asks.unshown().next().unwrap();
+    assert!(
+        matches!(&next.question.as_ref().unwrap().card, Card::Call { title, .. } if title == "run make?")
+    );
+    next.shown = Some(start);
+    assert!(asks.unshown().next().is_none(), "its card is shown");
+    assert!(asks.shown(7).is_none(), "another session's");
+    let answered = asks.take_shown(8).unwrap();
     assert_eq!(answered.call.tool_use_id, "t2");
     assert!(asks.is_empty());
     // Asked about once.
@@ -171,8 +197,7 @@ fn what_the_queue_costs_a_key() {
                 }
             });
             assert!(outcomes.is_empty());
-            assert!(asks.next().is_none());
-            assert!(asks.take_closed(|_| true).is_none());
+            assert!(asks.unshown().next().is_none());
         }
         let each = started.elapsed() / rounds;
         println!("{waiting} waiting: {each:?} a key");

@@ -103,6 +103,8 @@ struct Native {
     spoke: bool,
     /// Where its process is, as its modeline says it.
     state: NativeState,
+    /// Its permission card, `*card: NAME*`, once a call asked (step 2e-2).
+    card: Option<BufferId>,
     /// Its process's control layer, while it runs, and its interrupt (step 2c).
     control: Option<Control>,
     interrupt: Interrupt,
@@ -256,6 +258,7 @@ impl App {
             placed: Placed::default(),
             stream: None,
             state: NativeState::Starting,
+            card: None,
             first: first.is_some(),
             ended: None,
             result: None,

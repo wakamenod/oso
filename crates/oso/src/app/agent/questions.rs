@@ -57,7 +57,8 @@ impl App {
     /// it takes no answer until [`QUIET`] has passed with no key, and every key starts that
     /// wait again. `C-g` always goes through.
     pub(in crate::app) fn note_key_for_agent(&mut self, key: KeyPress) -> bool {
-        self.agent.person_typed = Some(Instant::now());
+        // A native session's permission card answers only after a quiet moment (ADR 0165).
+        self.agent.key_before = self.agent.person_typed.replace(Instant::now());
         if !self
             .editor
             .prompt()
@@ -89,7 +90,8 @@ impl App {
 
     /// Why keys from the dev socket, which stand in for the person's, must not reach a
     /// question the agent caused, if they must not: they come one at a time, so that each one
-    /// restarts its wait, and each one waits as a key from the window does.
+    /// restarts its wait, and each one waits as a key from the window does. Each is the
+    /// person's key for a native session's card too.
     #[cfg(feature = "dev")]
     pub(in crate::app) fn agent_holds_keys(&mut self, keys: &[KeyPress]) -> Option<&'static str> {
         let agents = self
@@ -103,6 +105,16 @@ impl App {
             .first()
             .is_some_and(|&key| self.note_key_for_agent(key));
         held.then_some("a question the agent caused takes no answer yet")
+    }
+
+    /// When the person last typed in the window, if they did.
+    pub(in crate::app) fn agent_person_typed(&self) -> Option<Instant> {
+        self.agent.person_typed
+    }
+
+    /// When the person typed the key before the last one, if they did.
+    pub(in crate::app) fn agent_key_before(&self) -> Option<Instant> {
+        self.agent.key_before
     }
 
     /// Text or a composition came from the window: the person is typing, and a question
@@ -150,16 +162,13 @@ impl App {
             .asking
             .as_ref()
             .and_then(|asking| asking.question);
-        // A session tool's question is its own: no connection's follow-up (ADR 0121, step 6);
-        // so is a native session's permission question (ADR 0165, step 2).
+        // A session tool's question is its own: no connection's follow-up (ADR 0121, step 6).
         let tools = self.session_tool_question();
-        let permission = self.permission_question();
         for &(id, from_agent) in &open {
             let known = self.agent.caused.iter().any(|&(caused, _)| caused == id)
                 || self.agent.orphaned.contains(&id)
                 || asked == Some(id)
-                || tools == Some(id)
-                || permission == Some(id);
+                || tools == Some(id);
             if !from_agent || known {
                 continue;
             }

@@ -279,6 +279,7 @@ impl Buffer {
             | Mode::RenamePreview
             | Mode::SessionMove
             | Mode::NativeSession
+            | Mode::Card
             | Mode::GitDiscarded
             | Mode::Sessions => false,
         };
@@ -447,6 +448,7 @@ impl Buffer {
                 self.mode,
                 Mode::Sessions
                     | Mode::NativeSession
+                    | Mode::Card
                     | Mode::Directory
                     | Mode::GitStatus
                     | Mode::GitGraph

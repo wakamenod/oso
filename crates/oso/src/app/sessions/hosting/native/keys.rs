@@ -37,6 +37,13 @@ impl App {
             self.composer_key(key, None, action);
             return;
         }
+        // From a permission card, the session it asks for (step 2e-2).
+        if let Some(key) = self.card_session(buffer) {
+            if !self.card_key(key, action) {
+                self.composer_key(key, None, action);
+            }
+            return;
+        }
         let key = self.hosting.table().by_buffer(buffer).map(|s| s.key);
         let Some(key) = key.filter(|key| self.hosting.natives.has(*key)) else {
             return self.editor.message("This buffer holds no native session");

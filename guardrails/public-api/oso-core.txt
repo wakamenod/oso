@@ -54,6 +54,7 @@ impl core::marker::Copy for oso_core::buffer::EditError
 impl core::marker::StructuralPartialEq for oso_core::buffer::EditError
 pub enum oso_core::buffer::Mode
 pub oso_core::buffer::Mode::Brief
+pub oso_core::buffer::Mode::Card
 pub oso_core::buffer::Mode::Composer
 pub oso_core::buffer::Mode::Conversation
 pub oso_core::buffer::Mode::CopyList
@@ -1922,13 +1923,18 @@ pub fn oso_core::editor::MergeMethod::fmt(&self, &mut core::fmt::Formatter<'_>) 
 impl core::marker::Copy for oso_core::editor::MergeMethod
 impl core::marker::StructuralPartialEq for oso_core::editor::MergeMethod
 pub enum oso_core::editor::NativeAction
+pub oso_core::editor::NativeAction::Allow
 pub oso_core::editor::NativeAction::Cancel
+pub oso_core::editor::NativeAction::Choose(u8)
 pub oso_core::editor::NativeAction::Compose
+pub oso_core::editor::NativeAction::Deny
 pub oso_core::editor::NativeAction::DropQueued
 pub oso_core::editor::NativeAction::EditQueued
 pub oso_core::editor::NativeAction::History(isize)
 pub oso_core::editor::NativeAction::MoveQueued(isize)
+pub oso_core::editor::NativeAction::Note
 pub oso_core::editor::NativeAction::Open
+pub oso_core::editor::NativeAction::Other
 pub oso_core::editor::NativeAction::Prompt(isize)
 pub oso_core::editor::NativeAction::Queue
 pub oso_core::editor::NativeAction::Send
@@ -2368,6 +2374,7 @@ pub enum oso_core::editor::SessionRequest
 pub oso_core::editor::SessionRequest::Adopt(alloc::string::String)
 pub oso_core::editor::SessionRequest::AgentStarts(bool)
 pub oso_core::editor::SessionRequest::CancelBrief(oso_core::buffer::BufferId)
+pub oso_core::editor::SessionRequest::CardText(alloc::string::String)
 pub oso_core::editor::SessionRequest::CycleFolds
 pub oso_core::editor::SessionRequest::Explain(oso_core::buffer::BufferId)
 pub oso_core::editor::SessionRequest::ExplainFile(std::path::PathBuf)
@@ -2998,7 +3005,6 @@ pub fn oso_core::editor::Editor::agent_channel(&self) -> oso_core::editor::Agent
 pub fn oso_core::editor::Editor::agent_log(&mut self, &str)
 pub fn oso_core::editor::Editor::allow_agent(&mut self)
 pub fn oso_core::editor::Editor::ask_for_agent(&mut self, impl core::convert::Into<alloc::string::String>, &'static str, [&'static str; 2]) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
-pub fn oso_core::editor::Editor::ask_for_agent_withheld(&mut self, impl core::convert::Into<alloc::string::String>, &'static str, [&'static str; 2]) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
 pub fn oso_core::editor::Editor::for_agent<R>(&mut self, impl core::ops::function::FnOnce(&mut Self) -> R) -> R
 pub fn oso_core::editor::Editor::request_agent_channel(&mut self, bool)
 pub fn oso_core::editor::Editor::runs_for_agent(&self) -> bool

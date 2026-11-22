@@ -1,9 +1,9 @@
 //! The permission requests of native sessions' bridges, from their coming to their answer (ADR
-//! 0165, step 2): each waits until its call is found in its session's stream, is asked one at a
-//! time, the oldest first, and is answered once its question closed.
+//! 0165, step 2): each waits until its call is found in its session's stream, is shown on its
+//! session's card (step 2e-2), and is answered from it.
 //!
-//! Must not depend on: threads, sockets, the editor or the UI; the app finds the calls, opens
-//! the questions and sends the replies.
+//! Must not depend on: threads, sockets, the editor or the UI; the app finds the calls, docks
+//! the cards and sends the replies.
 //!
 //! - At most one request waits for each connection, and so for each running native session
 //!   (each holds one connection to the sessions' socket, whose server takes one request at a
@@ -16,8 +16,7 @@
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
-use oso_core::minibuffer::PromptId;
-
+pub use super::card::Question;
 use crate::channel::Connection;
 use crate::channel::protocol::permission::Call;
 use crate::sessions::worker::SessionKey;
@@ -54,16 +53,9 @@ pub struct Ask<R> {
     pub came: Instant,
     /// What the person is asked, once the call was found.
     pub question: Option<Question>,
-    /// The question's prompt, once it is open.
-    pub asked: Option<PromptId>,
+    /// When its card was shown, once it was.
+    pub shown: Option<Instant>,
     pub reply: R,
-}
-
-/// What the person is asked about a call, and what `?` shows of it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Question {
-    pub label: String,
-    pub details: String,
 }
 
 /// What the app finds of a request's call.
@@ -77,6 +69,8 @@ pub enum Look {
     NotWaiting,
     /// It waits, but the request's input says something else.
     Differs,
+    /// It waits, but what the request asks cannot be read, as a question with no options.
+    Unreadable,
     /// The session is gone.
     Gone,
 }
@@ -96,6 +90,7 @@ pub enum Denied {
     NotFound,
     NoLonger,
     Differs,
+    Unreadable,
     Gone,
 }
 
@@ -105,7 +100,7 @@ pub enum Outcome<R> {
     /// The call of a request of this session was found: it waits for the person now.
     Found(SessionKey),
     /// The request is denied unasked; whether it had been found.
-    Denied(Ask<R>, Denied, bool),
+    Denied(Box<Ask<R>>, Denied, bool),
 }
 
 impl<R> Asks<R> {
@@ -146,12 +141,13 @@ impl<R> Asks<R> {
     /// request waits for the person, and one denied leaves the queue.
     pub fn look(&mut self, now: Instant, mut find: impl FnMut(&Ask<R>) -> Look) -> Vec<Outcome<R>> {
         let mut outcomes = Vec::new();
-        if self.waiting.is_empty() {
+        // Each shown one waits for the person only.
+        if self.waiting.iter().all(|ask| ask.shown.is_some()) {
             return outcomes;
         }
         let mut kept = VecDeque::with_capacity(self.waiting.len());
         for mut ask in self.waiting.drain(..) {
-            if ask.asked.is_some() {
+            if ask.shown.is_some() {
                 kept.push_back(ask);
                 continue;
             }
@@ -169,10 +165,11 @@ impl<R> Asks<R> {
                 }
                 Look::NotWaiting => None,
                 Look::Differs => Some(Denied::Differs),
+                Look::Unreadable => Some(Denied::Unreadable),
                 Look::Gone => Some(Denied::Gone),
             };
             match denied {
-                Some(why) => outcomes.push(Outcome::Denied(ask, why, found)),
+                Some(why) => outcomes.push(Outcome::Denied(Box::new(ask), why, found)),
                 None => kept.push_back(ask),
             }
         }
@@ -180,37 +177,41 @@ impl<R> Asks<R> {
         outcomes
     }
 
-    /// The oldest request found and not asked, unless one is asked now.
-    pub fn next(&mut self) -> Option<&mut Ask<R>> {
-        if self.waiting.iter().any(|ask| ask.asked.is_some()) {
-            return None;
-        }
-        (self.waiting.iter_mut()).find(|ask| ask.question.is_some())
+    /// The requests found whose card is not shown yet: a session's first waiting request
+    /// alone, once found, as its card shows one at a time and in turn, though the session may
+    /// ask on several connections at once (a turn's calls asked together). A later one waits
+    /// until the one before it is answered.
+    pub fn unshown(&mut self) -> impl Iterator<Item = &mut Ask<R>> {
+        let mut first: Vec<SessionKey> = Vec::new();
+        (self.waiting.iter_mut()).filter(move |ask| {
+            if first.contains(&ask.key) {
+                return false;
+            }
+            first.push(ask.key);
+            ask.question.is_some() && ask.shown.is_none()
+        })
     }
 
-    /// The request asked now.
-    pub fn open(&self) -> Option<&Ask<R>> {
-        self.waiting.iter().find(|ask| ask.asked.is_some())
+    /// Session `key`'s request whose card is shown, if one is.
+    pub fn shown(&self, key: SessionKey) -> Option<&Ask<R>> {
+        (self.waiting.iter()).find(|ask| ask.key == key && ask.shown.is_some())
     }
 
-    /// The request asked now, if its question is no longer `open`: out of the queue, and its
-    /// call kept as answered.
-    pub fn take_closed(&mut self, open: impl Fn(PromptId) -> bool) -> Option<Ask<R>> {
-        let index = (self.waiting.iter()).position(|ask| ask.asked.is_some_and(|id| !open(id)))?;
+    /// As [`Asks::shown`], to change its card.
+    pub fn shown_mut(&mut self, key: SessionKey) -> Option<&mut Ask<R>> {
+        (self.waiting.iter_mut()).find(|ask| ask.key == key && ask.shown.is_some())
+    }
+
+    /// Session `key`'s request whose card is shown, answered: out of the queue, and its call
+    /// kept as answered.
+    pub fn take_shown(&mut self, key: SessionKey) -> Option<Ask<R>> {
+        let index = (self.waiting.iter()).position(|ask| ask.key == key && ask.shown.is_some())?;
         let ask = self.waiting.remove(index)?;
         if self.answered.len() == MAX_ANSWERED {
             self.answered.pop_front();
         }
         (self.answered).push_back((ask.key, ask.call.tool_use_id.clone()));
         Some(ask)
-    }
-
-    /// Takes the request [`Asks::next`] gives out of the queue, as when its question could not
-    /// open.
-    pub fn take_next(&mut self) -> Option<Ask<R>> {
-        let index =
-            (self.waiting.iter()).position(|ask| ask.question.is_some() && ask.asked.is_none())?;
-        self.waiting.remove(index)
     }
 
     /// Takes the requests `gone` says are gone out of the queue.

@@ -70,6 +70,27 @@ fn the_transcripts_letters_go_to_the_composer_and_act_on_a_queued_message() {
     );
 }
 
+#[test]
+fn a_cards_keys_answer_its_call_and_a_digit_chooses() {
+    let (mut d, mut editor) = (Dispatcher::new(), Editor::default());
+    let card = editor.add_internal_buffer("*card: s*", Mode::Card);
+    editor.show(card);
+    send(&mut d, &mut editor, "y n N o 3 RET");
+    assert_eq!(
+        actions(&mut editor),
+        [
+            NativeAction::Allow,
+            NativeAction::Deny,
+            NativeAction::Note,
+            NativeAction::Other,
+            NativeAction::Choose(3),
+            NativeAction::Open,
+        ]
+    );
+    // Its text is oso's: a key types nothing into it.
+    assert_eq!(editor.current().1.text().to_string(), "");
+}
+
 /// A composer, selected, holding `text`.
 fn composer(editor: &mut Editor, text: &str) {
     let composer = editor.add_buffer(Buffer::from_text("*compose: s*", text));

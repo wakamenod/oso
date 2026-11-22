@@ -95,6 +95,7 @@ impl Language {
             | Mode::RenamePreview
             | Mode::SessionMove
             | Mode::NativeSession
+            | Mode::Card
             | Mode::GitDiscarded
             | Mode::Sessions => None,
         }

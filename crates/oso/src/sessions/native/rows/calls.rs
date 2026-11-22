@@ -1,6 +1,7 @@
 //! A native session's tool calls among its rows (ADR 0165): adding a call, to a row of its own
 //! or to the last row it may share, putting the whole call in its place, changing a call
-//! found by its id, and finding one that waits for the person's permission (step 2).
+//! found by its id, finding one that waits for the person's permission, and saying how the
+//! person answered it (step 2).
 //!
 //! Must not depend on: threads, files or the UI; methods of [`Rows`] over its own state.
 
@@ -132,6 +133,12 @@ impl Rows {
         };
         change(tools.get_mut(slot)?);
         Some(RowChange::Changed(row))
+    }
+
+    /// The person denied call `id` on its card (step 2e-2): its row says so, with `note`.
+    pub fn denied(&mut self, id: &str, note: &str) -> Option<RowChange> {
+        let note = note.to_owned();
+        self.update_call(id, |tool| tool.state = ToolState::Denied(note))
     }
 
     /// The call `id` of a whole message, which runs and has no result yet: what the person is

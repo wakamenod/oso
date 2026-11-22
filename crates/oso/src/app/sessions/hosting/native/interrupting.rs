@@ -118,16 +118,20 @@ impl App {
 
     /// When a native session's control layer or interrupt is next due, if one is.
     pub(in crate::app) fn natives_deadline(&self) -> Option<Instant> {
+        // A permission card that waits for point, too (step 2e-2).
+        let card = self.card_focus_deadline();
         (self.hosting.natives.map.values())
             .flat_map(|native| {
                 let control = native.control.as_ref().and_then(|c| c.deadline());
                 control.into_iter().chain(native.interrupt.deadline())
             })
+            .chain(card)
             .min()
     }
 
     /// Carries out what is due of each native session's control layer and interrupt at `now`.
     pub(in crate::app) fn natives_due(&mut self, now: Instant) {
+        self.card_focus_due(now);
         let due: Vec<(SessionKey, Vec<Then>)> = (self.hosting.natives.map.iter_mut())
             .filter_map(|(key, native)| {
                 let control = native.control.as_mut()?;

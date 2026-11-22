@@ -134,9 +134,14 @@ impl App {
                     None => self.editor.message("No queued message here"),
                 }
             }
-            NativeAction::Toggle | NativeAction::Prompt(_) | NativeAction::Tool(_) => {
-                return false;
-            }
+            NativeAction::Toggle
+            | NativeAction::Prompt(_)
+            | NativeAction::Tool(_)
+            | NativeAction::Allow
+            | NativeAction::Deny
+            | NativeAction::Note
+            | NativeAction::Choose(_)
+            | NativeAction::Other => return false,
         }
         self.request_redraw();
         true

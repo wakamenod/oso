@@ -10,7 +10,9 @@
 //!   from the session's own stream, by the call's id; the input must say the same, and is what
 //!   `?` shows whole, as it is what runs.
 //! - The reply is `{"behavior": "allow"}` or `{"behavior": "deny", "message": "…"}`; the
-//!   bridge gives the CLI the call's own input back with an `allow`.
+//!   bridge gives the CLI the call's own input back with an `allow`. An `AskUserQuestion`'s
+//!   `allow` carries `"answers": {QUESTION: ANSWER}` too, which the bridge puts in that input
+//!   (step 2e-2).
 
 use serde_json::{Map, Value};
 
@@ -95,6 +97,24 @@ fn printable(byte: u8) -> bool {
 /// The reply that lets the call run.
 pub fn allow() -> Value {
     serde_json::json!({ "behavior": "allow" })
+}
+
+/// The reply that lets an `AskUserQuestion` run with the person's `answers`, each a question
+/// and its answer, which the bridge gives the CLI in the call's `updatedInput` (step 2e-2).
+pub fn allow_answering(answers: &[(String, String)]) -> Value {
+    let answers: Map<String, Value> = (answers.iter())
+        .map(|(question, answer)| (question.clone(), Value::String(answer.clone())))
+        .collect();
+    serde_json::json!({ "behavior": "allow", "answers": answers })
+}
+
+/// The answers an `allow` carries for an `AskUserQuestion`, if it carries any: each a string.
+pub fn answers(reply: &Value) -> Option<Map<String, Value>> {
+    let answers = reply.get("answers")?.as_object()?;
+    answers
+        .values()
+        .all(Value::is_string)
+        .then(|| answers.clone())
 }
 
 /// The reply that refuses the call, telling the CLI `message`, cut to [`MAX_MESSAGE`] bytes.
