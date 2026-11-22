@@ -49,6 +49,8 @@ pub enum Mode {
     Swift,
     /// `*Brief*`, a worktree session's brief being written (ADR 0121).
     Brief,
+    /// A native session's composer, docked under its transcript (ADR 0165, step 2; ADR 0170).
+    Composer,
     /// `*Worktrees*`, a repository's linked worktrees (ADR 0121).
     Worktrees,
     /// A review's buffer (ADR 0122).
@@ -168,6 +170,7 @@ impl Mode {
             Self::Latex => "LaTeX",
             Self::Swift => "Swift",
             Self::Brief => "Brief",
+            Self::Composer => "Compose",
             Self::Worktrees => "Worktrees",
             Self::Review => "Review",
             Self::ReviewFiles => "Review Files",
@@ -221,6 +224,7 @@ impl Mode {
             | Self::Latex
             | Self::Swift
             | Self::Brief
+            | Self::Composer
             | Self::Worktrees
             | Self::Review
             | Self::ReviewFiles
@@ -275,6 +279,7 @@ impl Mode {
             // LaTeX and Swift have no rules of their own yet: lines keep the one before's.
             Self::Fundamental
             | Self::Brief
+            | Self::Composer
             | Self::GitCommit
             | Self::GitPrMessage
             | Self::ReviewMessage

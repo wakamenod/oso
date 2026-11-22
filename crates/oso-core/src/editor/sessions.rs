@@ -304,17 +304,40 @@ pub enum RowAction {
     Rename,
 }
 
-/// What a key of a native session's buffer does at the row it is on (ADR 0165, step 1).
+/// What a key of a native session's transcript does at the row it is on (ADR 0165, step 1),
+/// or a key of its composer does (step 2).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NativeAction {
     /// Fold or unfold the row, or in a row of several calls shown open, the call.
     Toggle,
-    /// Show the whole result of the call, read-only, in `*result: NAME*`.
+    /// Show the whole result of the call, read-only, in `*result: NAME*`; on a queued
+    /// message's row (step 2), take it back into the composer.
     Open,
     /// Move to the start of the person's message this many after, before if negative.
     Prompt(isize),
     /// Move to the start of the tool row this many after, before if negative.
     Tool(isize),
+    /// From the composer (ADR 0165, step 2): send its text, or queue it while a turn runs;
+    /// while a queued message is edited there, put it back in its place.
+    Send,
+    /// From the composer: interrupt the turn, then send its text ahead of the queue.
+    SendNow,
+    /// From the composer: cancel the edit of a queued message, or interrupt the turn.
+    Cancel,
+    /// From the composer: the session's message sent this many before, after if negative.
+    History(isize),
+    /// From the composer: back to the transcript.
+    Transcript,
+    /// From the transcript: to the composer.
+    Compose,
+    /// To the first queued message's row.
+    Queue,
+    /// On a queued message's row: edit it in the composer, in its place.
+    EditQueued,
+    /// On a queued message's row: drop it.
+    DropQueued,
+    /// On a queued message's row: move it this many places, up if negative.
+    MoveQueued(isize),
 }
 
 impl Editor {

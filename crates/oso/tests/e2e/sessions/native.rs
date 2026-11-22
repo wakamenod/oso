@@ -451,3 +451,5 @@ fn answer_after_quiet(app: &mut App, key: &str) {
         state["buffer"]["name"] != "*Session call*"
     });
 }
+
+mod compose;

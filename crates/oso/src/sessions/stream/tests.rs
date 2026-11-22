@@ -6,7 +6,7 @@ use std::io::BufReader;
 use std::sync::Mutex;
 use std::sync::mpsc;
 
-use super::{Item, Out, batch, next_line};
+use super::{Item, MAX_WAITING, NotSent, Out, batch, next_line, offer, write};
 use crate::sessions::native::wire::{Event, MAX_LINE};
 
 fn lines(bytes: &[u8], capacity: usize) -> Vec<Result<Vec<u8>, usize>> {
@@ -114,4 +114,55 @@ fn a_batch_holds_at_most_its_most() {
         "{sizes:?}"
     );
     assert_eq!(sizes.iter().sum::<usize>(), super::MAX_BATCH * 2 + 1);
+}
+
+/// What a writer wrote, shared with the test.
+#[derive(Clone, Default)]
+struct Written(std::sync::Arc<Mutex<Vec<u8>>>, bool);
+
+impl std::io::Write for Written {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if self.1 {
+            return Err(std::io::ErrorKind::BrokenPipe.into());
+        }
+        self.0.lock().unwrap().extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[test]
+fn a_send_never_waits_and_a_full_or_closed_input_refuses_it() {
+    let (input, lines) = mpsc::sync_channel(MAX_WAITING);
+    for n in 0..MAX_WAITING {
+        assert_eq!(offer(&input, format!("{n}\n")), Ok(()));
+    }
+    assert_eq!(offer(&input, "late\n".into()), Err(NotSent::Full));
+    // The writer writes them in order, and stops once the queue goes.
+    let written = Written::default();
+    let (kept, writer) = (
+        written.clone(),
+        std::thread::spawn(move || write(written, &lines)),
+    );
+    drop(input);
+    writer.join().unwrap();
+    let text = String::from_utf8(kept.0.lock().unwrap().clone()).unwrap();
+    assert_eq!(text.lines().count(), MAX_WAITING);
+    assert!(text.starts_with("0\n1\n"));
+    let (input, lines) = mpsc::sync_channel::<String>(MAX_WAITING);
+    drop(lines);
+    assert_eq!(offer(&input, "x\n".into()), Err(NotSent::Closed));
+}
+
+#[test]
+fn a_writer_whose_process_went_stops() {
+    let (input, lines) = mpsc::sync_channel(MAX_WAITING);
+    offer(&input, "a\n".into()).unwrap();
+    offer(&input, "b\n".into()).unwrap();
+    // It returns at the first failed write, with the queue still open.
+    write(Written(std::sync::Arc::default(), true), &lines);
+    drop(input);
 }

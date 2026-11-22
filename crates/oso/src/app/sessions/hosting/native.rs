@@ -11,7 +11,10 @@
 //!   last line only (ADR 0165, "Step 1, as built"). A frame is asked for only when a shown
 //!   session's rows changed, or a session ended.
 //! - A native session runs only in a trusted project (Q5): elsewhere a session is a terminal.
-//! - Its buffer's keys, `TAB`, `RET`, `n`/`p` and `]`/`[`, are carried out in `keys`.
+//! - Its buffer's keys, `TAB`, `RET`, `n`/`p` and `]`/`[`, are carried out in `keys`, which
+//!   routes the composer's and the queue's to `composer` (step 2).
+//! - Its composer, queue and history are `composer`'s; its run state and modeline note are
+//!   `note`'s; its first message, written in `*Brief*`, is `first`'s.
 //! - Its bridge asks the person's permission for its calls on the sessions' socket, in
 //!   `permissions` (step 2).
 //! - Its first message is its brief; a person's start with none opens `*Brief*` for it first.
@@ -19,17 +22,21 @@
 //!   terminal's does, when the session list stops it, and killed as oso exits. A stopped
 //!   native session comes back at oso's next start as a native buffer with no process.
 
+mod composer;
+mod first;
 mod keys;
+mod note;
 mod permissions;
 
 use std::collections::HashMap;
 use std::ops::Range;
 use std::path::PathBuf;
 
-use oso_core::buffer::{Buffer, BufferId, Mode};
+use oso_core::buffer::{Buffer, BufferId};
 use oso_core::project::ProjectId;
 use oso_core::syntax::Highlight;
 
+use self::note::NativeState;
 use super::{Begin, now_ms};
 use crate::app::{App, UserEvent};
 use crate::git::TrustedRoot;
@@ -44,14 +51,9 @@ use crate::sessions::start::{NativeOrder, Ready, Started};
 use crate::sessions::state::{Exit, Target};
 use crate::sessions::stream::{Out, Stream};
 use crate::sessions::worker::{Job, SessionKey};
-use crate::sessions::worktree::brief::MAX_BRIEF;
 
-/// What a stopped native session's modeline says.
-const STOPPED: &str = "stopped";
 /// The most of a failed process's standard error shown, its end.
 const MAX_ERR_SHOWN: usize = 2048;
-/// The buffer a native session's first message is written in.
-const FIRST_MESSAGE: &str = "*Brief*";
 
 /// The native sessions the app runs or shows.
 #[derive(Debug, Default)]
@@ -80,6 +82,10 @@ struct Native {
     result_of: Option<String>,
     /// Where each call of each open row of several is in the row, as drawn last.
     calls: HashMap<usize, Vec<(usize, Range<usize>)>>,
+    /// Its composer, its queue and its history (step 2).
+    composing: composer::Composing,
+    /// Where its process is, as its modeline says it.
+    state: NativeState,
 }
 
 impl NativeSessions {
@@ -127,74 +133,6 @@ impl App {
         None
     }
 
-    /// Opens `*Brief*` for the first message of the native session `begin` starts: `C-c C-c`
-    /// starts it with the message, `C-c C-k` drops it. One is written at a time, as a worktree
-    /// session's brief.
-    fn write_first_message(&mut self, begin: Begin) {
-        let open = (self.hosting.natives.briefs.keys())
-            .chain(self.hosting.worktrees.brief_buffers())
-            .next()
-            .copied();
-        if let Some(open) = open {
-            self.editor.show(open);
-            return self
-                .editor
-                .message("A brief is being written: send it with C-c C-c or drop it with C-c C-k");
-        }
-        let mut buffer = Buffer::from_text(FIRST_MESSAGE, "");
-        buffer.set_mode(Mode::Brief);
-        // The person's message: no agent reads it before it is sent, and the agent channel's
-        // changes leave a brief alone (`dispatch::agent`).
-        buffer.withhold_from_agents();
-        let id = self.editor.add_buffer(buffer);
-        self.editor.show(id);
-        self.hosting.natives.briefs.insert(id, begin);
-        self.editor.message(
-            "Write the session's first message: C-c C-c starts the session, C-c C-k drops it",
-        );
-    }
-
-    /// `brief-send` in a native session's `*Brief*`: the session starts with it as its first
-    /// message. Whether `buffer` was one.
-    pub(in crate::app) fn send_first_message(&mut self, buffer: BufferId) -> bool {
-        if !self.hosting.natives.briefs.contains_key(&buffer) {
-            return false;
-        }
-        let Some(text) = self.editor.buffer(buffer).map(Buffer::text) else {
-            return true;
-        };
-        // Measured before it is copied.
-        if text.len() > MAX_BRIEF {
-            self.editor.message("The message is over 64 KiB");
-            return true;
-        }
-        let text = text.to_string();
-        if text.trim().is_empty() {
-            self.editor.message("The message is empty");
-            return true;
-        }
-        let Some(begin) = self.hosting.natives.briefs.remove(&buffer) else {
-            return true;
-        };
-        self.editor.kill_buffer(buffer);
-        self.begin_session(Begin {
-            brief: Some(text),
-            ..begin
-        });
-        true
-    }
-
-    /// `brief-cancel` in a native session's `*Brief*`: nothing starts. Whether `buffer` was
-    /// one.
-    pub(in crate::app) fn cancel_first_message(&mut self, buffer: BufferId) -> bool {
-        if self.hosting.natives.briefs.remove(&buffer).is_none() {
-            return false;
-        }
-        self.editor.kill_buffer(buffer);
-        self.editor.message("Session not started");
-        true
-    }
-
     /// The buffer a native session `key`, named `name`, in `directory`, is shown in: made now,
     /// and shown unless not `shown`. Its start's order for the start thread, which writes
     /// `first` as the person's first message: its replay is the person's.
@@ -210,7 +148,7 @@ impl App {
         self.start_sessions_socket();
         let buffer = self.add_native_buffer(key, name, directory, first);
         self.editor.set_running(buffer, true);
-        self.editor.set_mode_note(buffer, "starting".to_owned());
+        self.set_native_state(key, NativeState::Starting);
         if shown {
             self.editor.show(buffer);
         }
@@ -248,13 +186,18 @@ impl App {
             rows,
             placed: Placed::default(),
             stream: None,
+            state: NativeState::Starting,
             first: first.is_some(),
             ended: None,
             result: None,
             result_of: None,
             calls: HashMap::new(),
+            // Its first message's turn is under way once it runs.
+            composing: composer::Composing::starting(first.is_some()),
         };
         self.hosting.natives.map.insert(key, native);
+        // Its composer, docked under it (ADR 0170).
+        self.dock_composer(key, buffer, name);
         buffer
     }
 
@@ -267,7 +210,7 @@ impl App {
         let (name, directory) = (session.name.clone(), session.directory.clone());
         let buffer = self.add_native_buffer(key, &name, directory, None);
         self.editor.set_running(buffer, false);
-        self.editor.set_mode_note(buffer, STOPPED.to_owned());
+        self.set_native_state(key, NativeState::Stopped);
         if let Some(native) = self.hosting.natives.map.get_mut(&key) {
             let change = native
                 .rows
@@ -309,7 +252,7 @@ impl App {
         session.archived = false;
         session.native = true;
         let name = session.name.clone();
-        self.editor.set_mode_note(buffer, String::new());
+        self.set_native_state(key, NativeState::Running);
         self.editor.note_unlogged(format!(
             "Started native session {name} in {}",
             directory.display()
@@ -339,6 +282,9 @@ impl App {
         self.hosting.starting.remove(&key);
         if let Some(native) = self.hosting.natives.map.remove(&key) {
             self.editor.kill_buffer(native.buffer);
+            if let Some(composer) = native.composing.buffer {
+                self.editor.kill_buffer(composer);
+            }
         }
     }
 
@@ -363,6 +309,8 @@ impl App {
         let mut targets = Vec::new();
         for event in events {
             if let Some(target) = turns::target(&event) {
+                // A turn under way, oso's or one it did not start, holds what is sent back.
+                native.composing.busy = !matches!(target, Target::Idle { .. });
                 targets.push(target);
             }
             for change in native.rows.apply(event) {
@@ -372,6 +320,7 @@ impl App {
         let buffer = native.buffer;
         let changed = !changes.is_empty();
         draw(&mut self.editor, native, changes);
+        // A turn that ended lets the queue's first go, after the event (`send_waiting_queues`).
         for target in targets {
             self.tell_tracker(key, target);
         }
@@ -402,6 +351,11 @@ impl App {
         }
         native.stream = None;
         let buffer = native.buffer;
+        // No turn runs any more, and what is queued waits for the person.
+        self.composer_ended(key);
+        let Some(native) = self.hosting.natives.map.get_mut(&key) else {
+            return;
+        };
         let status = if self.watch.take_hung_up(key) {
             Some(0)
         } else {
@@ -428,11 +382,11 @@ impl App {
         let Some(exit) = self.hosting.table.ended(key, status, now_ms()) else {
             return;
         };
-        let note = match exit {
-            Exit::Stopped => STOPPED,
-            Exit::Failed => "failed",
+        let state = match exit {
+            Exit::Stopped => NativeState::Stopped,
+            Exit::Failed => NativeState::Failed,
         };
-        self.editor.set_mode_note(buffer, note.to_owned());
+        self.set_native_state(key, state);
         if let Some(worker) = &self.sessions {
             worker.send(Job::Exited(key, exit));
         }
@@ -441,9 +395,17 @@ impl App {
     }
 
     /// After each event: a native session whose buffer was killed is stopped and archived, as
-    /// a terminal's is (ADR 0121, Q3), and a `*Brief*` killed unsent is forgotten.
+    /// a terminal's is (ADR 0121, Q3), a `*Brief*` killed unsent is forgotten, and a queue that
+    /// may go does.
     pub(in crate::app) fn sync_native_sessions(&mut self) {
         self.sync_sessions_socket();
+        self.sweep_killed_natives();
+        // After the sweep: no message goes to a session whose buffer was just killed.
+        self.send_waiting_queues();
+    }
+
+    /// Stops and archives each native session whose buffer was killed.
+    fn sweep_killed_natives(&mut self) {
         let editor = &self.editor;
         self.hosting
             .natives
@@ -465,6 +427,9 @@ impl App {
                     stream.stop();
                 }
                 buffers.push(native.buffer);
+                if let Some(composer) = native.composing.buffer {
+                    self.editor.kill_buffer(composer);
+                }
             }
         }
         self.archive_killed_sessions(&buffers);
@@ -538,7 +503,7 @@ fn draw(
         native.placed.put(at, range, rendered.text.len());
         debug_assert_eq!(
             editor.buffer(native.buffer).map(|b| b.text().len()),
-            Some(native.placed.end())
+            Some(native.placed.end() + native.composing.rows.len())
         );
     }
 }

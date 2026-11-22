@@ -1,7 +1,8 @@
 //! A native session's buffer's keys carried out (ADR 0165, ADR 0130's design): `TAB` folds the
 //! row at point, or the call of an open row of several that point is on, `RET` shows a call's
 //! whole result in `*result: NAME*`, and `n`/`p`, `]`/`[` move to the start of a prompt's row
-//! or a tool row.
+//! or a tool row. The composer's keys and the queue's (step 2) go to `composer` first: from
+//! the composer, for the session it is docked under; from the transcript, at point's line.
 //!
 //! Must not depend on: key presses; the command gave the line point is on, and `Placed` says
 //! which row it is in.
@@ -31,6 +32,11 @@ impl App {
         line: usize,
         action: NativeAction,
     ) {
+        // From the composer, the session it is docked under (step 2).
+        if let Some(key) = self.composer_session(buffer) {
+            self.composer_key(key, None, action);
+            return;
+        }
         let key = self.hosting.table().by_buffer(buffer).map(|s| s.key);
         let Some(key) = key.filter(|key| self.hosting.natives.has(*key)) else {
             return self.editor.message("This buffer holds no native session");
@@ -42,11 +48,16 @@ impl App {
         else {
             return;
         };
+        if self.composer_key(key, Some(offset), action) {
+            return;
+        }
         match action {
             NativeAction::Toggle => self.native_toggle(key, offset),
             NativeAction::Open => self.native_result(key, offset),
             NativeAction::Prompt(count) => self.native_move(key, offset, count, Wanted::Prompt),
             NativeAction::Tool(count) => self.native_move(key, offset, count, Wanted::Tools),
+            // The composer's and the queue's, carried out above.
+            _ => {}
         }
     }
 

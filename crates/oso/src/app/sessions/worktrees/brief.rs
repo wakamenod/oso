@@ -11,6 +11,7 @@ use oso_core::project::ProjectId;
 use super::super::super::App;
 use super::super::hosting::Begin;
 use super::{BRIEF, Brief};
+use crate::app::sessions::withheld_draft;
 use crate::git::{TrustedRoot, printable};
 use crate::sessions::worktree::brief::MAX_BRIEF;
 use crate::sessions::worktree::create::{Created, Handover, Order, Step};
@@ -79,11 +80,7 @@ impl App {
         let place = slug::slug(&branch)
             .map(|slug| root.join(".claude/worktrees").join(slug))
             .unwrap_or_default();
-        let mut buffer = Buffer::from_text(BRIEF, text);
-        buffer.set_mode(Mode::Brief);
-        // The person's brief: no agent reads or rewrites it before it is sent.
-        buffer.withhold_from_agents();
-        let id = self.editor.add_buffer(buffer);
+        let id = withheld_draft(&mut self.editor, BRIEF, Mode::Brief, text);
         self.editor.show(id);
         let shown = printable(&branch, 80);
         self.hosting.worktrees.briefs.insert(
