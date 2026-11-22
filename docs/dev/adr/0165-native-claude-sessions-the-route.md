@@ -639,10 +639,49 @@ part 2a-1). The author chose (a) on Q1 and on each of Q1a to Q1e:
 - **A killed composer** is docked again, empty, the next time the session's composer keys need
   it; the edit of a queued message it held is given up.
 - **Left for later parts:** asking before a session's buffer with messages queued is killed or
-  archived, and resuming a stopped session to take its queue (part 2b).
+  archived; resuming a stopped session to take its queue came with part 2b.
 
 The author approved the public API's change: `Mode::Composer` and `NativeAction`'s composer
 and queue variants.
+
+### Part 2b: resume, fork and a start with no brief
+
+R1 as built, with the author's Q2 (a) and their choices of 2026-11-22:
+
+- **A resume** of a stopped native session (`session-resume`, and an agent's `session_resume`,
+  ADR 0153) is native, in its own buffer: its rows stay, one "Resumed." row follows, no turn is
+  under way, and, for the person's, the buffer is shown with its composer selected. It takes
+  no baseline. A queue that ended stays paused, its heading back to "C-c C-c on an empty
+  composer sends the next". A start the start thread refuses, as when the conversation runs
+  elsewhere (`Report::Live`, which offers a fork), leaves the buffer stopped with an "It did
+  not resume." row.
+- **Trust, failing closed (the author's choice):** a native resume or fork runs only at the
+  root of a project that an open buffer says is trusted now, and the start thread looks at it
+  again before the spawn. Else a resume refuses and says why: the project is not open (open a
+  file of it), not trusted now, or the session runs below its root; `session-fork` then
+  continues it in a terminal. The trust a session started with is not used: it is not taken
+  back when the person untrusts the project. **Follow-up:** judging trust from the trust list
+  by the root's path and identity, on the start thread, so that a resume needs no open buffer.
+- **A fork** follows the mode: native, in a new buffer with its composer selected, under
+  `mode = "native"` at such a root; else in a terminal. It takes no baseline, as a terminal
+  fork took none.
+- **A start with no brief** (the author's (a) on the `*Brief*` dedupe): a person's new native
+  start begins at once, with its composer selected, where the first message is written;
+  `*Brief*` is no longer a native start's (the worktree flow keeps its own), and an agent's
+  start with no brief still runs in a terminal. A message sent before the process runs waits
+  for it.
+- **A session given no message:** Claude Code keeps no conversation for a `claude -p` that was
+  written nothing, and `--resume` of it fails ("No conversation found", a probe of
+  2026-11-22). A native session that ends, is killed or is left at oso's exit before it was
+  given a message is forgotten, not stopped or archived: nothing is left to resume.
+- **The stream on a resume:** `claude -p --resume` with `stream-json` writes only the new
+  turn's events (init, the replay of the new message, its reply, its result), never the earlier
+  conversation (a probe of 2026-11-22): the rows kept are the transcript, and a resume costs
+  the UI thread one row.
+- **Baselines:** the start's order says whether to take one: a new session and an adopted one
+  do (ADR 0122), a resume and a fork do not.
+- **A review's question** (ADR 0163) to a stopped native orchestrator is refused for now, as a
+  native session takes messages in its composer: part 2f's composed sends carry it.
 
 ## Questions
 

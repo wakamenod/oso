@@ -10,7 +10,7 @@
 //!   its process and directory, and the person is offered a fork. Five seconds after the
 //!   resume, the registry is read again, and two live processes with the id give a warning.
 //! - A missing directory refuses before anything starts.
-//! - For a new session in a trusted project, the baseline is taken first (ADR 0122), waiting at most
+//! - For a new or adopted session in a trusted project, the baseline is taken first (ADR 0122), waiting at most
 //!   [`BASELINE_WAIT`]; past that, the session starts and the baseline follows.
 //! - The shell is found as ADR 0120 has it, and `claude` on `PATH` when the shell is not one
 //!   that runs the wrapper, as [`launch`](super::launch) has it.
@@ -78,8 +78,12 @@ pub struct Order {
     pub directory: PathBuf,
     /// The project it runs in, which the session's executables are not looked for in.
     pub project: Option<PathBuf>,
-    /// The project's root, if the project is trusted to run git, for the baseline.
+    /// The project's root, if the project is trusted to run git: a native session's gate,
+    /// looked at again before the spawn, and the baseline's root.
     pub trusted: Option<TrustedRoot>,
+    /// Whether a baseline is taken at `trusted` before the session starts: a new session's
+    /// and an adopted one's (ADR 0122), never a resume's or a fork's.
+    pub baseline: bool,
     /// oso's own state directory, where reviews keep their index copies.
     pub state: Option<PathBuf>,
     /// `[sessions] claude`, an absolute path.
@@ -266,9 +270,8 @@ fn prepare(order: Order, send: &(dyn Fn(Report) + Sync)) {
         return refuse(why);
     }
     // The baseline before `claude` runs, so that the review shows what the session changed.
-    // A new session's alone: a resume keeps the one it had, and a fork the one it began with.
     let baseline = (order.trusted.clone())
-        .filter(|_| matches!(order.kind, Kind::New))
+        .filter(|_| order.baseline)
         .and_then(|root| Baseline::start(root, order.state.clone()));
     let in_time = baseline.as_ref().and_then(|b| b.wait(BASELINE_WAIT));
     let late = baseline.filter(|_| in_time.is_none());
@@ -694,6 +697,7 @@ mod tests {
             directory: dir.clone(),
             project: None,
             trusted: None,
+            baseline: false,
             state: None,
             claude: Some(claude),
             runs: Runs::Terminal(TerminalOrder {

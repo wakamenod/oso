@@ -6,11 +6,9 @@
 
 use std::fs;
 
-use serde_json::Value;
-
 use super::super::super::spaces::trust_restricted;
 use super::super::super::worktrees::keys;
-use super::{Flow, MESSAGE, text};
+use super::{Flow, MESSAGE, in_composer, text};
 
 /// The fake: for each line of its input, `N` from 1, it writes the message's text to
 /// `sent.N`, replays it, and once the flow writes `release.N`, replies `reply N` and ends the
@@ -39,15 +37,6 @@ fn transcript(app: &mut super::super::super::harness::App) -> String {
     text(&state)
 }
 
-/// Whether the selected window is the composer docked under the session.
-fn in_composer(state: &Value) -> bool {
-    state["windows"].as_array().is_some_and(|windows| {
-        windows
-            .iter()
-            .any(|window| window["selected"] == true && window["docked"]["slot"] == "composer")
-    })
-}
-
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
 fn a_message_sent_while_a_turn_runs_waits_in_the_queue_and_goes_when_it_ends() {
@@ -67,7 +56,7 @@ fn a_message_sent_while_a_turn_runs_waits_in_the_queue_and_goes_when_it_ends() {
             .is_some_and(|modeline| !modeline.contains("restricted"))
     });
     app.run_command("claude", None).unwrap();
-    app.wait_for("*Brief*", |state| state["buffer"]["name"] == "*Brief*");
+    app.wait_for("the composer", in_composer);
     app.send_keys(&keys(MESSAGE));
     app.send_keys("C-c C-c");
     assert_eq!(flow.wait_for_file("sent.1").trim(), MESSAGE);

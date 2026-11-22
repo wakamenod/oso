@@ -98,7 +98,8 @@ impl App {
         let space = self.space_checks(&directory);
         self.turn_agent_channel_on_for_a_session();
         // Native in a trusted project under `mode = "native"`, as a new start (ADR 0165).
-        let (runs, trusted) = match self.native_fork(key, &name, &directory, root.as_deref()) {
+        let (runs, trusted) = match self.start_native_fork(key, &name, &directory, root.as_deref())
+        {
             Some((order, trusted)) => {
                 self.hosting.trusts.insert(key, trusted.clone());
                 (Runs::Native(order), Some(trusted))
@@ -116,6 +117,7 @@ impl App {
             project: root,
             // Its trust, for a native fork; a fork takes no baseline.
             trusted,
+            baseline: false,
             state: crate::app::reviews::state(),
             claude: self.configuration.session_claude().map(Path::to_path_buf),
             runs,

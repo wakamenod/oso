@@ -47,8 +47,9 @@ pub struct Queue {
 pub enum Pause {
     /// The process ended.
     Ended,
-    /// A message was not written.
-    Failed,
+    /// A message was not written, or the process runs again after it ended: an empty send
+    /// goes on.
+    Held,
 }
 
 /// Where the session's process is.
@@ -195,7 +196,15 @@ impl Queue {
             let id = self.next_id;
             self.waiting.push_front(Queued { id, text });
         }
-        self.paused = Some(Pause::Failed);
+        self.paused = Some(Pause::Held);
+    }
+
+    /// The process runs again after it ended (a resume): the queue still waits for the
+    /// person, whose empty send now goes on with it.
+    pub fn resumed(&mut self) {
+        if self.paused == Some(Pause::Ended) {
+            self.paused = Some(Pause::Held);
+        }
     }
 
     /// The process ended: nothing queued goes until the person sends.

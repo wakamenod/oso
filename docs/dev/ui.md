@@ -1306,8 +1306,9 @@ a switch made with its command stands until that setting changes in the file
   and shows its conversation in `*claude: NAME*` as oso's own rows instead of a terminal: the
   person's messages after `› `, replies after `● `, thinking as `∴ Thought for N s`, each tool
   call as one line with what came of it, an edit as a diff, and each turn's time and cost. A
-  start with no brief opens `*Brief*` for its first message: `C-c C-c` starts the session,
-  `C-c C-k` drops it. Its state comes from its stream. In its buffer, `TAB` folds or unfolds
+  start with no brief starts at once, with its composer selected, where the person writes the
+  first message (step 2); a session ended before it was given one leaves nothing to resume,
+  and goes. Its state comes from its stream. In its buffer, `TAB` folds or unfolds
   the row at point (a call of an open row of several on its own), `RET` shows a call's whole
   result read-only in `*result: NAME*`, withheld from agents, `n`/`p` move between the person's
   messages and `]`/`[` between tool rows; session mode's `C-c` keys work there too, but
@@ -1325,10 +1326,10 @@ a switch made with its command stands until that setting changes in the file
   waits to quit when idle. A message holding secret text a yank brought is not sent. A restart
   is refused while a composer holds text or a queue holds messages. A send, a paste or `session-explain` to
   it from elsewhere says it takes none yet. `session-resume` resumes a stopped native session
-  natively, in its own buffer, with a "Resumed" row and the composer selected, in a project
-  trusted now (else it says so, and `session-fork` continues it in a terminal); `session-fork`
-  forks a session natively in a trusted project under `mode = "native"`. Neither opens
-  `*Brief*`. Elsewhere, an agent's start with no brief, and a restricted project, keep the
+  natively, in its own buffer, with a "Resumed" row and the composer selected, at the root of
+  a project an open buffer says is trusted now (else it says why: a file of the project to
+  open, or `session-fork`, which continues it in a terminal); `session-fork` forks a session
+  natively there under `mode = "native"`, and in a terminal elsewhere. Elsewhere, an agent's start with no brief, and a restricted project, keep the
   terminal.
 
   `claude` is started as the login shell would start it, so its `PATH`, version managers and

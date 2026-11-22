@@ -67,13 +67,6 @@ pub(in crate::app) struct Worktrees {
     branch_wait: Option<u64>,
 }
 
-impl Worktrees {
-    /// The `*Brief*` buffers not sent yet.
-    pub(in crate::app) fn brief_buffers(&self) -> impl Iterator<Item = &BufferId> {
-        self.briefs.keys()
-    }
-}
-
 /// A worktree session's brief, before and while its worktree is made.
 #[derive(Debug, Clone)]
 struct Brief {

@@ -11,7 +11,7 @@ use serde_json::Value;
 
 use super::super::super::spaces::trust_restricted;
 use super::super::super::worktrees::keys;
-use super::{Flow, MESSAGE, text};
+use super::{Flow, MESSAGE, in_composer, text};
 
 /// The fake: run `N` from 1 logs its arguments to `run.N`, and for each line of its input
 /// replays it and replies `reply N.M` at once. It exits once its input ends.
@@ -31,15 +31,6 @@ while IFS= read -r line; do
   printf '{"type":"result","subtype":"success","duration_ms":10}\n'
 done
 "#;
-
-/// Whether the selected window is the composer docked under a session.
-fn in_composer(state: &Value) -> bool {
-    state["windows"].as_array().is_some_and(|windows| {
-        windows
-            .iter()
-            .any(|window| window["selected"] == true && window["docked"]["slot"] == "composer")
-    })
-}
 
 /// The modeline of the selected window, which speaks for a selected dock.
 fn modeline(state: &Value) -> String {
@@ -63,7 +54,7 @@ fn a_stopped_native_session_resumes_in_its_buffer_and_forks_natively() {
         !modeline(state).contains("restricted")
     });
     app.run_command("claude", None).unwrap();
-    app.wait_for("*Brief*", |state| state["buffer"]["name"] == "*Brief*");
+    app.wait_for("the composer", in_composer);
     app.send_keys(&keys(MESSAGE));
     app.send_keys("C-c C-c");
     app.wait_for("the first reply", |state| text(state).contains("reply 1.1"));
@@ -92,17 +83,13 @@ fn a_stopped_native_session_resumes_in_its_buffer_and_forks_natively() {
     assert!(shown.contains("reply 1.1"), "its rows are kept: {shown}");
     assert!(shown.contains("Resumed."), "{shown}");
 
-    // A fork of it is native too, in a new buffer, with no `*Brief*`.
+    // A fork of it is native too, in a new buffer, its composer selected.
     app.run_command("session-fork", None).unwrap();
     let args = flow.wait_for_file("run.3");
     assert!(args.contains("arg --fork-session"), "{args}");
     assert!(args.contains("arg --input-format=stream-json"), "{args}");
     let state = app.wait_for("the fork's composer", in_composer);
-    assert!(
-        !modeline(&state).contains("*Brief*"),
-        "{}",
-        modeline(&state)
-    );
+    assert_ne!(state["buffer"]["name"], "*claude: proj*", "a new buffer");
     app.send_keys(&keys("forked"));
     app.send_keys("C-c C-c");
     assert_eq!(flow.wait_for_file("sent.3.1").trim(), "forked");

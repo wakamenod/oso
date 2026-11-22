@@ -33,6 +33,7 @@ mod native;
 mod record;
 mod resume;
 mod terminal;
+mod trust;
 pub(in crate::app) use terminal::buffer_name;
 
 use fork::ForkFrom;
@@ -246,7 +247,7 @@ impl App {
             return None;
         }
         let project = self.project_at_root(&directory);
-        let native = self.native_start(&begin, project)?;
+        let native = self.native_start(&begin, project);
         let base = begin.name.clone().unwrap_or_else(|| base_name(&directory));
         let (key, name) = self.hosting.table.reserve(&directory, &base);
         if let Some(parent) = begin.parent.clone() {
@@ -302,6 +303,7 @@ impl App {
             directory,
             project: root,
             trusted,
+            baseline: true,
             state: super::super::reviews::state(),
             claude: self.configuration.session_claude().map(Path::to_path_buf),
             runs,
