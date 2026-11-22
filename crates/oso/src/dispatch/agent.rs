@@ -172,6 +172,9 @@ impl Dispatcher {
             }
         }
         let before = (editor.tiled().0.id(), editor.tiled().0.buffer());
+        // A selection put back raises nothing, so that the agent cannot choose which session a
+        // worktree's requests go to (ADR 0171).
+        let order = editor.buffers_by_recency();
         // The prompts it opens are the agent's, and say so (ADR 0085). What it queues to save
         // its caller starts as the agent's (ADR 0108).
         let mut ran = self.as_input(editor, |this, editor| {
@@ -183,6 +186,7 @@ impl Dispatcher {
         });
         editor.forget_kills();
         if took_the_keys(editor, before) {
+            editor.restore_buffer_order(&order);
             ran.1 = Err(KEYS_REFUSED.into());
         }
         Ok(ran)

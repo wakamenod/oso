@@ -5,8 +5,8 @@
 //!
 //! Leaving a buffer keeps its place: the selection set, with every cursor, the marks and
 //! the mark ring, and the view. Coming back gives it back, for the editor to clip to the
-//! text as it is then. The places are kept most recent first, which is the order `C-x b`
-//! lists buffers in and `M-,` walks.
+//! text as it is then. The places are kept most recent first, which is the order `M-,` walks
+//! and `C-x k` lists the window's buffers in; `C-x b` takes the editor's order (ADR 0171).
 
 use crate::buffer::BufferId;
 use crate::selection::SelectionSet;

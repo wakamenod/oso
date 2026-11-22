@@ -60,6 +60,7 @@ mod macros;
 mod marks;
 mod messages;
 mod migemo;
+mod order;
 mod pairs;
 mod project_search;
 mod projects;
@@ -82,6 +83,7 @@ mod trim;
 mod undo_group;
 mod view;
 mod visits;
+mod walk;
 mod walks;
 mod windows;
 mod wraps;
@@ -169,6 +171,8 @@ pub struct Editor {
     next_window: u64,
     /// The tiled windows in the order they were selected, the most recent first (ADR 0112).
     recent: Vec<WindowId>,
+    /// Every buffer, the most recently used first (ADR 0171).
+    buffer_order: order::BufferOrder,
     /// What is left of the command's wrap budget while no window's wrap holds it (ADR 0112).
     wrap_pool: usize,
     /// The tiled windows other than the selected one whose cursors or tops an edit moved in
@@ -338,6 +342,7 @@ impl Editor {
             next_id: 0,
             next_window: 1,
             recent: vec![FIRST_WINDOW],
+            buffer_order: order::BufferOrder::default(),
             wrap_pool: crate::display_map::wrap_map::COMMAND_BUDGET,
             moved_windows: Vec::new(),
             pairs: Vec::new(),
@@ -430,6 +435,7 @@ impl Editor {
             .map_or_else(|| buffer.name().to_owned(), crate::buffer::file_base);
         self.stand_where_made(&mut buffer);
         self.buffers.push((id, buffer));
+        self.buffer_order.add(id);
         self.name_files_like(&name);
         // Its mode's indentation, as the configuration gives it (ADR 0115).
         self.give_mode_indent(id);
@@ -468,28 +474,6 @@ impl Editor {
             let index = self.leave_side_at();
             self.window_shows(index, buffer);
         }
-    }
-
-    /// Every window.
-    pub fn windows(&self) -> impl ExactSizeIterator<Item = &Window> {
-        self.windows.iter()
-    }
-
-    /// The window named `id`, if there is one.
-    pub fn window_by_id(&self, id: WindowId) -> Option<&Window> {
-        self.windows.iter().find(|window| window.id() == id)
-    }
-
-    /// A new window showing `buffer`, with a name no window had before.
-    pub(super) fn new_window(&mut self, buffer: BufferId) -> Window {
-        let id = WindowId::new(self.next_window);
-        self.next_window += 1;
-        Window::new(id, buffer)
-    }
-
-    /// The position of the selected window in [`Editor::windows`].
-    pub fn selected_window(&self) -> usize {
-        self.selected
     }
 
     /// Whether any window shows a buffer that may hold secrets (ADR 0044).
@@ -1012,13 +996,14 @@ mod tests {
     fn a_file_named_like_scratch_is_not_scratch() {
         let mut editor = Editor::default();
         let (scratch, _) = editor.buffers().next().unwrap();
-        let other = editor.add_buffer(Buffer::visiting(PathBuf::from("/a/b")));
-        editor.show(other);
-        editor.kill_buffer(scratch);
         let file = editor.add_buffer(Buffer::visiting(PathBuf::from("/a/*scratch*")));
-        editor.kill_buffer(other);
-        assert_ne!(editor.current().0.buffer(), file);
-        assert_eq!(editor.current().1.path(), None);
+        editor.show(file);
+        editor.kill_buffer(scratch);
+        // A kill falls back to it as to any buffer of the user's (ADR 0171), so the one made
+        // again is asked for here.
+        let made = editor.scratch();
+        assert_ne!(made, file);
+        assert_eq!(editor.buffer(made).unwrap().path(), None);
     }
 
     #[test]

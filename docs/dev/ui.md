@@ -320,7 +320,8 @@ are rounded.
 
 ### Buffers (`C-x b`, `C-x k`, `M-,`, `M-/`, `C-.`)
 
-[ADR 0088](adr/0088-switching-and-killing-buffers.md), [ADR 0148](adr/0148-recent-files.md):
+[ADR 0088](adr/0088-switching-and-killing-buffers.md), [ADR 0148](adr/0148-recent-files.md),
+[ADR 0171](adr/0171-one-buffer-order-for-the-editor.md):
 
 ```
 ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
@@ -331,17 +332,22 @@ are rounded.
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 ```
 
-- `C-x b` lists buffers, the most recent first and the current one last, so `RET` goes back to the
-  previous one. A row is the name, `*` when modified, the size, the mode and the path. A name that
-  matches nothing creates a buffer.
+- `C-x b` lists buffers as consult-buffer does: those no window shows, the most recently used
+  first, then those other windows show, then the current one, so `RET` goes back to the previous
+  one. One order serves the whole editor: a buffer rises when the selected window shows it or its
+  window is selected, but not for a step of `M-,` or `M-/`, and `q` sends the buffer it leaves to
+  the end. A restart keeps the order. A row is the name, `*` when modified, the size, the mode and
+  the path. A name that matches nothing creates a buffer.
 - The float keeps its size: the list takes the left 2/5, the preview the rest, showing the selected
   buffer from where the window last was in it. A buffer that may hold secrets is never previewed: the
   preview says `may hold secrets`. A narrow frame drops the preview.
 - A window comes back to a buffer where it left it: cursors, marks and scroll.
 - Two files with one name show as `notes.md<work>` and `notes.md<home>`.
-- `C-x k` reads a buffer, the current first, and asks before killing a modified one. `*Messages*`,
-  `*Emergency Copies*` and `*Agent*` are kept. The window then shows the most recent other buffer.
-- `M-,` and `M-/` go to the previous and next buffer in the window's order, skipping internal ones.
+- `C-x k` reads a buffer, the current first, then those the window showed before, and asks before
+  killing a modified one. `*Messages*`, `*Emergency Copies*` and `*Agent*` are kept. The window
+  then shows the buffer it showed before, or the most recent other one.
+- `M-,` and `M-/` go to the previous and next buffer in the window's order, skipping internal ones,
+  and then through the others, the least recently used first for `M-,`.
 - `C-.` lists the mark ring, with the buffer around the selected mark in the preview.
 - After the buffers, `C-x b` lists the recent files no buffer visits, each its path from `~/`
   marked `file`; their preview says `not open`, and `RET` opens one

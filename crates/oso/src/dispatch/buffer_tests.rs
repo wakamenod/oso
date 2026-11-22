@@ -201,3 +201,29 @@ fn beside_a_secret_c_x_b_ret_goes_back_as_anywhere() {
     assert!(editor.prompt().is_none());
     assert_eq!(shown(&editor), "b.txt");
 }
+
+#[test]
+fn a_selection_the_agent_is_refused_raises_nothing() {
+    use super::Given;
+    use oso_core::command::Reach;
+    let (mut d, mut editor) = on_b();
+    let terminal = editor.add_terminal_buffer("*terminal*");
+    let below = editor
+        .split_window(oso_core::frame::Way::Down, false)
+        .unwrap();
+    editor.show_in(below, terminal);
+    let before = editor.buffers_by_recency();
+    let (_, ran) = d
+        .run_for_agent(&mut editor, "other-window", Given::Nothing, Reach::Look)
+        .unwrap();
+    assert!(
+        ran.is_err(),
+        "a terminal's window is the person's to select"
+    );
+    assert_eq!(shown(&editor), "b.txt");
+    assert_eq!(
+        editor.buffers_by_recency(),
+        before,
+        "the terminal did not rise, so it is not taken as the one used last (ADR 0171)"
+    );
+}

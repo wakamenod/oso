@@ -397,7 +397,12 @@ impl App {
         }
         self.carry_ring_and_histories(kills, histories);
         let reviews = std::mem::take(&mut state.reviews);
+        let order: Vec<BufferId> = (state.order.iter())
+            .filter_map(|&at| named.get(at).copied())
+            .collect();
         self.take_view(&named, state);
+        // After the windows, whose shows and selection would raise their buffers (ADR 0171).
+        self.editor.restore_buffer_order(&order);
         // Each once its project is known and trusted (ADR 0122, step 6).
         self.reviews_handed_over(reviews);
         Ok(judging)
