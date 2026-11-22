@@ -22,6 +22,8 @@ pub(super) struct Starting {
     saves: HashMap<BufferId, Acted>,
     /// A load ended, a project was found or the trust record read since opens were settled.
     asked: bool,
+    /// What starts once the configuration's first look is done (ADR 0173).
+    pub(super) held: super::held_starts::Held,
 }
 
 impl Starting {

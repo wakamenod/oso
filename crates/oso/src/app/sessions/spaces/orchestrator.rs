@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use oso_core::minibuffer::PromptId;
 
 use crate::app::App;
-use crate::app::sessions::hosting::Begin;
+use crate::app::sessions::hosting::{Begin, Then};
 use crate::sessions::spaces::orchestrator::{Repository, TEXT, header};
 use crate::sessions::spaces::stored::{now_ms, same};
 use crate::sessions::spaces::{Member, SpaceId};
@@ -102,8 +102,16 @@ impl App {
         }
     }
 
-    /// Starts space `at`'s orchestrator in its directory, named after the space.
+    /// Starts space `at`'s orchestrator in its directory, named after the space. Whole, once
+    /// the configuration's first look is done; meanwhile it counts as starting (ADR 0173).
     pub(in crate::app) fn launch_orchestrator(&mut self, at: usize, brief: Option<String>) {
+        if self.starts_wait() {
+            let Some(id) = self.watch.spaces().stored(at).map(|s| s.id.clone()) else {
+                return;
+            };
+            self.hosting.spaces.waiting.insert(id.clone());
+            return self.hold_start(move |app| app.launch_held_orchestrator(&id, brief));
+        }
         let space = match self.orchestrator_start(at) {
             Ok(space) => space,
             Err(why) => return self.editor.message(why),
@@ -130,8 +138,16 @@ impl App {
             behind,
             ..Begin::default()
         };
-        if let Some(key) = self.begin_session(begin) {
-            self.hosting.spaces.starting.insert(key, id);
+        self.begin_session(begin, Then::Orchestrator(id));
+    }
+
+    /// Starts space `id`'s orchestrator, which waited: nothing if the space closed meanwhile.
+    fn launch_held_orchestrator(&mut self, id: &SpaceId, brief: Option<String>) {
+        if !self.hosting.spaces.waiting.remove(id) {
+            return;
+        }
+        if let Some(at) = self.watch.spaces().find(id) {
+            self.launch_orchestrator(at, brief);
         }
     }
 

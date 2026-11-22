@@ -1,6 +1,6 @@
 # 0165. Native Claude sessions: the route
 
-- Status: Accepted, amended by 0170
+- Status: Accepted, amended by 0170 and 0173
 - Date: 2026-11-21
 
 ## Context

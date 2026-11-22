@@ -1,6 +1,6 @@
 # 0159. `space-new` starts the orchestrator, and a space's display name
 
-- Status: Accepted
+- Status: Accepted, amended by 0173
 - Date: 2026-11-19
 
 ## Context

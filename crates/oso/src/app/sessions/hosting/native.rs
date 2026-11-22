@@ -241,6 +241,15 @@ impl App {
         }
     }
 
+    /// Native session `key`'s control layer as if its process started now: its start waited
+    /// for the configuration's first look, and its `initialize` is not yet written (ADR 0173).
+    pub(super) fn native_control_from_now(&mut self, key: SessionKey) {
+        let native = self.hosting.natives.map.get_mut(&key);
+        if let Some(control) = native.and_then(|native| native.control.as_mut()) {
+            *control = Control::started(std::time::Instant::now());
+        }
+    }
+
     /// A native session buffer for session `key`, named `name`, running in `directory`, with
     /// its rows, and `first` as the message oso sent.
     fn add_native_buffer(

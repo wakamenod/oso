@@ -1,6 +1,6 @@
 # 0121. Agent sessions and spaces
 
-- Status: Accepted, amended by 0126, 0128, 0131, 0132, 0135, 0136, 0138, 0140, 0141, 0143, 0145, 0151, 0153, 0155, 0160, 0161, 0162, 0163, 0165 and 0170;
+- Status: Accepted, amended by 0126, 0128, 0131, 0132, 0135, 0136, 0138, 0140, 0141, 0143, 0145, 0151, 0153, 0155, 0160, 0161, 0162, 0163, 0165, 0170 and 0173;
   "Merged work is not ready for review, as amended" (2026-11-17); "Removal archives its
   sessions, as amended" (2026-11-18); "An incomplete registry read refuses, as amended"
   (2026-11-22); "An unverifiable registry entry is busy, as amended" (2026-11-22); "Every

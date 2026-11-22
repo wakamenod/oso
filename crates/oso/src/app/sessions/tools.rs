@@ -202,6 +202,12 @@ impl App {
             let _ = reply.send(Err("no such session tool".into()));
             return;
         };
+        // A call that changes something waits for the configuration's first look, so that
+        // `[sessions]` and `agent_starts` are the person's (ADR 0173); a read is answered now.
+        if !tool.read_only() && self.starts_wait() {
+            let run = move |app: &mut App| app.session_tool(connection, call, reply);
+            return self.hold_call(connection, run);
+        }
         let caller = (self.hosting.table.by_connection(connection)).map(|s| self.caller_of(s));
         let pending = Pending {
             connection,
@@ -473,6 +479,8 @@ impl App {
     /// runs. What the person's `y` started goes on, as the person's.
     pub(in crate::app) fn session_tools_gone(&mut self, connection: Option<Connection>) {
         let ours = |of: Connection| connection.is_none_or(|gone| gone == of);
+        // A call that waits for the configuration's first look runs no more.
+        self.drop_held_calls(ours);
         let dropped: Vec<u64> = self
             .hosting
             .tools

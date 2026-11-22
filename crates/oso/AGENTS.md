@@ -15,8 +15,9 @@ often, so it must rebuild within 2 s.
   in `src/bindings/`.
 - `src/app.rs` holds the app's state and what its concerns share, and `src/app/`
   the concerns: `shell` runs winit, or `native` oso's own layer (ADR 0070), `events` routes, `input`, `ime`, `draw`, `configuration`,
-  `loads`, `reloads`, `saves`, `idle_quit`, `copies`, `clipboard`, `searches`, `migemo`, `slices`, `walks`, `greps`, `wraps`, `flash`, `jumps`, `reviews`, `dired`, `vcs`, `terminals`, `recent_files` (the recent files' record, ADR 0148)
-  and `starts` (what opening and saving start, and what waits for the person, ADR 0118) do the
+  `loads`, `reloads`, `saves`, `idle_quit`, `copies`, `clipboard`, `searches`, `migemo`, `slices`, `walks`, `greps`, `wraps`, `flash`, `jumps`, `reviews`, `dired`, `vcs`, `terminals`, `recent_files` (the recent files' record, ADR 0148),
+  `starts` (what opening and saving start, and what waits for the person, ADR 0118) and
+  `held_starts` (the starts that wait for the configuration's first look, ADR 0173) do the
   work, `control`
   answers the dev socket, and `handover` exports and imports the state of a restart, `oso dev`'s
   or `oso-restart`'s; its terminals go in `terminals/carry.rs` (the instance going) and

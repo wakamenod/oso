@@ -1013,6 +1013,11 @@ read. See [ADR 0019](adr/0019-configuration.md).
   start and when a `stat` once a second, on focus or after a save sees it change, and the UI
   thread swaps the result in between keys (`app/configuration.rs`), dropping the old keymap
   on another thread. A bad file leaves the last good one, with messages.
+- Until its first look is applied, nothing starts that reads `[sessions]`, `[terminal]` or
+  `[spaces]` as it starts: sessions, terminals' shells, new spaces and agents' changing session
+  tool calls wait in `app/held_starts.rs`, in order, for at most five seconds, and language
+  servers wait in `app/starts.rs`
+  ([ADR 0173](adr/0173-starts-wait-for-the-configurations-first-look.md), ADR 0138).
 - The record of trusted projects, `trusted-projects` beside the file, has a thread of its own
   (`config::TrustFile`, `oso-trust`): it reads the record with the file's checks, refusing a
   group too, and makes what `trust-project` and `untrust-project` changed in the file as it is
