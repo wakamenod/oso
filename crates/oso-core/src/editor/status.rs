@@ -361,10 +361,12 @@ fn push_state(out: &mut String, window: &Window, buffer: &Buffer) {
     }
     out.push_str(buffer.mode().name());
     // A listing has no encoding: its order instead, as dired's `Dired by name` (ADR 0134). A git
-    // status has none either (ADR 0127).
+    // status has none either (ADR 0127), nor a native session, whose state follows (ADR 0165).
     if matches!(
         buffer.mode(),
-        crate::buffer::Mode::Directory | crate::buffer::Mode::GitStatus
+        crate::buffer::Mode::Directory
+            | crate::buffer::Mode::GitStatus
+            | crate::buffer::Mode::NativeSession
     ) {
         if !buffer.mode_note().is_empty() {
             out.push(' ');

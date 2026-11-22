@@ -85,7 +85,10 @@ often, so it must rebuild within 2 s.
   (`images`, ADR 0142) are written, converted by `sips` and removed on one `oso-images` thread,
   never the worker's. A native session's stream (ADR 0165) is read, folded into rows and
   rendered by pure functions (`native`); only `native/wire.rs` touches its JSON, and its
-  fixtures are recordings scrubbed of ids, paths and the person's setup. `app/sessions.rs` and
+  fixtures are recordings scrubbed of ids, paths and the person's setup. Its `claude -p` is
+  started on the start thread and read on `oso-native-read`, `oso-native-batch` and
+  `oso-native-err` (`stream`); `app/sessions/hosting/native.rs` draws its rows on the UI thread,
+  row by row. `app/sessions.rs` and
   `app/sessions/` carry out what the worker, the jobs and the start thread find.
 - `src/review.rs` runs git and diffs for an agent review on `oso-review` (ADR 0122), only for
   a trusted project's root, and git only through `oso_platform::process`, with `src/git.rs`'s

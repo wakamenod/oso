@@ -9,7 +9,8 @@
 //! - `wire`: one line of the stream read into an [`wire::Event`], and the line that sends a
 //!   message. The only place that touches JSON.
 //! - `rows`: the events folded into a session's rows, and what changed with each event.
-//! - `render`: a row as text and faces, folded or unfolded, as ADR 0130 has them.
+//! - `render`: a row as text and faces, folded or unfolded, as ADR 0130 has them, and
+//!   `placed`: where each row is in the buffer.
 //! - `turns`: what an event says of the session's state.
 
 #![cfg_attr(
@@ -20,6 +21,7 @@
     )
 )]
 
+pub mod placed;
 pub mod render;
 pub mod rows;
 pub mod turns;

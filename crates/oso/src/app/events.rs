@@ -58,6 +58,7 @@ impl App {
         self.sync_git(false, true);
         self.gits.by_agent = false;
         self.sync_terminals();
+        self.sync_native_sessions();
         self.sync_servers();
         self.sync_pane_directory();
         // Once for all the changes the event made to the sessions (ADR 0121).
@@ -119,6 +120,7 @@ impl App {
             UserEvent::AgentStarted(started) => self.agent_started(started),
             UserEvent::Sessions(out) => self.sessions_reported(out),
             UserEvent::SessionStart(report) => self.session_start_reported(report),
+            UserEvent::NativeSession(key, out) => self.native_reported(key, out),
             UserEvent::ImageKept(key, kept) => self.image_kept(key, *kept),
             UserEvent::Adoptable(found) => self.adoptable_found(*found),
             UserEvent::MoveLooked(token, found) => self.move_looked(token, *found),

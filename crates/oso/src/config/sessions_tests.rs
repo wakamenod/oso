@@ -230,3 +230,28 @@ fn pane_width_takes_24_to_80_columns_and_says_any_other() {
         assert_eq!(loaded.settings.sessions.pane_width, None, "{value}");
     }
 }
+
+#[test]
+fn mode_is_native_or_the_tui() {
+    let f = Fixture::new();
+    assert!(!f.parse("").settings.sessions.native);
+    let loaded = f.parse("[sessions]\nmode = \"native\"\n");
+    assert_eq!(messages(&loaded), Vec::<String>::new());
+    assert!(loaded.settings.sessions.native);
+    assert!(
+        !f.parse("[sessions]\nmode = \"tui\"\n")
+            .settings
+            .sessions
+            .native
+    );
+    for value in ["\"chat\"", "true"] {
+        let loaded = f.parse(&format!("[sessions]\nmode = {value}\n"));
+        assert!(!loaded.settings.sessions.native, "{value}");
+        assert!(
+            messages(&loaded)
+                .iter()
+                .any(|said| said.contains("mode takes \"native\" or \"tui\"")),
+            "{value}"
+        );
+    }
+}

@@ -7,6 +7,8 @@
 //! - Every option is given as `--flag=value`, so that a value can never be taken for an option,
 //!   and `--mcp-config`, which takes any number of values, takes exactly one.
 //! - A brief, when one is given, comes after `--`, which ends the options.
+//! - A native session's (ADR 0165) starts with [`NATIVE`]: `claude -p` reading and writing
+//!   stream-json. It takes no brief on its line: its first message goes on standard input.
 //! - No permission option is ever given: not `--permission-mode`, not
 //!   `--dangerously-skip-permissions`, not `--allowedTools`. A session starts in the mode the
 //!   person's own settings give it, whoever asked for it.
@@ -19,6 +21,17 @@ use serde_json::json;
 use super::identity::SessionId;
 
 pub(crate) use crate::channel::mcp::SESSION_VARIABLE;
+
+/// What a native session's command line starts with (ADR 0165): print mode, stream-json in
+/// and out, every event, the parts of messages as they stream, and the messages it took.
+pub const NATIVE: [&str; 6] = [
+    "-p",
+    "--input-format=stream-json",
+    "--output-format=stream-json",
+    "--verbose",
+    "--include-partial-messages",
+    "--replay-user-messages",
+];
 
 /// How a session's `claude` starts.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -62,6 +75,8 @@ pub struct Line<'a> {
     pub settings: Option<&'a str>,
     /// `--add-dir`, one for each: an orchestrator's trusted repositories (ADR 0136, step 3).
     pub add_dirs: &'a [std::path::PathBuf],
+    /// A native session's line (ADR 0165), which starts with [`NATIVE`] and takes no brief.
+    pub native: bool,
 }
 
 /// Why a command line cannot be built.
@@ -102,6 +117,9 @@ pub fn mcp_config(oso: &Path, oso_pid: u32, id: &SessionId) -> Result<String, Li
 /// The arguments after `claude`.
 pub fn arguments(line: &Line<'_>) -> Result<Vec<OsString>, LineError> {
     let mut args: Vec<OsString> = Vec::new();
+    if line.native {
+        args.extend(NATIVE.iter().map(OsString::from));
+    }
     let mut flag = |name: &str, value: &str| args.push(format!("--{name}={value}").into());
     match &line.start {
         Start::New { id } => flag("session-id", id.as_str()),
@@ -129,7 +147,7 @@ pub fn arguments(line: &Line<'_>) -> Result<Vec<OsString>, LineError> {
     if let Some(prompt) = line.system_prompt {
         args.push(format!("--append-system-prompt={prompt}").into());
     }
-    if let Some(brief) = line.brief {
+    if let Some(brief) = line.brief.filter(|_| !line.native) {
         args.push("--".into());
         args.push(brief.into());
     }
@@ -158,6 +176,7 @@ mod tests {
             brief: None,
             settings: None,
             add_dirs: &[],
+            native: false,
         }
     }
 
@@ -295,6 +314,7 @@ mod tests {
             brief: None,
             settings: None,
             add_dirs: &dirs,
+            native: false,
         };
         let args = arguments(&line).unwrap();
         let at = |text: &str| {
@@ -307,5 +327,19 @@ mod tests {
         assert!(args.contains(&OsString::from(
             "--append-system-prompt=You are the orchestrator"
         )));
+    }
+
+    #[test]
+    fn a_native_line_reads_stream_json_and_takes_no_brief() {
+        let a = id(1);
+        let native = Line {
+            brief: Some("go on"),
+            native: true,
+            ..line(Start::New { id: &a })
+        };
+        let args = strings(&arguments(&native).unwrap());
+        assert_eq!(args[..6], super::NATIVE.map(str::to_owned));
+        assert_eq!(args[6], format!("--session-id={a}"));
+        assert!(args.iter().all(|arg| arg != "--" && arg != "go on"));
     }
 }

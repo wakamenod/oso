@@ -18,6 +18,8 @@
 //!   `CLAUDE_CONFIG_DIR` and `OSO_SESSION`, so that the UI thread never waits on the spawn.
 //!   The thread waits for the spawn, at most [`SPAWN_WAIT`], before it reports [`Ready`]: oso's
 //!   record has its own `claude`'s process id from its first check on.
+//! - A native session (ADR 0165) starts `claude -p` here instead, with the same variables and
+//!   pipes for its stream, in a session of its own; [`stream`](super::stream) reads it.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -34,11 +36,16 @@ use super::command::{self, Line, SESSION_VARIABLE, Start};
 use super::identity::{self, SessionId};
 use super::launch::{self, Launch};
 use super::registry;
+use super::stream::{self, Stream};
+
+mod runs;
+
 use super::worktree::steer;
 use crate::git::TrustedRoot;
 use crate::review::{self, Reviewer};
 use crate::terminal::hosted;
 use crate::terminal::shell::{self, Settings};
+use runs::start_runs;
 
 /// The longest a session waits for its baseline before it starts (ADR 0122).
 pub const BASELINE_WAIT: Duration = Duration::from_secs(2);
@@ -77,9 +84,10 @@ pub struct Order {
     pub state: Option<PathBuf>,
     /// `[sessions] claude`, an absolute path.
     pub claude: Option<PathBuf>,
-    /// The terminal it runs in.
-    pub terminal: TerminalOrder,
-    /// The first prompt: a worktree session's brief with its header (ADR 0121 step 4).
+    /// What it runs in: a terminal, or for a native session, pipes.
+    pub runs: Runs,
+    /// The first prompt: a worktree session's brief with its header (ADR 0121 step 4). A
+    /// native session's goes on its standard input.
     pub brief: Option<String>,
     /// `[sessions] steer_worktrees`: the session gets the hook that steers Claude away from
     /// its own worktree tools.
@@ -112,6 +120,38 @@ pub struct SpaceStart {
     pub instructions: Option<PathBuf>,
 }
 
+/// What a session runs in.
+pub enum Runs {
+    Terminal(TerminalOrder),
+    Native(NativeOrder),
+}
+
+impl Runs {
+    /// `[terminal]`'s settings, whose shell starts the session either way.
+    fn settings(&self) -> &Settings {
+        match self {
+            Self::Terminal(order) => &order.settings,
+            Self::Native(order) => &order.settings,
+        }
+    }
+
+    fn native(&self) -> bool {
+        matches!(self, Self::Native(_))
+    }
+}
+
+/// A native session's start (ADR 0165), as the app gives it.
+pub struct NativeOrder {
+    /// Its buffer, already made.
+    pub buffer: BufferId,
+    /// `[terminal]`'s settings: the shell, `-l` and the names passed on.
+    pub settings: Settings,
+    /// `[sessions] env`: more names passed on from oso's environment.
+    pub env: Vec<String>,
+    /// Called from the stream's threads with what they read.
+    pub out: stream::Deliver,
+}
+
 /// The terminal a session runs in, as the app gives it.
 pub struct TerminalOrder {
     /// Its buffer, already made.
@@ -132,9 +172,9 @@ pub struct Ready {
     pub token: u64,
     pub id: SessionId,
     pub buffer: BufferId,
-    /// Past its child's start, unless that took longer than [`SPAWN_WAIT`]: its `pid` is
-    /// the child's while it runs.
-    pub terminal: Terminal,
+    /// A terminal past its child's start, unless that took longer than [`SPAWN_WAIT`]: its
+    /// `pid` is the child's while it runs. Or a native session's stream.
+    pub started: Started,
     /// The shell's path and the shells passed over before it, for `*Messages*`.
     pub shell: PathBuf,
     pub passed_over: Vec<String>,
@@ -147,11 +187,18 @@ pub struct Ready {
     pub notes: Vec<String>,
 }
 
+/// What a session started in.
+#[derive(Debug)]
+pub enum Started {
+    Terminal(Terminal),
+    Native(Stream),
+}
+
 /// What the thread found.
 #[derive(Debug)]
 pub enum Report {
-    /// Start it.
-    Ready(Ready),
+    /// Start it. Boxed: the process handles make it far larger than the rest.
+    Ready(Box<Ready>),
     /// It does not start; why, for the echo area.
     Refused { token: u64, why: String },
     /// A resume found the conversation live in this process, in this directory; or, with no
@@ -202,7 +249,7 @@ fn prepare(order: Order, send: &(dyn Fn(Report) + Sync)) {
             Err(e) => return refuse(format!("The session did not start: {e}")),
         },
     };
-    let found = match hosted::find_shell(&order.terminal.settings) {
+    let found = match hosted::find_shell(order.runs.settings()) {
         Ok(found) => found,
         Err(e) => return refuse(format!("The session did not start: no shell is found: {e}")),
     };
@@ -228,43 +275,38 @@ fn prepare(order: Order, send: &(dyn Fn(Report) + Sync)) {
     let Order {
         directory,
         project,
-        terminal: given,
+        trusted,
+        runs,
+        brief,
         ..
     } = order;
-    let start = oso_term::Start {
-        executable: launch.program,
-        args: launch.args,
-        cwd: Some(directory.clone()),
-        project: project.clone(),
-        inherit: launch::inherit(&given.settings.env, &given.env),
-        set: set(&found.path, &id),
-        size: given.size,
-        scrollback: given.settings.scrollback,
-        palette: given.palette,
-        // Its name may come from a transcript, its brief and instructions from a person or an
-        // agent: none of them reaches the log (ADR 0145).
-        args_logged: false,
-    };
-    let terminal = match Terminal::start(start, given.ready) {
-        Ok(terminal) => terminal,
-        Err(e) => return refuse(format!("The session's terminal did not start: {e}")),
-    };
-    // `start` returns before the child is spawned: the session's record has its id from the
-    // start, or check 4 and the registry's poll take its `claude` for another's. The UI reads
-    // it when it takes the terminal, so that a child reaped meanwhile gives none.
-    terminal.wait_started(SPAWN_WAIT);
-    send(Report::Ready(Ready {
+    // A native session has no trust question of Claude Code's: oso's trust is its gate, looked
+    // at again now, after the baseline's wait (ADR 0165, Q5).
+    if runs.native()
+        && !trusted
+            .as_ref()
+            .is_some_and(|root| !root.revoked() && !root.replaced())
+    {
+        return refuse("The session did not start: its project is no longer trusted".to_owned());
+    }
+    let set = set(&found.path, &id);
+    let (buffer, started) =
+        match start_runs(runs, &launch, &directory, project.as_deref(), set, brief) {
+            Ok(started) => started,
+            Err(why) => return refuse(why),
+        };
+    send(Report::Ready(Box::new(Ready {
         token,
         id: id.clone(),
-        buffer: given.buffer,
-        terminal,
+        buffer,
+        started,
         shell: found.path,
         passed_over: found.passed_over,
         directory,
         project,
         baseline: in_time.flatten(),
         notes,
-    }));
+    })));
     if let Some(Some(tree)) = late.and_then(|b| b.wait(BASELINE_GIVE_UP)) {
         send(Report::Baseline { token, tree });
     }
@@ -432,6 +474,7 @@ fn launch_of(
         brief: order.brief.as_deref(),
         settings: settings.as_deref(),
         add_dirs: &extra.add_dirs,
+        native: order.runs.native(),
     };
     let args = command::arguments(&line).map_err(|e| format!("The session did not start: {e}"))?;
     launch::launch(shell, claude.as_ref(), args, order.project.as_deref())
@@ -624,7 +667,7 @@ mod tests {
         use oso_platform::process::pty::Size;
         use oso_term::{Palette, Rgb};
 
-        use super::{Kind, Order, Report, TerminalOrder, spawn};
+        use super::{Kind, Order, Report, Runs, Started, TerminalOrder, spawn};
 
         let dir = std::fs::canonicalize(std::env::temp_dir())
             .unwrap()
@@ -648,7 +691,7 @@ mod tests {
             trusted: None,
             state: None,
             claude: Some(claude),
-            terminal: TerminalOrder {
+            runs: Runs::Terminal(TerminalOrder {
                 buffer,
                 settings: crate::terminal::shell::Settings::default(),
                 env: Vec::new(),
@@ -665,7 +708,7 @@ mod tests {
                     ansi: [Rgb::default(); 16],
                 },
                 ready: Box::new(|| {}),
-            },
+            }),
             brief: None,
             steer_worktrees: false,
             check_shared: false,
@@ -680,10 +723,10 @@ mod tests {
             Report::Ready(ready) => ready,
             other => panic!("not started: {other:?}"),
         };
-        assert!(
-            ready.terminal.pid().is_some(),
-            "no process id with the start"
-        );
+        let Started::Terminal(terminal) = &ready.started else {
+            panic!("not a terminal");
+        };
+        assert!(terminal.pid().is_some(), "no process id with the start");
         // Dropping the terminal hangs its own child up.
         drop(ready);
         let _ = std::fs::remove_dir_all(&dir);

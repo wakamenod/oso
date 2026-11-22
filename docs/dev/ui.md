@@ -1281,7 +1281,17 @@ a switch made with its command stands until that setting changes in the file
   env = ["HTTPS_PROXY", "NODE_EXTRA_CA_CERTS"]
   steer_worktrees = true             # sessions oso starts are steered to C-c a w
   pane_width = 44                    # *Spaces*' pane, 24 to 80 columns
+  mode = "native"                    # new sessions in trusted projects run claude -p (ADR 0165)
   ```
+
+  With `mode = "native"` (ADR 0165, step 1), a new session in a trusted project runs `claude -p`
+  and shows its conversation in `*claude: NAME*` as oso's own rows instead of a terminal: the
+  person's messages after `› `, replies after `● `, thinking as `∴ Thought for N s`, each tool
+  call as one line with what came of it, an edit as a diff, and each turn's time and cost. A
+  start with no brief opens `*Brief*` for its first message: `C-c C-c` starts the session,
+  `C-c C-k` drops it. Its state comes from its stream. In this step it takes no message after
+  its first, and a send, a paste or `session-explain` to it says so; elsewhere, an agent's
+  start with no brief, and a restricted project, keep the terminal.
 
   `claude` is started as the login shell would start it, so its `PATH`, version managers and
   proxies apply; set `claude` when the shell is not `sh`, `bash`, `zsh`, `dash` or `ksh`. `env`

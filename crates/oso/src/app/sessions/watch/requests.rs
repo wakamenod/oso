@@ -264,6 +264,12 @@ impl App {
 
     /// Asks the worker to explain the last look at session `key`'s screen.
     fn explain_session(&mut self, key: SessionKey) {
+        // A native session's state is its stream's: there is no screen to explain (ADR 0165).
+        if self.hosting.natives.has(key) {
+            return self
+                .editor
+                .message("A native session's state comes from its stream: nothing to explain");
+        }
         match &self.sessions {
             Some(worker) => worker.send(Job::Explain(key)),
             None => self
@@ -408,6 +414,11 @@ impl App {
     /// Sends the hang-up to session `key`'s terminal: oso stopped it, so its end is no failure.
     /// A worktree's removal stops the worktree's idle sessions so too (ADR 0121 step 4).
     pub(in crate::app) fn hang_up_session(&mut self, key: SessionKey) {
+        if self.hang_up_native(key) {
+            // oso stopped it: its end is no failure (Q8).
+            self.watch.hung_up.insert(key);
+            return;
+        }
         let Some(buffer) = self.hosting.table().get(key).and_then(|s| s.buffer) else {
             return self.editor.message("That session does not run");
         };

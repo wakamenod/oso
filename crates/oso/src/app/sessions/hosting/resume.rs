@@ -11,7 +11,7 @@ use oso_core::buffer::BufferId;
 
 use crate::app::App;
 use crate::sessions::hosted::Run;
-use crate::sessions::start::{Kind, Order};
+use crate::sessions::start::{Kind, Order, Runs};
 use crate::sessions::worker::SessionKey;
 
 impl App {
@@ -56,6 +56,14 @@ impl App {
         if session.runs() {
             return Err(format!("Session {} runs", session.name));
         }
+        // A native session resumes natively from part 1b-2b of ADR 0165; its buffer takes no
+        // terminal.
+        if self.hosting.natives.has(key) {
+            return Err(format!(
+                "Session {} is native: session-fork continues it in a terminal for now",
+                session.name
+            ));
+        }
         let Some(buffer) = session
             .buffer
             .filter(|id| self.editor.buffer(*id).is_some())
@@ -89,7 +97,7 @@ impl App {
             trusted: None,
             state: crate::app::reviews::state(),
             claude: self.configuration.session_claude().map(Path::to_path_buf),
-            terminal,
+            runs: Runs::Terminal(terminal),
             brief: None,
             steer_worktrees: self.configuration.steer_worktrees(),
             check_shared: false,
