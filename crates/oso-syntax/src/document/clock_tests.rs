@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use oso_core::rope::Rope;
 
-use super::highlight::{MIN_PIECE, PIECE};
+use super::highlight::MIN_PIECE;
 use super::tests::LONG;
 use super::{Document, Failure, Highlighted, Parsed, Spent, Stopwatch, wall};
 use crate::language::Language;
@@ -136,15 +136,24 @@ fn a_piece_held_back_shrinks_but_is_not_too_slow() {
     assert_eq!(piece, MIN_PIECE);
 }
 
-/// The same text on a thread given a fifth of the machine still fails as too slow, once the
-/// fifth reaches the limit: about five times later on the wall clock, which is the load's
-/// cost. The limit is shortened, so that the test takes about half a second.
+/// The same text on a thread given a fifth of the machine still fails as too slow, within its
+/// bound in the thread's time; on the wall clock, up to five times later, which is the load's
+/// cost. The limit is shortened, so that the test takes at most about half a second.
+///
+/// Which judgement fails it depends on the machine: a piece that runs past its slice by more
+/// than a slice in its fifth, before tree-sitter next asks whether to stop (Windows CI's debug
+/// build, at the first piece), or the total limit, after pieces shrank (macOS).
 #[test]
 fn crafted_text_on_a_loaded_machine_still_fails() {
     let text = "(".repeat(64 << 10);
-    let (done, piece) = crafted(&text, 10_000, Duration::from_millis(100), fifth);
+    let limit = Duration::from_millis(100);
+    let started = Instant::now();
+    let (done, _) = crafted(&text, 10_000, limit, fifth);
     assert_eq!(done, Highlighted::Failed(Failure::TooSlow));
-    assert!(piece < PIECE, "{piece}");
+    // The thread's time: the limit, and one piece past its slice, with room for a debug build,
+    // as `crafted` allows the wall clock.
+    let took = started.elapsed() / 5;
+    assert!(took < limit + Duration::from_millis(900), "{took:?}");
 }
 
 #[test]
