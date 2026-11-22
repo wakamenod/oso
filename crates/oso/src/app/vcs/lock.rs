@@ -145,7 +145,7 @@ mod tests {
     fn the_question_names_the_lock_and_its_age() {
         let dir = std::env::temp_dir().join(format!("oso-lock-question-{}", std::process::id()));
         std::fs::create_dir_all(dir.join(".git")).unwrap();
-        let lock = Lock::at(&dir.join(".git/index"), &dir);
+        let lock = Lock::at(&dir.join(".git").join("index"), &dir);
         std::fs::write(dir.join(".git/index.lock"), "").unwrap();
         let mut seen = lock.look().unwrap();
         seen.made = Some(UNIX_EPOCH + Duration::from_secs(1000));

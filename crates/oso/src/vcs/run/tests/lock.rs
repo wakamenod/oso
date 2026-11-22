@@ -135,16 +135,13 @@ fn a_worktree_s_lock_is_in_its_own_git_directory() {
     let repo = repo("run-lock-worktree");
     let tree = repo.dir.join("tree");
     repo.git(&[
-        "worktree",
-        "add",
-        "-q",
-        "-b",
-        "side",
-        tree.to_str().unwrap(),
+        "worktree", "add", "-q", "-b", "side",
+        // Relative: git takes no Windows verbatim path (`\\?\C:\…`), as the scratch's is.
+        "../tree",
     ]);
     let gitdir = repo.root.join(".git/worktrees/tree");
     std::fs::write(tree.join("a.txt"), "two\n").unwrap();
-    repo.git(&["-C", tree.to_str().unwrap(), "add", "a.txt"]);
+    repo.git(&["-C", "../tree", "add", "a.txt"]);
     std::fs::write(gitdir.join("index.lock"), "").unwrap();
     let (sent, got) = mpsc::channel();
     let runner = crate::vcs::run::Runner::start(
