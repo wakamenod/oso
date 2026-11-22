@@ -9,7 +9,6 @@ use oso_core::editor::{SendExcerpt, SendPart};
 
 use super::{
     InputBox, MAX_BYTES, NoBox, Standing, TooLarge, compose, fence, input_box, place, refusal,
-    shows_paste,
 };
 use crate::sessions::state::{Reason, State};
 
@@ -428,7 +427,7 @@ fn a_folded_paste_the_width_wrapped_still_reads_as_pasted() {
         "❯ [Pasted text #5 +5\n    lines]",
     ] {
         let rows = screen(&format!("{rule}\n{draft}\n{rule}\n  footer"));
-        assert_eq!(input_box(&rows), InputBox::Other(NoBox::Rows), "{draft}");
+        assert_eq!(input_box(&rows), InputBox::Typed, "{draft}");
     }
 }
 
@@ -451,7 +450,7 @@ fn no_box_says_why() {
         InputBox::Other(NoBox::Menu),
         "options on rows"
     );
-    for why in [NoBox::NoRules, NoBox::NoSign, NoBox::Menu, NoBox::Rows] {
+    for why in [NoBox::NoRules, NoBox::NoSign, NoBox::Menu] {
         assert!(why.said("api-fix").contains("api-fix"), "{why:?}");
     }
 }
@@ -491,25 +490,4 @@ fn rules_a_model_could_draw_inside_a_dialog_are_no_box() {
     ];
     dialog.splice(at + 1..at + 1, forged);
     assert!(matches!(input_box(&dialog), InputBox::Other(_)));
-}
-
-#[test]
-fn the_enter_waits_for_the_paste_of_the_question_s_line_count() {
-    // The question of five line breaks shows as `+5 lines`, as Claude Code 2.1.330 folded a
-    // paste of six lines in a pty.
-    assert!(shows_paste(InputBox::Pasted(Some(5)), 5));
-    assert!(
-        shows_paste(InputBox::Pasted(Some(6)), 5),
-        "counted as lines"
-    );
-    for other in [
-        InputBox::Pasted(Some(3)),
-        InputBox::Pasted(Some(7)),
-        InputBox::Pasted(None),
-        InputBox::Empty,
-        InputBox::Typed,
-        InputBox::Other(NoBox::Rows),
-    ] {
-        assert!(!shows_paste(other, 5), "{other:?}");
-    }
 }
