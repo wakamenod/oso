@@ -33,6 +33,7 @@ mod native;
 mod record;
 mod resume;
 mod terminal;
+mod trust;
 pub(in crate::app) use terminal::buffer_name;
 
 use fork::ForkFrom;
@@ -85,7 +86,7 @@ pub(in crate::app) struct Hosting {
     pub(in crate::app) moves: Moves,
     /// A rename asked, and what Claude Code calls oso's running sessions (ADR 0155).
     pub(in crate::app) naming: naming::Naming,
-    /// The native sessions, and starts waiting for their first message (ADR 0165).
+    /// The native sessions (ADR 0165).
     pub(in crate::app) natives: NativeSessions,
 }
 
@@ -246,7 +247,7 @@ impl App {
             return None;
         }
         let project = self.project_at_root(&directory);
-        let native = self.native_start(&begin, project)?;
+        let native = self.native_start(&begin, &directory, project);
         let base = begin.name.clone().unwrap_or_else(|| base_name(&directory));
         let (key, name) = self.hosting.table.reserve(&directory, &base);
         if let Some(parent) = begin.parent.clone() {
@@ -265,30 +266,16 @@ impl App {
         // An agent's tool's start stays behind what the person is doing (ADR 0144).
         let shown = begin.origin == Origin::Person && !begin.behind;
         let runs = if native {
-            let first = begin.brief.as_deref();
+            // A blank brief is none: the person writes the first message in the composer.
+            let first = begin
+                .brief
+                .as_deref()
+                .filter(|brief| native::has_brief(Some(brief)));
             Runs::Native(self.native_session_buffer(key, &name, directory.clone(), shown, first))
         } else {
             Runs::Terminal(self.session_terminal(key, &name, None, shown))
         };
-        let (trusted, root) = match begin.trusted.clone() {
-            // A worktree just made, which no buffer opened yet: its own root and trust.
-            Some(trusted) => (Some(trusted), Some(directory.clone())),
-            None => {
-                let trusted = project.and_then(|id| TrustedRoot::of(&self.editor, id));
-                if let (Some(project), Some(root)) = (project, &trusted) {
-                    let baseline = Baseline {
-                        project,
-                        root: root.clone(),
-                        to_review: true,
-                    };
-                    self.hosting.baselines.insert(key, baseline);
-                }
-                let root = project
-                    .and_then(|id| self.editor.project(id))
-                    .map(|project| project.root().to_path_buf());
-                (trusted, root)
-            }
-        };
+        let (trusted, root) = self.start_trust(key, &begin, &directory, project, native);
         if let Some(trusted) = &trusted {
             self.hosting.trusts.insert(key, trusted.clone());
         }
@@ -302,6 +289,7 @@ impl App {
             directory,
             project: root,
             trusted,
+            baseline: true,
             state: super::super::reviews::state(),
             claude: self.configuration.session_claude().map(Path::to_path_buf),
             runs,
@@ -467,6 +455,58 @@ impl App {
         revoke_untrusted(&mut self.hosting.baselines, |project| {
             editor.project_trusted(project)
         });
+    }
+
+    /// The trust and root new session `key` starts under in `directory`, natively if
+    /// `native`: a native start's as `native_start` judged it, a worktree's just made, an
+    /// agent's terminal start under its session's, else an open trusted project's, whose
+    /// baseline it takes.
+    fn start_trust(
+        &mut self,
+        key: SessionKey,
+        begin: &Begin,
+        directory: &Path,
+        project: Option<ProjectId>,
+        native: bool,
+    ) -> (Option<TrustedRoot>, Option<PathBuf>) {
+        match begin.trusted.clone() {
+            // A native start under an agent's trust runs under the one `native_start` judged
+            // where it runs, which the start thread looks at again (ADR 0165, Q5).
+            Some(_) if native && !begin.worktree => {
+                let judged = self.native_trust_now(directory, Some(directory)).ok();
+                (judged, Some(directory.to_path_buf()))
+            }
+            // A worktree just made, which no buffer opened yet: its own root and trust; or an
+            // agent's start in a terminal, under its session's trust.
+            Some(trusted) => (Some(trusted), Some(directory.to_path_buf())),
+            None => {
+                let trusted = project.and_then(|id| TrustedRoot::of(&self.editor, id));
+                if let (Some(project), Some(root)) = (project, &trusted) {
+                    let baseline = Baseline {
+                        project,
+                        root: root.clone(),
+                        to_review: true,
+                    };
+                    self.hosting.baselines.insert(key, baseline);
+                }
+                let root = project
+                    .and_then(|id| self.editor.project(id))
+                    .map(|project| project.root().to_path_buf());
+                (trusted, root)
+            }
+        }
+    }
+
+    /// Forgets session `key`, which started and was written in the record but leaves nothing
+    /// to keep: the table, its trust, the worker and the record's line (ADR 0165, step 2).
+    pub(super) fn forget_started_session(&mut self, key: SessionKey) {
+        self.hosting.starting.remove(&key);
+        self.hosting.table.drop_started(key);
+        self.hosting.trusts.remove(&key);
+        if let Some(worker) = &self.sessions {
+            worker.send(crate::sessions::worker::Job::Forget(key));
+        }
+        self.remember_sessions();
     }
 
     /// A start that did not happen: a held name goes, and a resumed session is stopped again.

@@ -87,7 +87,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "session-resume",
-        doc: "Resume the stopped session whose terminal is this buffer, in the same buffer.\n\nIt is refused while Claude Code's registry has a live process for the same conversation, which it names, and it then offers `session-fork`. Five seconds after it resumes, the registry is read again, and two live processes for one conversation give a warning.",
+        doc: "Resume the stopped session whose buffer this is, in the same buffer.\n\nA native session resumes natively, keeping its rows, with its composer selected, only at the root of a project an open buffer says is trusted now; else it says why, and `session-fork` continues it in a terminal. It is refused while Claude Code's registry has a live process for the same conversation, which it names, and it then offers `session-fork`. Five seconds after it resumes, the registry is read again, and two live processes for one conversation give a warning.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: session_resume,
@@ -95,7 +95,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "session-fork",
-        doc: "Copy the conversation of the session whose terminal is this buffer under a new id, and run the copy in a new terminal buffer.\n\nThe copy runs beside the original, which goes on as it was.",
+        doc: "Copy the conversation of the session whose buffer this is under a new id, and run the copy in a new buffer.\n\nThe copy runs beside the original, which goes on as it was. With `[sessions] mode = \"native\"`, at the root of a project an open buffer says is trusted now, the copy is a native session, which Claude Code asks no trust question of; elsewhere it runs in a terminal.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: session_fork,

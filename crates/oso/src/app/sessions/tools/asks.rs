@@ -206,7 +206,10 @@ impl App {
             parent: Some(caller.id.clone()),
             origin: Origin::Answered,
             check_shared: false,
+            // The caller's trust, for its baseline: never a native start's, which is judged
+            // again where it runs (`native_start`).
             trusted: self.caller_root(caller),
+            worktree: false,
             space: None,
             behind: false,
         };

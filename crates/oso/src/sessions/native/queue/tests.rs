@@ -70,7 +70,7 @@ fn empty_long_and_one_too_many_are_refused_and_change_nothing() {
     );
     assert_eq!(
         queue.paused(),
-        Some(Pause::Failed),
+        Some(Pause::Held),
         "a refusal keeps the pause"
     );
 }
@@ -113,7 +113,7 @@ fn a_failed_delivery_pauses_and_the_queues_own_goes_back_first() {
     let first = queue.idle(IDLE).unwrap();
     queue.failed(Some(first));
     assert_eq!(texts(&queue), ["a", "b"]);
-    assert_eq!(queue.paused(), Some(Pause::Failed));
+    assert_eq!(queue.paused(), Some(Pause::Held));
     assert_eq!(queue.idle(IDLE), None);
     // The person's own text failing pauses too: nothing queued goes ahead of it.
     let Sent::Now(_) = queue.send("mine".into(), IDLE) else {
@@ -194,4 +194,18 @@ fn the_rows_name_each_message_by_its_first_line_and_say_why_none_goes() {
     assert!(queue_rows(&queue).starts_with("Queued (2) · the session stopped"));
     queue.failed(None);
     assert!(queue_rows(&queue).starts_with("Queued (2) · paused"));
+}
+
+#[test]
+fn a_resume_keeps_the_queue_waiting_for_an_empty_send() {
+    let mut queue = Queue::default();
+    queued(&mut queue, "a");
+    queue.ended();
+    queue.resumed();
+    assert_eq!(queue.paused(), Some(Pause::Held));
+    assert_eq!(queue.idle(IDLE), None, "still the person's to go on");
+    assert_eq!(queue.send("".into(), IDLE), Sent::Next("a".into()));
+    // A queue that was not paused stays so.
+    queue.resumed();
+    assert_eq!(queue.paused(), None);
 }

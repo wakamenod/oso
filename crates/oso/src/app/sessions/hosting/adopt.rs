@@ -295,6 +295,7 @@ impl App {
             directory,
             project: Some(root),
             trusted: trusted.map(|(_, root)| root),
+            baseline: true,
             state: crate::app::reviews::state(),
             claude: self.configuration.session_claude().map(Path::to_path_buf),
             runs: Runs::Terminal(terminal),

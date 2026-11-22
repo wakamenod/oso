@@ -43,8 +43,8 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Why it does not start: the session is gone, runs, has no buffer, or its space's checks
-    /// fail.
+    /// Why it does not start: the session is gone, runs, has no buffer, is native in a
+    /// project not trusted now, or its space's checks fail.
     pub(in crate::app) fn resume_hosted(
         &mut self,
         key: SessionKey,
@@ -55,14 +55,6 @@ impl App {
         };
         if session.runs() {
             return Err(format!("Session {} runs", session.name));
-        }
-        // A native session resumes natively from step 2 of ADR 0165 (R1 (c)); its buffer
-        // takes no terminal.
-        if self.hosting.natives.has(key) {
-            return Err(format!(
-                "Session {} is native and does not resume yet: session-fork continues it in a terminal",
-                session.name
-            ));
         }
         let Some(buffer) = session
             .buffer
@@ -79,6 +71,19 @@ impl App {
             session.directory.clone(),
             session.root.clone(),
         );
+        // A native session resumes natively, in its own buffer, only where its project is
+        // trusted now (ADR 0165, step 2): looked at before anything changes.
+        let native = self.hosting.natives.has(key);
+        if native && !self.native_spoke(key) {
+            return Err(format!(
+                "Session {name} was never given a message, so Claude Code has no conversation \
+                 to resume: claude starts a new one"
+            ));
+        }
+        let trusted = match native {
+            true => Some(self.native_resume_trust(&name, &directory, root.as_deref())?),
+            false => None,
+        };
         // An orchestrator's command line is made again from its space as it is now: the CLI
         // keeps neither its `--add-dir`s nor its prompt (ADR 0136, step 3).
         let space = self.orchestrator_start_for(key)?;
@@ -86,18 +91,22 @@ impl App {
         if let Some(session) = self.hosting.table.get_mut(key) {
             session.run = Run::Starting;
         }
-        let terminal = self.session_terminal(key, &name, Some(buffer), shown);
+        let runs = match native {
+            true => Runs::Native(self.resume_native_buffer(key, buffer, shown)),
+            false => Runs::Terminal(self.session_terminal(key, &name, Some(buffer), shown)),
+        };
         self.order_session(Order {
             token: key,
             kind,
             name,
             directory,
             project: root,
-            // A resume takes no baseline: the session keeps the one it had.
-            trusted: None,
+            // A native session's gate; a resume takes no baseline, as it keeps the one it had.
+            trusted,
+            baseline: false,
             state: crate::app::reviews::state(),
             claude: self.configuration.session_claude().map(Path::to_path_buf),
-            runs: Runs::Terminal(terminal),
+            runs,
             brief: None,
             steer_worktrees: self.configuration.steer_worktrees(),
             check_shared: false,

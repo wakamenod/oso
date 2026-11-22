@@ -43,10 +43,7 @@ impl App {
         else {
             return;
         };
-        let open = (self.hosting.worktrees.briefs.keys())
-            .chain(self.hosting.natives.brief_buffers())
-            .next()
-            .copied();
+        let open = self.hosting.worktrees.briefs.keys().next().copied();
         if let Some(open) = open {
             self.editor.show(open);
             return self
@@ -102,9 +99,6 @@ impl App {
 
     /// `brief-send`: makes the worktree, then starts its session with the brief.
     pub(super) fn send_brief(&mut self, buffer: BufferId) {
-        if self.send_first_message(buffer) {
-            return;
-        }
         let Some(brief) = self.hosting.worktrees.briefs.get(&buffer).cloned() else {
             return self
                 .editor
@@ -166,9 +160,6 @@ impl App {
 
     /// `brief-cancel`: drops the brief unsent.
     pub(super) fn cancel_brief(&mut self, buffer: BufferId) {
-        if self.cancel_first_message(buffer) {
-            return;
-        }
         if self.hosting.worktrees.briefs.remove(&buffer).is_some() {
             self.editor.kill_buffer(buffer);
             self.editor.message("Brief dropped");
@@ -218,6 +209,7 @@ impl App {
             parent: brief.parent,
             check_shared: false,
             trusted: Some(trusted),
+            worktree: true,
             space: None,
             behind: false,
         });

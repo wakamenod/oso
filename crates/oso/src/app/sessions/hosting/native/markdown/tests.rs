@@ -73,6 +73,7 @@ fn native(buffer: BufferId) -> Native {
         placed: Placed::default(),
         stream: None,
         first: false,
+        spoke: true,
         ended: None,
         result: None,
         result_of: None,

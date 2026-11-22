@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 
 use super::super::super::spaces::trust_restricted;
 use super::super::super::worktrees::keys;
-use super::{Flow, MESSAGE, text};
+use super::{Flow, MESSAGE, in_composer, text};
 
 /// The fake: the stream the flow wrote, then once the flow writes `whole`, the rest of it,
 /// then the exit the flow writes to `go`.
@@ -78,9 +78,11 @@ fn a_reply_is_plain_while_it_streams_and_highlighted_once_whole() {
             .is_some_and(|modeline| !modeline.contains("restricted"))
     });
     app.run_command("claude", None).unwrap();
-    app.wait_for("*Brief*", |state| state["buffer"]["name"] == "*Brief*");
+    app.wait_for("the composer", in_composer);
     app.send_keys(&keys(MESSAGE));
     app.send_keys("C-c C-c");
+    // Back to the transcript, whose rows and highlights the flow reads.
+    app.send_keys("C-c C-o");
 
     // While the reply streams, it is plain.
     let state = app.wait_for("the reply streaming", |state| {

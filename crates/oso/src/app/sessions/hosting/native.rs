@@ -14,21 +14,24 @@
 //! - Its buffer's keys, `TAB`, `RET`, `n`/`p` and `]`/`[`, are carried out in `keys`, which
 //!   routes the composer's and the queue's to `composer` (step 2).
 //! - Its composer, queue and history are `composer`'s; its run state and modeline note are
-//!   `note`'s; its first message, written in `*Brief*`, is `first`'s; its replies'
-//!   Markdown highlighting, once each is whole, is `markdown`'s (part 2g).
+//!   `note`'s; its resume and a native fork are `resume`'s; how it ends, stopped, failed,
+//!   archived or forgotten, `end`'s; its replies' Markdown highlighting, once each is whole,
+//!   is `markdown`'s (part 2g).
 //! - Its bridge asks the person's permission for its calls on the sessions' socket, in
 //!   `permissions` (step 2).
-//! - Its first message is its brief; a person's start with none opens `*Brief*` for it first.
+//! - Its first message is its brief, if it was given one; else the person writes it in its
+//!   composer, which a start, a resume and a fork select at once (step 2).
 //! - Its process is stopped when its buffer is killed, which archives the session as a
-//!   terminal's does, when the session list stops it, and killed as oso exits. A stopped
+//!   terminal's does (or forgets it, given no message), when the session list stops it, and killed as oso exits. A stopped
 //!   native session comes back at oso's next start as a native buffer with no process.
 
 mod composer;
-mod first;
+mod end;
 mod keys;
 mod markdown;
 mod note;
 mod permissions;
+mod resume;
 
 use std::collections::HashMap;
 use std::ops::Range;
@@ -38,7 +41,7 @@ use oso_core::buffer::{Buffer, BufferId};
 use oso_core::project::ProjectId;
 
 use self::note::NativeState;
-use super::{Begin, now_ms};
+use super::Begin;
 use crate::app::{App, UserEvent};
 use crate::git::TrustedRoot;
 use crate::sessions::hosted::Run;
@@ -49,7 +52,7 @@ use crate::sessions::native::rows::{Changes, RowChange, Rows};
 use crate::sessions::native::turns;
 use crate::sessions::native::wire::Event;
 use crate::sessions::start::{NativeOrder, Ready, Started};
-use crate::sessions::state::{Exit, Target};
+use crate::sessions::state::Target;
 use crate::sessions::stream::{Out, Stream};
 use crate::sessions::worker::{Job, SessionKey};
 
@@ -60,8 +63,6 @@ const MAX_ERR_SHOWN: usize = 2048;
 #[derive(Debug, Default)]
 pub(in crate::app) struct NativeSessions {
     map: HashMap<SessionKey, Native>,
-    /// Starts waiting for their first message in `*Brief*`, by its buffer.
-    briefs: HashMap<BufferId, Begin>,
     /// The sessions' socket and the permission questions asked on it (ADR 0165, step 2).
     permissions: permissions::Permissions,
     /// The replies highlighted as Markdown that wait or are open (part 2g).
@@ -87,6 +88,10 @@ struct Native {
     calls: HashMap<usize, Vec<(usize, Range<usize>)>>,
     /// Its composer, its queue and its history (step 2).
     composing: composer::Composing,
+    /// A message was written to it, or its conversation was there already: without one,
+    /// Claude Code keeps no conversation, and nothing is left to resume (a probe of
+    /// 2026-11-22).
+    spoke: bool,
     /// Where its process is, as its modeline says it.
     state: NativeState,
     /// Which of its replies are highlighted as Markdown, or wait to be (part 2g).
@@ -103,39 +108,30 @@ impl NativeSessions {
     pub(in crate::app) fn pid(&self, key: SessionKey) -> Option<u32> {
         self.map.get(&key)?.stream.as_ref()?.pid()
     }
-
-    /// The `*Brief*` buffers of native starts not sent yet.
-    pub(in crate::app) fn brief_buffers(&self) -> impl Iterator<Item = &BufferId> {
-        self.briefs.keys()
-    }
 }
 
 impl App {
     /// Whether `begin` starts a native session (ADR 0165): `[sessions] mode = "native"`, in a
-    /// trusted project (Q5), with a first message. A person's start with none opens `*Brief*`
-    /// for it and starts nothing yet (`None`); an agent's with none starts a terminal.
+    /// trusted project (Q5). A person's start with no brief starts at once, the person writing
+    /// in its composer (step 2, the author's choice); an agent's with none starts a terminal.
+    ///
+    /// Only at the root of a project an open buffer says is trusted now, `directory`, or in a
+    /// worktree just made, under its own trust: never under the trust of the agent's session
+    /// that starts it, which may be an outer project's or one taken back since.
     pub(super) fn native_start(
-        &mut self,
+        &self,
         begin: &Begin,
+        directory: &std::path::Path,
         project: Option<ProjectId>,
-    ) -> Option<bool> {
-        let trusted = begin.trusted.is_some()
-            || project.is_some_and(|id| TrustedRoot::of(&self.editor, id).is_some());
-        if !self.configuration.native_sessions() || !trusted {
-            return Some(false);
-        }
-        if begin
-            .brief
-            .as_deref()
-            .is_some_and(|brief| !brief.trim().is_empty())
-        {
-            return Some(true);
-        }
-        if begin.origin != Origin::Person {
-            return Some(false);
-        }
-        self.write_first_message(begin.clone());
-        None
+    ) -> bool {
+        let trusted = match &begin.trusted {
+            Some(trusted) if begin.worktree => trusted.path() == directory && !trusted.revoked(),
+            Some(_) => self.native_trust_now(directory, Some(directory)).is_ok(),
+            None => project.is_some_and(|id| TrustedRoot::of(&self.editor, id).is_some()),
+        };
+        self.configuration.native_sessions()
+            && trusted
+            && (has_brief(begin.brief.as_deref()) || begin.origin == Origin::Person)
     }
 
     /// The buffer a native session `key`, named `name`, in `directory`, is shown in: made now,
@@ -156,8 +152,18 @@ impl App {
         self.set_native_state(key, NativeState::Starting);
         if shown {
             self.editor.show(buffer);
+            // With no first message, the person writes it there (step 2).
+            if first.is_none() {
+                self.composer_go(key, true);
+            }
         }
         self.hosting.starting.insert(key, buffer);
+        self.native_order(key, buffer)
+    }
+
+    /// The start thread's order for native session `key`, shown in `buffer`: its variables,
+    /// and where its stream's batches go.
+    fn native_order(&self, key: SessionKey, buffer: BufferId) -> NativeOrder {
         let waker = self.waker.clone();
         NativeOrder {
             buffer,
@@ -200,6 +206,7 @@ impl App {
             // Its first message's turn is under way once it runs.
             composing: composer::Composing::starting(first.is_some()),
             markdown: markdown::Marks::default(),
+            spoke: first.is_some(),
         };
         self.hosting.natives.map.insert(key, native);
         // Its composer, docked under it (ADR 0170).
@@ -218,6 +225,8 @@ impl App {
         self.editor.set_running(buffer, false);
         self.set_native_state(key, NativeState::Stopped);
         if let Some(native) = self.hosting.natives.map.get_mut(&key) {
+            // Kept in the record, so it had a conversation.
+            native.spoke = true;
             let change = native
                 .rows
                 .note("Stopped. Its conversation is kept by Claude Code.");
@@ -286,11 +295,18 @@ impl App {
     /// Native session `key` did not start: its buffer goes.
     pub(super) fn session_native_not_started(&mut self, key: SessionKey) {
         self.hosting.starting.remove(&key);
+        // A resume keeps its buffer and rows, stopped again.
+        let buffer = self
+            .hosting
+            .natives
+            .map
+            .get(&key)
+            .map(|native| native.buffer);
+        if buffer.is_some_and(|buffer| self.native_resume_refused(key, buffer)) {
+            return;
+        }
         if let Some(native) = self.hosting.natives.map.remove(&key) {
-            self.editor.kill_buffer(native.buffer);
-            if let Some(composer) = native.composing.buffer {
-                self.editor.kill_buffer(composer);
-            }
+            self.kill_native_buffers(&native);
         }
     }
 
@@ -342,131 +358,10 @@ impl App {
         self.sync_permissions();
     }
 
-    /// Native session `key`'s process ended with `status`: it is stopped, or failed with the end
-    /// of what it wrote on standard error shown.
-    fn native_ended(&mut self, key: SessionKey, status: Option<i32>, stderr: &str) {
-        // Its bridge asks nothing any more.
-        self.drop_permissions_of(key);
-        let in_table = self.hosting.table.get(key).is_some();
-        let Some(native) = self.hosting.natives.map.get_mut(&key) else {
-            return;
-        };
-        if !in_table {
-            native.ended = Some((status, stderr.to_owned()));
-            return;
-        }
-        native.stream = None;
-        let buffer = native.buffer;
-        // No turn runs any more, and what is queued waits for the person.
-        self.composer_ended(key);
-        let Some(native) = self.hosting.natives.map.get_mut(&key) else {
-            return;
-        };
-        let status = if self.watch.take_hung_up(key) {
-            Some(0)
-        } else {
-            status
-        };
-        if status != Some(0) {
-            let end = stderr.trim();
-            let end = &end[end.floor_char_boundary(end.len().saturating_sub(MAX_ERR_SHOWN))..];
-            let said = match status {
-                Some(code) => format!("claude exited with status {code}"),
-                None => "claude ended by a signal".to_owned(),
-            };
-            let mut changes = vec![native.rows.note(&said)];
-            if !end.is_empty() {
-                changes.push(
-                    native
-                        .rows
-                        .note(&format!("claude's standard error:\n{end}")),
-                );
-            }
-            draw(&mut self.editor, native, changes);
-        }
-        self.editor.set_running(buffer, false);
-        let Some(exit) = self.hosting.table.ended(key, status, now_ms()) else {
-            return;
-        };
-        let state = match exit {
-            Exit::Stopped => NativeState::Stopped,
-            Exit::Failed => NativeState::Failed,
-        };
-        self.set_native_state(key, state);
-        if let Some(worker) = &self.sessions {
-            worker.send(Job::Exited(key, exit));
-        }
-        self.remember_sessions();
-        self.replaced_orchestrator_ended(key, status.is_some());
-    }
-
-    /// After each event: a native session whose buffer was killed is stopped and archived, as
-    /// a terminal's is (ADR 0121, Q3), a `*Brief*` killed unsent is forgotten, and a queue that
-    /// may go does.
-    pub(in crate::app) fn sync_native_sessions(&mut self) {
-        self.sync_sessions_socket();
-        self.sweep_killed_natives();
-        // After the sweep: no message goes to a session whose buffer was just killed.
-        self.send_waiting_queues();
-        // After the sweep: nothing is opened for a session that is gone.
-        self.sync_reply_markdown();
-    }
-
-    /// Stops and archives each native session whose buffer was killed.
-    fn sweep_killed_natives(&mut self) {
-        let editor = &self.editor;
-        self.hosting
-            .natives
-            .briefs
-            .retain(|buffer, _| editor.buffer(*buffer).is_some());
-        let gone: Vec<SessionKey> = (self.hosting.natives.map.iter())
-            .filter(|(_, native)| editor.buffer(native.buffer).is_none())
-            .map(|(key, _)| *key)
-            .collect();
-        if gone.is_empty() {
-            return;
-        }
-        let mut buffers = Vec::new();
-        for key in gone {
-            self.drop_permissions_of(key);
-            self.hosting.starting.remove(&key);
-            if let Some(native) = self.hosting.natives.map.remove(&key) {
-                if let Some(stream) = &native.stream {
-                    stream.stop();
-                }
-                buffers.push(native.buffer);
-                if let Some(composer) = native.composing.buffer {
-                    self.editor.kill_buffer(composer);
-                }
-            }
-        }
-        self.archive_killed_sessions(&buffers);
-    }
-
     /// Gives the sessions worker `target` for native session `key`, as its stream says it.
     fn tell_tracker(&self, key: SessionKey, target: Target) {
         if let Some(worker) = &self.sessions {
             worker.send(Job::Stream(key, target));
-        }
-    }
-
-    /// Stops native session `key`'s process, as the session list's stop does. Whether it ran.
-    pub(in crate::app) fn hang_up_native(&mut self, key: SessionKey) -> bool {
-        let Some(stream) = (self.hosting.natives.map.get(&key)).and_then(|n| n.stream.as_ref())
-        else {
-            return false;
-        };
-        stream.stop();
-        true
-    }
-
-    /// As oso exits: every native session's process group is killed, as nothing else would
-    /// end it.
-    pub(in crate::app) fn kill_native_sessions(&mut self) {
-        for native in self.hosting.natives.map.values_mut() {
-            if let Some(stream) = native.stream.take() {
-                stream.kill();
-            }
         }
     }
 }
@@ -516,4 +411,9 @@ fn draw(
             Some(native.placed.end() + native.composing.rows.len())
         );
     }
+}
+
+/// Whether `brief` says anything: a blank one is none, and starts nothing natively on its own.
+pub(super) fn has_brief(brief: Option<&str>) -> bool {
+    brief.is_some_and(|brief| !brief.trim().is_empty())
 }
