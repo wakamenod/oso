@@ -2,7 +2,8 @@
 //! `initialize` with its models and `get_usage` with a cost and two windows: before its first
 //! turn the transcript's modeline says the cost and the more used window, after it the model
 //! that answered, the mode, the context used, the cost and the event's window; a narrow window
-//! drops them from the right.
+//! drops them from the right. Each line is read with `*Spaces*` hidden, the transcript's window
+//! the surface's 100 columns: beside the list it is too narrow for the line.
 //!
 //! Must not depend on: the app's internals; the line's rules have their own tests.
 
@@ -15,8 +16,9 @@ use super::{Flow, in_composer};
 
 /// The fake: it answers `initialize` with two models and `get_usage`, by the id it was asked
 /// with, with a cost and two windows. Each message `M` it writes to `sent.M` and answers as
-/// Sonnet with 50 000 tokens read of a 200 000 window, a week's limit 28% used, and a mode
-/// change after the turn's end.
+/// Haiku, though it started as Sonnet, with 10 000 tokens read of a 200 000 window, a week's
+/// limit 8% used, and a mode change after the turn's end. The values are short, for the whole
+/// line to fit in 100 columns.
 const STATUS_FAKE: &str = r#"#!/bin/sh
 dir='DIR'
 m=0
@@ -35,25 +37,42 @@ while IFS= read -r line; do
   esac
   m=$((m+1))
   printf '%s\n' "$line" > "$dir/sent.$m"
-  printf '%s\n' '{"type":"system","subtype":"init","cwd":"/w","session_id":"s","model":"claude-haiku-5-5","permissionMode":"default"}'
-  printf '%s\n' '{"type":"assistant","message":{"id":"m1","model":"claude-sonnet-5-5","content":[{"type":"text","text":"Planned."}],"usage":{"input_tokens":10,"cache_creation_input_tokens":990,"cache_read_input_tokens":49000,"output_tokens":7}}}'
-  printf '%s\n' '{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","rateLimitType":"seven_day","unifiedWindows":{"seven_day":{"utilization":0.28}}}}'
-  printf '%s\n' '{"type":"result","subtype":"success","duration_ms":10,"total_cost_usd":1.2,"modelUsage":{"claude-haiku-5-5":{"contextWindow":1000000},"claude-sonnet-5-5":{"contextWindow":200000}}}'
-  printf '%s\n' '{"type":"system","subtype":"status","status":null,"permissionMode":"acceptEdits"}'
+  printf '%s\n' '{"type":"system","subtype":"init","cwd":"/w","session_id":"s","model":"claude-sonnet-5-5","permissionMode":"default"}'
+  printf '%s\n' '{"type":"assistant","message":{"id":"m1","model":"claude-haiku-5-5","content":[{"type":"text","text":"Planned."}],"usage":{"input_tokens":10,"cache_creation_input_tokens":990,"cache_read_input_tokens":9000,"output_tokens":7}}}'
+  printf '%s\n' '{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","rateLimitType":"seven_day","unifiedWindows":{"seven_day":{"utilization":0.08}}}}'
+  printf '%s\n' '{"type":"result","subtype":"success","duration_ms":10,"total_cost_usd":1.2,"modelUsage":{"claude-haiku-5-5":{"contextWindow":200000},"claude-sonnet-5-5":{"contextWindow":1000000}}}'
+  printf '%s\n' '{"type":"system","subtype":"status","status":null,"permissionMode":"plan"}'
 done
 "#;
 
 /// What the line says once the turn ended.
-const AFTER: &str = "Sonnet 5.5 · acceptEdits · ctx 25% · $1.20 · 7d 28%";
+const AFTER: &str = "Haiku 5.5 · plan · ctx 5% · $1.20 · 7d 8%";
 
 /// The modeline's text, or nothing.
 fn modeline(state: &Value) -> &str {
     state["modeline"].as_str().unwrap_or_default()
 }
 
-/// The transcript's modeline once it says `what`.
+/// Hides `*Spaces*`, which shows on its own beside a session, with `C-u C-c a s` (ADR 0140);
+/// the composer stays selected.
+fn hide_the_side_list(app: &mut App) {
+    app.wait_for("the list shown", |state| {
+        !state["sessions"]["side"].is_null()
+    });
+    app.send_keys("C-u C-c a s");
+    app.wait_for("the list hidden", |state| {
+        state["sessions"]["side"].is_null()
+    });
+    app.wait_for("the composer still selected", in_composer);
+}
+
+/// The transcript's modeline once it says `what`, its point at its start.
 fn transcript_says(app: &mut App, what: &str) -> Value {
     app.send_keys("C-c C-o");
+    app.wait_for("the transcript", |state| {
+        state["buffer"]["name"] == "*claude: proj*"
+    });
+    app.send_keys("M-<");
     app.wait_for(what, |state| {
         state["buffer"]["name"] == "*claude: proj*" && modeline(state).contains(what)
     })
@@ -71,6 +90,7 @@ fn the_transcripts_modeline_says_the_sessions_model_mode_context_cost_and_limit(
     });
     app.run_command("claude", None).unwrap();
     app.wait_for("the composer", in_composer);
+    hide_the_side_list(&mut app);
 
     // Before the first turn: get_usage's cost and the more used of its windows.
     flow.wait_for_file("usage.asked");
@@ -102,8 +122,8 @@ fn narrow_windows_drop_parts_from_the_right(app: &mut App) {
         state["window"]["columns"].as_u64().unwrap_or(0) < cells as u64
     });
     let narrow = modeline(&state);
-    assert!(narrow.contains("Sonnet 5.5"), "{narrow}");
-    assert!(!narrow.contains("7d 28%"), "{narrow}");
+    assert!(narrow.contains("Haiku 5.5"), "{narrow}");
+    assert!(!narrow.contains("7d 8%"), "{narrow}");
     let shown = AFTER.split(" · ").filter(|part| narrow.contains(part));
     let kept: Vec<&str> = shown.collect();
     assert!(AFTER.starts_with(&kept.join(" · ")), "{narrow}");
