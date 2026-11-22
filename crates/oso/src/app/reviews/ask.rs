@@ -17,9 +17,10 @@
 //! - **Submitted (the one exception to ADR 0121's Q17):** the person typed the question and
 //!   confirmed it with `RET` in the prompt. Claude Code's input box is read from the screen the
 //!   UI holds (`sessions::send::input_box`): while it shows, the question is pasted, and Enter
-//!   goes as a key of its own [`ENTER_AFTER`] later if the box still shows then, with any text
-//!   the box held (ADR 0163, "Submit once pasted, as amended"); with no box, as when a dialog,
-//!   a picker or another mode shows, nothing is pasted or submitted.
+//!   goes as a key of its own, with any text the box held (ADR 0163, "Submit once pasted, as
+//!   amended"), at least [`ENTER_AFTER`] later and once the screen has changed since the paste,
+//!   read again then and still showing the box, within [`ENTER_WAIT`]; with no box, as when a
+//!   dialog, a picker or another mode shows, nothing is pasted or submitted.
 //! - **Refused** as any send is, and then the session's terminal still shows in the slot, so
 //!   the person sees why; the question is in the prompt's history, `M-p` there brings it back.
 //! - A file that may hold secrets sends its place alone, judged again before a held question
@@ -45,6 +46,14 @@ use crate::sessions::worker::SessionKey;
 /// How long after its paste a question's Enter may go, as a key of its own: a TUI may read a
 /// paste and a key that comes with it in one read as one paste.
 pub(super) const ENTER_AFTER: Duration = Duration::from_millis(150);
+/// How long the Enter waits for a screen newer than the paste, as a terminal no window shows
+/// is looked at only a few times a second: past it, the question stays unsubmitted.
+pub(super) const ENTER_WAIT: Duration = Duration::from_secs(2);
+/// How often the screen is looked at meanwhile.
+const ENTER_POLL: Duration = Duration::from_millis(100);
+/// How soon it is looked at again when a snapshot came: the terminal's thread builds the next
+/// from what came since, so that the Enter judges the newest screen, not one it held.
+const ENTER_RECHECK: Duration = Duration::from_millis(10);
 /// How long a question waits for an orchestrator being resumed to take it.
 pub(super) const HOLD_FOR: Duration = Duration::from_secs(120);
 
@@ -59,12 +68,15 @@ pub(in crate::app) struct Asking {
     held: Option<Held>,
 }
 
-/// An Enter for session `key`'s terminal `buffer`, due at `next`.
+/// An Enter for session `key`'s terminal `buffer`, whose screen was at `generation` when the
+/// question was pasted: looked at from `next`, given up at `until`.
 #[derive(Debug)]
 struct Enter {
     key: SessionKey,
     buffer: BufferId,
+    generation: Option<u64>,
     next: Instant,
+    until: Instant,
 }
 
 /// A question composed, with what is judged again before it goes later.
@@ -102,7 +114,7 @@ impl App {
             Ok(question) => question,
             Err(why) => return self.editor.message(why),
         };
-        // One at a time: an Enter that waits is looked for once more, then given up.
+        // One at a time: an Enter that waits goes now if it may, else it is given up.
         self.look_for_enter(Instant::now(), true);
         match self.review_orchestrator(review) {
             Some(Orchestrator::Running(key)) => self.deliver_question(key, question),
@@ -126,7 +138,7 @@ impl App {
     }
 
     /// Pastes `question` into session `key`'s terminal, as its input box allows, its Enter
-    /// looked for after [`ENTER_AFTER`], and shows the terminal in the review layout's slot,
+    /// due after [`ENTER_AFTER`], and shows the terminal in the review layout's slot,
     /// the review staying selected, while the space it was asked in is in front.
     fn deliver_question(&mut self, key: SessionKey, question: Question) {
         let name = self.review_session_name(key);
@@ -153,13 +165,17 @@ impl App {
                 why.said(&name)
             ));
         }
+        let generation = self.screen_generation(buffer);
         if let Err(why) = self.paste_into_session(key, question.text) {
             return self.editor.message(why);
         }
+        let now = Instant::now();
         self.reviews.asking.enter = Some(Enter {
             key,
             buffer,
-            next: Instant::now() + ENTER_AFTER,
+            generation,
+            next: now + ENTER_AFTER,
+            until: now + ENTER_WAIT,
         });
         let shown = beside && self.show_in_review_slot(buffer, false);
         let mut said = if shown {
@@ -314,22 +330,43 @@ impl App {
             .any(|root| super::secrets::withheld(root, &held, &question.path))
     }
 
-    /// Sends the Enter that waits, once its time came, or at once with `last`, as a question
-    /// asked anew comes: only while the session still takes a paste and its input box still
-    /// shows, so that it never goes to a dialog or a picker that came meanwhile.
+    /// Sends the Enter that waits once its time came and the screen changed since the paste,
+    /// as the TUI draws a paste at once, taking what the terminal sent first: only while the
+    /// session still takes a paste and the box, read on that newer screen, still shows, so
+    /// that it never goes to a dialog or a picker that came meanwhile, nor alone when the paste
+    /// did not arrive. With `last`, as a question asked anew comes, it goes only if it may
+    /// now, and is given up else; so it is once [`ENTER_WAIT`] passed.
     fn look_for_enter(&mut self, now: Instant, last: bool) {
         let Some(enter) = &self.reviews.asking.enter else {
             return;
         };
-        if now < enter.next && !last {
+        let (key, buffer, generation, until) =
+            (enter.key, enter.buffer, enter.generation, enter.until);
+        let due = now >= enter.next;
+        if !due && !last {
             return;
         }
-        let (key, buffer) = (enter.key, enter.buffer);
-        self.reviews.asking.enter = None;
         let name = self.review_session_name(key);
-        let why = match self.input_box_of(buffer) {
-            InputBox::Other(why) => Some(why.said(&name)),
-            _ => self.submit_paste(key, buffer).err(),
+        let why = if due {
+            let came = self.take_screen_now(buffer);
+            let changed = self.screen_generation(buffer) != generation;
+            let current = changed && !came;
+            if !current && !last && now < until {
+                let wait = if came { ENTER_RECHECK } else { ENTER_POLL };
+                if let Some(enter) = &mut self.reviews.asking.enter {
+                    enter.next = now + wait;
+                }
+                return;
+            }
+            self.reviews.asking.enter = None;
+            match (current, self.input_box_of(buffer)) {
+                (false, _) => Some("its screen showed nothing newer than the paste".to_owned()),
+                (true, InputBox::Other(why)) => Some(why.said(&name)),
+                (true, _) => self.submit_paste(key, buffer).err(),
+            }
+        } else {
+            self.reviews.asking.enter = None;
+            Some("another question came before it could go".to_owned())
         };
         if let Some(why) = why {
             self.editor.message(format!(
@@ -337,6 +374,27 @@ impl App {
                  there"
             ));
         }
+    }
+
+    /// Takes the snapshot the terminal `buffer`'s thread holds, if it holds one, whether or not
+    /// a frame or the pace for terminals no window shows would take it now; whether one came.
+    /// None coming means the screen the UI holds is the newest the thread built.
+    fn take_screen_now(&mut self, buffer: BufferId) -> bool {
+        let Some(hosted) = self.terminals.map.get_mut(buffer) else {
+            return false;
+        };
+        hosted.ready = true;
+        self.take_terminal_snapshots();
+        self.terminals
+            .map
+            .get(buffer)
+            .is_some_and(|hosted| hosted.ready)
+    }
+
+    /// The generation of the screen the UI holds of the terminal `buffer`: another number
+    /// means other rows.
+    fn screen_generation(&self, buffer: BufferId) -> Option<u64> {
+        (self.terminals.map.get(buffer)).map(|hosted| hosted.grid.generation())
     }
 
     /// Before the loop waits: once [`App::review_ask_deadline`] passed with no event, the

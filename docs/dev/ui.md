@@ -489,10 +489,10 @@ project and how long ago the baseline was taken. Only a trusted project runs git
   the region spans or an unchanged line, in a `diff` fence, and `Question: …`. The orchestrator's
   terminal shows in the layout's slot, the review staying selected. It goes to the orchestrator
   only for a review of one of the space's repositories or worktrees. Claude Code's input box is
-  read from the screen: empty, the question is pasted and Enter goes as a key of its own once the
-  box shows the folded paste alone (150 ms to 2 s after it), else it stays unsubmitted; with text
-  typed, it is pasted, not submitted; with no box (a dialog, a picker, bash or memory mode),
-  nothing is pasted. A refused question shows the terminal and says why; a stopped orchestrator
+  read from the screen: while it shows, the question is pasted, with any text the box held, and
+  Enter goes as a key of its own at least 150 ms later, once the screen has changed since the
+  paste and still shows the box (within 2 s, else it stays unsubmitted and the echo area says
+  so); with no box (a dialog, a picker, bash or memory mode), nothing is pasted. A refused question shows the terminal and says why; a stopped orchestrator
   is offered to be resumed (`y`), the question held for it two minutes, its file judged for
   secrets again before it goes.
 - **Starting one in a space** whose orchestrator is recorded (ADR 0163): `review-layout`'s menu

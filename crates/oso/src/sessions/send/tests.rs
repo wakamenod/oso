@@ -299,13 +299,18 @@ fn the_input_box_reads_empty_at_the_prompt_alone_or_its_hint() {
 #[test]
 fn a_draft_is_typed_and_a_dialog_or_a_picker_is_no_box() {
     let done = screen(include_str!("../screens/done.txt"));
-    assert_eq!(input_box(&done), InputBox::Typed, "a draft at the prompt");
+    assert_eq!(input_box(&done), InputBox::Held, "a draft at the prompt");
     for text in [
         include_str!("../screens/question.txt"),
         include_str!("../screens/plan-approval.txt"),
         include_str!("../screens/permission-bash.txt"),
         include_str!("../screens/resume-picker.txt"),
         include_str!("../screens/slash-menu.txt"),
+        include_str!("../screens/model-picker.txt"),
+        include_str!("../screens/config.txt"),
+        include_str!("../screens/help.txt"),
+        include_str!("../screens/transcript-viewer.txt"),
+        include_str!("../screens/start-trust.txt"),
         "",
     ] {
         assert!(
@@ -316,24 +321,16 @@ fn a_draft_is_typed_and_a_dialog_or_a_picker_is_no_box() {
 }
 
 #[test]
-fn only_a_folded_paste_reads_as_pasted() {
+fn text_at_the_sign_is_held_and_another_sign_or_an_option_is_no_box() {
     let rule = "─".repeat(40);
     let boxed = |row: &str| screen(&format!("talk\n{rule}\n{row}\n{rule}\n  ? for shortcuts"));
-    assert_eq!(
-        input_box(&boxed("❯ [Pasted text #1 +12 lines]")),
-        InputBox::Pasted(Some(12))
-    );
-    assert_eq!(
-        input_box(&boxed("❯ [Pasted text #3]")),
-        InputBox::Pasted(None)
-    );
     assert_eq!(input_box(&boxed("❯ ")), InputBox::Empty);
-    for typed in [
-        "❯ [Pasted text #1 +12 lines] and more",
+    for held in [
+        "❯ [Pasted text #1 +12 lines]",
+        "❯ [Pasted text #3]",
         "❯ draft [Pasted text #1 +12 lines]",
-        "❯ [Pasted text #x +1 lines]",
     ] {
-        assert_eq!(input_box(&boxed(typed)), InputBox::Typed, "{typed}");
+        assert_eq!(input_box(&boxed(held)), InputBox::Held, "{held}");
     }
     for other in [
         "! [Pasted text #1 +12 lines]",
@@ -372,12 +369,12 @@ fn a_named_session_s_box_reads_with_its_name_in_the_top_rule() {
     let empty = named(80, "Try \"refactor <filepath>\"", auto);
     assert_eq!(input_box(&empty), InputBox::Empty);
     let pasted = named(40, "[Pasted text #1 +5 lines]", "  paste again to expand");
-    assert_eq!(input_box(&pasted), InputBox::Pasted(Some(5)));
+    assert_eq!(input_box(&pasted), InputBox::Held);
     // The narrowest the name leaves three `─` of the rule at its left.
     let narrow = named(26, "Try \"refactor <filepa…", "  ⏵⏵ auto mode on");
     assert_eq!(input_box(&narrow), InputBox::Empty, "a cut hint");
     let typed = named(60, "what does this do?", auto);
-    assert_eq!(input_box(&typed), InputBox::Typed);
+    assert_eq!(input_box(&typed), InputBox::Held);
 }
 
 #[test]
@@ -398,37 +395,47 @@ fn an_unnamed_session_s_box_reads_as_captured() {
     assert_eq!(input_box(&rows(100, hint)), InputBox::Empty);
     assert_eq!(input_box(&rows(60, hint)), InputBox::Empty);
     let pasted = rows(60, "[Pasted text #2 +5 lines]");
-    assert_eq!(input_box(&pasted), InputBox::Pasted(Some(5)));
+    assert_eq!(input_box(&pasted), InputBox::Held);
 }
 
 #[test]
-fn a_folded_paste_the_width_wrapped_still_reads_as_pasted() {
-    // 28 columns: the TUI wraps the folded paste at a space.
+fn a_box_of_several_rows_is_held_unless_its_rows_go_on_as_a_dialog_s() {
     let rule = "─".repeat(28);
-    let wrapped = screen(&format!(
-        "{rule}\n❯\u{a0}[Pasted text #5 +5\n  lines]\n{rule}\n  paste again to expand"
-    ));
-    assert_eq!(input_box(&wrapped), InputBox::Pasted(Some(5)));
-    let cut = screen(&format!(
-        "{rule}\n❯ [Pasted text #5 +5 li\n  nes]\n{rule}\n  paste again to expand"
-    ));
-    assert_eq!(
-        input_box(&cut),
-        InputBox::Pasted(Some(5)),
-        "wrapped within a word"
-    );
-    for draft in [
+    for held in [
+        // 28 columns: the TUI wraps the folded paste at a space, under the box's indent.
+        "❯\u{a0}[Pasted text #5 +5\n  lines]",
         "❯ line 0 of a short question\n  line 1 of a short question",
-        "❯ [Pasted text #5 +5 lines]\n  and more",
-        "❯ [Pasted\n  text #5\n  +5\n  lines]",
-        // Blank rows, or rows without the box's indent, are no wrap of it.
-        "❯ [Pasted text #5 +5 lines]\n\n  ]",
-        "❯ [Pasted text #5 +5\nlines]",
-        "❯ [Pasted text #5 +5\n    lines]",
+        "❯ a draft\n\n  with a blank line\n      and indented code",
     ] {
-        let rows = screen(&format!("{rule}\n{draft}\n{rule}\n  footer"));
-        assert_eq!(input_box(&rows), InputBox::Typed, "{draft}");
+        let rows = screen(&format!("{rule}\n{held}\n{rule}\n  footer"));
+        assert_eq!(input_box(&rows), InputBox::Held, "{held}");
     }
+    for dialog in [
+        "❯ ok\n  2. No",
+        "❯ ok\n  ❯ another",
+        "❯ ok\nunindented",
+        "❯ ok\n ❯ one space",
+    ] {
+        let rows = screen(&format!("{rule}\n{dialog}\n{rule}\n  footer"));
+        assert_eq!(input_box(&rows), InputBox::Other(NoBox::Menu), "{dialog}");
+    }
+}
+
+#[test]
+fn a_question_s_text_cannot_forge_a_box_in_its_dialog() {
+    // The model writes an AskUserQuestion's text at the row's start, between the dialog's
+    // own rules: a forged rule and sign row there read as no box, as its options follow.
+    let mut dialog = screen(include_str!("../screens/question.txt"));
+    let (Some(above), Some(_)) = crate::sessions::screen::last_two_rules(&dialog) else {
+        panic!("the dialog's rules");
+    };
+    let forged = ["─".repeat(40), "❯ ok".to_owned()];
+    dialog.splice(above + 2..above + 2, forged);
+    assert_eq!(
+        input_box(&dialog),
+        InputBox::Other(NoBox::Menu),
+        "{dialog:#?}"
+    );
 }
 
 #[test]
