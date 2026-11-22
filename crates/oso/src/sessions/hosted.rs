@@ -1,6 +1,7 @@
 //! The sessions oso hosts and remembers (ADR 0121): each one's identity, its terminal buffer,
-//! its `claude`'s process while it runs, its baseline (ADR 0122) and the bridge connection that
-//! holds it. The app keeps one table; nothing here reads a file or starts a process.
+//! its `claude`'s process while it runs, its baseline (ADR 0122), the bridge connection that
+//! holds it, and a native session's bridge's connection to the sessions' socket, which asks the
+//! person's permission (ADR 0165, step 2). The app keeps one table; nothing here reads a file or starts a process.
 //!
 //! Must not depend on: `app`, `dispatch` or threads; the app changes the table as its
 //! sessions start, end and are remembered, and the channel's connections are only named.
@@ -11,7 +12,7 @@ use std::sync::Arc;
 
 use oso_core::buffer::BufferId;
 
-use super::bridge::{self, Candidate};
+mod claims;
 use super::identity::Origin;
 use super::identity::{SessionId, unique_name};
 use super::record::Remembered;
@@ -19,6 +20,7 @@ use super::spaces::SpaceId;
 use super::state::Exit;
 use super::worker::SessionKey;
 use crate::channel::Connection;
+pub use claims::PermissionClaim;
 
 /// Where a hosted session's `claude` is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,6 +81,10 @@ pub struct Hosted {
     pub changed: u64,
     /// The bridge connection that holds it, at most one.
     pub bridge: Option<Connection>,
+    /// A native session's bridge's connection to the sessions' socket, which asks the person's
+    /// permission for its calls (ADR 0165, step 2), at most one. A connection of that socket,
+    /// never of the agent channel's, whose numbers it may share.
+    pub permission_bridge: Option<Connection>,
     /// Whether it came over `oso dev`'s restart: its `claude` is no longer oso's child, so its
     /// id could be another's once it ends (ADR 0120, step 11).
     pub carried: bool,
@@ -196,6 +202,7 @@ impl Table {
             native: new.native,
             changed: new.changed,
             bridge: None,
+            permission_bridge: None,
             carried: false,
             launched_as: None,
             started: None,
@@ -248,6 +255,7 @@ impl Table {
                 archived: session.archived,
                 changed: session.changed,
                 bridge: None,
+                permission_bridge: None,
                 carried: false,
                 launched_as: None,
                 started: None,
@@ -371,70 +379,6 @@ impl Table {
         unique_name(base, taken)
     }
 
-    /// Whether the connection of `peer`, claiming `claim`, is a hosted session's bridge, as
-    /// `bridge::admit` judges it. If so, that session holds it from now on.
-    pub fn admit(
-        &mut self,
-        connection: Connection,
-        peer: &oso_platform::control::Peer,
-        claim: Option<&SessionId>,
-        parent_started: Option<std::time::SystemTime>,
-    ) -> Option<&Hosted> {
-        let candidates = self.sessions.iter().map(|session| Candidate {
-            id: &session.id,
-            child: match session.run {
-                Run::Running { child } => child,
-                _ => None,
-            },
-            bridged: session.bridge.is_some(),
-            carried: session.carried,
-            started: session.started,
-        });
-        let index = bridge::admit(peer, claim, parent_started, candidates)?;
-        let session = &mut self.sessions[index];
-        session.bridge = Some(connection);
-        Some(session)
-    }
-
-    /// Answers the claim of `connection`, from `peer`, to be `claim`'s bridge: [`Table::admit`],
-    /// then `answer` with whether it was admitted, which says whether the answer reached the
-    /// one who asked. An admission whose answer did not reach is undone: the asker took the
-    /// connection as no bridge. The session's name if it holds the connection now.
-    pub fn answer_claim(
-        &mut self,
-        connection: Connection,
-        peer: &oso_platform::control::Peer,
-        claim: Option<&SessionId>,
-        parent_started: Option<std::time::SystemTime>,
-        answer: impl FnOnce(bool) -> bool,
-    ) -> Option<String> {
-        let name = self
-            .admit(connection, peer, claim, parent_started)
-            .map(|session| session.name.clone());
-        let reached = answer(name.is_some());
-        if name.is_some() && !reached {
-            self.bridge_gone(connection);
-            return None;
-        }
-        name
-    }
-
-    /// The bridge connection `connection` went: its session holds none.
-    pub fn bridge_gone(&mut self, connection: Connection) {
-        for session in &mut self.sessions {
-            if session.bridge == Some(connection) {
-                session.bridge = None;
-            }
-        }
-    }
-
-    /// The channel stopped: no session holds a connection.
-    pub fn bridges_gone(&mut self) {
-        for session in &mut self.sessions {
-            session.bridge = None;
-        }
-    }
-
     /// The session `key`'s `claude` ended with `status`, or a signal: stopped or failed.
     pub fn ended(&mut self, key: SessionKey, status: Option<i32>, changed: u64) -> Option<Exit> {
         let session = self.get_mut(key)?;
@@ -445,6 +389,7 @@ impl Table {
         };
         session.changed = changed;
         session.bridge = None;
+        session.permission_bridge = None;
         Some(exit)
     }
 
@@ -637,6 +582,51 @@ mod tests {
         assert!(table.admit(second, &peer, Some(&id), None).is_some());
         assert_eq!(table.ended(key, Some(0), 2), Some(Exit::Stopped));
         assert!(table.by_connection(second).is_none());
+    }
+
+    /// A running native session's bridge asks on the sessions' socket beside its connection to
+    /// the channel; a terminal session's never does (ADR 0165, step 2).
+    #[test]
+    fn only_a_native_sessions_bridge_asks_and_one_at_a_time() {
+        use super::PermissionClaim;
+        let mut table = Table::default();
+        let key = add(&mut table, 1, "/p", "p");
+        let id = table.get(key).unwrap().id.clone();
+        table.get_mut(key).unwrap().run = Run::Running { child: Some(77) };
+        let peer = Peer {
+            process: Some(PeerProcess::new(9, Some("oso"))),
+            parent: Some(PeerProcess::new(77, Some("claude"))),
+            runs_this_program: true,
+        };
+        let (bridge, first, second) = (
+            Connection { run: 1, number: 1 },
+            Connection { run: 1, number: 2 },
+            Connection { run: 1, number: 3 },
+        );
+        let asks = |table: &mut Table, connection| {
+            table.answer_permission_claim(connection, &peer, Some(&id), None, |_| true)
+        };
+        assert_eq!(asks(&mut table, first), PermissionClaim::No, "a terminal's");
+        table.get_mut(key).unwrap().native = true;
+        assert!(table.admit(bridge, &peer, Some(&id), None).is_some());
+        assert_eq!(
+            asks(&mut table, first),
+            PermissionClaim::Holds(key),
+            "beside its channel's"
+        );
+        // A second claimant is told apart: the person hears of it.
+        assert_eq!(asks(&mut table, second), PermissionClaim::Held(key));
+        let holder = table.by_permission_bridge(first).map(|session| session.key);
+        assert_eq!(holder, Some(key));
+        table.permission_bridge_gone(first);
+        assert!(table.by_permission_bridge(first).is_none());
+        // One whose answer did not reach holds nothing.
+        let late = table.answer_permission_claim(second, &peer, Some(&id), None, |_| false);
+        assert_eq!(late, PermissionClaim::No);
+        assert!(table.get(key).unwrap().permission_bridge.is_none());
+        assert_eq!(asks(&mut table, second), PermissionClaim::Holds(key));
+        assert_eq!(table.ended(key, Some(0), 2), Some(Exit::Stopped));
+        assert!(table.by_permission_bridge(second).is_none());
     }
 
     #[test]

@@ -12,12 +12,15 @@
 //!   session's rows changed, or a session ended.
 //! - A native session runs only in a trusted project (Q5): elsewhere a session is a terminal.
 //! - Its buffer's keys, `TAB`, `RET`, `n`/`p` and `]`/`[`, are carried out in `keys`.
+//! - Its bridge asks the person's permission for its calls on the sessions' socket, in
+//!   `permissions` (step 2).
 //! - Its first message is its brief; a person's start with none opens `*Brief*` for it first.
 //! - Its process is stopped when its buffer is killed, which archives the session as a
 //!   terminal's does, when the session list stops it, and killed as oso exits. A stopped
 //!   native session comes back at oso's next start as a native buffer with no process.
 
 mod keys;
+mod permissions;
 
 use std::collections::HashMap;
 use std::ops::Range;
@@ -56,6 +59,8 @@ pub(in crate::app) struct NativeSessions {
     map: HashMap<SessionKey, Native>,
     /// Starts waiting for their first message in `*Brief*`, by its buffer.
     briefs: HashMap<BufferId, Begin>,
+    /// The sessions' socket and the permission questions asked on it (ADR 0165, step 2).
+    permissions: permissions::Permissions,
 }
 
 /// A native session's buffer, rows and process.
@@ -201,6 +206,8 @@ impl App {
         shown: bool,
         first: Option<&str>,
     ) -> NativeOrder {
+        // Its bridge asks the person's permission there (ADR 0165, step 2).
+        self.start_sessions_socket();
         let buffer = self.add_native_buffer(key, name, directory, first);
         self.editor.set_running(buffer, true);
         self.editor.set_mode_note(buffer, "starting".to_owned());
@@ -365,10 +372,8 @@ impl App {
         let buffer = native.buffer;
         let changed = !changes.is_empty();
         draw(&mut self.editor, native, changes);
-        if let Some(worker) = &self.sessions {
-            for target in targets {
-                worker.send(Job::Stream(key, target));
-            }
+        for target in targets {
+            self.tell_tracker(key, target);
         }
         if changed
             && self
@@ -378,11 +383,15 @@ impl App {
         {
             self.request_redraw();
         }
+        // A call the session's bridge asks about may have come.
+        self.sync_permissions();
     }
 
     /// Native session `key`'s process ended with `status`: it is stopped, or failed with the end
     /// of what it wrote on standard error shown.
     fn native_ended(&mut self, key: SessionKey, status: Option<i32>, stderr: &str) {
+        // Its bridge asks nothing any more.
+        self.drop_permissions_of(key);
         let in_table = self.hosting.table.get(key).is_some();
         let Some(native) = self.hosting.natives.map.get_mut(&key) else {
             return;
@@ -434,6 +443,7 @@ impl App {
     /// After each event: a native session whose buffer was killed is stopped and archived, as
     /// a terminal's is (ADR 0121, Q3), and a `*Brief*` killed unsent is forgotten.
     pub(in crate::app) fn sync_native_sessions(&mut self) {
+        self.sync_sessions_socket();
         let editor = &self.editor;
         self.hosting
             .natives
@@ -448,6 +458,7 @@ impl App {
         }
         let mut buffers = Vec::new();
         for key in gone {
+            self.drop_permissions_of(key);
             self.hosting.starting.remove(&key);
             if let Some(native) = self.hosting.natives.map.remove(&key) {
                 if let Some(stream) = &native.stream {
@@ -457,6 +468,13 @@ impl App {
             }
         }
         self.archive_killed_sessions(&buffers);
+    }
+
+    /// Gives the sessions worker `target` for native session `key`, as its stream says it.
+    fn tell_tracker(&self, key: SessionKey, target: Target) {
+        if let Some(worker) = &self.sessions {
+            worker.send(Job::Stream(key, target));
+        }
     }
 
     /// Stops native session `key`'s process, as the session list's stop does. Whether it ran.

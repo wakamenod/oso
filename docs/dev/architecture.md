@@ -1195,17 +1195,26 @@ Full details are in [`security.md`](security.md).
     ([ADR 0078](adr/0078-load-times-and-log-lines-around-a-secret-buffer.md)).
 - **Agent channel:** the one control entry point in release builds, off until the person
   runs `agent-channel-start`, for agents such as Claude Code through `oso mcp`
-  ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)).
+  ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)), beside the sessions' socket, which
+  takes only native sessions' permission questions (below).
   - `crates/oso/src/channel/` serves `<pid>-agent.sock` in the same private directory through
     `oso-platform::control`, which is built in every build. Its methods are `version`, `state`,
     `commands`, `run`, `cancel`, `open`, `text` and `diagnostics` (ADR 0138, step 11), and the session tools' methods
     (`channel/protocol/sessions.rs`, ADR 0121), over the JSON Lines framing in
     `channel::wire`, which the dev socket shares, and no dev method. A session tool that asks
     the person holds its reply until they answer (`channel/server/held.rs`).
+  - The same server serves `<pid>-session.sock` (`channel::start_sessions`,
+    `server::Policy::Sessions`) while a native session runs or starts
+    ([ADR 0165](adr/0165-native-claude-sessions-the-route.md), step 2): only a native
+    session's bridge, by its claim (`sessions/hosted/claims.rs`), and only `permission`
+    (`channel/protocol/permission.rs`), held until the person answers. `oso mcp --permission`
+    lists the tool (`channel/mcp/permission.rs`) and connects as `initialize` comes; the queue
+    of requests is `sessions::native::asks`, and the app finds each request's call in the
+    session's rows and asks (`app/sessions/hosting/native/permissions.rs`).
   - `oso mcp` (`channel/mcp.rs`) is a subcommand of the oso binary that opens no window: MCP's
     JSON-RPC on stdin and stdout, with the tools `state`, `text`, `diagnostics`, `commands`, `look`,
     `change`, `open` and `cancel`, which takes back a question the agent's change opened
-    (ADR 0093), and the session tools (`channel/mcp/session_tools.rs`, ADR 0121). It connects on the first tool call, asks the channel's `version`
+    (ADR 0093), `permission` for a native session's bridge only (ADR 0165), and the session tools (`channel/mcp/session_tools.rs`, ADR 0121). It connects on the first tool call, asks the channel's `version`
     first, and connects again after oso restarts. It looks through every instance's socket
     only while it knows none to use, at most once each 5 s, since each look counts toward each
     instance's connections a minute. stdin is read on a thread of its own
