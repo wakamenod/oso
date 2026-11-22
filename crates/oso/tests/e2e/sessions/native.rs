@@ -401,10 +401,13 @@ fn a_native_sessions_calls_are_asked_of_the_person_with_the_agent_channel_off() 
     );
 
     flow.scratch.write("go", b"0");
+    // Point is in the composer; the transcript's modeline says the session stopped.
+    app.send_keys("C-c C-o");
     app.wait_for("the session stopped", |state| {
-        state["modeline"]
-            .as_str()
-            .is_some_and(|modeline| modeline.contains("stopped"))
+        state["buffer"]["name"] == "*claude: proj*"
+            && state["modeline"]
+                .as_str()
+                .is_some_and(|modeline| modeline.contains("stopped"))
     });
     // How soon each card showed after its request, for the PR (ADR 0165, step 2e-2).
     let log = app.stop_and_read_log();
