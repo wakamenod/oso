@@ -78,6 +78,7 @@ impl App {
             taken: Vec::new(),
             head: String::new(),
             worktree: None,
+            checkpoint: None,
         });
         self.editor.message(format!(
             "#{number}: {} {to}{left_out}{cut}. C-c C-c pastes it, C-u C-c C-c picks the \

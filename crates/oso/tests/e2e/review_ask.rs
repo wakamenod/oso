@@ -67,14 +67,21 @@ fn boxed_screen(input: &str, more: &[&str]) -> String {
 
 /// Shows an empty input box in the fake's terminal, and waits until oso has it on screen.
 fn empty_box(app: &mut App, flow: &Flow, terminal_name: &str) {
+    box_holding(app, flow, terminal_name, "");
+}
+
+/// Shows the input box holding `input` in the fake's terminal, and waits until oso has it on
+/// screen.
+fn box_holding(app: &mut App, flow: &Flow, terminal_name: &str, input: &str) {
     flow.scratch
-        .write("screen", boxed_screen("", &[]).as_bytes());
-    // The sign alone, as a screen before it, a folded paste's, has the same rules.
-    app.wait_for("the empty input box", |state| {
+        .write("screen", boxed_screen(input, &[]).as_bytes());
+    let sign = format!("\u{276f}\u{a0}{input}");
+    let sign = sign.trim_end();
+    app.wait_for("the input box", |state| {
         terminal(state, terminal_name).is_some_and(|terminal| {
             (terminal["rows"].as_array()).is_some_and(|rows| {
-                let has = |text: &str| rows.iter().any(|row| row.as_str() == Some(text));
-                has(NARROW) && has("\u{276f}")
+                rows.iter().any(|row| row.as_str() == Some(NARROW))
+                    && rows.iter().any(|row| row.as_str() == Some(sign))
             })
         })
     });
@@ -125,7 +132,7 @@ fn windows_said(state: &Value) -> String {
 }
 
 /// Waits for the fake to read the question's paste, then shows the folded paste in its box,
-/// as the TUI would.
+/// as the TUI would: the Enter waits for a screen newer than the paste.
 fn fold_paste(app: &mut App, flow: &Flow, pastes_before: usize, terminal_name: &str) {
     let read = pastes(flow, pastes_before + 1);
     // The TUI counts the paste's line breaks, which a terminal may write as CR.
@@ -361,6 +368,27 @@ fn a_restart_keeps_the_split_slot_and_a_question_after_it_reuses_the_window_belo
     submitted(&mut new, &flow, 2);
     let state = split_slot(&mut new, "README.md", "*claude: repo*");
     assert_eq!(state["buffer"]["name"], REVIEW, "{state}");
+    flow.exit_with(0);
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_draft_in_the_box_goes_with_the_question_and_the_echo_says_so() {
+    let flow = Flow::with_fake("review-ask-draft", "", FAKE);
+    let (mut app, _bridge) = hosted(&flow);
+    box_holding(&mut app, &flow, "*claude: repo*", "my draft");
+    back_to(&mut app, "README.md");
+    show_review(&mut app);
+
+    ask(&mut app, "Why");
+    fold_paste(&mut app, &flow, 0, "*claude: repo*");
+    let read = submitted(&mut app, &flow, 1);
+    assert!(read.contains("Question: Why"), "{read:?}");
+    let state = app.wait_for("the echo", |state| echo(state).starts_with("Asked repo"));
+    assert_eq!(
+        echo(&state),
+        "Asked repo: its answer shows beside the review; what its input box held went with it"
+    );
     flow.exit_with(0);
 }
 

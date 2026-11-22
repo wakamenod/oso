@@ -471,6 +471,12 @@ commit, `▶` on the one shown, `✓` once every hunk of it is viewed (`◐` for
 comments not sent, and `↑` for a commit not pushed yet. `RET` there shows a row's review, `SPC`
 shows it and stays in the list, and `l` or `q` closes the list.
 
+Pasting a pull request's comments records its head as your last review of it, and so does
+`M-x review-checkpoint`. Once the head moves on, after a push or a rebase, the commit list's
+second row is `Since last review`: `RET` there reviews only what changed since, its new commits
+marked `new`, and `M-n` steps to the first of them. Set the mark on one commit's row and go to
+another's, and `RET` reviews that range of commits.
+
 A comment opens as a draft at the top: `RET` breaks a line, `C-c C-c` keeps it, and `C-g` drops
 it into the kill ring. `C-x k` closes the review, and in the review layout puts back the windows
 from before it.
@@ -504,9 +510,8 @@ submitted, as you confirmed it in the prompt. The orchestrator's terminal shows 
 slot while you stay in the review, so you read the answer beside the diff. Outside a space with an
 orchestrator, or for a repository that is not one of the space's, it goes to the review's session.
 A file that may hold secrets sends its place alone. oso reads the orchestrator's input box on its
-screen: with nothing typed there, the question is pasted and submitted once the box shows it; with
-text you typed there, it is pasted and not submitted, for you to press Enter; and with no input box
-showing, as while it asks for permission, nothing is sent. Its terminal then shows so that you see
+screen: while it shows, the question is pasted and submitted, and text you had typed there goes
+with it; with no input box showing, as while it asks for permission, nothing is sent. Its terminal then shows so that you see
 why, and `M-p` in the prompt brings the question back. A stopped orchestrator is offered to be
 resumed, and the question waits for it for two minutes.
 

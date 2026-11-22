@@ -64,7 +64,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "review-commits",
-        doc: "Show the pull request's commit list above the review and select it, or close the list from it.\n\nThe list has a row for the whole pull request, then a row a commit, oldest first: its place, its marks, its short id, its subject, its author and its date. `\u{25b6}` marks the review shown, `\u{2713}` a commit whose every hunk is viewed and `\u{25d0}` one with some, `\u{25cf}N` its comments of yours not sent, and `\u{2191}` a commit not pushed yet. A merge and a commit that changes no file are stepped over.",
+        doc: "Show the pull request's commit list above the review and select it, or close the list from it.\n\nThe list has a row for the whole pull request, then, once its head moved since your last review of it (`review-checkpoint`), a row for what changed since, then a row a commit, oldest first: its place, its marks, its short id, its subject, its author and its date. `\u{25b6}` marks the review shown, `new` a commit new since your last review, `\u{2713}` a commit whose every hunk is viewed and `\u{25d0}` one with some, `\u{25cf}N` its comments of yours not sent, and `\u{2191}` a commit not pushed yet. A merge and a commit that changes no file are stepped over.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: review_commits,
@@ -72,7 +72,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "review-commits-visit",
-        doc: "Review the whole pull request or the commit at point, and select its review.",
+        doc: "Review the whole pull request, what changed since your last review or the commit at point, and select its review.\n\nWith the mark on another commit's row, review the commits from one to the other, as `r` reviews a range.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: review_commits_visit,
@@ -80,10 +80,18 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "review-commits-display",
-        doc: "Review the whole pull request or the commit at point, and stay in the commit list.",
+        doc: "Review the whole pull request, what changed since your last review or the commit at point, and stay in the commit list.\n\nWith the mark on another commit's row, review the commits from one to the other.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: review_commits_display,
+        state: None,
+    },
+    Command {
+        name: "review-checkpoint",
+        doc: "Record this pull request's head as your last review of it.\n\nWhat comes after it then shows in the commit list as Since last review, its commits marked new, once the head moves. Pasting a pull request's comments with `C-c C-c` records it too. It is saved with the pull request's review.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: review_checkpoint,
         state: None,
     },
     Command {
@@ -162,29 +170,58 @@ fn review_commits(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 }
 
 /// The step the commit list's row at point names: the whole pull request on its first row,
-/// a commit on each after.
+/// what changed since the last review on the next while there is one (ADR 0167, step 2), a
+/// commit on each after; or, with the mark on another commit's row, the commits from one to
+/// the other.
 fn row_step(ctx: &Ctx<'_>) -> Result<(ReviewId, Step), CommandError> {
     super::super::not_in_prompt(ctx)?;
     let (window, buffer) = ctx.editor.current();
     let pull = commits_review(ctx.editor, window.buffer())
         .ok_or_else(|| CommandError::new("Not in a pull request's commit list"))?;
-    let line = buffer
-        .text()
-        .offset_to_point(window.selections.primary().cursor)
-        .row;
-    let count = ctx
+    let text = buffer.text();
+    let primary = window.selections.primary();
+    let line = text.offset_to_point(primary.cursor).row;
+    let (count, since) = ctx
         .editor
         .review_commits(pull)
-        .map_or(0, |commits| commits.entries.len());
+        .map_or((0, false), |commits| {
+            (commits.entries.len(), commits.since.is_some())
+        });
+    let first = 1 + usize::from(since);
+    let commit = |line: usize| (first..first + count).contains(&line).then(|| line - first);
+    // An active region, as `C-SPC` shows one: a mark `M-<` left behind is no range.
+    let active = window.selections.mark_active().is_active();
+    if let Some(mark) = primary.mark.map(|mark| text.offset_to_point(mark).row)
+        && active
+        && mark != line
+    {
+        return match (commit(mark), commit(line)) {
+            (Some(a), Some(b)) => Ok((pull, Step::Range(a, b))),
+            _ => Err(CommandError::new(
+                "A range is of commits: set the mark on one commit's row, then go to another's",
+            )),
+        };
+    }
     match line {
         0 => Ok((pull, Step::Whole)),
-        line if line <= count => Ok((pull, Step::Commit(line - 1))),
-        _ => Err(CommandError::new("No commit here")),
+        1 if since => Ok((pull, Step::Since)),
+        line => commit(line)
+            .map(|at| (pull, Step::Commit(at)))
+            .ok_or_else(|| CommandError::new("No commit here")),
+    }
+}
+
+/// Hides the region a range was asked with, so that the next `RET` names one row.
+fn drop_mark(ctx: &mut Ctx<'_>, to: Step) {
+    if matches!(to, Step::Range(..)) {
+        let selections = &mut ctx.editor.current_mut().0.selections;
+        selections.set_mark_active(oso_core::selection::MarkActive::Inactive);
     }
 }
 
 fn review_commits_visit(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     let (review, to) = row_step(ctx)?;
+    drop_mark(ctx, to);
     // The window of a review of the pull request, below the list, is selected first, so that
     // the host shows the review there selected.
     let below = (ctx.editor.windows())
@@ -205,8 +242,17 @@ fn review_commits_visit(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> 
 
 fn review_commits_display(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     let (review, to) = row_step(ctx)?;
+    drop_mark(ctx, to);
     ctx.editor
         .request_review(ReviewRequest::Step { review, to });
+    ctx.request_redraw();
+    Ok(())
+}
+
+fn review_checkpoint(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    let review = review_here(ctx)?;
+    ctx.editor
+        .request_review(ReviewRequest::Checkpoint { review });
     ctx.request_redraw();
     Ok(())
 }

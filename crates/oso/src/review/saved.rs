@@ -52,6 +52,8 @@ pub(crate) struct Header {
     /// The pull request a review of one commit was stepped to from (ADR 0167), so that it is
     /// linked to that pull request's review again once its commits are listed.
     pub(crate) pull: Option<u64>,
+    /// A pull request's review's: the person's last review of it (ADR 0167, step 2).
+    pub(crate) checkpoint: Option<super::commits::Checkpoint>,
 }
 
 /// Where a window's cursor was in the review: a line of a side of a file, or the file's header.
@@ -108,6 +110,9 @@ fn scope_key(scope: &Scope) -> String {
         Scope::Branch { base } => format!("branch\0{base}"),
         Scope::Commit { revision } => format!("commit\0{revision}"),
         Scope::Range { from, to } => format!("range\0{from}\0{to}"),
+        Scope::Since { number, from, to } => {
+            format!("since\0{number}\0{}\0{}", from.as_str(), to.as_str())
+        }
         Scope::PullRequest { number } => format!("pr\0{number}"),
     }
 }
@@ -293,6 +298,10 @@ fn header_value(header: &Header, next_id: u64) -> Value {
     if let (Some(pull), Some(map)) = (header.pull, value.as_object_mut()) {
         map.insert("pull".to_owned(), json!(pull));
     }
+    if let (Some(checkpoint), Some(map)) = (&header.checkpoint, value.as_object_mut()) {
+        let value = json!({ "base": checkpoint.base.as_str(), "head": checkpoint.head.as_str() });
+        map.insert("checkpoint".to_owned(), value);
+    }
     value
 }
 
@@ -307,6 +316,9 @@ pub(crate) fn scope_value(scope: &Scope) -> Value {
         Scope::Commit { revision } => json!({ "kind": "commit", "revision": revision }),
         Scope::Range { from, to } => json!({ "kind": "range", "from": from, "to": to }),
         Scope::PullRequest { number } => json!({ "kind": "pr", "number": number }),
+        Scope::Since { number, from, to } => json!({
+            "kind": "since", "number": number, "from": from.as_str(), "to": to.as_str()
+        }),
     }
 }
 
@@ -332,6 +344,11 @@ pub(crate) fn scope_from_value(value: &Value) -> Option<Scope> {
         },
         "pr" => Scope::PullRequest {
             number: value.get("number")?.as_u64()?,
+        },
+        "since" => Scope::Since {
+            number: value.get("number")?.as_u64()?,
+            from: Id::parse(text("from")?.as_bytes())?,
+            to: Id::parse(text("to")?.as_bytes())?,
         },
         _ => return None,
     })
@@ -423,6 +440,14 @@ fn header_of(line: &[u8]) -> Option<(Header, u64)> {
             .get("pull")
             .and_then(Value::as_u64)
             .filter(|number| *number > 0 && number.to_string().len() <= 18),
+        // Two whole ids, or none (ADR 0167, step 2).
+        checkpoint: value.get("checkpoint").and_then(|checkpoint| {
+            let id = |name: &str| Id::parse(checkpoint.get(name)?.as_str()?.as_bytes());
+            Some(super::commits::Checkpoint {
+                base: id("base")?,
+                head: id("head")?,
+            })
+        }),
     };
     Some((header, value.get("next_id")?.as_u64()?))
 }

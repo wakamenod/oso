@@ -142,6 +142,8 @@ fn running(id: ReviewId, project: ProjectId, scope: Scope, serial: u64) -> Runni
         walk: None,
         pull: None,
         pull_wanted: None,
+        checkpoint: None,
+        checkpoint_moves: 0,
     }
 }
 

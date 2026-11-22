@@ -223,12 +223,8 @@ pub fn refusal(name: &str, standing: Standing) -> Option<String> {
 pub enum InputBox {
     /// Nothing typed: the prompt sign alone, or its `Try "…"` hint, whole or cut.
     Empty,
-    /// Only a paste the TUI folded, `[Pasted text #N +M lines]`, on one row or wrapped: `M`,
-    /// or `None` for `[Pasted text #N]`.
-    Pasted(Option<usize>),
-    /// Other text at the prompt sign, on one row or several: the person's draft, or an
-    /// earlier paste.
-    Typed,
+    /// Text at the prompt sign, on one row or several: the person's draft, or an earlier paste.
+    Held,
     /// No input box oso pastes into, and why.
     Other(NoBox),
 }
@@ -242,7 +238,8 @@ pub enum NoBox {
     /// The box's first row does not start with the prompt sign: another mode (`!`, `#`), a
     /// dialog or a picker in its place.
     NoSign,
-    /// A dialog's option at the sign, `❯ 1. Yes`, or a slash command's menu, `❯ /…`.
+    /// A dialog's options or a slash command's menu: `❯ 1. Yes` or `❯ /…` at the sign, or a
+    /// row under it with another sign, an option, or text without the box's indent.
     Menu,
 }
 
@@ -264,20 +261,18 @@ impl NoBox {
     }
 }
 
-/// The most rows a folded paste wraps to in a narrow terminal: more is other text.
-const MAX_WRAPPED_PASTE_ROWS: usize = 3;
-
 /// The fewest columns the input box's rules span: the TUI draws them the terminal's width.
 const MIN_BOX_RULE_CHARS: usize = 20;
 
 /// The input box `rows` show, read from the bottom: the rows between the last two rules, the
-/// first starting with the prompt sign `❯`. The rules are found as the state rules find them
-/// (`screen::last_two_rules`): a run of `─`, or one with the session's name at its right end,
-/// as the TUI draws the top rule of a session started with `--name`; then held to more than
-/// the state rules ask, as the text model output can forge is: both at the row's start and at
-/// least [`MIN_BOX_RULE_CHARS`] long, the bottom one `─` alone. A dialog, a picker and a mode
-/// with another sign read as [`InputBox::Other`], so that oso pastes and submits nothing
-/// there; a folded paste the terminal's width wrapped still reads as one.
+/// first starting with the prompt sign `❯`, any others the box's two-space indent then text,
+/// or blank. The rules are found as the state rules find them (`screen::last_two_rules`): a
+/// run of `─`, or one with the session's name at its right end, as the TUI draws the top rule
+/// of a session started with `--name`; then held to more than the state rules ask, as the text
+/// model output can forge is: both at the row's start and at least [`MIN_BOX_RULE_CHARS`]
+/// long, the bottom one `─` alone. A dialog, a picker, a mode with another sign, and a box
+/// whose rows go on as a dialog's would (another sign, an option, no indent) read as
+/// [`InputBox::Other`], so that oso pastes and submits nothing there.
 pub fn input_box(rows: &[String]) -> InputBox {
     let (Some(above), Some(below)) = super::screen::last_two_rules(rows) else {
         return InputBox::Other(NoBox::NoRules);
@@ -297,25 +292,31 @@ pub fn input_box(rows: &[String]) -> InputBox {
     };
     // The sign is followed by a no-break space (U+00A0), which `trim` drops too.
     let rest = rest.trim();
-    // A dialog's option at the sign, `❯ 1. Yes`, is no draft, and a slash command's menu
-    // shows under `❯ /…`.
-    let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
-    if (digits > 0 && rest[digits..].starts_with(". ")) || rest.starts_with('/') {
+    if option(rest) || rest.starts_with('/') || !inside[1..].iter().all(|row| draft_row(row)) {
         return InputBox::Other(NoBox::Menu);
     }
-    if inside.len() > 1 {
-        return match wrapped_paste(rest, &inside[1..]) {
-            Some(lines) => InputBox::Pasted(lines),
-            None => InputBox::Typed,
-        };
-    }
-    if rest.is_empty() || hint(rest) {
+    if inside.len() == 1 && (rest.is_empty() || hint(rest)) {
         return InputBox::Empty;
     }
-    match folded_paste(rest) {
-        Some(lines) => InputBox::Pasted(lines),
-        None => InputBox::Typed,
+    InputBox::Held
+}
+
+/// Whether `text` is a dialog's option, `1. Yes`.
+fn option(text: &str) -> bool {
+    let digits = text.bytes().take_while(u8::is_ascii_digit).count();
+    digits > 0 && text[digits..].starts_with(". ")
+}
+
+/// Whether `row`, under the sign's row, goes on a draft or a wrapped paste: blank, or the box's
+/// two-space indent then text that is neither another sign nor an option.
+fn draft_row(row: &str) -> bool {
+    if row.trim().is_empty() {
+        return true;
     }
+    (row.strip_prefix("  ")).is_some_and(|text| {
+        let text = text.trim();
+        !text.starts_with('❯') && !option(text)
+    })
 }
 
 /// Whether `text` at an empty prompt is its hint, `Try "…"`, whole or cut with `…` in a
@@ -323,43 +324,6 @@ pub fn input_box(rows: &[String]) -> InputBox {
 fn hint(text: &str) -> bool {
     text.strip_prefix("Try \"")
         .is_some_and(|hinted| hinted.ends_with('"') || hinted.ends_with('…'))
-}
-
-/// The lines of `first`, the text at the sign, and the box's rows `more` under it, each the
-/// box's two-space indent then text, if they are one folded paste the terminal's width wrapped,
-/// at a space or within a word.
-fn wrapped_paste(first: &str, more: &[String]) -> Option<Option<usize>> {
-    let indented = |row: &String| {
-        (row.strip_prefix("  ")).is_some_and(|text| text.starts_with(|c: char| !c.is_whitespace()))
-    };
-    let ends = more.last().is_some_and(|row| row.trim_end().ends_with(']'));
-    if more.len() + 1 > MAX_WRAPPED_PASTE_ROWS
-        || !first.starts_with("[Pasted")
-        || !ends
-        || !more.iter().all(indented)
-    {
-        return None;
-    }
-    let pieces = || std::iter::once(first).chain(more.iter().map(|row| row.trim()));
-    folded_paste(&pieces().collect::<Vec<_>>().join(" "))
-        .or_else(|| folded_paste(&pieces().collect::<String>()))
-}
-
-/// The lines `text` says, if it is all one paste the TUI folded: `[Pasted text #N +M lines]`
-/// gives `M`, `[Pasted text #N]` none.
-fn folded_paste(text: &str) -> Option<Option<usize>> {
-    let inner = (text.strip_prefix("[Pasted text #")).and_then(|t| t.strip_suffix(']'))?;
-    let digits = |t: &str| !t.is_empty() && t.bytes().all(|b| b.is_ascii_digit());
-    match inner.split_once(" +") {
-        Some((number, lines)) => {
-            let lines = lines.strip_suffix(" lines").filter(|lines| digits(lines))?;
-            if !digits(number) {
-                return None;
-            }
-            lines.parse().ok().map(Some)
-        }
-        None => digits(inner).then_some(None),
-    }
 }
 
 #[cfg(test)]

@@ -67,10 +67,14 @@ pub(super) struct Running {
     /// A pull request's commits, as its thread listed them (ADR 0167).
     pub(super) walk: Option<super::walk::Walk>,
     /// The pull request review this one reviews a commit of, and that commit's index.
-    pub(super) pull: Option<(ReviewId, usize)>,
+    pub(super) pull: Option<(ReviewId, super::walk::Spot)>,
     /// The pull request its saved file names, to link it to once that pull request's commits
     /// are listed.
     pub(super) pull_wanted: Option<u64>,
+    /// A pull request's review's: the person's last review of it (ADR 0167, step 2).
+    pub(super) checkpoint: Option<crate::review::commits::Checkpoint>,
+    /// How often its checkpoint moved, which a save compares.
+    pub(super) checkpoint_moves: u64,
 }
 
 /// What opening a review that is open already does.
@@ -120,6 +124,8 @@ impl Running {
             walk: None,
             pull: None,
             pull_wanted: None,
+            checkpoint: None,
+            checkpoint_moves: 0,
         }
     }
 

@@ -7,7 +7,10 @@
 use std::fs;
 use std::path::PathBuf;
 
-use super::{MAX_COMMITS, MAX_MESSAGE_LINES, list, message, read_listing, read_message};
+use super::{
+    MAX_COMMITS, MAX_MESSAGE_LINES, SinceAsk, list, message, patch_ids, read_listing, read_message,
+    since,
+};
 use crate::git::{Git, Id};
 use crate::review::tests::Repo;
 
@@ -237,4 +240,175 @@ fn a_long_message_is_cut_saying_so_and_its_lines_escaped() {
             .all(|line| !line.chars().any(char::is_control))
     );
     assert!(read_message(b"no fields", false).is_none());
+}
+
+/// A pull request's branch `topic` off `main`, two commits on it; its base and head.
+fn topic(bench: &Bench) -> (Id, Id) {
+    let repo = &bench.repo;
+    let base = bench.id("HEAD");
+    repo.git(&["switch", "-q", "-c", "topic"]);
+    repo.write("b.txt", b"two\n");
+    repo.commit("Add b");
+    repo.write("c.txt", b"three\n");
+    repo.commit("Add c");
+    (base, bench.id("HEAD"))
+}
+
+#[test]
+fn the_commits_after_the_head_then_are_new_when_it_is_an_ancestor() {
+    let bench = Bench::new("since-ancestor");
+    let (base, then) = topic(&bench);
+    bench.repo.write("d.txt", b"four\n");
+    bench.repo.commit("Add d");
+    let now = bench.id("HEAD");
+    let ask = SinceAsk {
+        from: super::Checkpoint {
+            base: base.clone(),
+            head: then,
+        },
+        base,
+        tip: now.clone(),
+    };
+    let found = since(&bench.git(), ask, &|| false).unwrap();
+    assert!(!found.rebased && !found.gone);
+    assert_eq!(
+        found.new.into_iter().collect::<Vec<_>>(),
+        [now.as_str().to_owned()]
+    );
+}
+
+#[test]
+fn after_a_rebase_the_commits_whose_patch_the_review_then_had_are_not_new() {
+    let bench = Bench::new("since-rebased");
+    let repo = &bench.repo;
+    let (base, then) = topic(&bench);
+    // main moves on; topic is rebased onto it, and one more commit comes.
+    repo.git(&["switch", "-q", "main"]);
+    repo.write("m.txt", b"main\n");
+    repo.commit("Main moves");
+    let new_base = bench.id("HEAD");
+    repo.git(&["switch", "-q", "topic"]);
+    repo.git(&["rebase", "-q", "main"]);
+    repo.write("d.txt", b"four\n");
+    repo.commit("Add d");
+    let now = bench.id("HEAD");
+    let ask = SinceAsk {
+        from: super::Checkpoint { base, head: then },
+        base: new_base,
+        tip: now.clone(),
+    };
+    let found = since(&bench.git(), ask, &|| false).unwrap();
+    assert!(found.rebased && !found.gone && !found.cut);
+    assert_eq!(
+        found.new.into_iter().collect::<Vec<_>>(),
+        [now.as_str().to_owned()]
+    );
+    assert_eq!(
+        found.patched.len(),
+        3,
+        "Add b, Add c and Add d each have a patch"
+    );
+}
+
+#[test]
+fn a_head_then_that_the_clone_no_longer_holds_is_gone() {
+    let bench = Bench::new("since-gone");
+    let (base, now) = topic(&bench);
+    let ask = SinceAsk {
+        from: super::Checkpoint {
+            base: base.clone(),
+            head: Id::parse(&[b'e'; 40]).unwrap(),
+        },
+        base,
+        tip: now,
+    };
+    let found = since(&bench.git(), ask, &|| false).unwrap();
+    assert!(found.gone && found.new.is_empty());
+}
+
+#[test]
+fn a_commits_patch_id_stays_through_a_rebase() {
+    let bench = Bench::new("patch-ids");
+    let repo = &bench.repo;
+    let (base, head) = topic(&bench);
+    let (before, cut) = patch_ids(&bench.git(), &base, &head, &|| false).unwrap();
+    assert!(!cut);
+    assert_eq!(before.len(), 2);
+    repo.git(&["switch", "-q", "main"]);
+    repo.write("m.txt", b"main\n");
+    repo.commit("Main moves");
+    let new_base = bench.id("HEAD");
+    repo.git(&["switch", "-q", "topic"]);
+    repo.git(&["rebase", "-q", "main"]);
+    let (after, _) = patch_ids(&bench.git(), &new_base, &bench.id("HEAD"), &|| false).unwrap();
+    let mut a: Vec<&String> = before.values().collect();
+    let mut b: Vec<&String> = after.values().collect();
+    a.sort();
+    b.sort();
+    assert_eq!(a, b, "the same patches, new commits");
+    assert!(before.keys().all(|commit| !after.contains_key(commit)));
+}
+
+/// Rebases `topic` onto a `main` that moved, then changes `b.txt`'s white space alone in a new
+/// commit; the base then and now, the head then and now.
+fn rebased_with_a_space(bench: &Bench) -> (Id, Id, Id, Id) {
+    let repo = &bench.repo;
+    let (base, then) = topic(bench);
+    repo.git(&["switch", "-q", "main"]);
+    repo.write("m.txt", b"main\n");
+    repo.commit("Main moves");
+    let new_base = bench.id("HEAD");
+    repo.git(&["switch", "-q", "topic"]);
+    repo.git(&["rebase", "-q", "main"]);
+    repo.write("b.txt", b"two \n");
+    repo.commit("Only a space");
+    (base, new_base, then, bench.id("HEAD"))
+}
+
+#[test]
+fn a_change_of_white_space_alone_after_a_rebase_is_new() {
+    let bench = Bench::new("since-space");
+    let (base, new_base, then, now) = rebased_with_a_space(&bench);
+    let ask = SinceAsk {
+        from: super::Checkpoint { base, head: then },
+        base: new_base,
+        tip: now.clone(),
+    };
+    let found = since(&bench.git(), ask, &|| false).unwrap();
+    assert!(found.rebased);
+    assert!(found.new.contains(now.as_str()), "{:?}", found.new);
+}
+
+#[cfg(unix)]
+#[test]
+fn reading_patches_runs_no_diff_program_and_takes_no_message_line() {
+    use std::os::unix::fs::PermissionsExt;
+    let bench = Bench::new("patch-ids-guarded");
+    let repo = &bench.repo;
+    let marker = repo.dir.join("ran");
+    let script = repo.dir.join("driver");
+    fs::write(
+        &script,
+        format!("#!/bin/sh\ntouch '{}'\ncat \"$1\"\n", marker.display()),
+    )
+    .unwrap();
+    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+    let driver = script.to_str().unwrap();
+    repo.git(&["config", "diff.external", driver]);
+    repo.git(&["config", "diff.x.textconv", driver]);
+    repo.git(&["config", "diff.x.command", driver]);
+    // A message line that reads as a commit's id, under a format that prints the body bare.
+    repo.git(&["config", "format.pretty", "format:%H%n%B"]);
+    repo.write(".gitattributes", b"*.txt diff=x\n");
+    repo.commit("Attributes");
+    let base = bench.id("HEAD");
+    repo.write("b.txt", b"two\n");
+    repo.git(&["add", "-A"]);
+    let forged = format!("Add b\n\n{}", "f".repeat(40));
+    repo.git(&["commit", "-q", "-m", &forged]);
+    let head = bench.id("HEAD");
+    let (ids, cut) = super::patch_ids(&bench.git(), &base, &head, &|| false).unwrap();
+    assert!(!marker.exists(), "a diff program ran");
+    assert!(!cut);
+    assert_eq!(ids.keys().collect::<Vec<_>>(), [&head.as_str().to_owned()]);
 }

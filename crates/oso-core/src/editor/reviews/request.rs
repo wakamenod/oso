@@ -105,6 +105,10 @@ pub enum ReviewRequest {
     /// it, unless the selected window shows the pull request's commit list, which stays
     /// selected, a step from it going from the review it shows last.
     Step { review: ReviewId, to: Step },
+    /// Records the pull request's head that `review`, of it or of one of its commits, shows
+    /// as the person's last review of it, from which what changed since is shown (ADR 0167,
+    /// step 2).
+    Checkpoint { review: ReviewId },
 }
 
 /// Where a step through a pull request's commits goes (ADR 0167).
@@ -119,6 +123,10 @@ pub enum Step {
     Whole,
     /// Its commit of this index, oldest first, as its commit list shows it.
     Commit(usize),
+    /// What changed since the person's last review of it (step 2).
+    Since,
+    /// Its commits from the first index to the second, as `r` reviews a range (step 2).
+    Range(usize, usize),
 }
 
 /// A step of starting a review in a space (ADR 0163), as `review-repository`,

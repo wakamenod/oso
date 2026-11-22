@@ -118,7 +118,8 @@ often, so it must rebuild within 2 s.
   `review/pr.rs`'s `head_worktree` on `oso-review-head`. `review/pr.rs` resolves a pull
   request's sides through `gh` and a fetch of objects alone (step 12b); `review/commits.rs`
   lists its commits and reads a commit's message, `app/reviews/walk.rs` steps through them,
-  each an ordinary review of one commit, and `commands/review/commits.rs` drives `M-n`, `M-p`
+  each an ordinary review of one commit, `walk/since.rs` shows what changed since the last
+  review and `walk/saved.rs` links a saved commit's review again, and `commands/review/commits.rs` drives `M-n`, `M-p`
   and the commit list (ADR 0167). `review/saved.rs` is a
   saved review's file format (step 6), which `app/reviews/store.rs` reads and writes on
   `oso-review-store`, under the state directory, and `app/reviews/keep.rs` saves and brings

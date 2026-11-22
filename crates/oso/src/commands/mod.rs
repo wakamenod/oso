@@ -323,6 +323,7 @@ mod tests {
         "review-range",
         // A step through a pull request's commits opens a commit's review, which runs git
         // (ADR 0167).
+        "review-checkpoint",
         "review-commits",
         "review-commits-display",
         "review-commits-visit",

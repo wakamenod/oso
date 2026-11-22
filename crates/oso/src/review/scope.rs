@@ -13,6 +13,7 @@
 //! | Commit | its first parent (the empty tree for a root commit) | the commit |
 //! | Range | `FROM`'s first parent | `TO` |
 //! | Pull request | `merge-base BASE HEAD` of the pull request | its head, or the work tree (`pr`) |
+//! | Since the last review | the pull request's head then (ADR 0167) | its head now |
 //!
 //! Untracked files are listed through a copy of the index in which they are marked as to be
 //! added (`git add -A -N`), which writes no file's contents into the repository. The baseline
@@ -65,6 +66,14 @@ pub(crate) enum Scope {
     PullRequest {
         number: u64,
     },
+    /// A pull request's head when its review was last sent, `from`, against its head now,
+    /// `to`, both whole ids oso found (ADR 0167): what changed since the last review, a rebase
+    /// and the base's changes it brought too.
+    Since {
+        number: u64,
+        from: Id,
+        to: Id,
+    },
 }
 
 impl Scope {
@@ -80,7 +89,7 @@ impl Scope {
             | Scope::Unstaged
             | Scope::Branch { .. } => true,
             Scope::PullRequest { .. } => checked_out,
-            Scope::Commit { .. } | Scope::Range { .. } => false,
+            Scope::Commit { .. } | Scope::Range { .. } | Scope::Since { .. } => false,
         }
     }
 }
@@ -112,6 +121,9 @@ pub(crate) enum ScopeError {
     NoSuchRevision(String),
     /// The session's baseline is gone, as git prunes an unreferenced tree.
     BaselineGone,
+    /// A pull request's head at its last review is gone, as git prunes a commit no ref holds
+    /// (ADR 0167).
+    SinceGone,
     /// A commit has a parent this clone does not hold, as a shallow clone's oldest have.
     NoParent,
     /// git found a work tree whose top is not the trusted root.
@@ -233,6 +245,17 @@ pub(crate) fn resolve(
         }
         Scope::PullRequest { .. } => {
             return Err(GitError::Unexpected("a pull request is resolved through gh").into());
+        }
+        // The head then may be gone: git prunes a commit no ref holds.
+        Scope::Since { from, to, .. } => {
+            let from = commit(git, from.as_str()).map_err(|_| ScopeError::SinceGone)?;
+            go_on(stop)?;
+            let to = commit(git, to.as_str())?;
+            go_on(stop)?;
+            Sides {
+                old: Some(from),
+                new: New::Tree(to),
+            }
         }
     })
 }

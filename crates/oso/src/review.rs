@@ -116,6 +116,10 @@ pub(crate) enum Request {
     /// Find where a jump to the source lands (step 3, part three). It stops nothing, and waits
     /// with the carries, answered between the files of a running request.
     Jump(jump::Jump),
+    /// Find what changed in a pull request since its last review (ADR 0167, step 2). It stops
+    /// nothing; the latest alone waits, answered when nothing else does, as a look is, and a
+    /// newer request stops it.
+    Since(commits::SinceAsk),
 }
 
 /// What waits aside, answered between the files of a running request: a carry or a jump, in
@@ -155,6 +159,7 @@ pub(crate) enum Asked {
     Stage,
     Look,
     Jump,
+    Since,
 }
 
 /// What the review's thread found. Each listing, the readings after it and the `Read` that
@@ -202,6 +207,8 @@ pub(crate) enum Report {
     Commits(Box<commits::Listed>),
     /// The message of the commit a review of one commit shows, once its id is known or moved.
     Message(Arc<commits::Message>),
+    /// What changed in a pull request since its last review (step 2).
+    Since(Box<commits::SinceFound>),
 }
 
 /// `text` on one line, at most `max` characters, with no control character.
@@ -292,14 +299,16 @@ pub(crate) struct Reviewer {
 }
 
 /// What waits for the thread, taken from the queue: carries and jumps aside, and stages, each in
-/// order, and the
-/// first other request, which stops the one running.
+/// order, a look and an ask of what changed since, and the first other request, which stops the
+/// one running.
 #[derive(Default)]
 struct Waiting {
     asides: VecDeque<Aside>,
     stages: VecDeque<stage::Stage>,
     /// Whether a look waits.
     look: bool,
+    /// What changed since a pull request's last review, the latest asked, waiting (step 2).
+    since: Option<commits::SinceAsk>,
     next: Option<Request>,
 }
 
@@ -348,13 +357,16 @@ impl Reviewer {
 fn counted(request: &Request) -> bool {
     !matches!(
         request,
-        Request::Carry(_) | Request::Stage(_) | Request::Look | Request::Jump(_)
+        Request::Carry(_)
+            | Request::Stage(_)
+            | Request::Look
+            | Request::Jump(_)
+            | Request::Since(_)
     )
 }
 
-/// Sends `request` on `requests`, counted in `waiting` unless it is a carry, a stage, a look or a
-/// jump; `false`
-/// if the thread has ended.
+/// Sends `request` on `requests`, counted in `waiting` unless it is a carry, a stage, a look, a
+/// jump or an ask of what changed since; `false` if the thread has ended.
 fn send_request(requests: &Sender<Request>, waiting: &AtomicUsize, request: Request) -> bool {
     let counted = counted(&request);
     if counted {
@@ -467,6 +479,7 @@ fn pull(queue: &Receiver<Request>, held: &RefCell<Waiting>, waiting: &AtomicUsiz
         match queue.try_recv() {
             Ok(Request::Carry(carry)) => held.asides.push_back(Aside::Carry(carry)),
             Ok(Request::Jump(jump)) => hold_jump(&mut held.asides, jump),
+            Ok(Request::Since(ask)) => held.since = Some(ask),
             Ok(Request::Stage(stage)) => held.stages.push_back(stage),
             Ok(Request::Look) => held.look = true,
             Ok(other) => {
@@ -499,6 +512,11 @@ fn next_request(
         if let Some(aside) = aside {
             return Some(aside.into_request());
         }
+        // What changed since, then a look, when nothing else waits: a reading goes first.
+        let since = held.borrow_mut().since.take();
+        if let Some(ask) = since {
+            return Some(Request::Since(ask));
+        }
         // A look last, when nothing else waits: a refresh coming reads what it would find.
         if std::mem::take(&mut held.borrow_mut().look) {
             return Some(Request::Look);
@@ -526,6 +544,7 @@ fn next_request(
         match newer {
             Request::Carry(carry) => held.borrow_mut().asides.push_back(Aside::Carry(carry)),
             Request::Jump(jump) => hold_jump(&mut held.borrow_mut().asides, jump),
+            Request::Since(ask) => held.borrow_mut().since = Some(ask),
             Request::Stage(stage) => held.borrow_mut().stages.push_back(stage),
             Request::Look => held.borrow_mut().look = true,
             Request::Refresh {
@@ -555,5 +574,6 @@ fn asked(request: &Request) -> Asked {
         Request::Stage(_) => Asked::Stage,
         Request::Look => Asked::Look,
         Request::Jump(_) => Asked::Jump,
+        Request::Since(_) => Asked::Since,
     }
 }

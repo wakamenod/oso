@@ -162,6 +162,7 @@ fn work_tree(scope: &Scope) -> Result<bool, &'static str> {
         Scope::Commit { .. }
         | Scope::Branch { .. }
         | Scope::Range { .. }
+        | Scope::Since { .. }
         | Scope::PullRequest { .. } => Err(
             "Accept and reject change the work tree's changes: not in a commit's, branch's, range's or pull request's review",
         ),

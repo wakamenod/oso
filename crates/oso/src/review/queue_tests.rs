@@ -43,6 +43,7 @@ fn what(request: Option<Request>) -> String {
         Some(Request::Refresh { first, .. }) => format!("refresh {}", first.len()),
         Some(Request::Baseline) => "baseline".into(),
         Some(Request::Jump(jump)) => format!("jump {}", jump.ticket),
+        Some(Request::Since(ask)) => format!("since {}", &ask.tip.as_str()[..7]),
     }
 }
 
@@ -219,4 +220,43 @@ fn a_jump_waits_with_the_carries_uncounted_and_only_the_latest_waiting_stays() {
     q.ask(jump(5));
     assert_eq!(q.carry_between_files(), "jump 5");
     assert_eq!(q.waiting(), 0);
+}
+
+/// An ask of what changed since a pull request's last review, to the tip of `n`s.
+fn since(n: u8) -> Request {
+    let id = |b: u8| crate::git::Id::parse(&[b; 40]).unwrap();
+    Request::Since(crate::review::commits::SinceAsk {
+        from: crate::review::commits::Checkpoint {
+            base: id(b'a'),
+            head: id(b'b'),
+        },
+        base: id(b'c'),
+        tip: id(b'0' + n),
+    })
+}
+
+#[test]
+fn a_since_ask_waits_uncounted_behind_a_reading_the_latest_alone_and_never_between_files() {
+    let q = Queue::new();
+    q.ask(Request::Open(super::Scope::Uncommitted));
+    q.ask(since(1));
+    q.ask(since(2));
+    q.ask(carry(b"a"));
+    assert_eq!(q.waiting(), 1, "only the open is counted");
+    assert_eq!(q.next(), "open");
+    // Between the open's files: the carry, never the ask.
+    assert_eq!(q.carry_between_files(), "carry a");
+    assert_eq!(q.carry_between_files(), "none");
+    // Once nothing else waits, the latest ask alone.
+    assert_eq!(q.next(), "since 2222222");
+    // Held while a refresh runs, the ask goes before a look.
+    q.ask(Request::Refresh {
+        first: Vec::new(),
+        person: false,
+    });
+    q.ask(Request::Look);
+    q.ask(since(3));
+    assert_eq!(q.next(), "refresh 0");
+    assert_eq!(q.next(), "since 3333333", "before the look");
+    assert_eq!(q.next(), "look");
 }

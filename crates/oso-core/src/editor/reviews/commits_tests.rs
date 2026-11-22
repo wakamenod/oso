@@ -25,6 +25,7 @@ fn entry(short: &str, subject: &str) -> CommitEntry {
         viewed: 0,
         hunks: 0,
         unsent: 0,
+        new: false,
     }
 }
 
@@ -50,6 +51,7 @@ fn commits(shown: Option<usize>) -> Commits {
         more: false,
         shown,
         open: Vec::new(),
+        since: None,
     }
 }
 
@@ -286,4 +288,60 @@ fn above_one_of_two_windows_side_by_side_it_takes_that_ones_columns() {
         "only the window it was asked above"
     );
     assert!(order.contains(&pane));
+}
+
+#[test]
+fn what_changed_since_the_last_review_takes_the_second_row_and_its_review_links() {
+    let (mut editor, pull, window) = editor_with_pull(30);
+    let pane = editor.show_review_commits(pull, window).unwrap();
+    let (since, buffer) = editor.add_review(ProjectId(0), "*review: #12 since p*".into());
+    let mut marked = commits(None);
+    let mut entries = marked.entries.to_vec();
+    entries[3].new = true;
+    marked.entries = Arc::from(entries);
+    marked.since = Some(crate::editor::Since {
+        new: 1,
+        rebased: true,
+        gone: false,
+        shown: true,
+        review: Some(since),
+    });
+    editor.set_review_commits(pull, Some(marked.clone()));
+    let text = shown_text(&editor, pull);
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines.len(), 6);
+    assert_eq!(lines[0], "  All changes \u{b7} #12 \u{b7} 4 commits");
+    assert_eq!(
+        lines[1],
+        "\u{25b6} Since last review \u{b7} rebased, 1 new commit"
+    );
+    assert!(lines[5].starts_with("  4/4 new"), "{}", lines[5]);
+    assert_eq!(
+        line_of(&editor, pane),
+        1,
+        "the review of what changed since"
+    );
+    assert_eq!(editor.review_pull(since), Some(pull));
+    editor.show(buffer);
+    assert!(
+        modeline(&editor).contains("#12 since last review"),
+        "{}",
+        modeline(&editor)
+    );
+    // Its first commit's row is the third; gone says so.
+    marked.since = marked.since.map(|since| crate::editor::Since {
+        gone: true,
+        shown: false,
+        ..since
+    });
+    marked.shown = Some(0);
+    editor.set_review_commits(pull, Some(marked));
+    assert_eq!(line_of(&editor, pane), 2);
+    let text = shown_text(&editor, pull);
+    assert!(
+        text.lines()
+            .nth(1)
+            .unwrap()
+            .ends_with("its head then is gone from this clone")
+    );
 }

@@ -80,6 +80,9 @@ struct Choices {
     folded: bool,
     filter: Option<Filter>,
     files: bool,
+    /// How often a pull request's last review moved, which is saved when it does (ADR 0167,
+    /// step 2).
+    checkpoint: u64,
 }
 
 /// The app's side of saved reviews: the store's thread, once started, the saved reviews as
@@ -135,6 +138,7 @@ impl App {
             comments: 0,
             unsent: 0,
             pull: None,
+            checkpoint: None,
         };
         let read = match name.clone() {
             Some(name) => (self.review_store()).is_some_and(|store| store.read(id, name, asked)),
@@ -244,7 +248,12 @@ impl App {
             view,
             left_out,
             pull,
+            checkpoint,
         } = found;
+        // A pull request's review: the person's last review of it (step 2).
+        if checkpoint.is_some() {
+            self.reviews.open[index].checkpoint = checkpoint;
+        }
         // A commit's review stepped to from a pull request: linked again once that pull
         // request's commits are listed (ADR 0167).
         if pull.is_some() {
@@ -269,16 +278,18 @@ impl App {
         if view.files {
             self.show_files_again(id);
         }
+        let checkpoint = self.reviews.open[index].checkpoint_moves;
+        // Nothing to save until it changes.
+        let revision = self.editor.review(id).map_or(0, Review::revision);
         let saving = &mut self.reviews.open[index].saving;
         saving.place_handed.clone_from(&view.place);
         saving.place = view.place;
-        // Nothing to save until it changes.
-        let revision = self.editor.review(id).map_or(0, Review::revision);
         let choices = Choices {
             choice: view.choice,
             folded: view.folded,
             filter: view.filter,
             files: view.files,
+            checkpoint,
         };
         saving.handed = Some((revision, choices));
         let noun = if comments == 1 { "comment" } else { "comments" };
@@ -337,7 +348,9 @@ impl App {
     fn saving_state(&self, index: usize) -> Option<(u64, Choices)> {
         let id = self.reviews.open[index].id;
         let model = self.editor.review(id)?;
-        Some((model.revision(), self.choices(id)))
+        let mut choices = self.choices(id);
+        choices.checkpoint = self.reviews.open[index].checkpoint_moves;
+        Some((model.revision(), choices))
     }
 
     /// The review `id`'s view choices now.
@@ -347,6 +360,7 @@ impl App {
             folded: self.editor.agents_folded(id),
             filter: self.editor.review_filter(id).cloned(),
             files: self.editor.review_files(id).is_some(),
+            checkpoint: 0,
         }
     }
 
@@ -443,6 +457,7 @@ impl App {
             comments: saved.comments.len(),
             unsent,
             pull,
+            checkpoint: running.checkpoint.clone(),
         };
         let choices = self.choices(running.id);
         let view = SavedView {

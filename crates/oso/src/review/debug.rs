@@ -76,6 +76,12 @@ impl fmt::Debug for Report {
                 .field("commits", &listed.commits.len())
                 .field("more", &listed.more)
                 .finish(),
+            Self::Since(found) => f
+                .debug_struct("Since")
+                .field("new", &found.new.len())
+                .field("rebased", &found.rebased)
+                .field("gone", &found.gone)
+                .finish_non_exhaustive(),
             Self::Message(message) => f
                 .debug_struct("Message")
                 .field("lines", &message.lines.len())
