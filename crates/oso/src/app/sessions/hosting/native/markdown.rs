@@ -525,4 +525,4 @@ fn streams(row: Option<&Row>) -> bool {
 }
 
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;

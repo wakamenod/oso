@@ -285,6 +285,7 @@ impl Rows {
             | Event::RateLimit(_)
             | Event::Status { .. }
             | Event::Answer(_)
+            | Event::Suggestion(_)
             | Event::Other(_) => Vec::new(),
         };
         changes.sort_by_key(|change| (change.row(), change.rank()));

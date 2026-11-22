@@ -18,6 +18,8 @@
 //!   archived or forgotten, `end`'s; its interrupt, `interrupting`'s (step 2c); its slash
 //!   commands, `slash`'s (step 2d); its replies' Markdown highlighting, once each is whole,
 //!   `markdown`'s (part 2g); its status line, `status`'s (part 3a).
+//! - Its prompt suggestion is `suggesting`'s, and the recap of a turn that ended out of sight
+//!   `recap`'s (part 3f).
 //! - Its bridge asks the person's permission for its calls on the sessions' socket, in
 //!   `permissions` (step 2).
 //! - Its first message is its brief, if it was given one; else the person writes it in its
@@ -33,9 +35,11 @@ mod keys;
 mod markdown;
 mod note;
 mod permissions;
+mod recap;
 mod resume;
 mod slash;
 mod status;
+mod suggesting;
 
 use std::collections::HashMap;
 use std::ops::Range;
@@ -121,6 +125,8 @@ struct Native {
     markdown: markdown::Marks,
     /// Its status line, and its process's `get_usage` (part 3a).
     status: status::StatusState,
+    /// Its last turn ended out of the person's sight, and no recap said so yet (part 3f).
+    unseen: bool,
 }
 
 impl NativeSessions {
@@ -271,6 +277,7 @@ impl App {
             // Its first message's turn is under way once it runs.
             composing: composer::Composing::starting(first.is_some()),
             markdown: markdown::Marks::default(),
+            unseen: false,
             spoke: first.is_some(),
             control: None,
             interrupt: Interrupt::new(interrupting::SIGNALS),
@@ -402,6 +409,7 @@ impl App {
     /// Folds `events` into session `key`'s rows, draws the rows that changed once each, and
     /// gives the worker what they say of its state.
     fn native_events(&mut self, key: SessionKey, events: Vec<Event>) {
+        let seen = self.native_in_front(key);
         let Some(native) = self.hosting.natives.map.get_mut(&key) else {
             return;
         };
@@ -411,7 +419,10 @@ impl App {
         let interrupting = |native: &Native| native.interrupt.interrupting();
         let was_interrupting = interrupting(native);
         let (mut noted, mut usage_id) = (false, None);
+        let mut suggested = false;
         for mut event in events {
+            suggested |= suggesting::suggestion_event(native, &event);
+            recap::recap_event(native, &event, seen);
             interrupting::control_event(native, &mut event, &mut then);
             let (changed, ask) = status::status_event(native, &event);
             noted |= changed;
@@ -432,6 +443,9 @@ impl App {
         let changed = !changes.is_empty();
         let noted = noted || was_interrupting != interrupting(native);
         draw(&mut self.editor, native, changes);
+        if suggested {
+            self.draw_queue(key);
+        }
         // A turn that ended lets the queue's first go, after the event (`send_waiting_queues`).
         for target in targets {
             self.tell_tracker(key, target);
@@ -446,7 +460,7 @@ impl App {
         if noted {
             self.native_note_changed(key);
         }
-        if changed
+        if (changed || suggested)
             && self
                 .editor
                 .windows()

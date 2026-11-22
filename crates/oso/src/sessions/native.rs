@@ -28,6 +28,8 @@
 //!   (step 2, part 2g).
 //! - `status`: the status line, model, mode, context, cost and rate limit (part 3a); `usage`:
 //!   its `get_usage` request, once a process on tier 2.
+//! - `suggest`: which prompt suggestion is kept, and its row; `recap`: the recap of a turn
+//!   that ended out of sight (part 3f).
 
 pub mod asks;
 pub mod card;
@@ -37,10 +39,12 @@ pub mod markdown;
 pub mod placed;
 pub mod point;
 pub mod queue;
+pub mod recap;
 pub mod render;
 pub mod rows;
 pub mod slash;
 pub mod status;
+pub mod suggest;
 pub mod turns;
 pub mod usage;
 pub mod wire;

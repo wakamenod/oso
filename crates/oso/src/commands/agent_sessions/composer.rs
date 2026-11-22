@@ -68,7 +68,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "native-composer-next",
-        doc: "Put the message sent after the one shown in a native session's composer, times the count.",
+        doc: "Put the message sent after the one shown in a native session's composer, times the count.\n\nPast the newest, in an empty composer, put in the session's prompt suggestion, escaped as text oso composes, not sent.",
         args: ArgSpec::Count,
         reach: Reach::Person,
         run: next,
