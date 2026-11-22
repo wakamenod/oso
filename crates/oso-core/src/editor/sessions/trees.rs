@@ -60,7 +60,8 @@ impl WindowTree {
 impl Editor {
     /// Puts `tree` in the frame in place of the tree there, which it gives back. The side
     /// window stays, and stays selected if it was; otherwise `tree`'s window selected last is
-    /// selected. Ends isearch and a jump.
+    /// selected. Docked windows stay too, as they are their host buffer's, not a tree's: they
+    /// go where the host is shown (ADR 0170). Ends isearch and a jump.
     ///
     /// # Errors
     ///
@@ -79,11 +80,13 @@ impl Editor {
         let side = self.side_window();
         let side_selected = self.side_selected();
         let last = self.tree_id();
-        let (out, side_window): (Vec<Window>, Vec<Window>) = std::mem::take(&mut self.windows)
+        let stays = |window: &Window| Some(window.id()) == side || window.docked().is_some();
+        let (kept, out): (Vec<Window>, Vec<Window>) = std::mem::take(&mut self.windows)
             .into_iter()
-            .partition(|window| Some(window.id()) != side);
+            .partition(stays);
         let mut recent: Vec<WindowId> = std::mem::take(&mut self.recent);
-        recent.retain(|id| Some(*id) != side && *id != last);
+        let kept_ids: Vec<WindowId> = kept.iter().map(Window::id).collect();
+        recent.retain(|id| !kept_ids.contains(id) && *id != last);
         recent.insert(0, last);
         let old = WindowTree {
             splits: std::mem::replace(&mut self.splits, tree.splits),
@@ -92,7 +95,7 @@ impl Editor {
             pairs: std::mem::take(&mut self.pairs),
         };
         self.windows = tree.windows;
-        self.windows.extend(side_window);
+        self.windows.extend(kept);
         self.recent = tree.recent;
         self.pairs = tree.pairs;
         self.moved_windows.clear();
@@ -104,7 +107,7 @@ impl Editor {
             .and_then(|id| self.window_index(id))
             .unwrap_or_default();
         let back: Vec<usize> = (0..self.windows.len())
-            .filter(|&index| Some(self.windows[index].id()) != side)
+            .filter(|&index| !kept_ids.contains(&self.windows[index].id()))
             .collect();
         // Every window shows a buffer that exists before anything lays the frame out.
         let moved: Vec<usize> = back

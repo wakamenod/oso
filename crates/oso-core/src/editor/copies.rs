@@ -159,6 +159,8 @@ impl Editor {
     /// Takes an internal buffer out, unless the editor needs it, and hands it over so that
     /// the host can free a large text off the UI thread. A window showing it goes to the list.
     pub fn remove_internal_buffer(&mut self, id: BufferId) -> Option<Buffer> {
+        // A docked window showing it goes, rather than show the list (ADR 0170).
+        self.forget_docks_of(id);
         let removable = self.buffer(id).is_some_and(Buffer::is_internal)
             && id != self.messages_buffer
             && Some(id) != self.copies_buffer;

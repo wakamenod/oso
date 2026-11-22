@@ -101,6 +101,10 @@ impl Dispatcher {
         // goes to the agent (ADR 0122, step 12, Q7), and a brief, which starts a session as the
         // person's words (ADR 0121 step 4, ADR 0165).
         let mode = editor.current().1.mode();
+        // A docked window's text is a session's, the person's to write (ADR 0170).
+        if reach == Reach::Change && editor.tiled().0.docked().is_some() {
+            return refused(DOCK_REFUSED.into());
+        }
         if reach == Reach::Change {
             match mode {
                 Mode::GitCommit | Mode::GitPrMessage => return refused(MESSAGE_REFUSED.into()),
@@ -202,13 +206,19 @@ const REVIEW_MESSAGE_REFUSED: &str = "a review's message is the person's to send
 /// Why the agent may not change a brief before the person sends it (ADR 0165).
 const BRIEF_REFUSED: &str = "a brief is the person's to write; ask the person";
 
+/// Why the agent may not change a window docked under a session's transcript (ADR 0170).
+const DOCK_REFUSED: &str = "what is docked under a session is the person's; ask the person";
+
 /// Why the agent may not delete the side window.
 const SIDE_REFUSED: &str = "hiding the list of sessions is the person's";
 
-/// Whether the person's next keys go to the side window, or to a buffer with keys of its own.
+/// Whether the person's next keys go to the side window, a docked window (ADR 0170), or a
+/// buffer with keys of its own.
 fn keys_elsewhere(editor: &Editor) -> bool {
     let now = editor.tiled().0;
-    editor.side_window() == Some(now.id()) || has_own_keys(editor.shown(now).mode())
+    editor.side_window() == Some(now.id())
+        || now.docked().is_some()
+        || has_own_keys(editor.shown(now).mode())
 }
 
 /// Whether a tree's window other than the selected one shows a buffer with keys of its own,

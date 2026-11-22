@@ -496,6 +496,52 @@ mod tests {
         )
     }
 
+    /// A docked composer (ADR 0170) is drawn as a window inside its host's rect: its text over
+    /// the float's face, its mark in its gutter, and no modeline of its own.
+    #[test]
+    fn a_docked_composer_is_drawn_inside_its_host_with_no_modeline() {
+        use oso_core::window::DockSlot;
+        let mut editor = Editor::with_buffer(Buffer::from_text("*claude: s*", "one\n"));
+        editor.set_frame_size(FrameSize {
+            rows: 24,
+            columns: 80,
+        });
+        let host = editor.window().buffer();
+        let input = editor.add_buffer(Buffer::from_text("*compose: s*", "hi"));
+        editor.set_dock(host, DockSlot::Composer, Some(input));
+        let docked = editor.dock_window(host, DockSlot::Composer).unwrap();
+        let regions = *editor.regions(docked).unwrap();
+        with_panes(
+            &editor,
+            &statuses(&editor),
+            &mut Cells::default(),
+            |panes| {
+                let text = panes
+                    .iter()
+                    .find(|pane| pane.id == tiled::pane_id(docked, tiled::Part::Text))
+                    .unwrap();
+                assert_eq!(text.region, regions.text);
+                assert_eq!(text.background, Some(Face::Float));
+                let gutter = panes
+                    .iter()
+                    .find(|pane| pane.id == tiled::pane_id(docked, tiled::Part::Gutter))
+                    .unwrap();
+                let PaneContent::Lines(lines) = &gutter.content else {
+                    panic!("a gutter of lines");
+                };
+                assert_eq!(lines[0][0].text, "› ");
+                let modeline = tiled::pane_id(docked, tiled::Part::Modeline);
+                assert!(panes.iter().all(|pane| pane.id != modeline));
+                let ids: Vec<_> = panes.iter().map(|pane| pane.id).collect();
+                let unique = ids
+                    .iter()
+                    .enumerate()
+                    .all(|(at, id)| !ids[..at].contains(id));
+                assert!(unique, "each pane its own id");
+            },
+        );
+    }
+
     #[test]
     fn panes_are_the_frames_regions_with_their_own_ids() {
         let mut editor = Editor::default();

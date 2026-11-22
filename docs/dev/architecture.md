@@ -518,6 +518,10 @@ loop. Render errors are logged and are never fatal.
 | Terminal | `oso-term` cell grid, owned by the terminal's thread | shells, project terminals, the floating terminal, compile output |
 
 A window shows a view. A text view renders a buffer through the display model.
+A docked window (`editor/sessions/docks.rs`, `frame/docks.rs`) is a window the
+split tree does not hold, laid out inside the tiled window that shows its host
+buffer, from that window's bottom rows: a native session's card, to-do strip
+and composer ([ADR 0170](adr/0170-docked-windows-under-a-sessions-transcript.md)).
 A terminal view renders a cell grid that the terminal's thread publishes as
 snapshots, at most one in flight, so the UI thread never parses, searches or
 touches the PTY. `C-s` searches the screen and scrollback on that thread, and

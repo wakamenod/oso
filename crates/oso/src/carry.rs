@@ -225,7 +225,8 @@ fn add_reviews(editor: &Editor, state: &mut Value, shown: &[reviews::Shown]) {
 }
 
 /// The tiled windows in the order the state lists them: the tree's, without the side window,
-/// which comes back by itself (ADR 0121).
+/// which comes back by itself (ADR 0121), or a docked one, which its host docks again
+/// (ADR 0170).
 pub fn tiled_windows(editor: &Editor) -> Vec<&Window> {
     let side = editor.side_window();
     editor
@@ -234,6 +235,7 @@ pub fn tiled_windows(editor: &Editor) -> Vec<&Window> {
         .iter()
         .filter(|(id, _)| Some(*id) != side)
         .filter_map(|(id, _)| editor.window_by_id(*id))
+        .filter(|window| window.docked().is_none())
         .collect()
 }
 

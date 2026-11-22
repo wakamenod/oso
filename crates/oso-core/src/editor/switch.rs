@@ -8,7 +8,9 @@
 
 use super::Editor;
 use super::follow::clip_selections;
-use crate::buffer::{self, Buffer, BufferId, Mode};
+use crate::buffer::{self, Buffer, BufferId};
+
+mod kept;
 use crate::display_map::DisplaySnapshot;
 use crate::selection::{MarkActive, SelectionSet};
 use crate::window::{Place, Walk, Window, WindowId};
@@ -70,7 +72,8 @@ impl Editor {
         if self.buffer(buffer).is_none() {
             return;
         }
-        if self.side_window() == Some(id) {
+        // A docked window's buffer is its host's to say (ADR 0170): its host shows it.
+        if self.side_window() == Some(id) || self.is_docked(id) {
             return self.show(buffer);
         }
         let Some(index) = self.window_index(id).filter(|&i| i < self.tiled_count()) else {
@@ -85,6 +88,7 @@ impl Editor {
     /// window shows comes through here, so that what was around a buffer that may hold secrets,
     /// before or after it, is marked so.
     pub(super) fn window_shows(&mut self, index: usize, buffer: BufferId) {
+        let before = self.windows[index].buffer();
         // A pair holds while each window shows what it was paired with (ADR 0122).
         self.leave_pair(index, buffer);
         // A search keeps to the buffer it began in (ADR 0082).
@@ -117,6 +121,8 @@ impl Editor {
         // says how many lines that one has (ADR 0097).
         self.fit_gutter();
         self.note_secret_shown();
+        // The docks of a host it left, or now shows, go where that host is shown (ADR 0170).
+        self.docks_follow(before, buffer);
     }
 
     /// Where the tiled window selected most recently that showed `buffer`, other than the one at
@@ -226,7 +232,7 @@ impl Editor {
         let agent = self.runs_for_agent();
         for id in shown_before.chain(rest) {
             let kept = self.buffer(id).is_some_and(|buffer| {
-                let users = !buffer.is_internal() || kept_as_users(buffer);
+                let users = !buffer.is_internal() || kept::kept_as_users(buffer);
                 users && !(agent && buffer.is_terminal())
             });
             if kept && !ring.contains(&id) {
@@ -272,7 +278,7 @@ impl Editor {
     /// (ADR 0138).
     fn listed(&self, id: BufferId, buffer: &Buffer) -> bool {
         !buffer.is_internal()
-            || kept_as_users(buffer)
+            || kept::kept_as_users(buffer)
             || id == self.messages_buffer
             || Some(id) == self.copies_buffer
             || Some(id) == self.agent_log_buffer()
@@ -415,7 +421,7 @@ impl Editor {
     pub fn kill_by_person(&mut self, id: BufferId, anyway: bool) -> Result<(), KillRefused> {
         let buffer = self.buffer(id).ok_or(KillRefused::Gone)?;
         // A directory's listing is killed as a person's buffer is, as dired's are (ADR 0134).
-        if buffer.is_internal() && !kept_as_users(buffer) {
+        if buffer.is_internal() && !kept::kept_as_users(buffer) {
             return Err(KillRefused::Internal);
         }
         if buffer.is_saving() {
@@ -448,7 +454,7 @@ impl Editor {
     pub fn kill_buffer(&mut self, id: BufferId) {
         if self
             .buffer(id)
-            .is_some_and(|buffer| buffer.is_internal() && !kept_as_users(buffer))
+            .is_some_and(|buffer| buffer.is_internal() && !kept::kept_as_users(buffer))
         {
             return;
         }
@@ -472,6 +478,8 @@ impl Editor {
         if self.buffer(id).is_none() {
             return;
         }
+        // A host's docked windows go with it, and one that shows it (ADR 0170).
+        self.forget_docks_of(id);
         self.forget_listing(id);
         self.forget_git_status(id);
         let shown = self.windows.iter().any(|window| window.buffer() == id);
@@ -580,22 +588,6 @@ impl Editor {
             self.buffers[index].1.set_name(name);
         }
     }
-}
-
-/// Whether `buffer`, though internal, is listed and killed as a person's buffer is: a
-/// directory's listing (ADR 0134), a git status, log, graph or pull request (ADR 0127), as
-/// Emacs's dired and magit buffers are, a rename's preview (ADR 0138), what a session's move
-/// waits for, whose kill cancels it (ADR 0151), or a native session's (ADR 0165).
-fn kept_as_users(buffer: &Buffer) -> bool {
-    let kept = [Mode::GitDiscarded, Mode::RenamePreview, Mode::SessionMove];
-    super::listings::is_listing(buffer)
-        || super::git::is_git_status(buffer)
-        || super::git::is_git_log(buffer)
-        || super::git::is_git_graph(buffer)
-        || super::git::is_git_pr(buffer)
-        || super::git::is_git_issue(buffer)
-        || (buffer.is_internal() && kept.contains(&buffer.mode()))
-        || buffer.is_native_session()
 }
 
 #[cfg(test)]

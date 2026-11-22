@@ -877,6 +877,13 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   it; what the channel's commands say or kill while it is shown stays out of its reach.
   `session-explain-file`, which reads a file, is `Person`.
 
+- A window docked under a session's transcript, as the composer is
+  ([ADR 0170](adr/0170-docked-windows-under-a-sessions-transcript.md)), is the person's: an
+  agent's move into one is undone, its `Change` commands are refused while one is selected, and
+  one whose buffer is withheld from agents is not listed in the channel's state, where its host
+  gives its whole rect so that the composer's height says nothing of what was typed. A docked
+  window's buffer changes only by its host's dock, never by a command that shows a buffer.
+
 ### Denial of service (T8)
 
 - Files load in the background, and the UI stays responsive on huge files and

@@ -159,11 +159,14 @@ impl Editor {
             self.hide_side_window();
             return Ok(());
         }
-        let id = self.tiled_id();
+        // In a docked window, its host goes; its docks go where the host is shown next, or
+        // hide (ADR 0170).
+        let id = self.tree_id();
         let mut splits = self.splits.clone();
         if self.pair_beneath_prompt(id) || !splits.remove(id, &self.frame) {
             return Err(SoleWindow);
         }
+        self.leave_side();
         self.isearch_exit();
         let other = self.splits.pair_of(id);
         self.splits = splits;
@@ -200,6 +203,22 @@ impl Editor {
         }
         self.lay_out(self.frame.size());
         true
+    }
+
+    /// Adds `window`, which the tree does not hold, after the tiled windows: the side window
+    /// (ADR 0121) or a docked one (ADR 0170). It wraps, the gutter fits, and a buffer that may
+    /// hold secrets it shows is noted. Returns its index.
+    pub(super) fn insert_outside_tree(&mut self, window: crate::window::Window) -> usize {
+        let at = self.tiled_count();
+        self.windows.insert(at, window);
+        // The prompts' windows come after it, the selected among them.
+        if self.selected >= at {
+            self.selected += 1;
+        }
+        self.sync_wrap(at);
+        self.fit_gutter();
+        self.note_secret_shown();
+        at
     }
 
     /// Takes the window `id` out of the editor, once the tree no longer holds it, and selects
@@ -280,8 +299,9 @@ impl Editor {
             .is_some_and(crate::frame::WindowRegions::has_cells);
         self.make_tiled(id);
         // The selected window always has cells, so a frame too small for every window lays
-        // out again around it.
-        if hidden {
+        // out again around it; and a session's docks go to the window selected last that
+        // shows it (ADR 0170).
+        if hidden || self.docks_elsewhere(id) {
             self.lay_out(self.frame.size());
         }
     }
@@ -389,13 +409,13 @@ impl Editor {
         if !self.prompts.is_empty() || self.splits.iter().nth(1).is_some() {
             return Err(BadTiling::Split);
         }
-        let first = self.tiled_id();
+        let first = self.tree_id();
         let mut next = self.next_window;
         let (splits, ids) = Splits::from_tiling(tiling, first, &mut next)?;
         self.isearch_exit();
         self.next_window = next;
         self.splits = splits;
-        let at = self.tiled_index();
+        let at = self.tree_index();
         for id in ids.iter().skip(1) {
             self.add_split_off(at, *id);
         }

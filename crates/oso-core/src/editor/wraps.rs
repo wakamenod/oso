@@ -230,8 +230,10 @@ impl Editor {
                 }
             }
         }
-        // A draft's answer may take more rows or fewer (ADR 0122).
+        // A draft's answer may take more rows or fewer (ADR 0122), and a docked window's
+        // (ADR 0170).
         self.draft_edited(id);
+        self.dock_edited(id);
     }
 
     /// The jobs the windows' wraps want run off the UI thread, each superseding its window's

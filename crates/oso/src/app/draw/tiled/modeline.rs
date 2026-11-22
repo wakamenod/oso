@@ -1,10 +1,12 @@
 //! A tiled window's modeline, as the spans it is drawn in (ADR 0112): its warnings, the agent's
 //! and the sessions' marks, the buffer's name and project, the language server's state and its
-//! counts in their severities' faces (ADR 0138), and the rest.
+//! counts in their severities' faces (ADR 0138), and the rest; and each tiled window's status,
+//! which its modeline and the echo area say.
 //!
 //! Must not depend on: key presses or commands; a frame only reads the editor's state.
 
-use oso_core::editor::{ServerFace, Status};
+use oso_core::editor::{Editor, ServerFace, Status};
+use oso_core::window::WindowId;
 use oso_render::{Face, Span};
 
 /// A modeline's spans: warnings first, so that nothing can push them off the row, after
@@ -69,4 +71,26 @@ pub(super) fn modeline_face(status: &Status) -> Face {
     } else {
         Face::ModelineInactive
     }
+}
+
+/// Every tiled window's status, in the tree's order, into `out`, reusing its strings.
+pub(in crate::app) fn statuses_into(editor: &Editor, out: &mut Vec<(WindowId, Status)>) {
+    let windows = editor.frame().windows();
+    out.resize_with(windows.len(), || (windows[0].0, Status::default()));
+    for ((id, status), (window, _)) in out.iter_mut().zip(windows) {
+        *id = *window;
+        editor.status_into(*window, status);
+    }
+}
+
+/// The status of the selected tiled window, or the one beneath the prompts, among
+/// `statuses`, which says the echo area too.
+pub(in crate::app) fn tiled_status<'a>(
+    editor: &Editor,
+    statuses: &'a [(WindowId, Status)],
+) -> Option<&'a Status> {
+    let tiled = editor.tiled().0.id();
+    statuses
+        .iter()
+        .find_map(|(id, status)| (*id == tiled).then_some(status))
 }

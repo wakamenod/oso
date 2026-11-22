@@ -15,6 +15,18 @@ use crate::diagnostic::Severity;
 use crate::frame;
 use crate::window::{Screen, Window, WindowId};
 
+/// What a docked window's gutter shows on its text's first row: the composer's mark.
+const COMPOSER_MARK: &str = "› ";
+
+/// A docked window's gutter in `slot` (ADR 0170): the composer's mark, and none for the card
+/// or the strip. The gutter's one owner, which the docks' layout asks.
+pub(in crate::editor) fn dock_gutter(slot: crate::window::DockSlot) -> usize {
+    match slot {
+        crate::window::DockSlot::Composer => COMPOSER_MARK.chars().count(),
+        crate::window::DockSlot::Card | crate::window::DockSlot::Strip => 0,
+    }
+}
+
 /// The fewest digits the line-number column takes.
 const MIN_DIGITS: usize = 3;
 
@@ -66,6 +78,9 @@ impl Editor {
     /// The gutter's columns for `window` as it is: the sign column's, then the line numbers'
     /// (ADR 0138).
     pub(super) fn gutter_columns(&self, window: &Window) -> usize {
+        if let Some((_, slot)) = window.docked() {
+            return dock_gutter(slot);
+        }
         self.sign_columns(window) + self.number_columns(window)
     }
 
@@ -132,6 +147,17 @@ impl Editor {
         };
         let columns = regions.gutter.columns;
         if columns == 0 {
+            return;
+        }
+        // A docked window's gutter is the composer's mark on its text's first row (ADR 0170).
+        if window.docked().is_some() {
+            for row in screen.rows().iter().take(regions.text.rows) {
+                let start = gutter.text.len();
+                if row.line == 0 && row.starts_line() {
+                    gutter.text.push_str(COMPOSER_MARK);
+                }
+                gutter.rows.push((start..gutter.text.len(), false));
+            }
             return;
         }
         let signs = self.sign_columns(window).min(columns);

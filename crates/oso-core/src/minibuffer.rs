@@ -33,7 +33,7 @@ mod cut;
 mod draft;
 mod history;
 
-pub(crate) use draft::{draft_layout, draft_rows};
+pub(crate) use draft::{MAX_DRAFT_ROWS, draft_layout, draft_rows};
 pub(crate) use history::Histories;
 
 /// The most prompts open at once. One more is refused.
