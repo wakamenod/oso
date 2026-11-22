@@ -177,10 +177,19 @@ impl<R> Asks<R> {
         outcomes
     }
 
-    /// The requests found whose card is not shown yet: one a session at most, as each holds
-    /// one connection.
+    /// The requests found whose card is not shown yet: a session's first waiting request
+    /// alone, once found, as its card shows one at a time and in turn, though the session may
+    /// ask on several connections at once (a turn's calls asked together). A later one waits
+    /// until the one before it is answered.
     pub fn unshown(&mut self) -> impl Iterator<Item = &mut Ask<R>> {
-        (self.waiting.iter_mut()).filter(|ask| ask.question.is_some() && ask.shown.is_none())
+        let mut first: Vec<SessionKey> = Vec::new();
+        (self.waiting.iter_mut()).filter(move |ask| {
+            if first.contains(&ask.key) {
+                return false;
+            }
+            first.push(ask.key);
+            ask.question.is_some() && ask.shown.is_none()
+        })
     }
 
     /// Session `key`'s request whose card is shown, if one is.

@@ -10,9 +10,10 @@ use std::fs;
 use serde_json::{Value, json};
 
 use super::super::super::worktrees::keys;
-use super::{Flow, MESSAGE, answer_after_quiet, card, in_composer, sent, text};
+use super::{Flow, MESSAGE, answer_after_quiet, card, in_composer, sent, text, wait_for_answers};
 
-/// The fake: as the asking fake, but asks about the two calls `asks.jsonl` holds, and writes
+/// The fake: as the asking fake, but asks about the two calls `asks.jsonl` holds, the second
+/// once the flow writes `ask2`, and writes
 /// the bridge's answers to `answers`.
 const CARDS_FAKE: &str = r#"#!/bin/sh
 dir='DIR'
@@ -26,7 +27,9 @@ oso=$(sed -n 's/.*"command":"\([^"]*\)".*/\1/p' "$dir/run.$$" | head -n 1)
 pid=$(sed -n 's/.*"--pid","\([0-9]*\)".*/\1/p' "$dir/run.$$" | head -n 1)
 {
   printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}'
-  cat "$dir/asks.jsonl"
+  head -n 1 "$dir/asks.jsonl"
+  while [ ! -f "$dir/ask2" ]; do sleep 0.1; done
+  tail -n +2 "$dir/asks.jsonl"
   while [ ! -f "$dir/answers" ]; do sleep 0.1; done
 } | "$oso" mcp --pid "$pid" --permission | {
   IFS= read -r init
@@ -104,6 +107,11 @@ fn a_question_card_answers_in_the_calls_input_and_a_plan_is_denied_with_a_note()
     let first = card(&mut app, "the question card");
     assert!(first.starts_with("Claude asks (1 of 2)"), "{first}");
     assert!(first.contains("│ 2. Large: Large size"), "{first}");
+    // The plan's call is asked while the question's card takes answers, as it was on a slow
+    // runner: it waits behind the card, which takes its answer all the same.
+    wait_for_answers(&mut app);
+    flow.scratch.write("ask2", b"");
+    std::thread::sleep(std::time::Duration::from_millis(700));
     answer_after_quiet(&mut app, "2");
     app.wait_for("the second question", |state| {
         text(state).starts_with("Claude asks (2 of 2)")

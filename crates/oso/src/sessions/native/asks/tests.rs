@@ -70,6 +70,28 @@ fn a_connection_waits_for_one_answer_and_a_call_is_asked_once() {
 }
 
 #[test]
+fn a_sessions_requests_on_two_connections_are_shown_one_at_a_time_in_turn() {
+    let start = Instant::now();
+    let mut asks = Asks::default();
+    asks.push(ask(1, 7, "t1", start));
+    asks.push(ask(2, 7, "t2", start));
+    let found = |ask: &Ask<()>| Look::Found(question(&ask.call.tool_use_id));
+    asks.look(start, found);
+    let first: Vec<String> = (asks.unshown())
+        .map(|a| a.call.tool_use_id.clone())
+        .collect();
+    assert_eq!(first, ["t1"]);
+    asks.unshown().next().unwrap().shown = Some(start);
+    // The second waits while the first card is shown, and is not shown with it.
+    assert!(asks.unshown().next().is_none());
+    assert_eq!(asks.take_shown(7).unwrap().call.tool_use_id, "t1");
+    let next: Vec<String> = (asks.unshown())
+        .map(|a| a.call.tool_use_id.clone())
+        .collect();
+    assert_eq!(next, ["t2"]);
+}
+
+#[test]
 fn a_call_that_does_not_show_in_time_is_denied_and_one_found_is_asked_in_turn() {
     let start = Instant::now();
     let mut asks = Asks::default();

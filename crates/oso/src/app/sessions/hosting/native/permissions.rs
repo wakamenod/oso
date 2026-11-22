@@ -321,6 +321,9 @@ impl App {
         self.hosting.natives.permissions.asks = asks;
         for outcome in outcomes {
             match outcome {
+                // A session showing a card already waits for it: a later call waits behind it.
+                Outcome::Found(key)
+                    if self.hosting.natives.permissions.asks.shown(key).is_some() => {}
                 Outcome::Found(key) => {
                     let tool = (self.hosting.natives.permissions.asks.unshown())
                         .find(|ask| ask.key == key)
