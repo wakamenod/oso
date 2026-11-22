@@ -56,6 +56,7 @@ impl Drop for Scratch {
 
 fn session(n: u8, place: &Path) -> Remembered {
     Remembered {
+        native: false,
         id: SessionId::from_random([n; 16]),
         name: format!("s{n}"),
         directory: place.to_owned(),

@@ -203,6 +203,9 @@ pub struct Jobs {
     /// `GH_HOST` in oso's environment, read once: the one host besides `github.com` that `gh`
     /// is asked about.
     gh_host: Option<String>,
+    /// Claude Code's registry directory, as `registry::directory` gave it when the jobs were
+    /// made: `None` if it is not known.
+    registry: Option<PathBuf>,
     /// The newest listing's number: an older listing stops.
     listing: Arc<AtomicU64>,
     /// The removals asked for and not yet ended.
@@ -218,7 +221,11 @@ impl std::fmt::Debug for Jobs {
 
 impl Jobs {
     /// Jobs whose reports go to `send`, keeping their private directory under `state`.
-    pub fn new(state: Option<PathBuf>, send: impl Fn(Report) + Send + Sync + 'static) -> Jobs {
+    pub fn new(
+        state: Option<PathBuf>,
+        registry: Option<PathBuf>,
+        send: impl Fn(Report) + Send + Sync + 'static,
+    ) -> Jobs {
         let gh_host = std::env::var("GH_HOST")
             .ok()
             .map(|host| host.trim().to_owned())
@@ -227,6 +234,7 @@ impl Jobs {
             pool: Pool::default(),
             state,
             gh_host,
+            registry,
             listing: Arc::default(),
             removals: remove::Removals::default(),
             send: Arc::new(send),
@@ -349,6 +357,7 @@ impl Jobs {
     pub fn check(&self, token: u64, trust: Trust, path: PathBuf, snapshot: Snapshot) {
         let failed_path = path.clone();
         let gh_host = self.gh_host.clone();
+        let registry = self.registry.clone();
         let removals = self.removals.clone();
         self.on_repo(
             trust,
@@ -357,7 +366,13 @@ impl Jobs {
                 let result = if removals.running_at(&path) {
                     Err(Check::Removing)
                 } else {
-                    check(repo, gh_host.as_deref(), &path, &snapshot)
+                    check(
+                        repo,
+                        gh_host.as_deref(),
+                        registry.as_deref(),
+                        &path,
+                        &snapshot,
+                    )
                 };
                 send(Report::Checked {
                     token,
@@ -427,6 +442,7 @@ fn main_of(project: &Path, hooks: &Path) -> Result<PathBuf, String> {
 fn check(
     repo: &Repo,
     gh_host: Option<&str>,
+    registry: Option<&Path>,
     path: &Path,
     snapshot: &Snapshot,
 ) -> Result<Vec<PathBuf>, Check> {
@@ -441,12 +457,7 @@ fn check(
         ));
     };
     let gh = Gh::find(repo.main());
-    let facts = RepoFacts::gather(
-        repo,
-        gh_host,
-        &snapshot.hosted,
-        crate::sessions::registry::directory().as_deref(),
-    );
+    let facts = RepoFacts::gather(repo, gh_host, &snapshot.hosted, registry);
     let held = snapshot.held(&listed.path, &facts.hosted_idle);
     let looked = checks::look(
         repo,
