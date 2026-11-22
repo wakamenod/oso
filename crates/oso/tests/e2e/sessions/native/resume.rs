@@ -57,6 +57,8 @@ fn a_stopped_native_session_resumes_in_its_buffer_and_forks_natively() {
     app.wait_for("the composer", in_composer);
     app.send_keys(&keys(MESSAGE));
     app.send_keys("C-c C-c");
+    // Back to the transcript, whose rows the flow reads.
+    app.send_keys("C-c C-o");
     app.wait_for("the first reply", |state| text(state).contains("reply 1.1"));
 
     // Stopped from its buffer: idle, so it is hung up at once.

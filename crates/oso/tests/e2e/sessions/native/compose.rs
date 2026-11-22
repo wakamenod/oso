@@ -59,6 +59,8 @@ fn a_message_sent_while_a_turn_runs_waits_in_the_queue_and_goes_when_it_ends() {
     app.wait_for("the composer", in_composer);
     app.send_keys(&keys(MESSAGE));
     app.send_keys("C-c C-c");
+    // Back to the transcript, whose rows the flow reads.
+    app.send_keys("C-c C-o");
     assert_eq!(flow.wait_for_file("sent.1").trim(), MESSAGE);
     flow.scratch.write("release.1", b"");
     app.wait_for("the first reply", |state| text(state).contains("reply 1"));

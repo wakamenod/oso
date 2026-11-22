@@ -182,6 +182,8 @@ fn a_native_session_starts_with_its_first_message_and_shows_its_stream() {
     app.wait_for("the composer", in_composer);
     app.send_keys(&keys(MESSAGE));
     app.send_keys("C-c C-c");
+    // Back to the transcript, whose rows the flow reads.
+    app.send_keys("C-c C-o");
 
     let run = flow.wait_for_file("run.");
     let args: Vec<&str> = run.lines().filter_map(|l| l.strip_prefix("arg ")).collect();
@@ -345,6 +347,8 @@ fn a_native_sessions_calls_are_asked_of_the_person_with_the_agent_channel_off() 
     app.wait_for("the composer", in_composer);
     app.send_keys(&keys(MESSAGE));
     app.send_keys("C-c C-c");
+    // Back to the transcript, whose rows the flow reads.
+    app.send_keys("C-c C-o");
 
     // The prompt tool and the bridge that lists it are on the session's line.
     let run = flow.wait_for_file("run.");
