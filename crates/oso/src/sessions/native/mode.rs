@@ -334,6 +334,13 @@ impl ModeState {
         }
     }
 
+    /// The person chose `mode` another way than a switch: a plan approved with it (part 3d),
+    /// which the CLI puts the session in. It is carried as a switch's would be.
+    pub fn chose(&mut self, mode: PermissionMode) {
+        self.chosen = Some(mode);
+        self.pending = Some(mode);
+    }
+
     /// The process was stopped for nothing: a switch it was stopped for is over.
     pub fn gave_up(&mut self) {
         self.switch = None;

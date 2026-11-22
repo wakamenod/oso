@@ -1,7 +1,8 @@
 //! The permission modes oso gives a native session's `claude` (ADR 0165, Q4; part 3b): the
-//! only ones it ever sends, on the command line (`--permission-mode`) and in a control request
-//! (`set_permission_mode`). They sit here, below `sessions`, so that a session's bridge, in
-//! `channel`, can share the one type when it gives the CLI a mode.
+//! only ones it ever sends, on the command line (`--permission-mode`), in a control request
+//! (`set_permission_mode`), and through a session's bridge after a plan approved with one
+//! (part 3d, `permission::AFTER_PLAN`). They sit here, below `sessions`, so that the bridge
+//! and the sessions share one type.
 //!
 //! Must not depend on: sockets, threads, editor state or the sessions module.
 //!

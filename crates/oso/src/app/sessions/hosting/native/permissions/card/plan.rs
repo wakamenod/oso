@@ -38,7 +38,8 @@ use super::{Answer, Card, Mark};
 use crate::app::App;
 use crate::app::agent::QUIET;
 use crate::app::sessions::withheld_draft;
-use crate::channel::protocol::permission::{self, PlanMode};
+use crate::channel::protocol::mode::PermissionMode;
+use crate::channel::protocol::permission;
 use crate::commands::agent_sessions::PLAN_CONFIRMED;
 use crate::sessions::worker::SessionKey;
 
@@ -96,12 +97,12 @@ impl Plans {
     }
 }
 
-/// The session's mode after a plan approved so.
-fn mode_after(approval: Approval) -> Option<PlanMode> {
+/// The session's mode after a plan approved so, when it is not the CLI's own `default`.
+pub(super) fn mode_after(approval: Approval) -> Option<PermissionMode> {
     match approval {
         Approval::Manual => None,
-        Approval::AcceptEdits => Some(PlanMode::AcceptEdits),
-        Approval::Auto => Some(PlanMode::Auto),
+        Approval::AcceptEdits => Some(PermissionMode::AcceptEdits),
+        Approval::Auto => Some(PermissionMode::Auto),
     }
 }
 

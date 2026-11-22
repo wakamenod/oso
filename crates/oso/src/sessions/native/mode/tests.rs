@@ -368,3 +368,15 @@ fn a_mode_the_cli_says_after_an_answer_wins_over_the_one_asked() {
     assert_eq!(modes.carried(), Some(Plan));
     assert_eq!(asked(&mut modes, &mut control, now).1, Auto);
 }
+
+#[test]
+fn a_plan_approved_with_a_mode_is_the_persons_choice() {
+    let mut modes = in_mode("plan");
+    modes.chose(AcceptEdits);
+    assert_eq!(modes.carried(), Some(AcceptEdits), "before the CLI says it");
+    assert!(modes.said("acceptEdits"));
+    assert_eq!(modes.for_start(), Some(AcceptEdits));
+    assert!(!modes.said("acceptEdits"));
+    assert!(modes.said("auto"), "no approval asked for it");
+    assert_eq!(modes.carried(), Some(Default));
+}

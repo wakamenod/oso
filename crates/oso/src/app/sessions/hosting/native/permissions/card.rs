@@ -461,13 +461,18 @@ impl App {
             ask.call.tool_name
         ));
         let id = &ask.call.tool_use_id;
-        if let (Some(mark), Some(native)) = (mark, self.hosting.natives.map.get_mut(&key))
-            && let Some(change) = match mark {
+        if let (Some(mark), Some(native)) = (mark, self.hosting.natives.map.get_mut(&key)) {
+            // A plan approved with a mode is the person's choice of it (part 3b).
+            if let Mark::Approved(_, after) = mark
+                && let Some(mode) = plan::mode_after(after)
+            {
+                native.mode.chose(mode);
+            }
+            let change = match mark {
                 Mark::Denied(row) => native.rows.denied(id, &row),
                 Mark::Approved(edited, after) => native.rows.approved(id, edited, after),
-            }
-        {
-            super::super::draw(&mut self.editor, native, [change]);
+            };
+            super::super::draw(&mut self.editor, native, change);
         }
         self.tell_tracker(key, Target::Working);
         let _ = ask.reply.send(Ok(reply));

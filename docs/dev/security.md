@@ -662,8 +662,10 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   once and leave its tools running.
 - oso changes a native session's permission mode (ADR 0165, Q4, part 3b) only on the
   person's key: `native-session-cycle-mode` (`S-TAB`, `Person`); no agent or channel method
-  sets one. The CLI changes it too, as approving a plan does. The modes oso sends, in
-  `set_permission_mode` and `--permission-mode`, are one type's, which has no value for
+  sets one, and a plan the person approves with `acceptEdits` or `auto` (part 3d) counts as
+  their choice. The CLI changes it too, as approving a plan does. The modes oso sends, in
+  `set_permission_mode`, `--permission-mode` and the bridge's `setMode` (only `acceptEdits` or
+  `auto`, after a plan), are one type's, which has no value for
   `bypassPermissions` or `dontAsk`, so neither can be sent. A later process of the session is
   given the mode it held, as `--resume` keeps none: the one oso gave its process until that
   process says one, else the one the CLI said last if it is `default` or `plan`, or if the

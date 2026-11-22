@@ -1106,10 +1106,11 @@ Measured on 2026-11-23 (CLI 2.1.330, `--model=haiku`, made-up prompts, empty dir
 As built:
 
 - **The type** (`channel::protocol::mode::PermissionMode`): `default`, `acceptEdits`, `plan`
-  and `auto`, the only modes oso sends, on the command line and in the request. It sits below
-  `sessions` so that a session's bridge, in `channel`, can share it when part 3d's plan
-  approval gives the CLI a mode. It has no value for `bypassPermissions` or
-  `dontAsk`, so neither can be sent. No agent or channel method takes one.
+  and `auto`, the only modes oso sends, on the command line, in the request, and through a
+  session's bridge as part 3d's plan approval's `setMode`, which takes only `acceptEdits` and
+  `auto` (`permission::AFTER_PLAN`, in place of 3d's own `PlanMode`). It sits below
+  `sessions`, in `channel`, so that the bridge and the sessions share it. It has no value for
+  `bypassPermissions` or `dontAsk`, so neither can be sent. No agent or channel method takes one.
 - **The mode held** (`sessions::native::mode::ModeState`): the one the CLI said last, in
   `system/init`, `system/status` or the first `initialize` answer that succeeded (the control
   layer takes no later one, for its commands and models either; one after a refusal or a wait
@@ -1156,8 +1157,9 @@ As built:
   the person's leave, can write a line to the stream that says any mode. So a mode that asks
   less, `acceptEdits` or `auto`, is shown as said but carried only when the person chose it;
   a line that says a mode asking more is carried, the safe side. A line can still make the
-  modeline say another mode than the CLI's until the CLI says one again. Part 3d's approval
-  with a mode is to count as the person's choice when it lands.
+  modeline say another mode than the CLI's until the CLI says one again. Part 3d's plan
+  approved with a mode (`a`, or `A` after its question) counts as the person's choice of it,
+  as a switch does (`ModeState::chose`).
 - **Across an oso restart** (Q-B2 (a)): the mode is not in the record, so a session resumed
   after the restart starts as the settings say.
 - **Public API (approved):** `NativeAction::CycleMode`.
