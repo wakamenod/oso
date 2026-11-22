@@ -28,7 +28,7 @@ n=$((n+1))
 for a in "$@"; do printf 'arg %s\n' "$a"; done > "$dir/run.$n"
 tier=$(cat "$dir/tier")
 aborted='{"type":"result","subtype":"error_during_execution","is_error":true,"terminal_reason":"aborted_streaming"}'
-trap 'printf "%s\n" "$aborted"; : > "$dir/signalled.$n"; exit 0' INT
+trap 'printf "%s\n" "$aborted"; echo x > "$dir/signalled.$n"; exit 0' INT
 answer() {
   id=$(printf '%s\n' "$1" | sed 's/.*"request_id":"\([^"]*\)".*/\1/')
   printf '{"type":"control_response","response":{"subtype":"success","request_id":"%s","response":{}}}\n' "$id"
@@ -44,7 +44,7 @@ while IFS= read -r line; do
           answer "$line"
           printf '%s\n' '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user]"}]}}'
           printf '%s\n' "$aborted"
-          : > "$dir/interrupted.$n.$m" ;;
+          echo x > "$dir/interrupted.$n.$m" ;;
       esac
       continue ;;
   esac
@@ -131,10 +131,16 @@ fn on_tier_two_an_interrupt_keeps_the_process_and_a_send_now_goes_ahead_of_the_q
     app.send_keys("C-c C-k");
     flow.wait_for_file("interrupted.1.4");
     // Once oso saw the turn end, what is queued still waits.
+    // The transcript's modeline says so, not the composer's.
+    app.send_keys("C-c C-o");
     app.wait_for("the interrupted turn ended", |state| {
         let modeline = state["modeline"].as_str().unwrap_or_default();
-        modeline.contains("1 queued") && !modeline.contains("interrupting")
+        state["buffer"]["name"] == "*claude: proj*"
+            && modeline.contains("1 queued")
+            && !modeline.contains("interrupting")
     });
+    app.send_keys("i");
+    app.wait_for("the composer", in_composer);
     thread::sleep(Duration::from_millis(300));
     assert!(
         !flow.scratch.path().join("sent.1.5").exists(),

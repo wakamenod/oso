@@ -36,7 +36,7 @@ pub(in crate::sessions::native) fn on(now: Instant) -> Control {
 }
 
 #[test]
-fn an_interrupt_request_needs_both_the_initialize_answer_and_the_receipt() {
+fn an_interrupt_request_needs_the_initialize_answer_and_no_system_init_without_the_receipt() {
     let now = Instant::now();
     let mut control = Control::started(now);
     assert_eq!(control.system_init(&[RECEIPT.to_owned()]), None);
@@ -46,6 +46,10 @@ fn an_interrupt_request_needs_both_the_initialize_answer_and_the_receipt() {
     );
     control.answered(&ok(INITIALIZE));
     assert!(control.has(Request::Interrupt));
+    // Before the first `system/init`, the answer is enough.
+    let mut first = Control::started(now);
+    first.answered(&ok(INITIALIZE));
+    assert!(first.has(Request::Interrupt), "no system/init yet");
     assert!(
         !control.has(Request::Initialize),
         "written once, at the start"

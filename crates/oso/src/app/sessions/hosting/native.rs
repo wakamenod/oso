@@ -163,8 +163,13 @@ impl App {
     }
 
     /// The start thread's order for native session `key`, shown in `buffer`: its variables,
-    /// and where its stream's batches go.
-    fn native_order(&self, key: SessionKey, buffer: BufferId) -> NativeOrder {
+    /// and where its stream's batches go. Its control layer starts now: the process's
+    /// `initialize` may be answered before the start thread says it started (step 2c).
+    fn native_order(&mut self, key: SessionKey, buffer: BufferId) -> NativeOrder {
+        if let Some(native) = self.hosting.natives.map.get_mut(&key) {
+            native.control = Some(Control::started(std::time::Instant::now()));
+            native.interrupt = Interrupt::new(interrupting::SIGNALS);
+        }
         let waker = self.waker.clone();
         NativeOrder {
             buffer,
@@ -281,9 +286,6 @@ impl App {
             return false;
         };
         native.stream = Some(stream);
-        // Its `initialize` was written first (step 2c).
-        native.control = Some(Control::started(std::time::Instant::now()));
-        native.interrupt = Interrupt::new(interrupting::SIGNALS);
         // Its first message was written: a turn is under way.
         if native.first
             && let Some(worker) = &self.sessions
@@ -300,6 +302,10 @@ impl App {
     /// Native session `key` did not start: its buffer goes.
     pub(super) fn session_native_not_started(&mut self, key: SessionKey) {
         self.hosting.starting.remove(&key);
+        // No process answers its control layer.
+        if let Some(native) = self.hosting.natives.map.get_mut(&key) {
+            native.control = None;
+        }
         // A resume keeps its buffer and rows, stopped again.
         let buffer = self
             .hosting

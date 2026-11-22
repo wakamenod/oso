@@ -5,9 +5,11 @@
 //! Must not depend on: threads, the stream or the UI; the clock is the caller's.
 //!
 //! - `initialize` is written first, as the process starts. Tier 2 is on once it is answered
-//!   with success; a request is then sent only when `system/init` says the CLI has it, as
-//!   [`RECEIPT`] says for `interrupt`. An error, or no answer within [`INIT_WAIT`], leaves the
-//!   session on tier 1; a success that comes later still turns tier 2 on.
+//!   with success; a request is then sent unless `system/init` says the CLI lacks it, as
+//!   [`RECEIPT`] does for `interrupt`. Until the first `system/init`, which comes with the
+//!   first turn's start, the answer is enough: the request has its own fallback. An error, or
+//!   no answer within [`INIT_WAIT`], leaves the session on tier 1; a success that comes later
+//!   still turns tier 2 on.
 //! - Why tier 2 is off is a log line, said once a process; why one request fell back is its
 //!   own module's to say.
 //! - An answer whose id is no request of oso's that waits is no answer.
@@ -27,8 +29,8 @@ const MAX_WAITING: usize = 16;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Control {
     initialize: Initialize,
-    /// The last `system/init` listed [`RECEIPT`].
-    receipt: bool,
+    /// Whether the last `system/init` listed [`RECEIPT`], once one came.
+    receipt: Option<bool>,
     last_id: u64,
     /// oso's requests that wait for an answer, by id.
     waiting: Vec<(u64, Request)>,
@@ -64,7 +66,7 @@ impl Control {
     pub fn started(now: Instant) -> Self {
         Self {
             initialize: Initialize::Waiting(now + INIT_WAIT),
-            receipt: false,
+            receipt: None,
             last_id: INITIALIZE,
             waiting: Vec::new(),
             said: false,
@@ -76,14 +78,15 @@ impl Control {
         let initialized = self.initialize == Initialize::Answered;
         match request {
             Request::Initialize => false,
-            Request::Interrupt => initialized && self.receipt,
+            Request::Interrupt => initialized && self.receipt != Some(false),
         }
     }
 
     /// `system/init` listed `capabilities`; the log line that comes to, if any.
     pub fn system_init(&mut self, capabilities: &[String]) -> Option<String> {
-        self.receipt = capabilities.iter().any(|name| name == RECEIPT);
-        let missing = self.initialize == Initialize::Answered && !self.receipt;
+        let receipt = capabilities.iter().any(|name| name == RECEIPT);
+        self.receipt = Some(receipt);
+        let missing = self.initialize == Initialize::Answered && !receipt;
         missing
             .then(|| self.say(format!("system/init does not list {RECEIPT}")))
             .flatten()

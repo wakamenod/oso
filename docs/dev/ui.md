@@ -1324,10 +1324,10 @@ a switch made with its command stands until that setting changes in the file
   not written (`C-c C-c` with an empty composer then sends the next) and when the process ends
   (its heading says so, and `RET` or `d` deal with what waits). `C-c C-k` without an edit, in
   the composer or the transcript, interrupts the turn under way (step 2c): the `interrupt`
-  control request where the CLI answers `initialize` and lists `interrupt_receipt_v1`, else,
-  or when the request goes unanswered (2 s) or its turn goes on (5 s), `SIGINT` and a resume
-  with `--resume` (Windows, which has no `SIGINT`, says so instead); the modeline says
-  `interrupting` meanwhile, and the queue pauses until the next
+  control request where the CLI answers `initialize` and does not leave out
+  `interrupt_receipt_v1`, else, or when the request goes unanswered (2 s) or its turn goes on
+  (5 s), `SIGINT` and a resume with `--resume` (Windows, which has no `SIGINT`, says so
+  instead); the modeline says `interrupting` meanwhile, and the queue pauses until the next
   send. `C-u C-c C-c` interrupts and sends the composer's text first, ahead of the queue,
   which then goes on; with no turn under way it is `C-c C-c`. Nothing queued goes while oso
   waits to quit when idle. A message holding secret text a yank brought is not sent. A restart

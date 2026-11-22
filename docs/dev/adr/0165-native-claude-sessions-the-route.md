@@ -712,9 +712,12 @@ As built:
   the CLI speaks it, for which requests, the ids of oso's requests (`oso-N`) and which one an
   answer is to, a pure state machine at the caller's instants. `initialize` is written first,
   as the process starts, before the first message, through the same writer queue as the
-  messages. Tier 2 is on once it is answered with success; `interrupt` then goes only while
-  the turn's `system/init` lists `interrupt_receipt_v1`. An error, or no answer within 10 s,
-  leaves the session on tier 1; a success that comes later still turns tier 2 on. Why tier 2
+  messages. Tier 2 is on once it is answered with success; `interrupt` then goes unless the
+  last `system/init` left out `interrupt_receipt_v1`. Before the first `system/init`, which
+  comes with the first turn's start, the answer is enough, as the request has its own
+  fallback; the control layer starts with the start's order, as the answer may come before
+  the start thread says the process started. An error, or no answer within 10 s, leaves the
+  session on tier 1; a success that comes later still turns tier 2 on. Why tier 2
   is off is logged once a process, the CLI's words escaped. Of an answer only its id, its
   success and its error, cut to 256 bytes, are read; what `initialize` answers otherwise is
   left for part 2d. oso answers no `control_request` of the CLI's: it asks for none. Each
