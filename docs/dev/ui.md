@@ -1319,8 +1319,8 @@ a switch made with its command stands until that setting changes in the file
   the next message shows dim at the transcript's end, `Suggested: …`, until a turn starts, the
   person sends or the process ends; `M-n` past the newest message, in an empty composer, puts it in, escaped
   as composed text is (ADR 0165, part 3f). Coming back to a session whose turn ended out of
-  sight, the echo area says its name and the first sentence of its last reply, withheld from
-  agents. Sent while a turn runs, a message waits in
+  sight, the echo area says `NAME (last reply): …`, the first sentence of its last reply, withheld
+  from agents. Sent while a turn runs, a message waits in
   oso's queue, at most 20, shown grey at the transcript's end as `Queued (N)` and counted in the
   modeline; the first goes when the turn ends. On a queued row `RET` takes it back into the
   composer, `e` edits it in its place (`C-c C-c` puts it back, `C-c C-k` gives the edit up),

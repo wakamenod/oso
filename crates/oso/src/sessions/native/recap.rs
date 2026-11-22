@@ -1,11 +1,13 @@
 //! The recap of a native session's turn that ended out of the person's sight (ADR 0165, part
-//! 3f): `NAME: SENTENCE`, the first sentence of the turn's last reply, said in the echo area
-//! when they come back to it.
+//! 3f): `NAME (last reply): SENTENCE`, the first sentence of the turn's last reply, said in
+//! the echo area when they come back to it.
 //!
 //! Must not depend on: `app` or `dispatch`; plain functions over the rows and the texts given.
 //!
 //! - It is Claude's text: escaped as `*Messages*` is ([`oso_core::editor::row_text`]), so that
 //!   it stays on one row and cannot reorder it, and cut to the cells given.
+//! - `(last reply)` marks it as the session's quoted words, not oso's own message (the
+//!   author's choice).
 //! - What it reads is bounded: the last [`MAX_ROWS`] rows, and the first [`MAX_LOOKED`] bytes
 //!   of a reply.
 
@@ -18,6 +20,8 @@ use super::rows::{Kind, Row};
 const MAX_LOOKED: usize = 1024;
 /// The most rows looked back over for the last reply.
 const MAX_ROWS: usize = 10_000;
+/// What follows the session's name: the sentence is its own, not oso's.
+const MARK: &str = " (last reply): ";
 
 /// The first [`MAX_LOOKED`] bytes of `text`.
 fn head(text: &str) -> &str {
@@ -71,14 +75,14 @@ fn first_sentence(reply: &str) -> &str {
     line
 }
 
-/// The recap of session `name` whose last reply is `reply`, cut to `cells` with `…`: `NAME:
-/// SENTENCE`, escaped. Nothing when the reply says nothing.
+/// The recap of session `name` whose last reply is `reply`, cut to `cells` with `…`: `NAME
+/// (last reply): SENTENCE`, escaped. Nothing when the reply says nothing.
 pub fn recap(name: &str, reply: &str, cells: usize) -> Option<String> {
     let sentence = first_sentence(reply);
     if sentence.is_empty() {
         return None;
     }
-    let line = row_text(&format!("{name}: {sentence}"));
+    let line = row_text(&format!("{name}{MARK}{sentence}"));
     let (kept, cut) = cut_to(&line, cells.max(1));
     Some(format!("{kept}{cut}"))
 }
@@ -185,7 +189,7 @@ mod tests {
     fn the_recap_is_escaped_and_cut_to_its_cells() {
         assert_eq!(
             recap("proj", "Done. More.", 80).as_deref(),
-            Some("proj: Done.")
+            Some("proj (last reply): Done.")
         );
         let said = recap("p\u{202e}j", "x\u{1b}y.", 80).expect("said");
         assert!(!said.contains('\u{202e}') && !said.contains('\u{1b}'));

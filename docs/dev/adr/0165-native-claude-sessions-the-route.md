@@ -1049,7 +1049,7 @@ you were away" summary is the TUI's: nothing in `-p` sends it, so the recap is o
   (its transcript or its composer in the selected window of a focused oso window, no prompt
   open) is marked, and a turn that starts takes the mark away. After each event, a marked
   session in front of the person so, however they came back to it, is recapped once the echo
-  area is empty, so that what oso said as they came back stays until the next key: it says `NAME: SENTENCE`, the first sentence of the turn's last reply, the session's own and
+  area is empty, so that what oso said as they came back stays until the next key: it says `NAME (last reply): SENTENCE`, the first sentence of the turn's last reply, the session's own and
   not a subagent's, escaped and cut to the echo area's cells with `…`, once. The last reply is
   looked for back to the person's last message or the turn before's end, in the last 10000
   rows, a reply with nothing in its first 1 KiB passed over. The first sentence ends at the
@@ -1058,7 +1058,8 @@ you were away" summary is the TUI's: nothing in `-p` sends it, so the recap is o
   looked for in the first 1 KiB. It is said with `Editor::echo_withheld_text`: no log line,
   not in `*Messages*`, and left out of what the control socket and the agent channel read (the
   channel's `echo`, and the dev socket's modeline beside it), as the transcript it quotes is
-  withheld from agents.
+  withheld from agents. The `(last reply)` marker, the author's choice after the security
+  review, keeps it from passing for a message of oso's own, as `proj: Saved.` would.
 - **Costs:** a suggestion is a copy of at most 256 bytes and one redraw of the transcript's
   end, once a turn, with a frame asked for only if a window shows the session; the recap walks
   back over at most 10000 rows once, when the session comes in front, and after each event

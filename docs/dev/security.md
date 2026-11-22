@@ -916,7 +916,8 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     break, a control, bidi or invisible character, or a variation selector that draws as
     nothing, is dropped, so that what goes in is the one
     line its row showed; a composer a yank turned secret takes none. The recap of a turn that ended unseen quotes the transcript, so it reaches only
-    the echo area, unlogged and left out of what the control socket and the agent channel
+    the echo area, marked `NAME (last reply): …` so that it cannot pass for oso's own message,
+    unlogged and left out of what the control socket and the agent channel
     read ([ADR 0165](adr/0165-native-claude-sessions-the-route.md), part 3f).
   - A session that is not running, not judged since it started, asking for input or held by a
     full-screen view is refused, as a paste into a dialog could choose an option. The check

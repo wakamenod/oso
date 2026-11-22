@@ -670,7 +670,7 @@ You write the next messages in the composer under the conversation, which agents
 sent. After a turn, Claude's guess at your next message shows dim at the end of the
 conversation as `Suggested: …`; `M-n` in an empty composer puts it in for you to edit or send,
 with a leading `/` or an `@` escaped as below. When you come back to a session that finished
-while you were elsewhere, the echo area says the first sentence of its last reply. A message you send while Claude is working waits in a queue, grey at the end of the
+while you were elsewhere, the echo area says the first sentence of its last reply, as `NAME (last reply): …`. A message you send while Claude is working waits in a queue, grey at the end of the
 conversation, and goes when the turn ends. On a queued message, `RET` takes it back into the
 composer, `e` edits it where it is (`C-c C-c` puts it back, `C-c C-k` leaves it as it was), `d`
 drops it, and `M-<up>` and `M-<down>` move it; `C-c C-q` goes to the queue. `C-c C-k`, in the
