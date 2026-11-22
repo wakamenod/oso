@@ -11,7 +11,6 @@ use std::cell::Cell;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
 
 use oso_platform::process::Executable;
 
@@ -24,7 +23,8 @@ use crate::review::scope::{New, ScopeError, Sides};
 use crate::review::tests::Repo;
 
 /// A repository, a stand-in `gh` that answers `pr view` with `view.json`, and the empty
-/// directories it and git run with.
+/// directories it and git run with. While `view.hold` is there, for at most 30 s, `gh` holds
+/// its answer; it marks `answered` as it gives it.
 struct Bench {
     repo: Repo,
     hooks: PathBuf,
@@ -44,7 +44,8 @@ impl Bench {
             &script,
             format!(
                 "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{a}/asked'\n\
-                 sleep $(cat '{a}/view.sleep' 2>/dev/null || echo 0)\ncat '{a}/view.json'\n\
+                 i=0; while [ -e '{a}/view.hold' ] && [ $i -lt 600 ]; do sleep 0.05; i=$((i+1)); done\n\
+                 touch '{a}/answered'\ncat '{a}/view.json'\n\
                  cat '{a}/view.err' >&2 2>/dev/null\n\
                  exit $(cat '{a}/view.code' 2>/dev/null || echo 0)\n"
             ),
@@ -460,8 +461,10 @@ fn a_stop_ends_the_wait_for_gh_at_once_answering_carries_meanwhile() {
     let bench = Bench::new("pr-stop");
     let (_, base, head) = branched(&bench.repo);
     bench.answer(7, &base, &head, "feature", false);
-    fs::write(bench.answers.join("view.sleep"), "5").unwrap();
-    let started = Instant::now();
+    // `gh` holds its answer, so the stop comes while it is waited for, however slowly a loaded
+    // machine runs what comes before: a clock started there once ran past `gh`'s answer.
+    let hold = bench.answers.join("view.hold");
+    fs::write(&hold, "").unwrap();
     // The first look is before `gh` is asked; the stop comes on the sixth, while it waits.
     let looks = Cell::new(0);
     let stop = || {
@@ -471,10 +474,10 @@ fn a_stop_ends_the_wait_for_gh_at_once_answering_carries_meanwhile() {
     let (resolved, idle, _) = bench.resolve_counting(7, "origin", &stop);
     assert!(matches!(resolved, Err(ScopeError::Stopped)), "{resolved:?}");
     assert!(
-        started.elapsed() < Duration::from_secs(3),
-        "{:?}",
-        started.elapsed()
+        !bench.answers.join("answered").exists(),
+        "the stop waited for gh's answer"
     );
+    fs::remove_file(&hold).unwrap();
     assert!(idle >= 3, "carries were answered while gh ran: {idle}");
     // A stop before anything runs asks nothing.
     let bench = Bench::new("pr-stop-first");
@@ -488,7 +491,10 @@ fn a_run_of_gh_a_stop_left_waiting_is_taken_up_not_started_again() {
     let bench = Bench::new("pr-taken-up");
     let (_, base, head) = branched(&bench.repo);
     bench.answer(7, &base, &head, "feature", false);
-    fs::write(bench.answers.join("view.sleep"), "3").unwrap();
+    // `gh` holds its answer through the three stops, however long a loaded machine takes
+    // between them.
+    let hold = bench.answers.join("view.hold");
+    fs::write(&hold, "").unwrap();
     let mut asking = None;
     for _ in 0..3 {
         // The first look is before `gh` is asked; the stop comes while it is waited for.
@@ -501,6 +507,7 @@ fn a_run_of_gh_a_stop_left_waiting_is_taken_up_not_started_again() {
         assert!(matches!(resolved, Err(ScopeError::Stopped)));
         assert!(asking.is_some(), "the run waits to be taken up");
     }
+    fs::remove_file(&hold).unwrap();
     let (resolved, _, _) = bench.resolve_asking(7, "origin", &|| false, &mut asking);
     assert!(resolved.is_ok(), "{resolved:?}");
     assert!(asking.is_none());
