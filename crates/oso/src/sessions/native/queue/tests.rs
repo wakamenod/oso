@@ -286,3 +286,39 @@ fn in_the_apps_order_a_send_now_is_not_paused_by_its_own_interrupt() {
     queue.interrupted();
     assert_eq!(queue.idle(IDLE), None);
 }
+
+#[test]
+fn a_message_confirmed_elsewhere_queues_as_a_new_one_and_leaves_an_edit_as_it_is() {
+    let mut queue = Queue::default();
+    let a = queued(&mut queue, "a");
+    queue.edit(a).unwrap();
+    assert_eq!(
+        queue.send_confirmed("why?".to_owned(), BUSY),
+        Sent::Queued(2)
+    );
+    assert_eq!(queue.editing(), Some(a));
+    assert_eq!(texts(&queue), ["a", "why?"]);
+    assert_eq!(
+        queue.send_confirmed(" ".to_owned(), IDLE),
+        Sent::Refused(Refusal::Empty)
+    );
+    let mut idle = Queue::default();
+    assert_eq!(
+        idle.send_confirmed("why?".to_owned(), IDLE),
+        Sent::Now("why?".to_owned())
+    );
+}
+
+#[test]
+fn a_message_confirmed_elsewhere_leaves_a_paused_queue_paused() {
+    let mut queue = Queue::default();
+    queued(&mut queue, "a");
+    queue.interrupted();
+    let paused = queue.paused();
+    assert!(paused.is_some());
+    assert_eq!(
+        queue.send_confirmed("why?".to_owned(), BUSY),
+        Sent::Queued(2)
+    );
+    assert_eq!(queue.paused(), paused, "only the person's send goes on");
+}

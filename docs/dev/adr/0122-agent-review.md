@@ -1,6 +1,7 @@
 # 0122. Agent review
 
-- Status: Accepted, amended by 0121, 0127, 0160, 0163 and 0167
+- Status: Accepted, amended by 0121, 0127, 0160, 0163 and 0167; "Pasted messages are escaped,
+  as amended" (2026-11-22)
 - Date: 2026-11-12
 
 ## Context
@@ -661,6 +662,19 @@ The author answered every question on 2026-11-12, through the coordinator: (a) f
   whole text is highlighted at, even with nothing new, saying it is done (step 9).
 - [ADR 0112](0112-window-splits.md), the window tree: it gains a pair of windows that scroll
   together and are closed and resized together.
+
+## Pasted messages are escaped, as amended
+
+Amended on 2026-11-22, through the coordinator, with ADR 0121's "Composed text, as amended",
+which gives the rule (ADR 0165's step 2 Q5 (a), applied to terminals by part 2f's Q2 (a)) and
+why.
+
+- **The message of the person's comments,** and a pull request's checks and threads (step 6b),
+  are escaped as every send is before they are pasted: a leading `/` gets a space, and a
+  word-initial `@` a `\`. A comment that quotes `@PATH` reaches the session as text, not as
+  the file.
+- **To a native session** (ADR 0165), the message goes into its composer at point, not sent,
+  as the paste is not submitted.
 
 ## Consequences
 

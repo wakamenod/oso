@@ -13,7 +13,7 @@ use super::{Flow, MESSAGE, in_composer, text};
 /// The fake: for each line of its input, `N` from 1, it writes the message's text to
 /// `sent.N`, replays it, and once the flow writes `release.N`, replies `reply N` and ends the
 /// turn. It exits once its input ends.
-const COMPOSE_FAKE: &str = r#"#!/bin/sh
+pub(super) const COMPOSE_FAKE: &str = r#"#!/bin/sh
 dir='DIR'
 cat "$dir/stream.jsonl"
 n=0

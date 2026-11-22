@@ -11,7 +11,10 @@
 //!   [`MAX_MESSAGE`] is copied out of it, and nothing is sent from a buffer that is no longer
 //!   in `Composer` mode or that a yank turned secret.
 //! - The queue goes from one place, [`App::send_waiting_queues`], after each event.
+//! - What oso sends a native session is put into the composer, or a review's confirmed
+//!   question sent, by `composed` (part 2f).
 
+mod composed;
 mod queued;
 
 use std::collections::VecDeque;

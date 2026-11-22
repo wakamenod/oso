@@ -5,7 +5,8 @@
   sessions, as amended" (2026-11-18); "An incomplete registry read refuses, as amended"
   (2026-11-22); "An unverifiable registry entry is busy, as amended" (2026-11-22); "Every
   incomplete registry read refuses, as amended" (2026-11-22); "Registry entries and
-  directories, as amended" (2026-11-22)
+  directories, as amended" (2026-11-22); "Composed text, as amended" (2026-11-22); "An
+  agent's brief, as amended" (2026-11-22)
 - Date: 2026-11-12
 
 ## Context
@@ -1884,6 +1885,56 @@ through the coordinator.
   repository it is in, so one on a mount that does not answer holds every worktree job while it
   is resolved. A file that stays without an entry refuses until it is fixed or deleted. The sessions oso hosts, unsaved buffers and unsent briefs are
   still placed in a worktree by the text of its path (`worktree::Snapshot::held`).
+
+## Composed text, as amended
+
+Amended on 2026-11-22, through the coordinator: the escapes are the author's Q5 (a) of ADR 0165's
+step 2 questions, and part 2f's Q2 (a) applied them to terminal sessions' pastes too. Claude
+Code reads two things in a message as more than text: a message that starts with `/` runs a
+command, and an `@PATH` at the text's start or after any whitespace puts that file in the
+context, with no tool asked (measured with `claude -p` on 2026-11-22, U+FEFF included; not after
+punctuation, a letter, a backslash, U+0001, NEL or U+200B). Text oso composed from what others wrote, a file's lines, a
+pull request's thread or an orchestrator's offer, could do either once the person sends it.
+
+- **What every send pastes is escaped** at the one delivery path (`paste_into_session`, which
+  `send_to_session` calls), once, on both routes: a leading `/` gets a space before it, and an
+  `@` at the start or after whitespace (what Rust calls so, and U+FEFF) gets a `\` before it
+  (`sessions::send::for_claude`). A control character a terminal's paste drops is looked
+  through, so that dropping it leaves no `@` at a word's start and no `/` first; so is an
+  invisible one. A leading `!` or `#`, which the TUI's input box reads as a mode of its own,
+  gets the space too, as the session tools' briefs already keep them from the start.
+  `session-mention`'s `@NAME`, a name other programs may choose, goes as `\@NAME`, in a
+  terminal and in a native session's composer; elsewhere it is plain text and stays as it is. This changes Q17's
+  "cleaned as 0120 cleans any paste": it is then cleaned so too. `session-send`'s notes, review
+  comments (ADR 0122), git drafts (ADR 0127), offers (ADR 0136) and a review's question
+  (ADR 0163) are all such text.
+- **Not escaped:** a kept image's `@PATH` (ADR 0142), oso's own reference, and what the person
+  types into a terminal's input box or a native session's composer. A note `session-send` asks
+  for is composed text too, as it goes with the rest.
+- **What the person sees:** the paste as escaped, in the input box, before pressing Enter; a
+  Python decorator or a Java annotation in an excerpt shows with a `\` before its `@`.
+- **Not covered:** the TUI's own reading of `@`, `!` and `#` in a paste is not measured, only
+  `-p`'s; the escape assumes it is the same. In a terminal, what follows the paste in the input
+  box is not known, so a paste that ends in whitespace before a draft's `@` there is not
+  guarded as one put into a native composer is.
+
+## An agent's brief, as amended
+
+Amended on 2026-11-22, the author's (a) on agents' briefs through the coordinator, after
+"Composed text, as amended", for the same reason: a brief an agent gave (`session_start`,
+`start_worktree_session`, origin `Answered`, `Unasked` or `Unknown`) is the agent's text, and a
+session's first prompt; so is one oso composes of names agents choose, an orchestrator's
+successor's (ADR 0136).
+
+- **It is escaped once, where the start takes it** (`Begin::brief_to_send`), as composed text
+  is, on both routes: a terminal session's command line and a native session's first message.
+  The successor's is escaped where oso composes it, and so are a worktree session's header and
+  hand-off facts (`sessions::worktree::brief::compose`), the paths, names and git status lines
+  of others before the brief.
+- **The person's own brief** (`*Brief*`, `session-worktree`) goes as typed, a command in it
+  included.
+- **What the person sees:** the question before a start and `?`'s buffer show the brief as the
+  agent gave it; the session gets it escaped.
 
 ## Consequences
 

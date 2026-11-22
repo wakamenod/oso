@@ -56,3 +56,17 @@ impl Default for Begin {
         }
     }
 }
+
+impl Begin {
+    /// Its brief as the session is given it: an agent's is text oso was given, not the
+    /// person's, escaped once, here, on both routes (`sessions::send::for_claude`; ADR 0121,
+    /// "An agent's brief, as amended"). The person's own, from `*Brief*`, goes as typed; one
+    /// oso composed for the person's start escapes itself (an orchestrator's successor's).
+    pub(in crate::app) fn brief_to_send(&self) -> Option<String> {
+        let brief = self.brief.as_deref()?;
+        Some(match self.origin {
+            Origin::Person => brief.to_owned(),
+            _ => crate::sessions::send::for_claude(brief, None).into_owned(),
+        })
+    }
+}

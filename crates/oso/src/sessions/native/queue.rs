@@ -161,12 +161,32 @@ impl Queue {
                 None => Sent::Resumed,
             };
         }
+        // The person's send goes on with a paused queue, while the process runs.
+        self.fresh(text, turn, true)
+    }
+
+    /// A message the person confirmed elsewhere, as a review's question in oso's prompt
+    /// (ADR 0163; ADR 0165, part 2f): as [`Queue::send`] sends a new one, but that a message
+    /// edited in the composer stays as it is, and a paused queue stays paused, as only the
+    /// person's own send goes on with it.
+    pub fn send_confirmed(&mut self, text: String, turn: Turn) -> Sent {
+        if text.len() > MAX_MESSAGE {
+            return Sent::Refused(Refusal::TooLong);
+        }
+        if text.trim().is_empty() {
+            return Sent::Refused(Refusal::Empty);
+        }
+        self.fresh(text, turn, false)
+    }
+
+    /// A new message `text`, not empty and not edited, sent now or queued; a paused queue
+    /// going on with it if it `resumes`, while the process runs.
+    fn fresh(&mut self, text: String, turn: Turn, resumes: bool) -> Sent {
         let now = turn.run == Run::Running && !turn.busy;
         if !now && self.waiting.len() >= MAX_QUEUED {
             return Sent::Refused(Refusal::Full);
         }
-        // The person's send goes on with a paused queue, while the process runs.
-        if turn.run != Run::Ended {
+        if resumes && turn.run != Run::Ended {
             self.paused = None;
         }
         if now {

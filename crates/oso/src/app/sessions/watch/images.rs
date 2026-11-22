@@ -1,7 +1,8 @@
 //! `session-yank-image` carried out (ADR 0142): the clipboard's image is read on the clipboard's
 //! threads, kept in a file by `sessions::images`' keeper thread, and an `@` reference to the file
-//! is pasted into the session through [`App::send_to_session`], the one delivery path, so that a
-//! session that cannot take a paste refuses it as it refuses a send. A session's images go when
+//! is pasted into the session through [`App::paste_into_session`], the one delivery path, so that
+//! a session that cannot take a paste refuses it as it refuses a send; a native session's goes
+//! into its composer (ADR 0165, part 2f). It is shown only while the person is still in it. A session's images go when
 //! it is archived or dropped, and old ones when the sessions are recalled at the start.
 //!
 //! Must not depend on: how a frame is drawn, or key presses.
@@ -15,6 +16,7 @@
 use oso_core::buffer::BufferId;
 use oso_platform::clipboard::{Image, ImageContents, MAX_IMAGE};
 
+use crate::app::sessions::{Outgoing, Shown};
 use crate::app::{App, UserEvent, clipboard};
 use crate::sessions::identity::SessionId;
 use crate::sessions::images::{self, Kept};
@@ -33,17 +35,18 @@ impl App {
     }
 
     fn start_image_read(&mut self, buffer: BufferId, from_socket: bool) -> Result<(), String> {
-        let key = self
-            .hosting
-            .table()
-            .by_buffer(buffer)
+        let key = (self.hosting.table().by_buffer(buffer))
             .map(|session| session.key)
+            .or_else(|| self.composer_session(buffer))
             .ok_or_else(|| "This buffer holds no session".to_owned())?;
         if self.watch.sending.reading_image_for.is_some() {
             return Err("Still reading the clipboard's image".to_owned());
         }
-        // Checked first, so that no file is kept for a paste that would be refused.
-        self.paste_target(key)?;
+        // Checked first, so that no file is kept for a paste that would be refused; a native
+        // session's composer takes it (ADR 0165, step 2f).
+        if !self.hosting.natives.has(key) {
+            self.paste_target(key)?;
+        }
         let clipboard = self
             .clipboard
             .as_ref()
@@ -54,6 +57,25 @@ impl App {
         clipboard.read_image();
         self.watch.sending.reading_image_for = Some(key);
         Ok(())
+    }
+
+    /// Pastes `reference`, a kept image's, into session `key`. The read and the save took a
+    /// while: the session is shown only while the person is still in it, so that no key meant
+    /// for another buffer lands in it. Whether it was shown.
+    fn paste_kept_image(&mut self, key: SessionKey, reference: &str) -> Result<Shown, String> {
+        let selected = self.editor.window().buffer();
+        let session = self
+            .hosting
+            .table()
+            .get(key)
+            .and_then(|session| session.buffer);
+        let shown = match session == Some(selected) || self.composer_session(selected) == Some(key)
+        {
+            true => Shown::Session,
+            false => Shown::Nothing,
+        };
+        self.paste_into_session(key, Outgoing::Reference(reference), shown)?;
+        Ok(shown)
     }
 
     /// The clipboard's threads answered the image read.
@@ -116,14 +138,22 @@ impl App {
         self.watch.sending.reading_image_for = None;
         let said = match kept {
             Err(why) => why,
-            Ok(kept) => match self.send_to_session(key, kept.reference) {
-                Ok(()) => {
+            Ok(kept) => match self.paste_kept_image(key, &kept.reference) {
+                Ok(shown) => {
                     let name = kept
                         .path
                         .file_name()
                         .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
                     let png = if kept.converted { ", as PNG" } else { "" };
-                    format!("Image saved as {name}{png}: press Enter there")
+                    let hint = self.send_hint(key);
+                    match shown {
+                        Shown::Session => format!("Image saved as {name}{png}: {hint}"),
+                        Shown::Nothing => {
+                            let session = (self.hosting.table().get(key))
+                                .map_or_else(String::new, |session| session.name.clone());
+                            format!("Image saved as {name}{png}, put into {session}: {hint}")
+                        }
+                    }
                 }
                 Err(why) => {
                     self.watch.sending.keeper.drop_file(kept.path);

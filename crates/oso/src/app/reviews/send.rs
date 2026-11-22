@@ -294,9 +294,8 @@ impl App {
                     let picked = &mut self.reviews.sending.picked_pulls;
                     picked.insert((from.project, from.number), key);
                 }
-                return self
-                    .editor
-                    .message(format!("Pasted into {name}: press Enter there"));
+                let put = self.sent_echo(key, &name);
+                return self.editor.message(put);
             }
         };
         if to.is_some() {
@@ -309,7 +308,8 @@ impl App {
         };
         let recorded = self.paste_recorded(review, message.checkpoint.clone());
         self.editor.message(format!(
-            "Pasted into {name}: press Enter there. {} marked sent{changed}{recorded}",
+            "{}. {} marked sent{changed}{recorded}",
+            self.sent_echo(key, &name),
             comments(marked)
         ));
     }

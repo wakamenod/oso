@@ -3,11 +3,12 @@
 //!
 //! Must not depend on: the terminal, threads or I/O. These are pure functions over text that
 //! run on the UI thread, at most [`MAX_BYTES`] at a time; the app pastes what they give, as
-//! the person's bracketed paste, not submitted.
+//! the person's bracketed paste, not submitted, escaped first by `escape` (ADR 0121,
+//! "Composed text, as amended"), as all text oso composes for a session is.
 //!
 //! - `@region` is the place, then the text in a fence longer than any run of backticks in it.
 //! - `@file:L-L` is the place only, `path:10-20`, which the agent reads itself.
-//! - A note is the person's text as written.
+//! - A note is the person's text as written, which goes with the rest, escaped with it.
 //! - `@diagnostics` is a line for each of a language server's diagnostics,
 //!   `path:line: severity: message`, the message's first line with its blanks as one
 //!   (ADR 0138, step 11).
@@ -325,6 +326,10 @@ fn hint(text: &str) -> bool {
     text.strip_prefix("Try \"")
         .is_some_and(|hinted| hinted.ends_with('"') || hinted.ends_with('…'))
 }
+
+mod escape;
+
+pub use escape::{for_claude, reference};
 
 #[cfg(test)]
 mod tests;
