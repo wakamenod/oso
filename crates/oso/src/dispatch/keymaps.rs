@@ -7,10 +7,11 @@
 //!
 //! Must not depend on: `app` or winit; key sequences stay testable without a window.
 //!
-//! The default keymaps come from `bindings`. The user's keymap from the configuration goes in
-//! here too, once no prefix key waits for the one before.
+//! The default keymaps come from `bindings`, the major modes' in `modes`. The user's keymap
+//! from the configuration goes in here too, once no prefix key waits for the one before
+//! (`user`).
 
-use oso_core::buffer::{Buffer, Mode, ServerMark};
+use oso_core::buffer::{Buffer, ServerMark};
 use oso_core::command::{CommandId, Prefix, Registry};
 use oso_core::editor::Editor;
 use oso_core::key::KeyPress;
@@ -18,10 +19,13 @@ use oso_core::keymap::{CANCEL, Keymap, Layers, is_cancel};
 use oso_core::minibuffer::Kind;
 
 use crate::bindings;
-use crate::terminal::route;
 
-use super::Dispatcher;
 use super::session_help::SessionHelp;
+
+mod modes;
+mod user;
+
+use modes::Modes;
 
 /// Every keymap a dispatcher holds.
 pub(super) struct Keymaps {
@@ -32,8 +36,6 @@ pub(super) struct Keymaps {
     /// Active while the prefix argument reads digits, and a minus sign. They come
     /// first among the minor modes, as what is being typed is for them.
     pub(super) prefix: [Keymap; 2],
-    /// The keys of the list of emergency copies, and of a buffer showing one (ADR 0064).
-    pub(super) copy: [Keymap; 2],
     /// The keys of a prompt that reads an answer, above the global ones (ADR 0072).
     pub(super) minibuffer: Keymap,
     /// The keys of a question, in place of the global ones.
@@ -66,53 +68,14 @@ pub(super) struct Keymaps {
     /// (ADR 0138, Hover), and the commands it runs rather than closes for.
     pub(super) hover: Keymap,
     pub(super) hover_commands: Vec<CommandId>,
-    /// Markdown's own keys, above the global ones in a Markdown buffer.
-    pub(super) markdown: Keymap,
-    /// A `*Brief*` buffer's own keys, and a `*Worktrees*` buffer's, above the global ones
-    /// (ADR 0121).
-    pub(super) worktrees: [Keymap; 2],
-    /// `*Spaces*`'s own keys, above the global ones in it (ADR 0121).
-    pub(super) sessions: Keymap,
-    /// A review buffer's own keys, above the global ones (ADR 0122).
-    pub(super) review: Keymap,
-    /// A directory listing's own keys, above the global ones (ADR 0134).
-    pub(super) dired: Keymap,
-    /// `*lsp-rename*`'s own keys, above the global ones (ADR 0138, step 14).
-    pub(super) rename_preview: Keymap,
-    /// A git status's own keys, above the global ones (ADR 0127).
-    pub(super) git: Keymap,
-    /// A commit's message's own keys, above the global ones (ADR 0127, step 1b).
-    pub(super) git_commit: Keymap,
-    /// The log of git's runs' own keys, above the global ones.
-    pub(super) git_log: Keymap,
-    /// `session-search`'s prompt's, then `*conversation: NAME*`'s (ADR 0145).
-    pub(super) conversations: [Keymap; 2],
-    /// The list of what discards kept's own keys (ADR 0127, step 1c).
-    pub(super) git_discarded: Keymap,
-    /// A graph's own keys, above the global ones (ADR 0127, step 4).
-    pub(super) git_graph: Keymap,
-    pub(super) git_pr: Keymap,
-    pub(super) git_issue: Keymap,
-    pub(super) git_pr_message: Keymap,
-    pub(super) review_message: Keymap,
-    pub(super) review_files: Keymap,
-    pub(super) review_commits: Keymap,
-    /// A terminal's own keys, above the global ones in a terminal's buffer (ADR 0120).
-    pub(super) terminal: Keymap,
-    /// A terminal's own keys and session mode's, in a terminal's buffer that hosts a session
-    /// (ADR 0132).
-    pub(super) session: Keymap,
-    /// A native session's buffer's own keys and session mode's (ADR 0165).
-    pub(super) native: Keymap,
-    /// A native session's composer's keys and its permission card's (ADR 0165, step 2).
-    pub(super) composer: Keymap,
-    pub(super) card: Keymap,
     /// The user's keys from `[keys.session]`, above `session` in a session's terminal
     /// (ADR 0132, step 2). Empty without any, and then not a layer.
     pub(super) user_session: Keymap,
     /// The `lsp` minor mode's keys, above the major mode's in a buffer a language server
     /// follows (ADR 0138, Keys in buffers a server follows).
     pub(super) lsp: Keymap,
+    /// Every major mode's keymap.
+    modes: Modes,
     /// What `session-help` says: session mode's keys, from its keymap (ADR 0132).
     pub(super) session_help: SessionHelp,
 }
@@ -122,15 +85,13 @@ impl Keymaps {
     /// and no user keys.
     pub(super) fn new(registry: &Registry, global: Keymap) -> Self {
         let (digits, minus) = bindings::prefix_keymaps(registry);
-        let (list, copy) = bindings::recovery_keymaps(registry);
         let [minibuffer, question, completing, draft] = bindings::prompt_keymaps(registry);
-        let session = bindings::session_keymap(registry);
+        let modes = Modes::new(registry);
         let (popup, popup_commands) = bindings::popup_keymaps(registry);
         Self {
             global,
             user: Keymap::new(),
             prefix: [digits, minus],
-            copy: [list, copy],
             minibuffer,
             question,
             completing,
@@ -146,47 +107,20 @@ impl Keymaps {
             keyboard_quit: registry.lookup("keyboard-quit"),
             hover: bindings::hover_keymap(registry),
             hover_commands: bindings::hover_commands(registry),
-            markdown: bindings::markdown_keymap(registry),
-            worktrees: bindings::worktree_keymaps(registry),
-            sessions: bindings::sessions_keymap(registry),
-            review: bindings::review_keymap(registry),
-            dired: bindings::dired_keymap(registry),
-            rename_preview: bindings::rename_preview_keymap(registry),
-            git: bindings::git_status_keymap(registry),
-            git_commit: bindings::git_commit_keymap(registry),
-            git_log: bindings::git_log_keymap(registry),
-            conversations: bindings::conversation_keymaps(registry),
-            git_discarded: bindings::git_discarded_keymap(registry),
-            git_graph: bindings::git_graph_keymap(registry),
-            git_pr: bindings::git_pr_keymap(registry),
-            git_issue: bindings::git_issue_keymap(registry),
-            git_pr_message: bindings::git_pr_message_keymap(registry),
-            review_message: bindings::review_message_keymap(registry),
-            review_files: bindings::review_files_keymap(registry),
-            review_commits: bindings::review_commits_keymap(registry),
-            terminal: bindings::terminal_keymap(registry),
-            native: bindings::native_session_keymap(registry),
-            composer: bindings::composer_keymap(registry),
-            card: bindings::card_keymap(registry),
-            session_help: SessionHelp::new(&session, registry),
-            session,
+            session_help: SessionHelp::new(modes.session(), registry),
+            modes,
             user_session: Keymap::new(),
             lsp: bindings::lsp_keymap(registry),
         }
     }
 
-    /// Every keymap, active or not. Each field is named here, so that a keymap added to the
-    /// struct cannot be left out of what `M-x` judges commands by.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "one line for each keymap, named twice so that none is left out"
-    )]
-    pub(super) fn all(&self) -> [&Keymap; 44] {
+    /// Every keymap, active or not, the major modes' last. Each field is named here, so that a
+    /// keymap added to the struct cannot be left out of what `M-x` judges commands by.
+    pub(super) fn all(&self) -> impl Iterator<Item = &Keymap> {
         let Self {
             global,
             user,
             prefix: [digits, minus],
-            copy: [list, copy],
             minibuffer,
             question,
             completing,
@@ -202,31 +136,9 @@ impl Keymaps {
             keyboard_quit: _,
             hover,
             hover_commands: _,
-            markdown,
-            worktrees: [brief, worktrees],
-            sessions,
-            review,
-            dired,
-            rename_preview,
-            git,
-            git_commit,
-            git_log,
-            conversations: [searching, conversation],
-            git_discarded,
-            git_graph,
-            git_pr,
-            git_issue,
-            git_pr_message,
-            review_message,
-            review_files,
-            review_commits,
-            terminal,
-            session,
-            native,
-            composer,
-            card,
             user_session,
             lsp,
+            modes,
             session_help: _,
         } = self;
         [
@@ -234,8 +146,6 @@ impl Keymaps {
             user,
             digits,
             minus,
-            list,
-            copy,
             minibuffer,
             question,
             completing,
@@ -247,34 +157,11 @@ impl Keymaps {
             popup,
             popup_moved,
             hover,
-            markdown,
-            brief,
-            worktrees,
-            sessions,
-            review,
-            dired,
-            rename_preview,
-            git,
-            git_commit,
-            git_log,
-            searching,
-            conversation,
-            git_discarded,
-            git_graph,
-            git_pr,
-            git_issue,
-            git_pr_message,
-            review_message,
-            review_files,
-            review_commits,
-            terminal,
-            session,
-            native,
-            composer,
-            card,
             user_session,
             lsp,
         ]
+        .into_iter()
+        .chain(modes.all())
     }
 
     /// The prefix argument's keymaps, the buffer's minor mode keys, the layer of `C-x TAB` and
@@ -372,7 +259,7 @@ impl Keymaps {
             match prompt.kind() {
                 // `session-search`'s own keys over completion's (ADR 0145).
                 Kind::Complete { .. } if editor.searches_conversations() => {
-                    Some(&self.conversations[0])
+                    Some(self.modes.searching())
                 }
                 Kind::Complete { .. } => Some(&self.completing),
                 // `RET` breaks a line in a draft, which `C-c C-c` keeps (ADR 0122).
@@ -380,7 +267,7 @@ impl Keymaps {
                 _ => Some(&self.minibuffer),
             }
         } else {
-            self.mode_keys(buffer)
+            self.modes.keys(buffer)
         };
         Layers {
             minor,
@@ -390,59 +277,10 @@ impl Keymaps {
         }
     }
 
-    /// The keys of `buffer`'s major mode, above the global ones, if it has its own.
-    fn mode_keys<'a>(&'a self, buffer: &Buffer) -> Option<&'a Keymap> {
-        match buffer.mode() {
-            Mode::Fundamental
-            | Mode::Rust
-            | Mode::Toml
-            | Mode::Go
-            | Mode::TypeScript
-            | Mode::Tsx
-            | Mode::JavaScript
-            | Mode::Html
-            | Mode::Css
-            | Mode::Json
-            | Mode::Yaml
-            | Mode::Latex
-            | Mode::Swift
-            | Mode::SessionMove => None,
-            Mode::NativeSession => Some(&self.native),
-            Mode::Composer => Some(&self.composer),
-            Mode::Card => Some(&self.card),
-            Mode::Review => Some(&self.review),
-            Mode::Directory => Some(&self.dired),
-            Mode::RenamePreview => Some(&self.rename_preview),
-            Mode::GitStatus => Some(&self.git),
-            Mode::GitCommit => Some(&self.git_commit),
-            Mode::GitLog => Some(&self.git_log),
-            Mode::Conversation => Some(&self.conversations[1]),
-            Mode::GitDiscarded => Some(&self.git_discarded),
-            Mode::GitGraph => Some(&self.git_graph),
-            Mode::GitPr | Mode::GitPrList => Some(&self.git_pr),
-            Mode::GitIssue | Mode::GitIssueList => Some(&self.git_issue),
-            Mode::GitPrMessage => Some(&self.git_pr_message),
-            Mode::ReviewMessage => Some(&self.review_message),
-            Mode::ReviewFiles => Some(&self.review_files),
-            Mode::ReviewCommits => Some(&self.review_commits),
-            Mode::Markdown => Some(&self.markdown),
-            Mode::Brief => Some(&self.worktrees[0]),
-            Mode::Worktrees => Some(&self.worktrees[1]),
-            Mode::Sessions => Some(&self.sessions),
-            Mode::CopyList => Some(&self.copy[0]),
-            Mode::CopyView => Some(&self.copy[1]),
-            Mode::Terminal => Some(self.terminal_keys(buffer)),
-        }
-    }
-
     /// The keymap of a terminal's buffer: session mode's over the terminal's in one that hosts
     /// a session (ADR 0132), else the terminal's.
     pub(super) fn terminal_keys(&self, buffer: &Buffer) -> &Keymap {
-        if buffer.hosts_session() {
-            &self.session
-        } else {
-            &self.terminal
-        }
+        self.modes.terminal_keys(buffer)
     }
 
     /// The user's keymap as a layer, none when it is empty, so that a key costs nothing more
@@ -459,142 +297,4 @@ fn lsp_on(buffer: &Buffer) -> bool {
     buffer
         .server()
         .is_some_and(|mark| mark != ServerMark::Stopped)
-}
-
-/// The user's keymap from the configuration, which waits for a pending prefix key to go in
-/// (ADR 0108).
-impl Dispatcher {
-    /// Puts in the user's keymap that waited for a prefix key, once none is pending. The one
-    /// it replaces waits in turn, for [`Dispatcher::take_replaced_keymap`].
-    pub(super) fn take_waiting_user(&mut self) {
-        if !self.resolver.pending().is_empty() {
-            return;
-        }
-        self.menus.take_waiting();
-        if let Some(user) = self.user_waiting.take() {
-            let old = std::mem::replace(&mut self.keymaps.user, user);
-            self.replaced.push(old);
-        }
-        if let Some((keys, help)) = self.session_waiting.take() {
-            let old = self.put_session_keys(keys, help);
-            self.replaced.push(old);
-        }
-    }
-
-    /// Puts the user's keys from the configuration just above the global keymap, in place of
-    /// those before; an empty keymap takes them away (ADR 0108). While a prefix key is
-    /// pending, they wait for it to resolve, so that its next key reads the keymaps it
-    /// started in.
-    ///
-    /// Returns the keymap this replaces now, the one in force or one that was waiting, for the
-    /// caller to drop elsewhere: a large one takes milliseconds to drop. One that a waiting
-    /// keymap replaces later is kept for [`Dispatcher::take_replaced_keymap`].
-    pub fn set_user_keymap(&mut self, user: Keymap) -> Option<Keymap> {
-        if self.resolver.pending().is_empty() {
-            if let Some(stale) = self.user_waiting.take() {
-                self.replaced.push(stale);
-            }
-            Some(std::mem::replace(&mut self.keymaps.user, user))
-        } else {
-            self.user_waiting.replace(user)
-        }
-    }
-
-    /// Puts the user's `[keys.session]` above a session's terminal's keys, in place of those
-    /// before, with `help`, what `C-c ?` says of them, or `None` for the default line
-    /// (ADR 0132). They wait for a pending prefix key as [`Dispatcher::set_user_keymap`]'s do,
-    /// and the keymap this replaces now is returned in the same way.
-    ///
-    /// Keys that would take `C-c C-c` or `C-c C-k` from the terminal are not put in, as the
-    /// configuration refuses them: `C-c` would no longer reach the program, or char mode
-    /// would not switch. The default line is said then.
-    pub fn set_session_keys(&mut self, keys: Keymap, help: Option<String>) -> Option<Keymap> {
-        let takes = |key| keys.lookup(&[route::C_C, key]).is_some();
-        let (keys, help) = if takes(route::C_C) || takes(route::C_K) {
-            log::warn!("session keys that bind C-c C-c or C-c C-k were not put in");
-            (Keymap::new(), None)
-        } else {
-            (keys, help)
-        };
-        if self.resolver.pending().is_empty() {
-            if let Some((stale, _)) = self.session_waiting.take() {
-                self.replaced.push(stale);
-            }
-            Some(self.put_session_keys(keys, help))
-        } else {
-            self.session_waiting
-                .replace((keys, help))
-                .map(|(stale, _)| stale)
-        }
-    }
-
-    /// Puts in the user's session keys and their line, and returns the keys they replace.
-    fn put_session_keys(&mut self, keys: Keymap, help: Option<String>) -> Keymap {
-        self.keymaps.session_help.set(help);
-        std::mem::replace(&mut self.keymaps.user_session, keys)
-    }
-
-    /// A user's keymap that a waiting one replaced, once its prefix key resolved, for the
-    /// caller to drop elsewhere. Call it until it gives `None`.
-    pub fn take_replaced_keymap(&mut self) -> Option<Keymap> {
-        self.replaced.pop()
-    }
-}
-
-/// What the dispatcher is reading now: a prefix key, a prefix argument, or text as typed.
-impl Dispatcher {
-    /// The keys of the pending prefix, empty if none is pending.
-    #[cfg(any(test, feature = "dev"))]
-    pub fn pending(&self) -> &[oso_core::key::KeyPress] {
-        self.resolver.pending()
-    }
-
-    /// The keys of the pending prefix a restart carries: none while `describe-key` reads, as
-    /// its keys run nothing and the next instance would run them as a prefix (ADR 0150).
-    pub fn pending_to_carry(&self) -> &[oso_core::key::KeyPress] {
-        if self.describing() {
-            return &[];
-        }
-        self.resolver.pending()
-    }
-
-    /// Whether keys are in progress at all: a prefix key, or a prefix argument, even one that
-    /// takes no more digits, which the next command would take.
-    pub fn keys_in_progress(&self) -> bool {
-        !self.resolver.pending().is_empty() || self.prefix.is_some()
-    }
-
-    /// Whether the next key is read as a key rather than typed: a prefix key is
-    /// pending, a prefix argument reads digits or a minus, a menu is open, or `describe-key`
-    /// reads (ADR 0150). The input method stays off then, as a letter or a digit would start a
-    /// composition (ADR 0069, ADR 0117).
-    pub fn reads_keys(&self) -> bool {
-        self.menu_open()
-            || self.describing()
-            || !self.resolver.pending().is_empty()
-            || self
-                .prefix
-                .is_some_and(|prefix| prefix.reads_digits() || prefix.reads_minus())
-    }
-
-    /// Whether text would go in as typed now: no prefix key or prefix argument waits, no
-    /// question or menu is open, `describe-key` reads nothing, and what is active takes text. A commit the window layer makes
-    /// unasked waits otherwise, so that it neither takes a prefix argument nor is lost
-    /// (ADR 0077).
-    pub fn types_text(&self, editor: &Editor) -> bool {
-        let question = editor
-            .prompt()
-            .is_some_and(|prompt| prompt.kind().is_question());
-        if question
-            || self.prefix.is_some()
-            || !self.resolver.pending().is_empty()
-            || self.menu_open()
-            || self.describing()
-        {
-            return false;
-        }
-        let reading = self.keymaps.reading(editor);
-        let active = self.keymaps.active(&reading, self.prefix, editor);
-        active.text_command().is_some()
-    }
 }
