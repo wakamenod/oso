@@ -128,6 +128,7 @@ mod tests {
         let mut add = |n: u8, run: Run| {
             let (key, _) = table.reserve(Path::new("/p"), &format!("s{n}"));
             let new = New {
+                native: false,
                 id: SessionId::from_random([n; 16]),
                 root: None,
                 parent: None,

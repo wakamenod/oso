@@ -369,6 +369,162 @@ One pull request each, after the author's answers. Nothing here changes TUI sess
 5. **The rest,** each its own change: `/btw`, jump to source, subagent and task rows, past sessions
    rendered from their transcript, skills and plugins buffers, `/login`.
 
+## Step 1, as built
+
+The author answered step 1's questions on 2026-11-21, through the space's orchestrator:
+
+- A session's first message is its brief, or for `session-new` a one-line prompt; nothing more
+  is sent until step 2's composer.
+- New starts, resumes and forks in trusted projects run native under `[sessions] mode =
+  "native"`; adopting, `move_to_space`'s resume and carried sessions stay TUI sessions until
+  step 4.
+- A call that would ask is denied by the CLI's manual mode, the person's own allow rules still
+  applying, and shows as a denied row.
+- An agent reads a native session's buffer only after the person allowed it, as a terminal's.
+- A tool result is as ADR 0130 has it: one folded row, `TAB` unfolds it, past 200 lines its
+  first and last 50, `RET` shows it whole.
+- A resumed session's buffer starts with one line; its earlier turns are step 5's.
+- Replies are plain text with the rows' faces in part 1b; Markdown highlighting is a follow-up
+  within step 1.
+
+Part 1a, the pure part (`sessions::native`), with the security, performance and architecture
+reviews' findings:
+
+- **One module owns the wire, not one file** (the author's choice): `wire` reads the stream's
+  lines, with `wire/messages` for the messages' bodies and `wire/tools` for a tool call's
+  input, which is read into a typed value. Nothing past `wire` touches JSON. Tier 2's requests
+  go to `wire/control` in step 2.
+- **Rows:** consecutive `Read`, `Grep` and `Glob` calls share a row (`Read 3 files`), as
+  [`native-sessions-ux.md`](../native-sessions-ux.md) decided, at most 50, each call folding
+  on its own; never a call that names a path outside the session's directory or one that may
+  hold secrets (ADR 0044), which keeps a row of its own (the author's choice).
+- **The person's messages:** a replayed message is shown as the person's only when oso sent its
+  text; any other replay is a note, or nothing when a command or a hook wrapped it.
+- **Cost:** a reply that grows is drawn again from its last line only; a result shows at most
+  64 KiB, walking only what it shows; a diff keeps at most 1 MiB; a folded row that shows
+  nothing new reports no change.
+- **States:** a replayed message or a request is `Working`, a turn's `result` is idle; an
+  error result shows in its row, and `failed` stays the exit's. ADR 0121's tracker holds a new
+  session's screen back for a grace period and debounces idleness; part 1b adds an entry for a
+  stream, which needs neither, so the tracker is reused with that entry, not unchanged.
+- **Fixtures:** a four-turn session recorded from CLI 2.1.330 in an empty directory with
+  `--safe-mode`, scrubbed of ids, paths, signatures, the account's values and the setup's
+  lists; a proptest target checks that a buffer kept by the changes alone holds what rendering
+  every row gives.
+
+Part 1b-1, the editor's part:
+
+- **`Mode::NativeSession`**, shown as `Session` in the modeline: an internal buffer whose text
+  and highlights the host writes, read-only to keys, withheld from agents until the person
+  allows them, and listed and killed as a person's buffer is.
+- **One row at a time:** `Editor::replace_native_rows` puts a row's text and runs in place of a
+  byte range, at the cost of the change; the rest keeps its highlights, and a cursor at the end
+  follows new rows.
+- **A terminal's session flags** (hosting a session, running, a turn under way, agents' reads)
+  apply to a native session's buffer too, so ADR 0132's keys, ADR 0133's quit-wait and the
+  agents' read gate take it; carrying over a restart still takes terminals only.
+
+Part 1b-2a, the session itself:
+
+- **The process:** `[sessions] mode = "native"` starts a new session in a trusted project as
+  `claude -p` with [`command::NATIVE`]'s flags and no brief on its line, on the start thread,
+  through `launch` and `process::spawn`, with a terminal session's variables, pipes and a
+  session of its own. Its first message goes on its standard input. A person's start with no
+  brief opens `*Brief*` for it (multi-line, `C-c C-c` starts, `C-c C-k` drops), not a one-line
+  prompt: a prompt the host opens has no way back to it. An agent's start with no brief, and a
+  restricted project, keep the terminal.
+- **Reading:** `sessions::stream` reads standard output in lines of at most 16 MiB on
+  `oso-native-read`, which parses them, and hands batches to the UI thread at most 30 times a
+  second from `oso-native-batch`; a full queue holds the reader, and so the process, back. The
+  last 16 KiB of standard error are kept, never logged, and the end of them is shown when the
+  process fails.
+- **Drawing and states:** the UI thread folds each batch into the session's rows and draws each
+  row that changed once, where it is. What the events say goes to the worker as the tracker's
+  targets; a native session's tracker has no grace period.
+- **Its end:** the process stops (input closed and `SIGTERM` to its group at once, `SIGKILL`
+  after 5 s) when its buffer is killed, which archives the session, or when the session list
+  stops it; oso's exit and a restart kill its group. Once it ended, what is left of its group,
+  such as a job its tools left in the background, is ended too before it is reaped, as a
+  terminal's hang-up would. The bridge takes the stream's process as the session's `claude`
+  until it is reaped.
+- **The record** keeps whether a session is native; the next oso brings a stopped native
+  session back as a native buffer with no process. Resuming it waits for step 2, and a fork of
+  it runs in a terminal until then (R1 below). A send, a paste or `session-explain` to a native session
+  says why not until step 2.
+- **A brief is the person's:** the agent channel's changes are refused in `*Brief*`, a worktree
+  session's or a native session's first message, as in a commit's message.
+- **Not covered, residual:** if oso itself dies (a crash or `SIGKILL`), nothing signals the
+  native `claude`: it sees its input end and finishes the turn under way, tools included.
+  Linux's parent-death signal or a watchdog would cover it; left for a later step.
+
+The author approved the process this step starts (REVIEW.md's gate on spawning): a long-lived
+`claude -p` child with pipes, started through `launch` and `process::spawn` as ADR 0159's
+naming run is, with no new spawn API and no new variables. `RET` on a long result opens it in a
+read-only buffer withheld from agents, and `n`, `p`, `]` and `[` move between prompts and tool
+rows from part 1b-2 on.
+
+Part 1b-2b, the buffer's keys (B1 and B2 (a), as the author chose):
+
+- **`TAB`** folds or unfolds the row at point: thinking, or a tool call with its input and
+  result. In an open row of several calls, on a call's lines, it folds that call alone; on the
+  row's own line, the row. Point goes to what it folded. Where each call of such a row is, the
+  host keeps as it draws the row, so a key draws nothing to find it.
+- **`RET`** shows the whole result of the call at point, or its whole change, read-only in
+  `*result: NAME*`, one per session, internal and withheld from agents as `*Session explain*`
+  is, since a result may hold what the session read. It is put in at the cost of the result's
+  size (at most `wire`'s 1 MiB and its change's headers), on the person's key; the call it
+  shows already is shown as it is. Its line is made one line as the row's is.
+- **`n`/`p`** go to the start of the next or previous message of the person's, **`]`/`[`** of
+  the next or previous tool row, with a count; back from a line of one past its first, to its
+  start first. They go by the rows' kinds, never by their text.
+- **Every key is `Person`:** the buffer is withheld, and the host does the work after the
+  command, where the channel's guards no longer see it, so what a key folds or says would tell
+  an agent of the rows.
+- **Session mode's `C-c` keys** (ADR 0132, ADR 0143) are bound in a native session's buffer
+  beside its own, but `C-c +` and `C-c -`, which let an agent read a terminal's screen; those
+  that need a terminal say why. The keys are carried out by the host from the row ledger,
+  through `SessionRequest::Native` and `NativeAction` (the author approved the public API's
+  change).
+
+Step 1's measurements (2026-11-22, CLI 2.1.330, `--model=haiku`, made-up prompts, the
+person's own settings and hooks loaded, on the author's Mac):
+
+- **Start to first event:** `system/init` arrives 0.24 to 0.57 s after the spawn, in three
+  runs; the replay of the first message and the reply's first delta come together, at 1.1 to
+  1.2 s, once the model answers; a one-word turn's `result` follows at 1.1 to 1.25 s.
+- **Memory:** a native session is two processes holding about 300 MiB together (299.7 to
+  306.6 MiB), the same after its turn as at its peak. The person's long-running TUI sessions on
+  the same machine held 430 to 990 MiB each (mean 716 MiB), so a `-p` session costs no more
+  than a TUI one; they were not started alike, so this is no like-for-like comparison.
+- **`ExitPlanMode`** reaches a `--permission-prompt-tool` in `--permission-mode plan`: the tool
+  is called with `tool_name: "ExitPlanMode"` and its input, the plan's text and its
+  `planFilePath`, and a denial comes back to the model as a failed result and is listed in the
+  turn's `permission_denials`. Step 2's plan review needs no stdio route: the bridge's
+  permission method gets it as any other call. The plan file is written under
+  `~/.claude/plans/` before the call, whatever the answer.
+- **`SendMessage` reaches a `-p` session:** `system/init` carries `messaging_socket_path`, the
+  session is listed to its peers (as `interactive`, as ADR 0151's check found), and a peer's
+  message comes as a `user` line with `isReplay` and `isSynthetic`, then a turn of its own,
+  between oso's sends. The rows show it as a note, not as the person's (part 1a); step 2's
+  composer must expect turns it did not start.
+- The stream also carried `system/session_title_changed` and `command_lifecycle`, which the
+  fixtures lack; `wire` reads any unknown line as `Event::Other`, shown as nothing.
+
+Resume, fork and a restart, as the author chose on 2026-11-22 (the plan for step 2):
+
+- **R1 (c):** a native session's resume and fork wait for step 2, as a resumed session could
+  take no message before the composer. Until then its resume refuses and says that
+  `session-fork` continues it in a terminal, and a fork of it runs in a terminal. Step 1 ends
+  with part 1b-2b.
+- **R2 (a):** Q8's resume after an oso restart comes later still: until then a native session
+  comes back stopped, and the person resumes it.
+- **When it is built:** a session resumes as it ran, a native one natively and a TUI one in
+  its terminal. A native resume reuses its buffer and keeps its rows, with one "Resumed" row;
+  it takes no baseline, but its project's trust is looked at again before the spawn, apart
+  from the baseline's root. In a project no longer trusted it refuses and points to
+  `session-fork`. A fork follows the mode: native in a new buffer in a trusted project under
+  `mode = "native"`, else in a terminal. New starts follow the mode, as now.
+
 ## Questions
 
 The author chose (a) on each, on 2026-11-21. The options are kept as they were put.

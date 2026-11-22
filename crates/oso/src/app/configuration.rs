@@ -89,6 +89,12 @@ impl Configuration {
         self.in_force.sessions.claude.as_deref()
     }
 
+    /// `[sessions] mode` in force: whether a new session in a trusted project runs native
+    /// (ADR 0165).
+    pub(super) fn native_sessions(&self) -> bool {
+        self.in_force.sessions.native
+    }
+
     /// `[sessions] steer_worktrees` in force: whether a session oso starts gets the hook that
     /// steers Claude away from its own worktree tools (ADR 0121, Q15).
     pub(super) fn steer_worktrees(&self) -> bool {

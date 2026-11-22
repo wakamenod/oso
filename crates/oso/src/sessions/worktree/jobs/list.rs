@@ -7,6 +7,7 @@
 //! Must not depend on: `app`, `dispatch` or the UI thread; the reports go back as the other
 //! jobs' do.
 
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -52,6 +53,7 @@ impl Jobs {
         live: impl Fn() -> bool + Send + 'static,
     ) {
         let gh_host = self.gh_host.clone();
+        let registry = self.registry.clone();
         let removals = self.removals.clone();
         self.on_repo(
             trust,
@@ -62,6 +64,7 @@ impl Jobs {
                     let looking = Looking {
                         snapshot: &snapshot,
                         gh_host: gh_host.as_deref(),
+                        registry: registry.as_deref(),
                         removals: &removals,
                     };
                     list(repo, &looking, &live, (token, pulls), send);
@@ -80,6 +83,8 @@ impl Jobs {
 struct Looking<'a> {
     snapshot: &'a Snapshot,
     gh_host: Option<&'a str>,
+    /// Claude Code's registry directory, `None` if it is not known.
+    registry: Option<&'a Path>,
     /// The removals that run, whose rows say so.
     removals: &'a remove::Removals,
 }
@@ -96,6 +101,7 @@ fn list(
     let Looking {
         snapshot,
         gh_host,
+        registry,
         removals,
     } = *looking;
     let listed = match repo.worktrees() {
@@ -114,12 +120,7 @@ fn list(
         result: Ok(linked.len()),
     });
     let gh = Gh::find(repo.main());
-    let facts = RepoFacts::gather(
-        repo,
-        gh_host,
-        &snapshot.hosted,
-        crate::sessions::registry::directory().as_deref(),
-    );
+    let facts = RepoFacts::gather(repo, gh_host, &snapshot.hosted, registry);
     let mut asks = Vec::new();
     for listed in linked {
         if !live() {

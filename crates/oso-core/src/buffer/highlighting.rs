@@ -276,6 +276,7 @@ impl Buffer {
             | Mode::Conversation
             | Mode::RenamePreview
             | Mode::SessionMove
+            | Mode::NativeSession
             | Mode::GitDiscarded
             | Mode::Sessions => false,
         };
@@ -436,13 +437,14 @@ impl Buffer {
     }
 
     /// Whether the host generates this buffer's text and highlights: a review, or
-    /// `*Spaces*`, a directory's listing (ADR 0134) or a git status (ADR 0127), which are
-    /// internal.
+    /// `*Spaces*`, a directory's listing (ADR 0134), a git status (ADR 0127) or a native
+    /// session's conversation (ADR 0165), which are internal.
     fn generated(&self) -> bool {
         matches!(self.mode, Mode::Review | Mode::ReviewFiles)
             || (matches!(
                 self.mode,
                 Mode::Sessions
+                    | Mode::NativeSession
                     | Mode::Directory
                     | Mode::GitStatus
                     | Mode::GitGraph

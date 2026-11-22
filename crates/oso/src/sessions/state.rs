@@ -158,6 +158,9 @@ pub struct Tracker {
     /// Its state was told once: a session that starts idle and stays so tells it with the
     /// first idle verdict after its grace, else nothing would say it was judged.
     told: bool,
+    /// Its verdicts come from a native session's stream (ADR 0165), which says what is true at
+    /// once: no grace period holds them back.
+    stream: bool,
 }
 
 impl Tracker {
@@ -171,6 +174,16 @@ impl Tracker {
             pending: None,
             held_back: false,
             told: false,
+            stream: false,
+        }
+    }
+
+    /// A native session that starts, or is resumed, at `now` (ADR 0165): as [`Tracker::new`],
+    /// with no grace period, as its stream says what is true at once.
+    pub fn stream(now: Instant) -> Self {
+        Self {
+            stream: true,
+            ..Self::new(now)
         }
     }
 
@@ -207,7 +220,7 @@ impl Tracker {
         if matches!(self.state, State::Failed | State::Stopped) {
             return None;
         }
-        let in_grace = now < self.started + GRACE;
+        let in_grace = !self.stream && now < self.started + GRACE;
         if in_grace && !matches!(target, Target::NeedsInput(_) | Target::Hold) {
             self.pending = None;
             self.held_back = true;
