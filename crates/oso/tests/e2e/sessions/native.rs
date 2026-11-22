@@ -470,6 +470,7 @@ mod compose;
 mod composed;
 mod interrupt;
 mod markdown;
+mod plan;
 mod resume;
 mod slash;
 

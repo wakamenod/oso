@@ -447,6 +447,12 @@ mod tests {
         "native-card-own-text",
         "native-card-leave",
         "native-card-whole",
+        // A plan's approvals with a mode, and its edit (part 3d).
+        "native-card-approve-accept-edits",
+        "native-card-approve-auto",
+        "native-card-edit-plan",
+        "native-plan-approve",
+        "native-plan-cancel",
         "native-composer-cancel",
         "native-composer-command",
         "native-composer-next",

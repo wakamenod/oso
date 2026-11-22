@@ -369,10 +369,12 @@ pub fn composer_keymap(registry: &Registry) -> Keymap {
     Keymap::from_table(registry, agent_sessions::COMPOSER).unwrap_or_default()
 }
 
-/// The keymap of a native session's permission card (ADR 0165, step 2e-2). Empty for a
-/// registry without its commands, as in tests that bring their own.
-pub fn card_keymap(registry: &Registry) -> Keymap {
-    Keymap::from_table(registry, agent_sessions::CARD).unwrap_or_default()
+/// The keymaps of a native session's permission card (ADR 0165, step 2e-2) and of its plan's
+/// edit (part 3d). Empty for a registry without their commands, as in tests that bring their
+/// own.
+pub fn card_keymaps(registry: &Registry) -> [Keymap; 2] {
+    [agent_sessions::CARD, agent_sessions::PLAN]
+        .map(|table| Keymap::from_table(registry, table).unwrap_or_default())
 }
 
 /// The keymap of a native session's buffer (ADR 0165): its own keys and session mode's, which

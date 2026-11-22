@@ -106,6 +106,9 @@ pub struct Tool {
     /// It shares a row though it names a path outside the session's directory, or one that
     /// may hold secrets: its row says so.
     pub apart: bool,
+    /// The person approved it on its card, which its row says: a plan's, whether edited, and
+    /// the mode after it (part 3d).
+    pub approved: Option<(bool, oso_core::editor::Approval)>,
 }
 
 /// Where a tool call is.

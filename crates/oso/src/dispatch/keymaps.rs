@@ -1,9 +1,8 @@
-//! The keymaps a dispatcher holds, and which of them are active at a moment: a prefix
-//! argument's, the layer `C-x TAB` opens, a prompt's, a completion's, a review comment's
-//! draft's or a question's, a jump's, isearch's, the `lsp` minor mode's in a buffer a language
-//! server follows, a mode's, a session's terminal's with the user's `[keys.session]` over it,
-//! the user's and the global one (ADR 0034, ADR 0072, ADR 0076, ADR 0082, ADR 0108, ADR 0115,
-//! ADR 0116, ADR 0121, ADR 0122, ADR 0132, ADR 0138).
+//! The keymaps a dispatcher holds, and which of them are active at a moment: a prefix argument's,
+//! the layer `C-x TAB` opens, a prompt's, a completion's, a review comment's draft's or a
+//! question's, a jump's, isearch's, the `lsp` minor mode's in a buffer a language server follows,
+//! a mode's, a session's terminal's with the user's `[keys.session]` over it, the user's and the
+//! global one (ADR 0034, 0072, 0076, 0082, 0108, 0115, 0116, 0121, 0122, 0132, 0138).
 //!
 //! Must not depend on: `app` or winit; key sequences stay testable without a window.
 //!
@@ -104,9 +103,9 @@ pub(super) struct Keymaps {
     pub(super) session: Keymap,
     /// A native session's buffer's own keys and session mode's (ADR 0165).
     pub(super) native: Keymap,
-    /// A native session's composer's keys and its permission card's (ADR 0165, step 2).
+    /// A native session's composer's keys, its card's and its plan's edit's (ADR 0165).
     pub(super) composer: Keymap,
-    pub(super) card: Keymap,
+    pub(super) card: [Keymap; 2],
     /// The user's keys from `[keys.session]`, above `session` in a session's terminal
     /// (ADR 0132, step 2). Empty without any, and then not a layer.
     pub(super) user_session: Keymap,
@@ -167,7 +166,7 @@ impl Keymaps {
             terminal: bindings::terminal_keymap(registry),
             native: bindings::native_session_keymap(registry),
             composer: bindings::composer_keymap(registry),
-            card: bindings::card_keymap(registry),
+            card: bindings::card_keymaps(registry),
             session_help: SessionHelp::new(&session, registry),
             session,
             user_session: Keymap::new(),
@@ -181,7 +180,7 @@ impl Keymaps {
         clippy::too_many_lines,
         reason = "one line for each keymap, named twice so that none is left out"
     )]
-    pub(super) fn all(&self) -> [&Keymap; 44] {
+    pub(super) fn all(&self) -> [&Keymap; 45] {
         let Self {
             global,
             user,
@@ -224,7 +223,7 @@ impl Keymaps {
             session,
             native,
             composer,
-            card,
+            card: [card, plan],
             user_session,
             lsp,
             session_help: _,
@@ -272,6 +271,7 @@ impl Keymaps {
             native,
             composer,
             card,
+            plan,
             user_session,
             lsp,
         ]
@@ -409,7 +409,7 @@ impl Keymaps {
             | Mode::SessionMove => None,
             Mode::NativeSession => Some(&self.native),
             Mode::Composer => Some(&self.composer),
-            Mode::Card => Some(&self.card),
+            mode @ (Mode::Card | Mode::Plan) => Some(&self.card[usize::from(mode == Mode::Plan)]),
             Mode::Review => Some(&self.review),
             Mode::Directory => Some(&self.dired),
             Mode::RenamePreview => Some(&self.rename_preview),

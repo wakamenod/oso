@@ -158,8 +158,9 @@ impl Card {
                 "[1-9] choose or unchoose  [RET] done  [o] in your words  [n] decline"
             }
             Self::Questions(_) => "[1-9] choose  [o] in your words  [n] decline  [RET] all of it",
+            // `a` and `A` approve too, with that mode after it (part 3d).
             Self::Plan { .. } => {
-                "[y] approve  [n] keep planning  [N] with a note  [RET] the whole plan"
+                "[y] approve  [a] accept edits  [A] auto  [e] edit  [n] no  [N] note  [RET] all"
             }
         }
     }
@@ -200,7 +201,7 @@ impl Card {
         if more {
             shown.fenced_row(("… more rows: RET shows all", false), Face::Dim);
         }
-        shown.row(self.keys(), Face::Prompt);
+        shown.row(&title_of(self.keys(), width), Face::Prompt);
         shown
     }
 }

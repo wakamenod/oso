@@ -2,7 +2,8 @@
 //! row at point, or the call of an open row of several that point is on, `RET` shows a call's
 //! whole result in `*result: NAME*`, and `n`/`p`, `]`/`[` move to the start of a prompt's row
 //! or a tool row. The composer's keys and the queue's (step 2) go to `composer` first: from
-//! the composer, for the session it is docked under; from the transcript, at point's line.
+//! the composer, for the session it is docked under; from the transcript, at point's line. A
+//! plan's edit's keys (part 3d) and a card's (step 2e-2) go to `permissions` first.
 //!
 //! Must not depend on: key presses; the command gave the line point is on, and `Placed` says
 //! which row it is in.
@@ -36,6 +37,10 @@ impl App {
         if let Some(key) = self.composer_session(buffer) {
             self.composer_key(key, None, action);
             return;
+        }
+        // From a plan's edit, the session whose plan it is (part 3d).
+        if let Some(key) = self.plan_session(buffer) {
+            return self.plan_key(key, action);
         }
         // From a permission card, the session it asks for (step 2e-2).
         if let Some(key) = self.card_session(buffer) {

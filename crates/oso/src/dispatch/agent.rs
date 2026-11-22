@@ -108,7 +108,7 @@ impl Dispatcher {
             match mode {
                 Mode::GitCommit | Mode::GitPrMessage => return refused(MESSAGE_REFUSED.into()),
                 Mode::ReviewMessage => return refused(REVIEW_MESSAGE_REFUSED.into()),
-                Mode::Brief | Mode::Composer => return refused(BRIEF_REFUSED.into()),
+                Mode::Brief | Mode::Composer | Mode::Plan => return refused(BRIEF_REFUSED.into()),
                 _ => {}
             }
         }
@@ -207,14 +207,21 @@ const MESSAGE_REFUSED: &str = "a commit's message is the person's to write; ask 
 const REVIEW_MESSAGE_REFUSED: &str = "a review's message is the person's to send; ask the person";
 
 /// Why the agent may not change a brief before the person sends it (ADR 0165).
-const BRIEF_REFUSED: &str =
-    "a brief or a message being composed is the person's to write; ask the person";
+const BRIEF_REFUSED: &str = concat!(
+    "a brief, a message being composed or a plan being edited is the person's to write; ",
+    "ask the person"
+);
 
 /// Why the agent may not change a window docked under a session's transcript (ADR 0170).
 /// Why an agent's command of `reach` does not run in the selected window, if it is docked: a
 /// docked window's text is a session's, the person's to write (ADR 0170); a permission card is
-/// theirs to read too, as no view of it may hide what it asks (ADR 0165, step 2e-2).
+/// theirs to read too, as no view of it may hide what it asks (ADR 0165, step 2e-2). So is a
+/// plan being edited, though not docked: a region or cursors an agent left would steer the
+/// person's typing into what `C-c C-c` approves (part 3d).
 fn docked_refusal(editor: &Editor, reach: Reach) -> Option<&'static str> {
+    if editor.current().1.mode() == Mode::Plan {
+        return Some(PLAN_REFUSED);
+    }
     match editor.tiled().0.docked()? {
         (_, oso_core::window::DockSlot::Card) => Some(CARD_REFUSED),
         _ if reach == Reach::Change => Some(DOCK_REFUSED),
@@ -223,6 +230,10 @@ fn docked_refusal(editor: &Editor, reach: Reach) -> Option<&'static str> {
 }
 
 const DOCK_REFUSED: &str = "what is docked under a session is the person's; ask the person";
+
+/// What an agent is told while a native session's plan is edited.
+const PLAN_REFUSED: &str =
+    "a native session's plan is being edited: it is the person's to write and approve";
 
 /// What an agent is told while a native session's permission card is selected.
 const CARD_REFUSED: &str =
@@ -389,6 +400,7 @@ fn has_own_keys(mode: Mode) -> bool {
         | Mode::GitDiscarded
         | Mode::NativeSession
         | Mode::Card
+        | Mode::Plan
         | Mode::Sessions => true,
         Mode::Fundamental
         | Mode::SessionMove
@@ -470,6 +482,32 @@ mod tests {
             Reach::Look,
         );
         assert!(why.contains("permission card"), "{why}");
+    }
+
+    /// A plan's edit (ADR 0165, part 3d) takes no command of an agent's, a look included, as
+    /// cursors or a region would steer the person's typing into the plan they approve.
+    #[test]
+    fn no_command_of_an_agents_runs_while_a_plan_is_edited() {
+        use oso_core::buffer::Mode;
+        let (mut dispatcher, mut editor) = (Dispatcher::new(), editor(""));
+        let mut plan = Buffer::from_text("*plan: s*", "Write hello.txt\nThen test it\n");
+        assert!(plan.set_mode(Mode::Plan));
+        plan.withhold_from_agents();
+        let id = editor.add_buffer(plan);
+        editor.show(id);
+        for (name, reach) in [
+            ("set-mark-command", Reach::Look),
+            ("forward-char", Reach::Look),
+            ("insert", Reach::Change),
+        ] {
+            let given = if reach == Reach::Change {
+                Given::Text("x")
+            } else {
+                Given::Nothing
+            };
+            let why = refusal(&mut dispatcher, &mut editor, name, given, reach);
+            assert!(why.contains("plan is being edited"), "{name}: {why}");
+        }
     }
 
     #[test]
@@ -1033,7 +1071,12 @@ mod tests {
     fn a_brief_or_a_composer_in_front_is_never_changed() {
         use oso_core::buffer::Mode;
         // A composer shown in a window of its own too, not docked (ADR 0165, step 2).
-        for (name, mode) in [("*Brief*", Mode::Brief), ("*compose: s*", Mode::Composer)] {
+        let drafts = [
+            ("*Brief*", Mode::Brief),
+            ("*compose: s*", Mode::Composer),
+            ("*plan: s*", Mode::Plan),
+        ];
+        for (name, mode) in drafts {
             let (mut dispatcher, mut editor) = (Dispatcher::new(), editor("ab"));
             let mut brief = Buffer::from_text(name, "Fix it\n");
             assert!(brief.set_mode(mode));

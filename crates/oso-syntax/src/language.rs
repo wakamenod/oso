@@ -57,7 +57,8 @@ impl Language {
     pub fn of(mode: Mode) -> Option<Self> {
         match mode {
             Mode::Rust => Some(Self::Rust),
-            Mode::Markdown => Some(Self::Markdown),
+            // A native session's plan, edited before it is approved (ADR 0165, part 3d).
+            Mode::Markdown | Mode::Plan => Some(Self::Markdown),
             Mode::Toml => Some(Self::Toml),
             Mode::Go => Some(Self::Go),
             Mode::JavaScript => Some(Self::JavaScript),

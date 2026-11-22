@@ -87,6 +87,17 @@ pub const CARD: &[(&str, &str)] = &[
     ("RET", "native-card-whole"),
     ("i", "native-session-compose"),
     ("C-c C-o", "native-card-leave"),
+    // A plan's (part 3d): approved with the mode after it, as the TUI offers, or edited.
+    ("a", "native-card-approve-accept-edits"),
+    ("A", "native-card-approve-auto"),
+    ("e", "native-card-edit-plan"),
+];
+
+/// The keys of `*plan: NAME*`, a plan's edit (ADR 0165, part 3d), above the global ones in it:
+/// as a draft's, `C-c C-c` approves it and `C-c C-k` gives it up.
+pub const PLAN: &[(&str, &str)] = &[
+    ("C-c C-c", "native-plan-approve"),
+    ("C-c C-k", "native-plan-cancel"),
 ];
 
 /// Session mode's commands a native session's buffer does not bind: an agent's reads of a

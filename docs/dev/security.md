@@ -702,7 +702,23 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     to it only from that session's transcript, or its composer with no draft. Whatever goes
     wrong, the bridge denies: a call runs only on the person's `y` or answers, an `allow`
     gives the CLI back the input it sent, and only an `AskUserQuestion`'s takes answers, the
-    person's alone. A note or an answer holding a yanked secret is refused.
+    person's alone, and an `ExitPlanMode`'s the person's edit and mode (part 3d, below). A
+    note or an answer holding a yanked secret is refused.
+  - A plan's card (part 3d) also approves with a mode after it, `acceptEdits` or `auto`, the
+    only two the protocol and the bridge carry: an answer naming any other mode, or a plan
+    that is not a string within 64 KiB, denies, and only an `ExitPlanMode`'s `allow` takes
+    either, so no other call's answer sets a mode. `auto` lets the CLI's classifier run what it
+    judges safe unasked; it is the person's `A`, after the card's quiet wait, as on any card.
+    An edit of the plan, `*plan: NAME*`, is the person's draft: withheld from agents, which may
+    not change it (`Mode::Plan`, kept as a composer's mode is), approved only by the person's
+    keys there, never from a macro, and only for the call it was made for; no agent command
+    runs while it is selected, a look included, as cursors or a region would steer the
+    person's typing into what they approve. It is sent
+    only if it differs from Claude's plan, never cut, and never once a yank made it secret.
+    While an edit that differs waits, the card's approvals are refused, so that a `y` never
+    approves a plan the person changed. Claude's plan text in it is shown as an editor shows
+    any text; what goes back unedited is the CLI's own plan, as the card showed it, and an
+    edited one goes back whole as the person's, any of Claude's text left in it included.
 - Its MCP tools reach oso only through the `oso mcp` stdio bridge and the agent channel, a Unix
   socket with a peer user check (and a native session's permission questions through the
   sessions' socket, above); no TCP port is opened. There is no code-execution tool, and

@@ -15,7 +15,7 @@ use super::{Flow, MESSAGE, answer_after_quiet, card, in_composer, sent, text, wa
 /// The fake: as the asking fake, but asks about the two calls `asks.jsonl` holds, the second
 /// once the flow writes `ask2`, and writes
 /// the bridge's answers to `answers`.
-const CARDS_FAKE: &str = r#"#!/bin/sh
+pub(super) const CARDS_FAKE: &str = r#"#!/bin/sh
 dir='DIR'
 for a in "$@"; do printf 'arg %s\n' "$a"; done > "$dir/run.$$"
 while IFS= read -r first; do
@@ -78,7 +78,7 @@ fn stream() -> String {
 }
 
 /// The bridge's `tools/call` about `name`'s call `id` with `input`.
-fn ask(n: u64, name: &str, id: &str, input: &Value) -> String {
+pub(super) fn ask(n: u64, name: &str, id: &str, input: &Value) -> String {
     json!({"jsonrpc": "2.0", "id": n, "method": "tools/call", "params": {
         "name": "permission",
         "arguments": {"tool_name": name, "input": input, "tool_use_id": id},
