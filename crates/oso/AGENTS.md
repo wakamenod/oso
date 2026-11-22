@@ -142,8 +142,8 @@ often, so it must rebuild within 2 s.
   reads porcelain v2 and patches as untrusted bytes (`status`, `patch`), lays out the text with
   its outline and the table of what each line is about (`layout`), and turns the lines commands
   name into staging (`stage`). The index's lock that a stop left or a run failed on is looked at,
-  noted and, after the person's `y`, taken away by `lock`, with `app/vcs/lock.rs` (ADR 0127, "A
-  stale index.lock, as amended"). A commit runs on its repository's thread, `oso-vcs-run`
+  noted and, after the person's `y`, taken away by `lock`, with `app/vcs/lock.rs` (ADR 0168). A
+  commit runs on its repository's thread, `oso-vcs-run`
   (`run`), with the repository's hooks; what needs no git, its arguments, message, highlights,
   ring and log lines, is `commit`'s. Pushes, pulls and fetches run there too (`run/remotes`,
   streamed by `run/stream`), what they need that runs no git is `remote`'s, and the commit

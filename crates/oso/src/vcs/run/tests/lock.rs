@@ -1,4 +1,4 @@
-//! The run thread and the index's lock (ADR 0127, "A stale index.lock, as amended"): a stop that
+//! The run thread and the index's lock (ADR 0168): a stop that
 //! leaves it, as a hook stands in for, is noted before the end and taken away only after the
 //! person's `y`, still the same file; a commit that fails on a lock says so, in a worktree too,
 //! and names no hook.
@@ -42,7 +42,7 @@ fn removed(got: &mpsc::Receiver<RunReport>) -> (String, bool) {
 fn a_stop_that_leaves_the_lock_notes_it_and_y_takes_it_away() {
     let repo = repo("run-lock-stop");
     // A plain commit holds the lock only for the moments before its hook, where a stop leaves
-    // it at times (ADR 0127, "A stale index.lock, as amended"); the hook makes one there itself,
+    // it at times (ADR 0168); the hook makes one there itself,
     // as such a stop would leave it, and waits for the stop. Its mark says the lock is the
     // hook's: the one seen before it may still be git's own, which git takes away as it stops.
     let made = repo.dir.join("lock-made");

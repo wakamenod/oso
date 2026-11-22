@@ -1,4 +1,4 @@
-//! The index's lock in the app (ADR 0127, "A stale index.lock, as amended"): what a stopped or
+//! The index's lock in the app (ADR 0168): what a stopped or
 //! failed run noted, what the echo area says of it, and `M-x git-remove-stale-lock`'s question.
 //!
 //! Must not depend on: key presses or how a frame is drawn. Nothing here looks at the disk: the

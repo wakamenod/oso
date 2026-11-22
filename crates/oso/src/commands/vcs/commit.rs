@@ -1,7 +1,7 @@
 //! Source control's commands for committing (ADR 0127, step 1b): the commit menu's heads, which
 //! read its switches, the keys of a commit's message, and the log of git's runs; and asking the
 //! worktree's agent session for a draft or a fix (step 6a); and taking away a stale index lock
-//! the person's `y` lets go (ADR 0127, "A stale index.lock, as amended").
+//! the person's `y` lets go (ADR 0168).
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command asks the host, which runs git on
 //! the repository's own thread. Every command here is `Person`: each makes the host run git,

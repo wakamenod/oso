@@ -1,4 +1,4 @@
-//! The index's lock, `index.lock` (ADR 0127, "A stale index.lock, as amended"): where git keeps
+//! The index's lock, `index.lock` (ADR 0168): where git keeps
 //! it, what is there before and after a run, whether a stop left one or a failure names one,
 //! and taking a stale one away once the person said `y`.
 //!

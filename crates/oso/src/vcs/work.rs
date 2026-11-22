@@ -24,7 +24,7 @@
 //! - What waits is taken as one batch: each staging in order, then one reading and one text.
 //! - What is at the index's lock is looked at before a staging or a discard; a stop that left
 //!   one, or a failure that names one there, is reported as [`Report::Locked`], so that the
-//!   person can take it away (ADR 0127, "A stale index.lock, as amended").
+//!   person can take it away (ADR 0168).
 //! - Nothing here logs a file's text; a report's `Debug` gives its kind.
 
 use std::collections::HashMap;

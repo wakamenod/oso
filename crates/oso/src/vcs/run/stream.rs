@@ -1,8 +1,7 @@
 //! Streaming one long run of git, or of `gh` (step 5a-2), to its end (ADR 0127, steps 1b and 2): what it writes goes out
 //! as log lines, its time each second and, for a push, a pull or a fetch, its progress; a stop,
 //! the root's revocation or the event loop's going ends it. A failure whose output names the
-//! index's lock as git's refusal does is told back through the watch (ADR 0127, "A stale
-//! index.lock, as amended").
+//! index's lock as git's refusal does is told back through the watch (ADR 0168).
 //!
 //! Must not depend on: `app`, `dispatch`, winit or the UI thread; this runs on the repository's
 //! run thread and waits for git.

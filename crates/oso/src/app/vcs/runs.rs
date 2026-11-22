@@ -78,7 +78,7 @@ pub(super) struct Repo {
     /// A branch head's list, plan, prompt and question waiting (step 3b).
     pub(super) branches: super::branch::Branching,
     /// The index's lock a stop left or a run failed on, and the one the open question asks
-    /// about ("A stale index.lock, as amended").
+    /// about (ADR 0168).
     pub(super) locks: super::lock::Locks,
 }
 
@@ -117,8 +117,7 @@ pub(super) struct Running {
     pub(super) output: String,
     /// What follows it once it ended, as a pull request does its branch's push (step 5a-2).
     pub(super) then: Option<super::pr::AfterRun>,
-    /// Whether its end left the index's lock, or failed on one ("A stale
-    /// index.lock, as amended").
+    /// Whether its end left the index's lock, or failed on one (ADR 0168).
     pub(super) locked: bool,
 }
 

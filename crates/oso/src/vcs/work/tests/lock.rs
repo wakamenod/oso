@@ -1,4 +1,4 @@
-//! A status's thread and the index's lock (ADR 0127, "A stale index.lock, as amended"): staging
+//! A status's thread and the index's lock (ADR 0168): staging
 //! that fails on a lock there notes it and says so, and works again once it is gone.
 //!
 //! Must not depend on: `app`, `dispatch` or winit.

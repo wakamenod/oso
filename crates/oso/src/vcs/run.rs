@@ -26,9 +26,8 @@
 //!   step 1b, Q8).
 //! - What is at the index's lock is looked at as each request begins; a stop that left a lock,
 //!   or a failure whose output names one that is there, is reported before the run's end, and
-//!   a failure on the lock says so in place of a hook's name (ADR 0127, "A stale
-//!   index.lock, as amended"). The lock is taken away only when asked, and only if it is still
-//!   the file noted.
+//!   a failure on the lock says so in place of a hook's name (ADR 0168). The lock is taken
+//!   away only when asked, and only if it is still the file noted.
 
 use std::cell::Cell;
 use std::ffi::OsStr;
@@ -113,7 +112,7 @@ pub(crate) enum RunRequest {
     /// Make or merge a pull request through `gh`, as `run` says (step 5a-2).
     Pr { run: super::pr::create::PrRun },
     /// Take away the index's lock if it is still the file `id`, as the person said `y`
-    /// ("A stale index.lock, as amended").
+    /// (ADR 0168).
     RemoveLock { id: Id },
 }
 
