@@ -3,7 +3,8 @@
 # on GitHub's macOS runner for a 25 to 41 ms sleep, so this measures what a 25 ms
 # thread::sleep really takes there, and the QoS and latency tier the steps run with,
 # plainly, under `taskpolicy -l 0 -t 0`, at user-interactive QoS,
-# against a spinning wait and beside a spinning thread. It builds and runs no repository code.
+# against a spinning wait and beside a spinning thread, and with the kernel's timer
+# coalescing capped or off on this throwaway VM. It builds and runs no repository code.
 name: Sleep probe
 
 on:
@@ -111,9 +112,7 @@ jobs:
             pid=$(ps -o ppid= -p "$pid" | tr -d ' ')
           done
           echo "--- launchctl procinfo of this step's shell"
-          sudo launchctl procinfo $$ | grep -iE 'qos|tier|role|darwin|background|priority|clamp|apptype' || true
-          echo "--- the same under taskpolicy -l 0 -t 0"
-          taskpolicy -l 0 -t 0 sh -c 'sudo launchctl procinfo $$' | grep -iE 'qos|tier|role|darwin|background|priority|clamp|apptype' || true
+          sudo launchctl procinfo $$ 2>&1 | grep -viE 'port|^\s*$' | head -80 || true
       - name: Sleep, as the benchmark runs now
         run: |
           "$RUNNER_TEMP/probe/probe" plain
@@ -133,3 +132,16 @@ jobs:
           "$RUNNER_TEMP/probe/probe" spin --spin
           "$RUNNER_TEMP/probe/probe" busy-neighbour --busy-neighbour
           sysctl hw.ncpu kern.timer.coalescing_enabled kern.timer_coalesce_bg_ns_max kern.timer_coalesce_tier3_ns_max || true
+      - name: Sleep with background coalescing capped at 1 ms
+        run: |
+          sudo sysctl -w kern.timer_coalesce_bg_ns_max=1000000 || true
+          "$RUNNER_TEMP/probe/probe" bg-capped
+      - name: Sleep with tier 3 coalescing capped at 1 ms too
+        run: |
+          sudo sysctl -w kern.timer_coalesce_tier3_ns_max=1000000 || true
+          "$RUNNER_TEMP/probe/probe" tier3-capped
+      - name: Sleep with timer coalescing off
+        run: |
+          sudo sysctl -w kern.timer.coalescing_enabled=0 || true
+          "$RUNNER_TEMP/probe/probe" coalescing-off
+          "$RUNNER_TEMP/probe/probe" coalescing-off-1ms --ms 1
