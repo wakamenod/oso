@@ -72,7 +72,7 @@ fn a_slash_completes_over_the_sessions_commands_and_clear_is_refused() {
         assert!(Instant::now() < deadline, "no commands' prompt");
         app.send_keys("DEL");
     };
-    assert_eq!(state["prompts"][0]["prompt"], "Command: ");
+    assert_eq!(state["prompts"][0]["prompt"], "Command:");
     // `/clear` and a terminal's own are not offered, even before the first turn.
     assert_eq!(
         state["prompts"][0]["completion"]["rows"],
