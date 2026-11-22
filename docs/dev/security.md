@@ -645,8 +645,32 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   its slug taken only if it is a slug as oso makes them, both made unique, and anything else
   gives way to oso's own names. A description that steers it can only pick the two names. No
   permission option is given: with no tool, nothing is asked.
+- A native session's `claude -p` asks the person about a call through its bridge's
+  `permission` tool, named as its `--permission-prompt-tool`
+  ([ADR 0165](adr/0165-native-claude-sessions-the-route.md), step 2):
+  - The bridge asks on the sessions' socket, `<pid>-session.sock`, a second socket a release
+    build listens on without the person's command: from a native session's start until none
+    runs or starts, with the agent channel off or on. It lets in only a connection that a
+    running native session's bridge makes, as ADR 0121's claim judges it, one per session; it
+    never asks the person about a connection, and answers only `permission`, which the agent
+    channel refuses. The bridge connects as MCP's `initialize` comes, before the session's
+    first turn; a second process that claims a session's slot, as a command the session runs
+    can, is refused, and the person is told.
+  - Only a bridge started with `--permission`, which only a native session's MCP configuration
+    gives, lists the tool; the CLI keeps the prompt tool from the model, as measured.
+  - The person is asked about the call as the session's own stream has it, by its id and tool,
+    and only if the request's input says the same of it; a request whose call does not wait in
+    the stream within 2 s, or that stops waiting before it is asked, is denied unasked, and a
+    call is asked about once. So a process that passes the claim can raise no question of its
+    own text. The question says when its one line does not show all the call does, and `?`
+    shows the input that runs whole, escaped, in a buffer withheld from agents.
+  - The question is the channel's kind: `Agent:`, answered only from the keyboard, after 500 ms
+    with no key, never while another agent question's answer is untaken. Its label is withheld
+    from agents' state, as the session's buffer is. Whatever goes wrong, the bridge denies: a
+    call runs only on the person's `y`, and an `allow` gives the CLI back the input it sent.
 - Its MCP tools reach oso only through the `oso mcp` stdio bridge and the agent channel, a Unix
-  socket with a peer user check; no TCP port is opened. There is no code-execution tool, and
+  socket with a peer user check (and a native session's permission questions through the
+  sessions' socket, above); no TCP port is opened. There is no code-execution tool, and
   no way to write a file that could run code later without the person's yes: the channel opens
   only files that exist, saves without asking only buffers the person visited, and never saves
   oso's configuration or trust ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)). The threat is

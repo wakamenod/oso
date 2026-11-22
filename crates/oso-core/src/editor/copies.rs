@@ -172,7 +172,7 @@ impl Editor {
             self.window_moves_on();
             for index in 0..self.windows.len() {
                 if self.windows[index].buffer() == id {
-                    self.window_shows(index, list);
+                    self.window_shows_unrecorded(index, list);
                 }
             }
         }
@@ -181,6 +181,7 @@ impl Editor {
             window.places_mut().forget(id);
         }
         let position = self.buffers.iter().position(|(other, _)| *other == id)?;
+        self.buffer_order.forget(id);
         Some(self.buffers.remove(position).1)
     }
 

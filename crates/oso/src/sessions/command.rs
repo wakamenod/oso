@@ -11,7 +11,10 @@
 //!   stream-json. It takes no brief on its line: its first message goes on standard input.
 //! - No permission option is ever given: not `--permission-mode`, not
 //!   `--dangerously-skip-permissions`, not `--allowedTools`. A session starts in the mode the
-//!   person's own settings give it, whoever asked for it.
+//!   person's own settings give it, whoever asked for it. A native session's line names
+//!   [`PERMISSION_TOOL`] as its `--permission-prompt-tool`, so that a call that would ask is
+//!   asked of the person in oso (ADR 0165, step 2), and its bridge is started with
+//!   `--permission`, which lists that tool.
 
 use std::ffi::OsString;
 use std::path::Path;
@@ -32,6 +35,10 @@ pub const NATIVE: [&str; 6] = [
     "--include-partial-messages",
     "--replay-user-messages",
 ];
+
+/// The tool a native session's `claude` asks permission through: the `oso` server's
+/// `permission`, which only a bridge started with `--permission` lists (ADR 0165, step 2).
+pub const PERMISSION_TOOL: &str = "mcp__oso__permission";
 
 /// How a session's `claude` starts.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -97,16 +104,25 @@ impl std::fmt::Display for LineError {
 }
 
 /// The MCP configuration given with `--mcp-config`: one server, `oso`, which is oso's own
-/// executable as `mcp --pid PID`, with [`SESSION_VARIABLE`] set. The person's other MCP servers
-/// still load.
-pub fn mcp_config(oso: &Path, oso_pid: u32, id: &SessionId) -> Result<String, LineError> {
+/// executable as `mcp --pid PID`, and `--permission` for a `native` session's, with
+/// [`SESSION_VARIABLE`] set. The person's other MCP servers still load.
+pub fn mcp_config(
+    oso: &Path,
+    oso_pid: u32,
+    id: &SessionId,
+    native: bool,
+) -> Result<String, LineError> {
     let command = oso.to_str().ok_or(LineError::NotUtf8)?;
+    let mut args = vec!["mcp".to_owned(), "--pid".to_owned(), oso_pid.to_string()];
+    if native {
+        args.push("--permission".to_owned());
+    }
     let config = json!({
         "mcpServers": {
             "oso": {
                 "type": "stdio",
                 "command": command,
-                "args": ["mcp", "--pid", oso_pid.to_string()],
+                "args": args,
                 "env": { SESSION_VARIABLE: id.as_str() },
             }
         }
@@ -132,7 +148,7 @@ pub fn arguments(line: &Line<'_>) -> Result<Vec<OsString>, LineError> {
             args.push(format!("--session-id={}", id.as_str()).into());
         }
     }
-    let config = mcp_config(line.oso, line.oso_pid, line.start.id())?;
+    let config = mcp_config(line.oso, line.oso_pid, line.start.id(), line.native)?;
     // One `--add-dir=` each: the option takes any number of values, and so takes exactly one.
     for dir in line.add_dirs {
         let mut arg = OsString::from("--add-dir=");
@@ -141,6 +157,9 @@ pub fn arguments(line: &Line<'_>) -> Result<Vec<OsString>, LineError> {
     }
     args.push(format!("--name={}", line.name).into());
     args.push(format!("--mcp-config={config}").into());
+    if line.native {
+        args.push(format!("--permission-prompt-tool={PERMISSION_TOOL}").into());
+    }
     if let Some(settings) = line.settings {
         args.push(format!("--settings={settings}").into());
     }
@@ -295,7 +314,7 @@ mod tests {
     fn a_path_that_is_not_utf8_is_refused() {
         use std::os::unix::ffi::OsStrExt;
         let path = Path::new(std::ffi::OsStr::from_bytes(b"/opt/\xff/oso"));
-        assert!(super::mcp_config(path, 1, &id(1)).is_err());
+        assert!(super::mcp_config(path, 1, &id(1), false).is_err());
     }
 
     #[test]
@@ -341,5 +360,41 @@ mod tests {
         assert_eq!(args[..6], super::NATIVE.map(str::to_owned));
         assert_eq!(args[6], format!("--session-id={a}"));
         assert!(args.iter().all(|arg| arg != "--" && arg != "go on"));
+        let asks = format!("--permission-prompt-tool={}", super::PERMISSION_TOOL);
+        assert_eq!(args.iter().filter(|arg| **arg == asks).count(), 1);
+        let config = args
+            .iter()
+            .find_map(|arg| arg.strip_prefix("--mcp-config="))
+            .unwrap();
+        let config: serde_json::Value = serde_json::from_str(config).unwrap();
+        let oso_args = &config["mcpServers"]["oso"]["args"];
+        assert_eq!(
+            *oso_args,
+            serde_json::json!(["mcp", "--pid", "4242", "--permission"])
+        );
+    }
+
+    /// The CLI names the tool as `mcp__SERVER__TOOL`: the server is the one `--mcp-config`
+    /// names, and the tool the one the bridge lists.
+    #[test]
+    fn the_prompt_tool_is_the_one_the_bridge_lists() {
+        let config = super::mcp_config(Path::new("/o"), 1, &id(1), true).unwrap();
+        let config: serde_json::Value = serde_json::from_str(&config).unwrap();
+        let server = config["mcpServers"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .next()
+            .unwrap()
+            .clone();
+        let tool = crate::channel::mcp::PERMISSION_TOOL;
+        assert_eq!(super::PERMISSION_TOOL, format!("mcp__{server}__{tool}"));
+    }
+
+    #[test]
+    fn a_terminal_line_names_no_permission_tool() {
+        let a = id(1);
+        let args = strings(&arguments(&line(Start::New { id: &a })).unwrap());
+        assert!(args.iter().all(|arg| !arg.contains("permission")));
     }
 }

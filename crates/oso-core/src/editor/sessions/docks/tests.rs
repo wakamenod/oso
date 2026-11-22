@@ -252,3 +252,22 @@ fn a_host_s_outer_rect_keeps_its_docks_so_floats_and_splits_see_it_whole() {
     let host = editor.regions(editor.window().id()).unwrap().outer();
     assert_eq!(host.rows, 29, "text, docks and modeline");
 }
+
+#[test]
+fn a_docks_buffer_is_never_listed_and_selecting_the_dock_raises_its_host() {
+    let (mut editor, host, input) = docked(30, "");
+    let composer = editor.dock_window(host, DockSlot::Composer).unwrap();
+    let other = editor.add_buffer(Buffer::from_text("notes", ""));
+    // The session in one window, `notes` in the other, selected.
+    editor.split_window(Way::Down, false).unwrap();
+    editor.show(other);
+    assert_eq!(editor.buffers_by_recency().first(), Some(&other));
+    // To the session by its dock: the host rises, as the window it is part of.
+    editor.select_window(composer);
+    assert_eq!(editor.window().id(), composer);
+    assert_eq!(editor.buffers_by_recency().first(), Some(&host));
+    assert!(!editor.buffers_by_recency().contains(&input));
+    assert_eq!(editor.buffer_named("*compose: s*"), None);
+    // `C-x b` to its name is refused, never a second buffer of that name.
+    assert!(editor.switch_to_named("*compose: s*").is_err());
+}

@@ -734,6 +734,22 @@ mod tests {
         assert_eq!(area(""), area(&"line\n".repeat(9)));
     }
 
+    /// A native session's permission question is about text withheld from agents (ADR 0165,
+    /// step 2): its label is never given.
+    #[test]
+    fn a_question_about_withheld_text_gives_no_label() {
+        let mut editor = editor("");
+        editor
+            .ask_for_agent_withheld(
+                "Run curl -H token?",
+                "agent-channel-allow",
+                ["allow", "refuse"],
+            )
+            .unwrap();
+        let prompts = state(&editor, None, 0)["prompts"].clone();
+        assert_eq!(prompts, json!([{ "kind": "question", "by": "agent" }]));
+    }
+
     #[test]
     fn lists_no_command_that_needs_a_person() {
         use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};

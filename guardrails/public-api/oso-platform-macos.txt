@@ -127,6 +127,7 @@ pub mod oso_platform::control
 pub enum oso_platform::control::Socket
 pub oso_platform::control::Socket::Agent
 pub oso_platform::control::Socket::Dev
+pub oso_platform::control::Socket::Session
 impl core::clone::Clone for oso_platform::control::Socket
 pub fn oso_platform::control::Socket::clone(&self) -> oso_platform::control::Socket
 impl core::cmp::Eq for oso_platform::control::Socket

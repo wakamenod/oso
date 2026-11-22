@@ -131,8 +131,12 @@ impl App {
         }
     }
 
-    /// `?` in the tool's open question: `*Agent request*` shows what it would run.
+    /// `?` in the tool's open question: `*Agent request*` shows what it would run; in a native
+    /// session's permission question, `*Session call*` the call (ADR 0165, step 2).
     pub(in crate::app) fn show_question_details(&mut self) {
+        if self.show_permission_details() {
+            return;
+        }
         let Some(question) = self
             .hosting
             .tools

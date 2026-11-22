@@ -91,6 +91,14 @@ impl Editor {
             .position(|window| window.docked() == Some((host, slot)))
     }
 
+    /// Whether `buffer` is shown in a docked window: its host's, never listed or raised as a
+    /// buffer of its own (ADR 0170).
+    pub(in crate::editor) fn docked_buffer(&self, buffer: BufferId) -> bool {
+        self.windows[..self.tiled_count()]
+            .iter()
+            .any(|window| window.docked().is_some() && window.buffer() == buffer)
+    }
+
     /// Whether `id` is a docked window.
     pub(in crate::editor) fn is_docked(&self, id: WindowId) -> bool {
         self.window_by_id(id)

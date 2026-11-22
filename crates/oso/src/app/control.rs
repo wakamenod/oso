@@ -179,6 +179,8 @@ impl App {
         };
         state["ime"] = dev::ime_state(&self.editor, &facts);
         state["clipboard"] = json!({ "waiting": self.dispatcher.waits_for_clipboard() });
+        // Whether the agent's open question takes an answer yet, for flows that answer it.
+        state["agent_question"] = json!({ "takes_answer": self.agent_question_takes_answer() });
         // The menu open, as the channel's state names it (ADR 0117).
         state["menu"] = json!(self.dispatcher.menu_name());
         // Each terminal, for end-to-end flows (ADR 0120). The dev socket trusts the same user

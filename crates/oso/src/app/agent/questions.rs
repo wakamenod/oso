@@ -77,6 +77,16 @@ impl App {
         true
     }
 
+    /// Whether the innermost question the agent caused, if one is open, takes an answer now:
+    /// its quiet moment has passed since the last key or start. For end-to-end flows, which
+    /// wait for it before they answer instead of sleeping a while.
+    #[cfg(feature = "dev")]
+    pub(in crate::app) fn agent_question_takes_answer(&self) -> Option<bool> {
+        self.editor.prompt().filter(|prompt| prompt.from_agent())?;
+        let since = self.agent.quiet_since.map(|at| at.elapsed());
+        Some(since.is_none_or(|since| since >= QUIET))
+    }
+
     /// Why keys from the dev socket, which stand in for the person's, must not reach a
     /// question the agent caused, if they must not: they come one at a time, so that each one
     /// restarts its wait, and each one waits as a key from the window does.
@@ -140,13 +150,16 @@ impl App {
             .asking
             .as_ref()
             .and_then(|asking| asking.question);
-        // A session tool's question is its own: no connection's follow-up (ADR 0121, step 6).
+        // A session tool's question is its own: no connection's follow-up (ADR 0121, step 6);
+        // so is a native session's permission question (ADR 0165, step 2).
         let tools = self.session_tool_question();
+        let permission = self.permission_question();
         for &(id, from_agent) in &open {
             let known = self.agent.caused.iter().any(|&(caused, _)| caused == id)
                 || self.agent.orphaned.contains(&id)
                 || asked == Some(id)
-                || tools == Some(id);
+                || tools == Some(id)
+                || permission == Some(id);
             if !from_agent || known {
                 continue;
             }

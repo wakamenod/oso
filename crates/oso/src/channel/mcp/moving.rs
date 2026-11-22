@@ -35,12 +35,12 @@ impl Bridge {
     /// written: waits for the session's turn to end, then stops its own parent.
     pub(super) fn stop_parent_once_idle(&mut self, id: &Value) {
         // The wait goes on the connection the move was asked on, so nothing new is asked.
-        if !cfg!(unix) || self.link.is_none() {
+        if !cfg!(unix) || self.channel.link.is_none() {
             return;
         }
         // Any request of the agent's ends the wait: the turn has not ended then.
         self.interrupt.lock().yields = true;
-        let waited = self.call(id, "move_wait", json!({}));
+        let waited = self.call(id, super::Which::Channel, "move_wait", json!({}));
         self.interrupt.lock().yields = false;
         let reply = match waited {
             Ok(reply) => reply,

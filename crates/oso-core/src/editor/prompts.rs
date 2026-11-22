@@ -516,6 +516,7 @@ impl Editor {
         self.selected = self.window_index(prompt.beneath).unwrap_or(0);
         let id = prompt.buffer;
         self.buffers.retain(|(other, _)| *other != id);
+        self.buffer_order.forget(id);
         self.relayout_prompt();
         // A dictionary that came or went while the prompt now innermost was covered is taken
         // now (ADR 0116).

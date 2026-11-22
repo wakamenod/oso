@@ -55,6 +55,7 @@ pub mod going;
 mod internal;
 mod layout;
 mod op;
+mod order;
 pub mod pair;
 pub mod pieces;
 use internal::{behind_internal, handed_over};
@@ -175,6 +176,8 @@ pub fn export(
         "generation": generation(editor),
         "export": number,
         "items": items.iter().map(Item::len).collect::<Vec<_>>(),
+        // The buffers' order, the most recent first, as desktop keeps it (ADR 0171).
+        "order": order::state(editor, &buffers),
         "buffers": buffers,
         "windows": windows,
         "layout": layout::layout_state(&editor.tiling(), &mut 0),

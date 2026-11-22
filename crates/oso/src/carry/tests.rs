@@ -470,6 +470,7 @@ fn a_finished_save_lets_the_handover_through() {
 mod carried;
 mod docks;
 mod layout;
+mod order;
 mod secret;
 
 #[test]

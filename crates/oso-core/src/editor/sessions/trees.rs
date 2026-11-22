@@ -122,6 +122,9 @@ impl Editor {
         for index in back {
             self.settle_view(index);
         }
+        // The window it selects raises its buffer, as Emacs's switch of frames selects one
+        // (ADR 0171).
+        self.raise_selected(self.selected);
         self.set_split_gutter();
         self.set_frame_size(self.frame.size());
         self.fit_gutter();
@@ -188,17 +191,13 @@ impl Editor {
     }
 
     /// Moves the window at `index`, just put back, off a buffer killed while it was out, as a
-    /// kill moves a window: to the user's buffer it showed before, or `*scratch*`. Forgets its
-    /// places in killed buffers. Returns whether it moved.
+    /// kill moves a window: to the user's buffer it showed before, or the most recent other one
+    /// it may fall back to (ADR 0171), or `*scratch*`. Forgets its places in killed buffers.
+    /// Returns whether it moved.
     fn settle_buffer(&mut self, index: usize) -> bool {
         let shown = self.windows[index].buffer();
         let dead = self.buffer(shown).is_none();
-        let back = dead.then(|| {
-            self.windows[index]
-                .places()
-                .map(|(id, _)| id)
-                .find(|id| self.buffer(*id).is_some_and(|buffer| !buffer.is_internal()))
-        });
+        let back = dead.then(|| self.kill_fallback(index, shown));
         let back = back.map(|back| back.unwrap_or_else(|| self.scratch()));
         let place = back.and_then(|back| self.windows[index].show(back));
         let gone: Vec<BufferId> = self.windows[index]

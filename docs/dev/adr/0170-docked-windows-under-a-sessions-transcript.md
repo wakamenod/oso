@@ -127,6 +127,10 @@ The facts it builds on (`frame`, `window`, `draw`):
   session's and the composer's keymaps.
 - **Keys go to the selected window's buffer.** The composer's own keymap (part 2a-2) is a
   buffer mode's, as `*Brief*`'s is.
+- **The buffer order** (ADR 0171): a docked window's buffer is its host's, not one a person
+  goes between. It is never listed (`C-x b`, `M-,`, the buffer list), never rises, and its
+  name cannot be taken by a second buffer. Selecting a docked window raises its host's buffer,
+  as selecting the window it is part of would.
 
 ### Agents and secrets
 
@@ -186,6 +190,8 @@ Once accepted:
   layer never overlap holds.
 - [ADR 0165](0165-native-claude-sessions-the-route.md), "The buffers": the composer window is a
   composer dock of the session's buffer, with the card and the strip above it.
+- [ADR 0171](0171-one-buffer-order-for-the-editor.md): a docked window's buffer is left out
+  of the order's listing, and selecting a docked window raises its host's buffer instead.
 - [ADR 0121](0121-agent-sessions-and-spaces.md), the side window's rules ("the tree's commands
   act on the tree's window selected last") hold for a docked window too, with its host; and a
   space's tree that moves leaves docked windows in the frame, as it leaves the side window.
