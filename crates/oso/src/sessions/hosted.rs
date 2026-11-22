@@ -264,6 +264,15 @@ impl Table {
         back
     }
 
+    /// Drops session `key`, which started and was written in the record, but leaves nothing to
+    /// keep: a native session given no message (ADR 0165, step 2). Its id stays known, so the
+    /// next record written drops its line, as [`Table::prune`]'s.
+    pub fn drop_started(&mut self, key: SessionKey) {
+        if let Some(index) = self.sessions.iter().position(|session| session.key == key) {
+            self.sessions.remove(index);
+        }
+    }
+
     /// Drops session `key`, which never started: nothing remembers it.
     pub fn forget(&mut self, key: SessionKey) {
         if let Some(index) = self.sessions.iter().position(|session| session.key == key) {
@@ -460,6 +469,19 @@ mod tests {
             space: None,
             reads: Vec::new(),
         }
+    }
+
+    /// A started session dropped stays known, so that the record drops its line rather than
+    /// keep it as another instance's.
+    #[test]
+    fn a_started_session_dropped_stays_known_and_is_not_remembered() {
+        let mut table = Table::default();
+        let key = add(&mut table, 1, "/p", "a");
+        let id = SessionId::from_random([1; 16]);
+        table.drop_started(key);
+        assert!(table.get(key).is_none());
+        assert!(table.known().contains(&id));
+        assert!(table.remembered().iter().all(|kept| kept.id != id));
     }
 
     #[test]

@@ -17,7 +17,7 @@ pub fn queue_rows(queue: &Queue) -> String {
     }
     let paused = match queue.paused() {
         None => "",
-        Some(Pause::Failed) => " · paused: C-c C-c on an empty composer sends the next",
+        Some(Pause::Held) => " · paused: C-c C-c on an empty composer sends the next",
         Some(Pause::Ended) => " · the session stopped: RET takes one back, d drops it",
     };
     let _ = writeln!(text, "Queued ({count}){paused}");

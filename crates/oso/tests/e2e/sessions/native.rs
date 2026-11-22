@@ -176,11 +176,14 @@ fn a_native_session_starts_with_its_first_message_and_shows_its_stream() {
             .is_some_and(|modeline| !modeline.contains("restricted"))
     });
 
-    // `claude` asks for the first message in `*Brief*`; `C-c C-c` starts the session.
+    // `claude` starts the session at once, with its composer selected; `C-c C-c` sends the
+    // first message.
     app.run_command("claude", None).unwrap();
-    app.wait_for("*Brief*", |state| state["buffer"]["name"] == "*Brief*");
+    app.wait_for("the composer", in_composer);
     app.send_keys(&keys(MESSAGE));
     app.send_keys("C-c C-c");
+    // Back to the transcript, whose rows the flow reads.
+    app.send_keys("C-c C-o");
 
     let run = flow.wait_for_file("run.");
     let args: Vec<&str> = run.lines().filter_map(|l| l.strip_prefix("arg ")).collect();
@@ -341,9 +344,11 @@ fn a_native_sessions_calls_are_asked_of_the_person_with_the_agent_channel_off() 
             .is_some_and(|modeline| !modeline.contains("restricted"))
     });
     app.run_command("claude", None).unwrap();
-    app.wait_for("*Brief*", |state| state["buffer"]["name"] == "*Brief*");
+    app.wait_for("the composer", in_composer);
     app.send_keys(&keys(MESSAGE));
     app.send_keys("C-c C-c");
+    // Back to the transcript, whose rows the flow reads.
+    app.send_keys("C-c C-o");
 
     // The prompt tool and the bridge that lists it are on the session's line.
     let run = flow.wait_for_file("run.");
@@ -453,3 +458,13 @@ fn answer_after_quiet(app: &mut App, key: &str) {
 }
 
 mod compose;
+mod resume;
+
+/// Whether the selected window is the composer docked under a session.
+fn in_composer(state: &serde_json::Value) -> bool {
+    state["windows"].as_array().is_some_and(|windows| {
+        windows
+            .iter()
+            .any(|window| window["selected"] == true && window["docked"]["slot"] == "composer")
+    })
+}

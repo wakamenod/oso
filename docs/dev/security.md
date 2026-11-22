@@ -645,6 +645,11 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   its slug taken only if it is a slug as oso makes them, both made unique, and anything else
   gives way to oso's own names. A description that steers it can only pick the two names. No
   permission option is given: with no tool, nothing is asked.
+- A native session's `claude -p` runs only in a trusted project, as Claude Code asks it no
+  trust question of its own ([ADR 0165](adr/0165-native-claude-sessions-the-route.md), Q5): a
+  new start at a trusted project's root, and a resume or a fork only at the root of a project
+  an open buffer says is trusted now, never under the trust the session started with, which
+  an untrust does not take back. The start thread looks at the root again before the spawn.
 - A native session's `claude -p` asks the person about a call through its bridge's
   `permission` tool, named as its `--permission-prompt-tool`
   ([ADR 0165](adr/0165-native-claude-sessions-the-route.md), step 2):

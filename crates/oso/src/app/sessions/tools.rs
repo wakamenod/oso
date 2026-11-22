@@ -377,15 +377,10 @@ impl App {
     /// The trust of the caller's project as an open buffer of it has it now: `None` when no
     /// buffer has it open, `Some(None)` when it is not trusted.
     fn open_caller_root(&self, caller: &Caller) -> Option<Option<crate::git::TrustedRoot>> {
-        caller.root.as_deref().and_then(|root| {
-            let id = self
-                .editor
-                .buffers()
-                .filter_map(|(_, buffer)| buffer.project())
-                .find(|&id| self.editor.project(id).is_some_and(|p| p.root() == root))?;
-            // An open project that is not trusted is not trusted, whatever the session began with.
-            Some(crate::git::TrustedRoot::of(&self.editor, id))
-        })
+        caller
+            .root
+            .as_deref()
+            .and_then(|root| self.open_root_trust(root))
     }
 
     /// Whether the caller's project is trusted now, by an open buffer of it, the session's own

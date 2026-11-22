@@ -58,6 +58,11 @@ impl Composing {
     pub(super) fn queued(&self) -> usize {
         self.queue.waiting().len()
     }
+
+    /// The process runs again after it ended: the queue waits for an empty `C-c C-c`.
+    pub(super) fn resumed(&mut self) {
+        self.queue.resumed();
+    }
 }
 
 impl App {
@@ -187,7 +192,8 @@ impl App {
                 self.set_composer_text(key, "");
                 let when = match turn.run {
                     Run::Running => "C-c C-q goes to the queue",
-                    Run::Starting => "it goes once the first turn ends",
+                    Run::Starting if turn.busy => "it goes once the first turn ends",
+                    Run::Starting => "it goes once the session runs",
                     Run::Ended => "the session stopped, so it waits",
                 };
                 self.editor.message(format!("Queued as {count}: {when}"));
@@ -214,6 +220,7 @@ impl App {
             Ok(()) => {
                 native.rows.sent(text);
                 native.composing.busy = true;
+                native.spoke = true;
                 let history = &mut native.composing.history;
                 if history.len() == MAX_HISTORY {
                     history.pop_front();
@@ -332,7 +339,7 @@ impl App {
     }
 
     /// `i` and `C-c C-o`: to the composer, or back to the window that carries it.
-    fn composer_go(&mut self, key: SessionKey, to_composer: bool) {
+    pub(super) fn composer_go(&mut self, key: SessionKey, to_composer: bool) {
         let Some(transcript) = self
             .hosting
             .natives
@@ -386,7 +393,7 @@ impl App {
     }
 
     /// Whether native session `key`'s composer holds nothing, read without a copy.
-    fn composer_empty(&self, key: SessionKey) -> bool {
+    pub(super) fn composer_empty(&self, key: SessionKey) -> bool {
         let id = (self.hosting.natives.map.get(&key)).and_then(|native| native.composing.buffer);
         id.and_then(|id| self.editor.buffer(id))
             .is_none_or(|buffer| buffer.text().is_empty())

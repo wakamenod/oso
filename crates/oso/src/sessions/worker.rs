@@ -74,11 +74,7 @@ pub enum Job {
     /// A listing found a session's worktree clean and its branch merged, reading its changes
     /// at that instant.
     WorkMerged(SessionKey, std::time::Instant),
-    /// A session is gone from oso.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "hosted sessions send it (ADR 0121 step 3)")
-    )]
+    /// A session is gone from oso: a native one given no message (ADR 0165, step 2).
     Forget(SessionKey),
     /// Explain the saved screen in this file.
     ExplainFile(PathBuf),
