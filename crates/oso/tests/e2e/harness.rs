@@ -153,6 +153,8 @@ pub struct App {
     /// Whether a state has shown the surface. From then on, no reply is a freeze.
     surface_seen: bool,
     dir: ControlDir,
+    /// The directory it was started in, unless another instance started it.
+    cwd: Option<PathBuf>,
     /// Dropped after everything else, once `drop` has asked it to exit.
     process: Process,
 }
@@ -228,6 +230,7 @@ impl App {
             next_id: 1,
             surface_seen: false,
             dir,
+            cwd: Some(cwd.to_owned()),
             process,
         };
         let version = app.call("version", None);
@@ -272,6 +275,7 @@ impl App {
             next_id: 1,
             surface_seen: false,
             dir,
+            cwd: None,
             process: Process {
                 child: None,
                 pid,
@@ -487,25 +491,92 @@ impl App {
     }
 
     /// Asks for the state until `done` holds of it, and returns that state.
-    /// `what` names it if it never does.
+    /// `what` names it if it never does, and one that times out says where the time went:
+    /// see [`App::timeout_report`].
     pub fn wait_for(&mut self, what: &str, done: impl Fn(&Value) -> bool) -> Value {
         let started = Instant::now();
+        let mut watch = Watch::default();
         loop {
             if let Some(Ok(Some(status))) = self.process.child.as_mut().map(Child::try_wait) {
                 panic!("the instance exited with {status} while waiting for {what}");
             }
+            let asked = Instant::now();
             let state = self.state();
+            watch.note(&state, started, asked.elapsed());
             if done(&state) {
                 return state;
             }
-            assert!(
-                started.elapsed() < TIMEOUT,
-                "no {what} after {TIMEOUT:?}; the last state had surface {} and loading {}",
-                state["surface"],
-                state["buffer"]["loading"],
-            );
+            if started.elapsed() >= TIMEOUT {
+                panic!(
+                    "no {what} after {TIMEOUT:?}; the last state had surface {} and loading {}\n{}",
+                    state["surface"],
+                    state["buffer"]["loading"],
+                    self.timeout_report(&state, started, &watch),
+                );
+            }
             thread::sleep(POLL);
         }
+    }
+
+    /// What a wait that timed out can say of where the time went, for a flake that waited on
+    /// a program oso started, such as a fake `claude`: how fast the states came, when each
+    /// terminal first showed and first had text, how it stands, the scratch directory's
+    /// executables and when each was written, the instance's processes and the load. Names
+    /// counts and states only, never a terminal's text, and the scratch directory, the
+    /// temporary one and the home as `<scratch>`, `<temp>` and `~`.
+    fn timeout_report(&self, state: &Value, started: Instant, watch: &Watch) -> String {
+        use std::fmt::Write as _;
+        let scratch = self.cwd.as_deref().and_then(scratch_of);
+        let tidy = |text: &str| tidy_paths(text, scratch);
+        let ago = |at: Duration| format!("{:.1}s ago", (started.elapsed() - at).as_secs_f64());
+        let mut report = String::from("--- where the wait went ---\n");
+        let _ = writeln!(
+            report,
+            "now {}; the wait began {}, read {} states, the slowest in {:?}",
+            utc_now(),
+            ago(Duration::ZERO),
+            watch.states,
+            watch.slowest,
+        );
+        for terminal in state["terminals"].as_array().into_iter().flatten() {
+            let name = terminal_name(terminal);
+            let seen = watch.terminals.iter().find(|seen| seen.name == name);
+            let rows = terminal["rows"].as_array();
+            let _ = writeln!(
+                report,
+                "terminal {}: first in a state {}, first text {}; started {}, running {}, \
+                 ended {}, {} of {} rows with text",
+                tidy(&name),
+                seen.map_or("never".to_owned(), |seen| ago(seen.at)),
+                seen.and_then(|seen| seen.text)
+                    .map_or("never".to_owned(), ago),
+                terminal["started"],
+                terminal["running"],
+                tidy(&terminal["ended"].to_string()),
+                rows.map_or(0, |rows| rows.iter().filter(|row| has_text(row)).count()),
+                rows.map_or(0, Vec::len),
+            );
+        }
+        if let Some(scratch) = scratch {
+            for line in executables(scratch) {
+                let _ = writeln!(report, "{}", tidy(&line));
+            }
+        }
+        let _ = writeln!(
+            report,
+            "the instance's processes (pid ppid stat elapsed args):"
+        );
+        for line in descendants(self.pid()) {
+            let _ = writeln!(report, "  {}", tidy(&line));
+        }
+        let _ = writeln!(
+            report,
+            "{}; {} CPUs",
+            load_average(),
+            thread::available_parallelism().map_or(0, std::num::NonZero::get),
+        );
+        report.push_str("--- end of where the wait went ---");
+        report
     }
 
     /// Waits for the window, and for the file shown to finish loading, after
@@ -1017,4 +1088,244 @@ pub fn process_exists(pid: u32) -> bool {
     .and_then(|mut child| child.wait())
     .expect("cannot run ps");
     status.success()
+}
+
+/// What a wait has seen, for [`App::timeout_report`]: how many states it read, the slowest,
+/// and when each terminal first showed in one and first had text.
+#[derive(Default)]
+struct Watch {
+    states: u32,
+    slowest: Duration,
+    terminals: Vec<Seen>,
+}
+
+/// When a terminal first showed in a state and first had text, since the wait began.
+struct Seen {
+    name: String,
+    at: Duration,
+    text: Option<Duration>,
+}
+
+impl Watch {
+    /// Notes `state`, read in `took`, of a wait that began at `started`.
+    fn note(&mut self, state: &Value, started: Instant, took: Duration) {
+        self.states += 1;
+        self.slowest = self.slowest.max(took);
+        let at = started.elapsed();
+        for terminal in state["terminals"].as_array().into_iter().flatten() {
+            let name = terminal_name(terminal);
+            let index = match self.terminals.iter().position(|seen| seen.name == name) {
+                Some(index) => index,
+                None => {
+                    self.terminals.push(Seen {
+                        name,
+                        at,
+                        text: None,
+                    });
+                    self.terminals.len() - 1
+                }
+            };
+            let seen = &mut self.terminals[index];
+            if seen.text.is_none()
+                && terminal["rows"]
+                    .as_array()
+                    .is_some_and(|rows| rows.iter().any(has_text))
+            {
+                seen.text = Some(at);
+            }
+        }
+    }
+}
+
+/// A terminal's buffer name, or its id if it has none.
+fn terminal_name(terminal: &Value) -> String {
+    terminal["name"]
+        .as_str()
+        .map_or_else(|| format!("#{}", terminal["id"]), str::to_owned)
+}
+
+fn has_text(row: &Value) -> bool {
+    row.as_str().is_some_and(|row| !row.trim().is_empty())
+}
+
+/// The scratch directory `cwd` is in, or is: the nearest named as [`Scratch::new`] names one.
+fn scratch_of(cwd: &Path) -> Option<&Path> {
+    cwd.ancestors().find(|dir| {
+        dir.file_name()
+            .is_some_and(|name| name.to_string_lossy().starts_with("oso-e2e-"))
+    })
+}
+
+/// `text` with the scratch directory, the temporary one and the home written as `<scratch>`,
+/// `<temp>` and `~`, so that a report names no directory of the person's.
+fn tidy_paths(text: &str, scratch: Option<&Path>) -> String {
+    let mut text = text.to_owned();
+    let temp = fs::canonicalize(std::env::temp_dir()).ok();
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let named = [(scratch, "<scratch>"), (temp.as_deref(), "<temp>")];
+    for (dir, name) in named
+        .into_iter()
+        .chain([(home.as_deref(), "~")])
+        .filter_map(|(dir, name)| Some((dir?.to_str()?, name)))
+        .filter(|(dir, _)| dir.len() > 1)
+    {
+        text = text.replace(dir, name);
+    }
+    text
+}
+
+/// The executable files at the top of `scratch` and one directory down, such as a fake
+/// `claude` or `gh`: each with its size and how long ago it was written.
+fn executables(scratch: &Path) -> Vec<String> {
+    let top = fs::read_dir(scratch).into_iter().flatten().flatten();
+    let entries: Vec<fs::DirEntry> = top
+        .flat_map(|entry| {
+            let below = entry
+                .file_type()
+                .is_ok_and(|kind| kind.is_dir())
+                .then(|| fs::read_dir(entry.path()).into_iter().flatten().flatten());
+            std::iter::once(entry).chain(below.into_iter().flatten())
+        })
+        .collect();
+    entries
+        .iter()
+        .filter_map(|entry| {
+            let meta = entry.metadata().ok()?;
+            (meta.is_file() && meta.permissions().mode() & 0o111 != 0).then_some(())?;
+            let age = meta.modified().ok()?.elapsed().unwrap_or_default();
+            Some(format!(
+                "executable {}: {} bytes, mode {:o}, written {:.1}s ago",
+                entry.path().display(),
+                meta.len(),
+                meta.permissions().mode() & 0o7777,
+                age.as_secs_f64(),
+            ))
+        })
+        .take(20)
+        .collect()
+}
+
+/// The processes under `pid`, as `ps` lists them: process ID, parent's, state, time since
+/// it started and arguments, each line cut at 200 characters.
+fn descendants(pid: u32) -> Vec<String> {
+    let listing = match output_of("ps", &["-A", "-ww", "-o", "pid=,ppid=,stat=,etime=,args="]) {
+        Ok(listing) => listing,
+        Err(e) => return vec![format!("no ps listing: {e}")],
+    };
+    let rows: Vec<(u32, u32, &str)> = listing
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.split_whitespace();
+            let pid = fields.next()?.parse().ok()?;
+            let parent = fields.next()?.parse().ok()?;
+            Some((pid, parent, line.trim()))
+        })
+        .collect();
+    let mut under = vec![pid];
+    let mut lines = Vec::new();
+    let mut index = 0;
+    while let Some(&parent) = under.get(index) {
+        for &(child, _, line) in rows.iter().filter(|(_, of, _)| *of == parent) {
+            under.push(child);
+            lines.push(line.chars().take(200).collect());
+        }
+        index += 1;
+    }
+    if lines.is_empty() {
+        lines.push("none".to_owned());
+    }
+    lines
+}
+
+/// The machine's load averages, as `uptime` gives them.
+fn load_average() -> String {
+    match output_of("uptime", &[]) {
+        Ok(said) => said
+            .find("load average")
+            .map_or_else(|| said.trim().to_owned(), |at| said[at..].trim().to_owned()),
+        Err(e) => format!("no load average: {e}"),
+    }
+}
+
+/// The time now in UTC, as an instance's log writes it, to the millisecond.
+fn utc_now() -> String {
+    utc(std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default())
+}
+
+/// The UTC time `now` after the UNIX epoch, as [`utc_now`] writes it.
+fn utc(now: Duration) -> String {
+    let secs = now.as_secs();
+    let (days, rest) = (secs / 86_400, secs % 86_400);
+    // Days to a civil date (Howard Hinnant's algorithm), for days after 1970.
+    let z = days + 719_468;
+    let era = z / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + u64::from(month <= 2);
+    format!(
+        "{year}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{:03}Z",
+        rest / 3600,
+        rest % 3600 / 60,
+        rest % 60,
+        now.subsec_millis(),
+    )
+}
+
+/// What `program`, found on `PATH`, prints with `args`, or why it could not be run.
+fn output_of(program: &str, args: &[&str]) -> Result<String, String> {
+    let executable = Executable::from_path(program, None).map_err(|e| e.to_string())?;
+    let args: Vec<OsString> = args.iter().map(OsString::from).collect();
+    let output = spawn(&Spawn {
+        executable: &executable,
+        args: &args,
+        cwd: None,
+        project: None,
+        inherit: &[],
+        stdin: Source::Closed,
+        stdout: Sink::Piped,
+        stderr: Sink::Null,
+        own_process_group: false,
+        own_session: false,
+        set: &[],
+        terminal: None,
+        pass_fd: None,
+        args_logged: true,
+    })
+    .and_then(Child::wait_with_output)
+    .map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        return Err(output.status.to_string());
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+#[test]
+fn a_report_writes_the_time_as_the_log_does_and_names_no_directory() {
+    assert_eq!(
+        utc(Duration::from_millis(1_795_313_805_042)),
+        "2026-11-22T02:16:45.042Z"
+    );
+    assert_eq!(utc(Duration::ZERO), "1970-01-01T00:00:00.000Z");
+    assert_eq!(
+        utc(Duration::from_secs(951_782_400)),
+        "2000-02-29T00:00:00.000Z"
+    );
+    let temp = fs::canonicalize(std::env::temp_dir()).unwrap();
+    let scratch = temp.join("oso-e2e-1-report");
+    let text = format!(
+        "{} {} {}",
+        scratch.join("fake-claude").display(),
+        temp.join("other").display(),
+        scratch_of(&scratch.join("proj")).unwrap().display(),
+    );
+    assert_eq!(
+        tidy_paths(&text, Some(&scratch)),
+        "<scratch>/fake-claude <temp>/other <scratch>"
+    );
 }
