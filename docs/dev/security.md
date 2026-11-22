@@ -888,7 +888,10 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     with `/` as a command, and an `@` at the start or after whitespace (U+FEFF included) gets a
     `\`, as Claude Code puts a file an `@PATH` names in the context there, wherever the file is
     (ADR 0121, "Composed text, as amended" and "An agent's brief, as amended"). It is escaped
-    once, as the paste will read it: a control character the paste drops is looked through.
+    once, as the paste will read it: a control character the paste drops, or an invisible one,
+    is looked through, and a leading `!` or `#`, a mode of the TUI's input box, gets the space
+    too. A worktree session's header and hand-off facts, and `session-mention`'s `@NAME`, are
+    such text.
     Text put into a draft, a kept image's reference included, also leaves no `@` of the draft at
     the start of a word; the brief oso composes for an orchestrator's successor, of names agents
     choose, is escaped too. An image kept after the person left the session goes in without

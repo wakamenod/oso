@@ -1900,7 +1900,11 @@ pull request's thread or an orchestrator's offer, could do either once the perso
   `send_to_session` calls), once, on both routes: a leading `/` gets a space before it, and an
   `@` at the start or after whitespace (what Rust calls so, and U+FEFF) gets a `\` before it
   (`sessions::send::for_claude`). A control character a terminal's paste drops is looked
-  through, so that dropping it leaves no `@` at a word's start and no `/` first. This changes Q17's
+  through, so that dropping it leaves no `@` at a word's start and no `/` first; so is an
+  invisible one. A leading `!` or `#`, which the TUI's input box reads as a mode of its own,
+  gets the space too, as the session tools' briefs already keep them from the start.
+  `session-mention`'s `@NAME`, a name other programs may choose, goes as `\@NAME`, in a
+  terminal and in a native session's composer; elsewhere it is plain text and stays as it is. This changes Q17's
   "cleaned as 0120 cleans any paste": it is then cleaned so too. `session-send`'s notes, review
   comments (ADR 0122), git drafts (ADR 0127), offers (ADR 0136) and a review's question
   (ADR 0163) are all such text.
@@ -1909,8 +1913,10 @@ pull request's thread or an orchestrator's offer, could do either once the perso
   for is composed text too, as it goes with the rest.
 - **What the person sees:** the paste as escaped, in the input box, before pressing Enter; a
   Python decorator or a Java annotation in an excerpt shows with a `\` before its `@`.
-- **Not covered:** the TUI's own reading of `@` in a paste is not measured, only `-p`'s; the
-  escape assumes it is the same.
+- **Not covered:** the TUI's own reading of `@`, `!` and `#` in a paste is not measured, only
+  `-p`'s; the escape assumes it is the same. In a terminal, what follows the paste in the input
+  box is not known, so a paste that ends in whitespace before a draft's `@` there is not
+  guarded as one put into a native composer is.
 
 ## An agent's brief, as amended
 
@@ -1922,7 +1928,9 @@ successor's (ADR 0136).
 
 - **It is escaped once, where the start takes it** (`Begin::brief_to_send`), as composed text
   is, on both routes: a terminal session's command line and a native session's first message.
-  The successor's is escaped where oso composes it.
+  The successor's is escaped where oso composes it, and so are a worktree session's header and
+  hand-off facts (`sessions::worktree::brief::compose`), the paths, names and git status lines
+  of others before the brief.
 - **The person's own brief** (`*Brief*`, `session-worktree`) goes as typed, a command in it
   included.
 - **What the person sees:** the question before a start and `?`'s buffer show the brief as the

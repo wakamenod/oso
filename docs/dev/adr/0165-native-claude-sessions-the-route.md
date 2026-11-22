@@ -836,8 +836,8 @@ starting with `/` runs a command (part 2d); one starting with a space does not.
 - **Escapes** (step 2's Q5 (a), now ADR 0121's "Composed text, as amended", on both routes,
   part 2f's Q2 (a)): what oso composed gets a space before a leading `/`, and a `\` before an
   `@` at the start or after whitespace (`sessions::send::for_claude`), once, at the one
-  delivery path, `paste_into_session`, a control character a terminal's paste drops looked
-  through. Put into a draft, a `\` also follows text that ends
+  delivery path, `paste_into_session`, a control or invisible character looked through; a
+  leading `!` or `#` gets the space too. Put into a draft, a `\` also follows text that ends
   in whitespace before an `@` of the draft, so that nothing put in makes the person's `x@y`
   the start of a word, a kept image's `@PATH` (`sessions::send::reference`) included, which is
   otherwise not escaped, nor is what the person types.

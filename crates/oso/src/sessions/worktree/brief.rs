@@ -10,6 +10,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 use crate::git::printable;
+use crate::sessions::send::for_claude;
 
 /// The most bytes the whole first prompt takes.
 pub const MAX_BRIEF: usize = 64 * 1024;
@@ -243,17 +244,25 @@ pub fn compose(
             "\nThis work was handed to you by session {name}; report back with SendMessage (to: {name})."
         ));
     }
-    let fixed = head.len() + 2 + brief.len();
+    // The header and the facts are text oso composed from names and paths others chose: escaped
+    // as all such text is (ADR 0121, "An agent's brief, as amended"); the brief after them is
+    // the person's, or escaped by the start as an agent's.
+    let mut out = for_claude(&head, None).into_owned();
+    let fixed = out.len() + 2 + brief.len();
     if fixed > MAX_BRIEF {
         return Err(BriefError::TooLong);
     }
-    let mut facts = handoff.map(Facts::new);
-    if let Some(facts) = facts.as_mut() {
-        while fixed + facts.len() > MAX_BRIEF && facts.drop_one() {}
-    }
-    let mut out = head;
-    if let Some(facts) = &facts {
-        facts.write(&mut out);
+    if let Some(mut facts) = handoff.map(Facts::new) {
+        let mut written = String::new();
+        loop {
+            written.clear();
+            facts.write(&mut written);
+            let escaped = for_claude(&written, None);
+            if fixed + escaped.len() <= MAX_BRIEF || !facts.drop_one() {
+                out.push_str(&escaped);
+                break;
+            }
+        }
     }
     out.push_str("\n\n");
     out.push_str(brief);

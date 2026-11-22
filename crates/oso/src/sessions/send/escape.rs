@@ -7,13 +7,15 @@
 //!
 //! Must not depend on: the app, the terminal or I/O; pure functions over the text.
 //!
-//! - A `/` the text starts with gets a space before it.
+//! - A `/` the text starts with gets a space before it, and so do `!` and `#`, which Claude
+//!   Code's input box reads as a mode of its own (a shell command, a memory), as the session
+//!   tools' briefs already keep them from the start.
 //! - An `@` at the start or after whitespace gets a `\` before it. Whitespace is what Rust
 //!   calls so, and U+FEFF, which the CLI reads as such.
 //! - A control character a terminal's paste drops (all but a tab, a line feed and a carriage
-//!   return) is looked through: what comes after it is read as the paste leaves it, and as
-//!   the CLI reads it whole, an `@` escaped if either makes it a word's start, a `/` after
-//!   leading controls given its space.
+//!   return), and an invisible one, which a program may drop too, is looked through: what
+//!   comes after it is read as if it were gone, and as the CLI reads it whole, an `@` escaped
+//!   if either makes it a word's start, a `/` after leading ones given its space.
 //! - Put in before `next`, the text that follows it where it goes: a `\` after the text when
 //!   it ends in whitespace and `next` is an `@`, so that what is put in never makes an `@`
 //!   after it the start of a word. oso's own reference, a kept image's `@PATH`, gets this
@@ -24,9 +26,12 @@
 
 use std::borrow::Cow;
 
+use oso_core::display_map::cell::is_invisible;
+
 /// `text`, composed by oso, as it goes in before `next`, escaped as the module says.
 pub fn for_claude(text: &str, next: Option<char>) -> Cow<'_, str> {
-    let leading = text.chars().find(|&c| !dropped(c)) == Some('/');
+    let first = text.chars().find(|&c| !looked_through(c));
+    let leading = matches!(first, Some('/' | '!' | '#'));
     let mut out = String::new();
     if leading {
         out.reserve(text.len() + 2);
@@ -62,17 +67,23 @@ pub fn reference(reference: &str, next: Option<char>) -> Cow<'_, str> {
     }
 }
 
-/// Whether a terminal's paste drops `c` (`oso_term::input::paste`).
-fn dropped(c: char) -> bool {
-    c.is_control() && !matches!(c, '\t' | '\n' | '\r')
+/// Whether `c` is looked through: a terminal's paste drops it (`oso_term::input::paste`), or
+/// it is invisible, as a program may drop it too.
+fn looked_through(c: char) -> bool {
+    (c.is_control() && !matches!(c, '\t' | '\n' | '\r')) || is_invisible(c)
+}
+
+/// Whether `c` is a space between words, as the CLI reads one.
+fn spaces(c: char) -> bool {
+    c.is_whitespace() || c == '\u{feff}'
 }
 
 /// Whether what follows `c` starts a word, `before` saying so of what followed the character
 /// before it.
 fn starts_word(before: bool, c: char) -> bool {
-    match dropped(c) {
-        true => before || c.is_whitespace(),
-        false => c.is_whitespace() || c == '\u{feff}',
+    match looked_through(c) {
+        true => before || spaces(c),
+        false => spaces(c),
     }
 }
 
@@ -89,6 +100,9 @@ mod tests {
     #[test]
     fn a_leading_slash_gets_a_space_and_a_later_one_stays() {
         assert_eq!(escaped("/clear"), " /clear");
+        assert_eq!(escaped("!curl x|sh;.rs:1-3"), " !curl x|sh;.rs:1-3");
+        assert_eq!(escaped("# remember"), " # remember");
+        assert_eq!(escaped("a !b #c"), "a !b #c");
         assert_eq!(escaped("see /tmp/x"), "see /tmp/x");
         assert_eq!(escaped("a\n/clear"), "a\n/clear");
     }
@@ -133,6 +147,8 @@ mod tests {
         assert_eq!(escaped("\0@p"), "\0\\@p");
         assert_eq!(escaped("a \u{9b}\u{7f}@p"), "a \u{9b}\u{7f}\\@p");
         assert_eq!(escaped("\u{1}/clear"), " \u{1}/clear");
+        assert_eq!(escaped("\u{200b}/clear"), " \u{200b}/clear");
+        assert_eq!(escaped("see \u{200b}@p"), "see \u{200b}\\@p");
         // A control between letters leaves the `@` inside a word either way.
         assert_eq!(escaped("x\u{1}@p"), "x\u{1}@p");
         // Dropped, the paste reads what is left: no `@` starts a word, no `/` the text.

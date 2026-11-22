@@ -103,7 +103,10 @@ impl App {
         let table = self.hosting.table();
         let session = match to {
             SendTo::Named(name) => self.session_named(name).and_then(|key| table.get(key)),
-            SendTo::Buffer(buffer) => table.by_buffer(*buffer),
+            // A native session's composer is the session's too (ADR 0165, part 2f).
+            SendTo::Buffer(buffer) => {
+                (table.by_buffer(*buffer)).or_else(|| table.get(self.composer_session(*buffer)?))
+            }
         };
         let Some(session) = session else {
             return self.editor.message(match to {

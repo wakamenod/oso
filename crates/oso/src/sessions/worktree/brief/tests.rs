@@ -125,6 +125,26 @@ fn control_characters_are_escaped() {
 }
 
 #[test]
+fn names_and_paths_others_chose_cannot_attach_a_file_or_run_a_command() {
+    let touched = [PathBuf::from("/repo/x @/etc/hosts")];
+    let handoff = Handoff {
+        name: Some("@/etc/passwd"),
+        touched: &touched,
+        ..Handoff::default()
+    };
+    let header = Header {
+        space: Some("s \u{3000}@/etc/group"),
+        ..header()
+    };
+    let text = compose(&header, Some(&handoff), "Look at @src/lib.rs").unwrap();
+    assert!(text.contains("session \\@/etc/passwd;"), "{text}");
+    assert!(text.contains("  /repo/x \\@/etc/hosts\n"), "{text}");
+    assert!(text.contains("s \u{3000}\\@/etc/group"), "{text}");
+    // The brief itself is the start's to escape, as it knows whose it is.
+    assert!(text.ends_with("\n\nLook at @src/lib.rs"), "{text}");
+}
+
+#[test]
 fn bad_briefs_are_refused() {
     assert_eq!(compose(&header(), None, ""), Err(BriefError::Empty));
     assert_eq!(compose(&header(), None, " \n\t"), Err(BriefError::Empty));

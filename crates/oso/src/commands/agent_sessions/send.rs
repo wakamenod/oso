@@ -346,11 +346,15 @@ fn send_diagnostic(
 
 fn session_mention(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     let name = super::answer(ctx, "No session")?;
-    if !ctx.editor.current().1.is_terminal() {
+    let buffer = ctx.editor.current().1;
+    // A native session's composer sends what it holds as the person's: the name, which other
+    // programs may choose, goes in as a send does, escaped (ADR 0165, part 2f).
+    let composer = buffer.mode() == oso_core::buffer::Mode::Composer;
+    if !buffer.is_terminal() && !composer {
         return insert_at_cursors(ctx, &format!("@{name}"), 1);
     }
-    // In a terminal: pasted, as the person's typing, into the session it holds; the host
-    // refuses a terminal that holds none.
+    // In a terminal: pasted, as the person's typing, into the session it holds, or put into a
+    // composer; the host refuses a buffer that holds none.
     let id = ctx.editor.window().buffer();
     ctx.editor.request_session(SessionRequest::Send {
         to: SendTo::Buffer(id),

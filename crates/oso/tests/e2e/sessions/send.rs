@@ -325,7 +325,9 @@ fn mention(flow: &Flow, app: &mut App, session: &str) {
     });
     app.send_keys("p r o j RET");
     let read = wait_for_pastes(flow, "proj", 5);
-    assert_eq!(paste(&read, 5), ("@proj ", ""));
+    // A name other programs chose, escaped as a send's text is (ADR 0121, "Composed text, as
+    // amended").
+    assert_eq!(paste(&read, 5), ("\\@proj ", ""));
 }
 
 #[test]
