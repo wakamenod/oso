@@ -20,6 +20,7 @@ use oso_core::buffer::{Buffer, BufferId, Mode, Replacement};
 use oso_core::editor::NativeAction;
 use oso_core::window::DockSlot;
 
+use super::interrupting::Interrupted;
 use super::note::NativeState;
 use crate::app::App;
 use crate::app::sessions::withheld_draft;
@@ -62,6 +63,11 @@ impl Composing {
     /// The process runs again after it ended: the queue waits for an empty `C-c C-c`.
     pub(super) fn resumed(&mut self) {
         self.queue.resumed();
+    }
+
+    /// The person interrupted the turn: the queue waits for them (step 2c).
+    pub(super) fn interrupted(&mut self) {
+        self.queue.interrupted();
     }
 }
 
@@ -109,10 +115,10 @@ impl App {
         action: NativeAction,
     ) -> bool {
         match action {
-            NativeAction::Send => self.composer_send(key),
-            NativeAction::SendNow => self
-                .editor
-                .message("Interrupting comes with a later step: C-c C-c queues it meanwhile"),
+            NativeAction::Send => self.composer_send(key, false),
+            NativeAction::SendNow => self.composer_send(key, true),
+            // From the transcript, an interrupt alone (step 2c).
+            NativeAction::Cancel if offset.is_some() => self.person_interrupts(key),
             NativeAction::Cancel => self.composer_cancel(key),
             NativeAction::History(count) => self.composer_history(key, count),
             NativeAction::Transcript => self.composer_go(key, false),
@@ -152,8 +158,9 @@ impl App {
     }
 
     /// `C-c C-c`: sends the composer's text now, queues it, or puts an edited queued message
-    /// back in its place, as the queue's rules say.
-    fn composer_send(&mut self, key: SessionKey) {
+    /// back in its place, as the queue's rules say. `now`, `C-u C-c C-c`: puts it ahead of
+    /// the queue and interrupts the turn under way (step 2c).
+    fn composer_send(&mut self, key: SessionKey, now: bool) {
         let Some(id) = self.composer(key) else {
             return;
         };
@@ -181,7 +188,11 @@ impl App {
         let Some(native) = self.hosting.natives.map.get_mut(&key) else {
             return;
         };
-        match native.composing.queue.send(text, turn) {
+        let sent = match now {
+            true => native.composing.queue.send_now(text, turn),
+            false => native.composing.queue.send(text, turn),
+        };
+        match sent {
             Sent::Now(text) if self.deliver(key, &text) => self.set_composer_text(key, ""),
             // The person's text stays in the composer, and the queue waits for the person.
             Sent::Now(_) => self.not_sent(key, None),
@@ -198,12 +209,22 @@ impl App {
                 };
                 self.editor.message(format!("Queued as {count}: {when}"));
             }
+            // It goes first, the queue not paused: a send now is a send (Q1 (a)).
+            Sent::Ahead(_) => {
+                self.set_composer_text(key, "");
+                if self.native_interrupt(key, false) != Interrupted::Yes {
+                    self.editor.message("It goes first, once the turn ends");
+                }
+            }
             Sent::PutBack => self.set_composer_text(key, ""),
             Sent::Refused(Refusal::Empty) => self.editor.message("The message is empty"),
             Sent::Refused(Refusal::TooLong) => self.editor.message("The message is over 64 KiB"),
             Sent::Refused(Refusal::Full) => self
                 .editor
                 .message("The queue is full: wait for a turn to end"),
+            Sent::Refused(Refusal::Editing) => self
+                .editor
+                .message("A queued message is edited here: C-c C-c puts it back first"),
         }
         self.draw_queue(key);
     }
@@ -308,17 +329,34 @@ impl App {
         self.draw_queue(key);
     }
 
-    /// `C-c C-k`: gives up the edit of a queued message.
+    /// Native session `key`'s process ended to resume: no turn runs, and the queue stays as
+    /// the interrupt left it (step 2c).
+    pub(super) fn composer_idle(&mut self, key: SessionKey) {
+        if let Some(native) = self.hosting.natives.map.get_mut(&key) {
+            native.composing.busy = false;
+        }
+    }
+
+    /// `C-c C-k`: gives up the edit of a queued message, or else interrupts the turn under
+    /// way (step 2c).
     fn composer_cancel(&mut self, key: SessionKey) {
         let Some(native) = self.hosting.natives.map.get_mut(&key) else {
             return;
         };
         if native.composing.queue.editing().is_none() {
-            return self.editor.message("Interrupting comes with a later step");
+            return self.person_interrupts(key);
         }
         native.composing.queue.give_up_edit();
         self.set_composer_text(key, "");
         self.draw_queue(key);
+    }
+
+    /// The person's `C-c C-k` with no edit to give up, from the composer or the transcript:
+    /// the turn under way is interrupted, and the queue waits for them.
+    fn person_interrupts(&mut self, key: SessionKey) {
+        if self.native_interrupt(key, true) == Interrupted::NoTurn {
+            self.editor.message("No turn runs to interrupt");
+        }
     }
 
     /// `M-p` and `M-n`: the message sent `count` before the one shown, after if negative.

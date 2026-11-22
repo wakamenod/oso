@@ -209,3 +209,80 @@ fn a_resume_keeps_the_queue_waiting_for_an_empty_send() {
     queue.resumed();
     assert_eq!(queue.paused(), None);
 }
+
+#[test]
+fn an_interrupt_pauses_the_queue_until_the_person_sends() {
+    let mut queue = Queue::default();
+    queue.interrupted();
+    assert_eq!(queue.paused(), None, "an empty queue has nothing to hold");
+    queued(&mut queue, "a");
+    queued(&mut queue, "b");
+    queue.interrupted();
+    assert_eq!(queue.paused(), Some(Pause::Held));
+    assert_eq!(queue.idle(IDLE), None);
+    assert_eq!(queue.send(String::new(), IDLE), Sent::Next("a".into()));
+    assert_eq!(queue.idle(IDLE), Some("b".into()));
+}
+
+#[test]
+fn a_send_now_goes_ahead_of_the_queue_which_then_goes_on() {
+    let mut queue = Queue::default();
+    queued(&mut queue, "a");
+    queue.interrupted();
+    assert_eq!(queue.send_now("now".into(), BUSY), Sent::Ahead(2));
+    assert_eq!(texts(&queue), ["now", "a"]);
+    assert_eq!(queue.paused(), None);
+    assert_eq!(queue.idle(BUSY), None, "once the interrupted turn ends");
+    assert_eq!(queue.idle(IDLE), Some("now".into()));
+    assert_eq!(queue.idle(IDLE), Some("a".into()));
+}
+
+#[test]
+fn a_send_now_with_no_turn_to_interrupt_is_a_send() {
+    let mut queue = Queue::default();
+    assert_eq!(queue.send_now("a".into(), IDLE), Sent::Now("a".into()));
+    assert_eq!(queue.send_now("b".into(), STARTING), Sent::Queued(1));
+    assert_eq!(queue.send_now("c".into(), STOPPED), Sent::Queued(2));
+    assert_eq!(texts(&queue), ["b", "c"], "behind what waits");
+}
+
+#[test]
+fn a_send_now_keeps_the_limits_and_waits_for_an_edit() {
+    let mut queue = Queue::default();
+    assert_eq!(
+        queue.send_now(" \n".into(), BUSY),
+        Sent::Refused(Refusal::Empty)
+    );
+    let long = "x".repeat(MAX_MESSAGE + 1);
+    assert_eq!(queue.send_now(long, BUSY), Sent::Refused(Refusal::TooLong));
+    let id = queued(&mut queue, "a");
+    queue.edit(id);
+    assert_eq!(
+        queue.send_now("b".into(), BUSY),
+        Sent::Refused(Refusal::Editing)
+    );
+    queue.give_up_edit();
+    for n in 1..MAX_QUEUED {
+        queued(&mut queue, &n.to_string());
+    }
+    assert_eq!(
+        queue.send_now("b".into(), BUSY),
+        Sent::Refused(Refusal::Full)
+    );
+    assert_eq!(queue.waiting().len(), MAX_QUEUED);
+}
+
+#[test]
+fn in_the_apps_order_a_send_now_is_not_paused_by_its_own_interrupt() {
+    // The app puts it first, then interrupts without pausing: the queue goes on (Q1 (a)).
+    let mut queue = Queue::default();
+    queued(&mut queue, "a");
+    assert_eq!(queue.send_now("now".into(), BUSY), Sent::Ahead(2));
+    assert_eq!(queue.paused(), None);
+    assert_eq!(queue.idle(IDLE), Some("now".into()));
+    assert_eq!(queue.idle(IDLE), Some("a".into()));
+    // The person's `C-c C-k` pauses it.
+    queued(&mut queue, "b");
+    queue.interrupted();
+    assert_eq!(queue.idle(IDLE), None);
+}

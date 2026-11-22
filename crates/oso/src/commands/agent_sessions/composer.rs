@@ -1,6 +1,7 @@
 //! A native session's composer and queue, as keys (ADR 0165, step 2; ADR 0170's composer
-//! dock): `C-c C-c` sends, or queues while a turn runs, `C-u C-c C-c` sends at once, `C-c C-k`
-//! cancels a queued message's edit, `M-p`/`M-n` walk the messages sent, `C-c C-o` goes back to
+//! dock): `C-c C-c` sends, or queues while a turn runs, `C-u C-c C-c` sends at once, ahead of
+//! the queue, interrupting the turn, `C-c C-k` cancels a queued message's edit or else
+//! interrupts the turn, as the transcript's `C-c C-k` does (step 2c), `M-p`/`M-n` walk the messages sent, `C-c C-o` goes back to
 //! the transcript and `i` there to the composer; and on a queued message's row `e` edits it in
 //! its place, `d` drops it and `M-<up>`/`M-<down>` move it (`RET` takes it back, as the
 //! transcript's `RET` asks). Each asks the host, which keeps the queue.
@@ -20,7 +21,7 @@ use super::native::at_point as ask;
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "native-composer-send",
-        doc: "Send the composer's text to its native session, or queue it while a turn runs.\n\nWhile a queued message is edited in the composer, put it back in its place. With a prefix argument, send it at once, interrupting the turn under way (comes with a later step; until then it says so).",
+        doc: "Send the composer's text to its native session, or queue it while a turn runs.\n\nWhile a queued message is edited in the composer, put it back in its place. With a prefix argument, interrupt the turn under way and send it first, ahead of the queue, once that turn ends; with no turn to interrupt, send it as without one.",
         args: ArgSpec::Count,
         reach: Reach::Person,
         run: send,
@@ -28,7 +29,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "native-composer-cancel",
-        doc: "Give up the edit of a queued message in a native session's composer: it stays as it was.",
+        doc: "Give up the edit of a queued message in a native session's composer: it stays as it was.\n\nWith no edit, interrupt the session's turn under way: nothing queued goes until the next send.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: cancel,
@@ -64,6 +65,14 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: compose,
+        state: None,
+    },
+    Command {
+        name: "native-session-interrupt",
+        doc: "Interrupt the turn under way of the native session whose transcript this is: nothing queued goes until the next send.\n\nThe `interrupt` control request where the session's claude takes it; else claude is interrupted with a signal and resumes its conversation.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: interrupt,
         state: None,
     },
     Command {
@@ -118,6 +127,10 @@ fn send(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
 }
 
 fn cancel(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    ask(ctx, NativeAction::Cancel)
+}
+
+fn interrupt(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     ask(ctx, NativeAction::Cancel)
 }
 

@@ -1,6 +1,6 @@
 //! A native session's run state and its modeline note (ADR 0165): `starting`, nothing while
-//! it runs, `stopped` or `failed`, and how many of its messages wait (step 2). The note is
-//! written here alone.
+//! it runs, or `interrupting` (step 2c), `stopped` or `failed`, and how many of its messages
+//! wait (step 2). The note is written here alone.
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 
@@ -44,7 +44,11 @@ impl App {
         let Some(native) = self.hosting.natives.map.get(&key) else {
             return;
         };
-        let state = native.state.said();
+        let interrupting = native.interrupt.interrupting();
+        let state = match native.state {
+            NativeState::Running if interrupting => "interrupting",
+            state => state.said(),
+        };
         let note = match (state, native.composing.queued()) {
             (state, 0) => state.to_owned(),
             ("", count) => format!("{count} queued"),

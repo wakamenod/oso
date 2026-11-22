@@ -1,6 +1,7 @@
 //! Native sessions (ADR 0165, steps 1 and 2), with a fake `claude -p`: a shell script that
-//! `[sessions] claude` names, which writes its arguments and the first line of its input to
-//! files, prints stream-json lines the flow wrote, and exits with the status the flow gives it.
+//! `[sessions] claude` names, which writes its arguments and the first message of its input
+//! to files, leaving the control layer's requests unanswered (step 2c), prints stream-json
+//! lines the flow wrote, and exits with the status the flow gives it.
 //! The asking fake also asks the person's permission through `oso mcp --permission`, as its
 //! `--mcp-config` names it, the way `claude` calls its `--permission-prompt-tool`.
 //!
@@ -26,7 +27,9 @@ use super::super::worktrees::keys;
 const FAKE: &str = r#"#!/bin/sh
 dir='DIR'
 for a in "$@"; do printf 'arg %s\n' "$a"; done > "$dir/run.$$"
-IFS= read -r first
+while IFS= read -r first; do
+  case "$first" in *'"control_request"'*) ;; *) break ;; esac
+done
 printf '%s\n' "$first" > "$dir/first.$$"
 cat "$dir/stream.jsonl"
 while [ ! -f "$dir/go" ]; do sleep 0.1; done
@@ -258,7 +261,9 @@ fn a_native_session_starts_with_its_first_message_and_shows_its_stream() {
 const ASKING_FAKE: &str = r#"#!/bin/sh
 dir='DIR'
 for a in "$@"; do printf 'arg %s\n' "$a"; done > "$dir/run.$$"
-IFS= read -r first
+while IFS= read -r first; do
+  case "$first" in *'"control_request"'*) ;; *) break ;; esac
+done
 printf '%s\n' "$first" > "$dir/first.$$"
 cat "$dir/stream.jsonl"
 while [ ! -f "$dir/ask" ]; do sleep 0.1; done
@@ -458,6 +463,7 @@ fn answer_after_quiet(app: &mut App, key: &str) {
 }
 
 mod compose;
+mod interrupt;
 mod resume;
 
 /// Whether the selected window is the composer docked under a session.

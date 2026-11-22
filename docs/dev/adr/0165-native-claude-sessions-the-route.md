@@ -615,7 +615,7 @@ part 2a-1). The author chose (a) on Q1 and on each of Q1a to Q1e:
   for the sessions to be idle to exit (`quit-when-idle`, ADR 0133), as it would start a turn
   the exit waits for; what the person sends then goes, and the exit's wait starts again. A
   refused send changes nothing. `C-u C-c C-c` (send now, interrupting) and `C-c C-k` as an
-  interrupt come with part 2c, and say so until then.
+  interrupt came with part 2c.
 - **The rules are one pure state machine,** `sessions::native::queue`, told whether a turn runs,
   whether the process starts, runs or ended, and whether oso waits to exit, and tested there;
   the app carries out what it comes to, and the queue goes from one place, after each event.
@@ -687,6 +687,71 @@ R1 as built, with the author's Q2 (a) and their choices of 2026-11-22:
   do (ADR 0122), a resume and a fork do not.
 - **A review's question** (ADR 0163) to a stopped native orchestrator is refused for now, as a
   native session takes messages in its composer: part 2f's composed sends carry it.
+
+### Part 2c: the control layer and the interrupt
+
+Tier 2's first two requests, with tier 1 as their fallback, and the author's (a) on each of
+Q1 to Q3 of 2026-11-22.
+
+Measured on 2026-11-22 (CLI 2.1.330, `--model=haiku`, a made-up prompt, an empty directory):
+
+- `initialize` is answered within 0.2 s, in one line of about 36 KB: `commands`, `agents`,
+  `models`, `account`, `pid`, `current_permission_mode`, `session_state`, a `capabilities`
+  array of its own and more.
+- `interrupt` is answered `success` with `still_queued` even while no turn runs, so a success
+  alone does not say a turn ended. During a turn it is followed by a non-replayed
+  `[Request interrupted by user]` user message and the turn's `result`
+  (`error_during_execution`, `aborted_streaming`); the process stays, and the next message is
+  answered. Without an `initialize` first it works too.
+- A request the CLI does not know is answered `error`, `error_code: unsupported_request`.
+- `system/init` lists `interrupt_receipt_v1` among its capabilities.
+
+As built:
+
+- **The control layer** (`sessions::native::control`, over `wire::control`'s lines): whether
+  the CLI speaks it, for which requests, the ids of oso's requests (`oso-N`) and which one an
+  answer is to, a pure state machine at the caller's instants. `initialize` is written first,
+  as the process starts, before the first message, through the same writer queue as the
+  messages. Tier 2 is on once it is answered with success; `interrupt` then goes only while
+  the turn's `system/init` lists `interrupt_receipt_v1`. An error, or no answer within 10 s,
+  leaves the session on tier 1; a success that comes later still turns tier 2 on. Why tier 2
+  is off is logged once a process, the CLI's words escaped. Of an answer only its id, its
+  success and its error, cut to 256 bytes, are read; what `initialize` answers otherwise is
+  left for part 2d. oso answers no `control_request` of the CLI's: it asks for none. Each
+  later request (`set_permission_mode`, `get_usage`, `side_question`) is its own module over
+  this one, as `interrupt` is.
+- **Measured, the first reply:** writing `initialize` first was within the noise of the first
+  reply's time (CLI 2.1.330, haiku, a made-up prompt, 7 runs each: median 3.3 s with it, 2.6 s
+  without, ranges 2.1–3.7 s and 2.2–3.0 s); written after the first message, it was still
+  answered first, in 0.3 to 0.6 s. The model's latency dominates, so it stays first, as the
+  SDKs write it.
+- **Tier 2** (`sessions::native::interrupt`): an interrupt is the `interrupt` request, and the
+  process stays. With no answer within 2 s, an error, or the turn still under way 5 s after the
+  answer, it falls back to tier 1, and why is logged.
+- **Tier 1:** the process alone is sent `SIGINT` (`Child::interrupt`), not its group: the CLI
+  ends its own tools, as it does for a TUI's `C-c`, which is a byte. It ends the turn, then the
+  process (step 1's measurement); if it has not ended within 5 s, it is stopped as the session
+  list stops it. Either way it is resumed at once with `--resume`, in its buffer, as part 2b's
+  resume is, under the trust judged then; refused, it stays stopped with an "It did not
+  resume" row. An "Interrupted with a signal" row says so, and its end is no failure; for a
+  moment the session reads stopped, then starting, as a resume does. Nothing resumes when the
+  person stopped it or is asked whether to, when the replacement of an orchestrator waits for
+  its end, while oso waits to quit or restart, or as oso exits.
+- **Windows has no tier 1:** with no `SIGINT`, the process would end at once and leave its
+  tools running, so an interrupt the request does not carry is given up, and the person is
+  told that `session-stop` stops the session.
+- **Keys:** `C-c C-k` in the composer gives up the edit of a queued message, or else
+  interrupts the turn under way; in the transcript, the author's Q2 (a), it is
+  `native-session-interrupt`, where session mode leaves `C-c C-k` to a terminal a native
+  session has none of. `C-u C-c C-c` sends the composer's text
+  now: put first in the queue, it goes once the interrupted turn ends. With no turn to
+  interrupt, or while the process starts, it is `C-c C-c` (Q3 (a)). One interrupt goes at a
+  time; the modeline says `interrupting` until its turn ended.
+- **The queue:** an interrupt pauses it until the person sends; after a send now, the queue
+  goes on as after any send (Q1 (a)). A tier-1 resume keeps it as the interrupt left it.
+- **Public API (approved):** `oso_platform::process::Signal::Interrupt` and
+  `Child::interrupt`; on Windows, which has no `SIGINT`, the process ends at once, as
+  `terminate` does there.
 
 ## Questions
 

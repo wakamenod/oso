@@ -159,6 +159,7 @@ impl App {
             self.watch.attention.due(),
             self.watch.seen.due(),
             self.sessions_clock_due(),
+            self.natives_deadline(),
         ]
         .into_iter()
         .flatten()
@@ -178,6 +179,7 @@ impl App {
             self.session_seen();
         }
         self.tick_sessions(now);
+        self.natives_due(now);
         self.refresh_sessions();
     }
 

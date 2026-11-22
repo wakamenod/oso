@@ -11,10 +11,12 @@
 //! - A line is at most [`MAX_LINE`] bytes; the reader that splits the stream drops longer ones
 //!   as unreadable. Each text kept is cut to its own limit, so what an event holds is bounded
 //!   whatever the line.
-//! - The transcript format and the control protocol are not read here: only the stream.
-//! - `messages` reads the messages' bodies and `tools` a tool call's input: with this file, the
-//!   only places that touch JSON.
+//! - The transcript format is not read here: only the stream. Of the control protocol, the
+//!   requests oso writes and the answers to them are `control`'s (tier 2, step 2c).
+//! - `messages` reads the messages' bodies, `tools` a tool call's input and `control` the
+//!   control protocol's lines: with this file, the only places that touch JSON.
 
+pub mod control;
 mod messages;
 pub mod tools;
 
@@ -65,6 +67,8 @@ pub enum Event {
     Result(TurnResult),
     /// `rate_limit_event`.
     RateLimit(RateLimit),
+    /// `control_response`: the CLI's answer to a request oso wrote (step 2c).
+    Answer(control::Answer),
     /// A line of a known shape that shows nothing, named by its type and subtype.
     Other(String),
     /// A line that is not one JSON object: its length.
@@ -254,6 +258,9 @@ pub fn parse(line: &[u8]) -> Event {
         "user" => user(&object).map_or_else(|| other(&object), Event::User),
         "result" => Event::Result(result(&object)),
         "rate_limit_event" => Event::RateLimit(rate_limit(&object)),
+        "control_response" => {
+            control::answer(&object).map_or_else(|| other(&object), Event::Answer)
+        }
         _ => other(&object),
     }
 }

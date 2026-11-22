@@ -670,7 +670,10 @@ You write the next messages in the composer under the conversation, which agents
 sent. A message you send while Claude is working waits in a queue, grey at the end of the
 conversation, and goes when the turn ends. On a queued message, `RET` takes it back into the
 composer, `e` edits it where it is (`C-c C-c` puts it back, `C-c C-k` leaves it as it was), `d`
-drops it, and `M-<up>` and `M-<down>` move it; `C-c C-q` goes to the queue. If the session
+drops it, and `M-<up>` and `M-<down>` move it; `C-c C-q` goes to the queue. `C-c C-k`, in the
+composer or the conversation, interrupts the turn under way; what is queued then waits until
+you send again (`C-c C-c` with an empty composer sends the next). `C-u C-c C-c` interrupts the
+turn and sends your message first, ahead of the queue. If the session
 stops, what is queued stays there: take a message back with `RET`, or drop it with `d`. oso does not
 restart while a composer or a queue holds a message: send, clear or drop it first. `M-x session-resume` takes
 a stopped session up again in its own buffer, and `M-x session-fork` copies it into a new one;

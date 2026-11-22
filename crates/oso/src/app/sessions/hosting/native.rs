@@ -15,7 +15,7 @@
 //!   routes the composer's and the queue's to `composer` (step 2).
 //! - Its composer, queue and history are `composer`'s; its run state and modeline note are
 //!   `note`'s; its resume and a native fork are `resume`'s; how it ends, stopped, failed,
-//!   archived or forgotten, `end`'s.
+//!   archived or forgotten, `end`'s; its interrupt, `interrupting`'s (step 2c).
 //! - Its bridge asks the person's permission for its calls on the sessions' socket, in
 //!   `permissions` (step 2).
 //! - Its first message is its brief, if it was given one; else the person writes it in its
@@ -26,6 +26,7 @@
 
 mod composer;
 mod end;
+mod interrupting;
 mod keys;
 mod note;
 mod permissions;
@@ -45,6 +46,8 @@ use crate::app::{App, UserEvent};
 use crate::git::TrustedRoot;
 use crate::sessions::hosted::Run;
 use crate::sessions::identity::Origin;
+use crate::sessions::native::control::Control;
+use crate::sessions::native::interrupt::Interrupt;
 use crate::sessions::native::placed::Placed;
 use crate::sessions::native::render::{self, Face, Rendered};
 use crate::sessions::native::rows::{Changes, RowChange, Rows};
@@ -91,6 +94,9 @@ struct Native {
     spoke: bool,
     /// Where its process is, as its modeline says it.
     state: NativeState,
+    /// Its process's control layer, while it runs, and its interrupt (step 2c).
+    control: Option<Control>,
+    interrupt: Interrupt,
 }
 
 impl NativeSessions {
@@ -201,6 +207,8 @@ impl App {
             // Its first message's turn is under way once it runs.
             composing: composer::Composing::starting(first.is_some()),
             spoke: first.is_some(),
+            control: None,
+            interrupt: Interrupt::new(interrupting::SIGNALS),
         };
         self.hosting.natives.map.insert(key, native);
         // Its composer, docked under it (ADR 0170).
@@ -273,6 +281,9 @@ impl App {
             return false;
         };
         native.stream = Some(stream);
+        // Its `initialize` was written first (step 2c).
+        native.control = Some(Control::started(std::time::Instant::now()));
+        native.interrupt = Interrupt::new(interrupting::SIGNALS);
         // Its first message was written: a turn is under way.
         if native.first
             && let Some(worker) = &self.sessions
@@ -323,7 +334,11 @@ impl App {
         };
         let mut changes = Changes::default();
         let mut targets = Vec::new();
+        let mut then = Vec::new();
+        let interrupting = |native: &Native| native.interrupt.interrupting();
+        let was_interrupting = interrupting(native);
         for event in events {
+            interrupting::control_event(native, &event, &mut then);
             if let Some(target) = turns::target(&event) {
                 // A turn under way, oso's or one it did not start, holds what is sent back.
                 native.composing.busy = !matches!(target, Target::Idle { .. });
@@ -335,10 +350,18 @@ impl App {
         }
         let buffer = native.buffer;
         let changed = !changes.is_empty();
+        let noted = was_interrupting != interrupting(native);
         draw(&mut self.editor, native, changes);
         // A turn that ended lets the queue's first go, after the event (`send_waiting_queues`).
         for target in targets {
             self.tell_tracker(key, target);
+        }
+        for then in then {
+            self.interrupt_step(key, then);
+        }
+        // The interrupt ended with its turn.
+        if noted {
+            self.write_native_note(key);
         }
         if changed
             && self

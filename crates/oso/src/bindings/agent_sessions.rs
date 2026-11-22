@@ -43,6 +43,9 @@ pub const NATIVE: &[(&str, &str)] = &[
     // The composer and the queue (ADR 0165, step 2): `RET` on a queued row takes it back.
     ("i", "native-session-compose"),
     ("C-c C-q", "native-session-queue"),
+    // Interrupts the turn under way (step 2c): session mode leaves `C-c C-k` to a terminal,
+    // which a native session has none of.
+    ("C-c C-k", "native-session-interrupt"),
     ("e", "native-queued-edit"),
     ("d", "native-queued-drop"),
     ("M-<up>", "native-queued-up"),

@@ -76,9 +76,13 @@ const BASE_ENV: [&str; 12] = [
     "COMSPEC",
 ];
 
-/// A signal [`Child::signal_group`] sends.
+/// A signal a child is sent: by [`Child::signal_group`] to its group, and `Interrupt` by
+/// [`Child::interrupt`] to it alone.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Signal {
+    /// Interrupts it (`SIGINT`), as a terminal's `C-c` would: a program may catch it to stop
+    /// what it does and go on, or end.
+    Interrupt,
     /// Asks it to end (`SIGTERM`), which a program may catch to clean up first.
     Terminate,
     /// Ends it at once (`SIGKILL`).
@@ -575,7 +579,8 @@ mod other {
             self.0.kill()
         }
 
-        /// Windows has neither `SIGTERM` nor a group here: the process alone ends at once.
+        /// Windows has neither `SIGINT`, `SIGTERM` nor a group here: the process alone ends at
+        /// once.
         pub(super) fn signal(&mut self, _: super::Signal, _: bool) -> io::Result<()> {
             self.0.kill()
         }
@@ -780,6 +785,37 @@ mod tests {
         assert_eq!(status.signal(), Some(15), "{status:?}");
         // Once waited for, nothing more is sent.
         child.terminate().unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn interrupt_reaches_the_child_alone_not_what_it_started() {
+        use super::Signal;
+        use std::io::{BufRead, BufReader};
+        use std::os::unix::process::ExitStatusExt;
+        let mut child = shell("exec sleep 60", false);
+        child.interrupt().unwrap();
+        let status = child.wait().unwrap();
+        assert_eq!(status.signal(), Some(2), "{status:?}");
+        // Once waited for, nothing more is sent.
+        child.interrupt().unwrap();
+
+        let mut child = shell("sleep 60 & echo $!; wait", true);
+        let mut line = String::new();
+        BufReader::new(child.stdout.take().unwrap())
+            .read_line(&mut line)
+            .unwrap();
+        let grandchild = line.trim().to_owned();
+        child.interrupt().unwrap();
+        let ended = (0..200).any(|_| {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            child.exited().unwrap()
+        });
+        assert!(ended, "the child did not end");
+        assert!(listed(&grandchild), "the grandchild was signalled too");
+        // Unreaped, the child's group is still its own to end.
+        let _ = child.signal_group(Signal::Kill);
+        child.wait().unwrap();
     }
 
     #[cfg(unix)]
