@@ -1011,6 +1011,66 @@ orchestrator chose (a) on the last. The author accepted the exception to ADR 011
     once would cost that for each, which waiting for a window avoids. An event with nothing
     to do takes 1.4 µs.
 
+## Step 3, as built
+
+### Part 3f, as built: prompt suggestions and the recap
+
+The author's (a) on Q-F1 and Q-F2 of the step 3 plan, and the recap as below (2026-11-23),
+through the coordinator; the author approved the one public item, `Editor::echo_withheld_text`.
+No `NativeAction` was added: `M-n` stays `History`.
+
+Measured on 2026-11-23 (CLI 2.1.330, `--model=haiku`, `--tools=`, made-up prompts, an empty
+directory): with `--prompt-suggestions=true` (or the bare flag), the CLI writes one
+`{"type": "prompt_suggestion", "suggestion": TEXT, "uuid", "session_id"}` 0.7 to 1.3 s after a
+turn's `result`, with no line between them, but none after a conversation's first turn (three
+runs). It is a small model call, billed into the next `result`'s
+`model_usage_since_last_result`, and the streaming docs do not name it. The CLI's own "while
+you were away" summary is the TUI's: nothing in `-p` sends it, so the recap is oso's.
+
+- **The suggestion (Q-F1 (a)):** every native session starts with `--prompt-suggestions=true`
+  (`sessions::command::NATIVE`). `wire` reads the line as `Event::Suggestion`, cut to 256
+  bytes; a blank one is not one. It is kept while no turn runs: one that comes after a turn
+  started, a queued message's say, is old. Only one that `*Messages*` would show as it is is
+  kept (`sessions::native::suggest::suggestion`): a line break, a control, bidi or invisible
+  character, or a mark that draws as nothing after its base, such as a variation selector,
+  makes it none, so that what goes into the composer is the line its row showed,
+  never a line hidden below it. It shows dim at the transcript's end, after the queue's rows,
+  as `Suggested: TEXT`, and goes when a turn starts (oso's send, or the CLI's replay or
+  request), at each send and when the process ends; the next turn's replaces it.
+- **`M-n` takes it (Q-F2 (a)):** past the newest message sent, that is with no message of the
+  history shown, in an empty composer that is still one and that no yank turned secret, as
+  `compose_into` asks, `M-n` puts the suggestion in, not sent; `native-composer-next`'s
+  description says so. It is Claude's text, which what Claude read can steer, put in by oso:
+  so it is composed text, escaped as part 2f has it (`send::for_claude`): a leading `/`, `!`
+  or `#` gets a space and an `@` that starts a word a `\`, which the person sees in the
+  composer. A suggested command or file to attach then runs only if the person takes the
+  escape out. The security review agreed, with the line breaks refused as above.
+- **The recap:** a turn whose `result` comes while the person is not in front of the session
+  (its transcript or its composer in the selected window of a focused oso window, no prompt
+  open) is marked, and a turn that starts takes the mark away. After each event, a marked
+  session in front of the person so, however they came back to it, is recapped once the echo
+  area is empty, so that what oso said as they came back stays until the next key: it says `NAME: SENTENCE`, the first sentence of the turn's last reply, the session's own and
+  not a subagent's, escaped and cut to the echo area's cells with `…`, once. The last reply is
+  looked for back to the person's last message or the turn before's end, in the last 10000
+  rows, a reply with nothing in its first 1 KiB passed over. The first sentence ends at the
+  first `.`, `!` or `?` that whitespace or the end follows, at `。`, `！` or `？`, or at the end
+  of the reply's first line with text, a heading's, list item's or quote's mark left out,
+  looked for in the first 1 KiB. It is said with `Editor::echo_withheld_text`: no log line,
+  not in `*Messages*`, and left out of what the control socket and the agent channel read (the
+  channel's `echo`, and the dev socket's modeline beside it), as the transcript it quotes is
+  withheld from agents.
+- **Costs:** a suggestion is a copy of at most 256 bytes and one redraw of the transcript's
+  end, once a turn, with a frame asked for only if a window shows the session; the recap walks
+  back over at most 10000 rows once, when the session comes in front, and after each event
+  only the marked sessions are looked at.
+- **Built with:** `sessions::native::suggest` and `sessions::native::recap` (pure, with tests
+  of the line, which suggestion is kept, the last reply, the first sentence and the recap's
+  cut); `app/sessions/hosting/native/suggesting.rs` (the events and `M-n`'s take) and
+  `native/recap.rs` (the mark, and the recap after each event, from `sync_native_sessions`),
+  with tests of what keeps and clears each; the queue's drawing in `composer/queued.rs`; a
+  test that the agent channel does not read an echo withheld so; and the e2e flow
+  `sessions::native::suggest`.
+
 ## Questions
 
 The author chose (a) on each, on 2026-11-21. The options are kept as they were put.

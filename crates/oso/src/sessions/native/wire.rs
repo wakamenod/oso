@@ -72,6 +72,9 @@ pub enum Event {
     RateLimit(RateLimit),
     /// `control_response`: the CLI's answer to a request oso wrote (step 2c).
     Answer(control::Answer),
+    /// `prompt_suggestion`: what the person might send next, once a turn ended (part 3f), cut
+    /// to [`MAX_NAME`]; never empty.
+    Suggestion(String),
     /// A line of a known shape that shows nothing, named by its type and subtype.
     Other(String),
     /// A line that is not one JSON object: its length.
@@ -269,6 +272,9 @@ pub fn parse(line: &[u8]) -> Event {
         "control_response" => {
             control::answer(&object).map_or_else(|| other(&object), Event::Answer)
         }
+        "prompt_suggestion" => Some(string(&object, "suggestion"))
+            .filter(|text| !text.trim().is_empty())
+            .map_or_else(|| other(&object), Event::Suggestion),
         _ => other(&object),
     }
 }

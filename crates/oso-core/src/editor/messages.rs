@@ -201,18 +201,34 @@ impl Editor {
     /// says nothing, and what waits behind keys in progress is not replaced by what
     /// they echo, such as "Quit", which says less.
     pub fn echo(&mut self, text: impl Into<String>) {
+        self.echo_alone(text.into(), false);
+    }
+
+    /// Shows `text` in the echo area alone, as [`Editor::echo`] does, and leaves it out of
+    /// what the control socket and the agent channel read: for text out of a buffer withheld
+    /// from agents, such as a native session's recap (ADR 0165).
+    pub fn echo_withheld_text(&mut self, text: impl Into<String>) {
+        self.echo_alone(text.into(), true);
+    }
+
+    /// [`Editor::echo`]'s rule, the echo `withheld` from the socket whatever it is around.
+    fn echo_alone(&mut self, text: String, withheld: bool) {
         let waiting = !self.keys_in_progress.is_empty() && self.echo.is_some();
         if !waiting && self.command_left_secret != Some(true) {
-            self.set_echo(text);
+            self.set_echo_as(text, withheld);
         }
     }
 
     fn set_echo(&mut self, text: impl Into<String>) {
+        self.set_echo_as(text.into(), false);
+    }
+
+    fn set_echo_as(&mut self, text: String, withheld: bool) {
         let secret = self.shows_secret() || self.passphrase_command;
         self.put_echo(Echo {
-            text: capped(text.into()),
+            text: capped(text),
             goes_with_the_window: self.shows_secret(),
-            withheld: secret || self.agent_near_withheld(),
+            withheld: withheld || secret || self.agent_near_withheld(),
         });
     }
 
@@ -1182,5 +1198,16 @@ mod tests {
         editor.end_command();
         assert!(!editor.echo_withheld(), "the person's");
         assert!(messages_text(&editor).contains("Mark set"));
+    }
+
+    #[test]
+    fn text_echoed_withheld_reaches_neither_the_socket_nor_the_messages() {
+        let mut editor = Editor::with_buffer(Buffer::new("notes"));
+        editor.echo_withheld_text("proj: Done.");
+        assert_eq!(echo(&editor), "proj: Done.");
+        assert!(editor.echo_withheld());
+        assert!(!messages_text(&editor).contains("Done."));
+        editor.message("Mark set");
+        assert!(!editor.echo_withheld(), "the next message is read again");
     }
 }

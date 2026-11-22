@@ -599,6 +599,15 @@ mod tests {
     }
 
     #[test]
+    fn an_echo_withheld_is_not_read_and_one_echoed_is() {
+        let mut editor = Editor::with_buffer(Buffer::new("notes"));
+        editor.echo("Mark set");
+        assert_eq!(state(&editor, None, 0)["echo"], "Mark set");
+        editor.echo_withheld_text("proj: Done.");
+        assert!(state(&editor, None, 0).get("echo").is_none());
+    }
+
+    #[test]
     fn a_buffer_that_may_hold_secrets_gives_no_text_or_positions() {
         let mut editor = Editor::with_buffer(Buffer::visiting(PathBuf::from("/tmp/.env")));
         editor.set_view_size(ViewSize::new(10, 40));

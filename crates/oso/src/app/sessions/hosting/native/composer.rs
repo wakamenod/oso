@@ -40,8 +40,12 @@ pub(super) struct Composing {
     /// `*compose: NAME*`, once docked.
     pub(super) buffer: Option<BufferId>,
     queue: Queue,
-    /// The queue's rows as drawn at the transcript's end: their bytes are the queue's there.
+    /// The queue's rows as drawn at the transcript's end, then the suggestion's: their bytes
+    /// are theirs there.
     pub(super) rows: String,
+    /// The CLI's prompt suggestion since its turn ended, until a turn starts, the person
+    /// sends or the process ends (part 3f).
+    pub(super) suggestion: Option<String>,
     /// The messages sent, the newest last, and where `M-p` is among them.
     history: VecDeque<String>,
     at: Option<usize>,
@@ -89,7 +93,7 @@ impl App {
 
     /// Native session `key`'s composer, docked again if the person killed it; the edit of a
     /// queued message it held is given up.
-    fn composer(&mut self, key: SessionKey) -> Option<BufferId> {
+    pub(super) fn composer(&mut self, key: SessionKey) -> Option<BufferId> {
         let native = self.hosting.natives.map.get_mut(&key)?;
         let kept = native.composing.buffer;
         if let Some(id) = kept.filter(|id| self.editor.buffer(*id).is_some()) {
@@ -266,6 +270,8 @@ impl App {
                 }
                 native.composing.busy = true;
                 native.spoke = true;
+                // Drawn away by the queue's drawing that follows each send.
+                native.composing.suggestion = None;
                 let history = &mut native.composing.history;
                 if history.len() == MAX_HISTORY {
                     history.pop_front();
@@ -358,6 +364,7 @@ impl App {
         if let Some(native) = self.hosting.natives.map.get_mut(&key) {
             native.composing.busy = false;
             native.composing.queue.ended();
+            native.composing.suggestion = None;
         }
         self.draw_queue(key);
     }
@@ -392,8 +399,14 @@ impl App {
         }
     }
 
-    /// `M-p` and `M-n`: the message sent `count` before the one shown, after if negative.
+    /// `M-p` and `M-n`: the message sent `count` before the one shown, after if negative;
+    /// `M-n` past the newest, in an empty composer, puts the suggestion in (part 3f).
     fn composer_history(&mut self, key: SessionKey, count: isize) {
+        let past_newest =
+            (self.hosting.natives.map.get(&key)).is_some_and(|n| n.composing.at.is_none());
+        if count < 0 && past_newest && self.take_suggestion(key) {
+            return;
+        }
         let Some(native) = self.hosting.natives.map.get_mut(&key) else {
             return;
         };
