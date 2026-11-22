@@ -690,12 +690,15 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     that call's tool and target; an allow to it runs only that call (step 2e-2).
   - It is asked on the session's permission card (step 2e-2), withheld from agents: oso's title
     and keys around Claude's text, fenced row by row after `│ ` in a face of its own, each of
-    Claude's line breaks a row, a long row broken at the card's width, so that no text of
-    Claude's runs off the card, stands as a key row or passes for oso's words; the title says
+    Claude's line feeds a row, a long row broken at the card's width as the display measures
+    it, the rows it goes on to fenced `┊ `, so that no text of Claude's runs off the card,
+    stands as a key row or passes for oso's words; no agent command runs while a card is
+    selected, a look included; the title says
     when it does not show all the call does, and `RET` shows the input that runs whole in the
     card. Its keys are `Person`, and answer only from the keyboard, after 500 ms with no key and
-    since the card became the selected buffer, however point came; never from a macro, nor
-    from a window that shows less than all of the card; a held key answers once. Point moves
+    since the card became the selected buffer, however point came (longer after a prompt an
+    agent opened over it); never from a macro, nor from a window that shows less than all of
+    the card from its start, unwrapped; a held key answers once. Point moves
     to it only from that session's transcript, or its composer with no draft. Whatever goes
     wrong, the bridge denies: a call runs only on the person's `y` or answers, an `allow`
     gives the CLI back the input it sent, and only an `AskUserQuestion`'s takes answers, the

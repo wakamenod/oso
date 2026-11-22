@@ -4,10 +4,10 @@
 //!
 //! Must not depend on: the app or the UI; plain functions over a call and its input.
 //!
-//! - A title says when the card does not show all the call does, a long tool name cut before
-//!   that warning, never the warning: for a call that does more than read, a command with more
-//!   than its description and limit, or holding a control character, and an edit with more than
-//!   its file and strings.
+//! - A title says first when the card does not show all the call does, so that a long tool
+//!   name, cut to the card, never takes the warning: for a call that does more than read, a
+//!   command with more than its description and limit, or holding a control character or a
+//!   line or paragraph separator, and an edit with more than its file and strings.
 //! - An `AskUserQuestion` whose questions cannot be read has no card: it is denied, so that no
 //!   answers of the model's own pass as the person's.
 
@@ -26,8 +26,8 @@ use crate::sessions::native::wire::tools::{MAX_INPUT, only_keys, pretty};
 const MAX_SHOWN: usize = 4 * MAX_INPUT;
 /// The most characters of a title before what it says of the rest.
 const MAX_TITLE: usize = 160;
-/// What a title says when the card does not show all the call does.
-pub const NOT_ALL: &str = " (not all of it is shown: RET shows it)";
+/// What a title says first when the card does not show all the call does.
+pub const NOT_ALL: &str = "Not all of it is shown (RET shows it): ";
 
 /// The question about the call `tool` of session `name`, which runs in `directory`, with the
 /// request's `input`; `None` for an `AskUserQuestion` whose questions cannot be read.
@@ -87,10 +87,12 @@ fn call(name: &str, tool: &Tool, directory: &Path, input: Option<&Value>) -> Car
     let title = match tool.name.as_str() {
         "Bash" => {
             if let Some(command) = field("command") {
-                // A control character, but a line break or a tab, shows as nothing like it.
-                odd = command
-                    .chars()
-                    .any(|c| c.is_control() && !matches!(c, '\n' | '\t'));
+                // A control or a separator, but a line feed or a tab, shows as nothing like
+                // what the shell reads.
+                odd = command.chars().any(|c| {
+                    (c.is_control() && !matches!(c, '\n' | '\t'))
+                        || matches!(c, '\u{2028}' | '\u{2029}')
+                });
                 lines.push((format!("$ {command}"), Face::Target));
             }
             format!("Bash wants to run, in session {name}")
@@ -127,7 +129,7 @@ fn call(name: &str, tool: &Tool, directory: &Path, input: Option<&Value>) -> Car
     let title = if all {
         title
     } else {
-        format!("{title}{NOT_ALL}")
+        format!("{NOT_ALL}{title}")
     };
     Card::Call { title, lines }
 }

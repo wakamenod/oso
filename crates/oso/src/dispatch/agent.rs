@@ -101,9 +101,8 @@ impl Dispatcher {
         // goes to the agent (ADR 0122, step 12, Q7), and a brief, which starts a session as the
         // person's words (ADR 0121 step 4, ADR 0165).
         let mode = editor.current().1.mode();
-        // A docked window's text is a session's, the person's to write (ADR 0170).
-        if reach == Reach::Change && editor.tiled().0.docked().is_some() {
-            return refused(DOCK_REFUSED.into());
+        if let Some(why) = docked_refusal(editor, reach) {
+            return refused(why.into());
         }
         if reach == Reach::Change {
             match mode {
@@ -212,7 +211,22 @@ const BRIEF_REFUSED: &str =
     "a brief or a message being composed is the person's to write; ask the person";
 
 /// Why the agent may not change a window docked under a session's transcript (ADR 0170).
+/// Why an agent's command of `reach` does not run in the selected window, if it is docked: a
+/// docked window's text is a session's, the person's to write (ADR 0170); a permission card is
+/// theirs to read too, as no view of it may hide what it asks (ADR 0165, step 2e-2).
+fn docked_refusal(editor: &Editor, reach: Reach) -> Option<&'static str> {
+    match editor.tiled().0.docked()? {
+        (_, oso_core::window::DockSlot::Card) => Some(CARD_REFUSED),
+        _ if reach == Reach::Change => Some(DOCK_REFUSED),
+        _ => None,
+    }
+}
+
 const DOCK_REFUSED: &str = "what is docked under a session is the person's; ask the person";
+
+/// What an agent is told while a native session's permission card is selected.
+const CARD_REFUSED: &str =
+    "a native session's permission card is selected: it is the person's to read and answer";
 
 /// Why the agent may not delete the side window.
 const SIDE_REFUSED: &str = "hiding the list of sessions is the person's";
@@ -425,6 +439,37 @@ mod tests {
             Err(Refused(why)) => why,
             Ok(outcome) => panic!("{name} ran: {outcome:?}"),
         }
+    }
+
+    #[test]
+    fn no_command_of_an_agents_runs_while_a_permission_card_is_selected() {
+        use oso_core::buffer::Mode;
+        use oso_core::window::DockSlot;
+        let (mut dispatcher, mut editor) = (Dispatcher::new(), editor(""));
+        let host = editor.add_native_session_buffer("*claude: s*");
+        editor.show(host);
+        let card = editor.add_internal_buffer("*card: s*", Mode::Card);
+        editor.set_internal_text(card, "Bash wants to run\n│ $ ls\n[y] allow once");
+        editor.set_dock(host, DockSlot::Card, Some(card));
+        let window = editor.dock_window(host, DockSlot::Card).unwrap();
+        editor.select_window(window);
+        // Not even a look, as a scroll could hide what the card asks.
+        let why = refusal(
+            &mut dispatcher,
+            &mut editor,
+            "scroll-up-command",
+            Given::Count(2),
+            Reach::Look,
+        );
+        assert!(why.contains("permission card"), "{why}");
+        let why = refusal(
+            &mut dispatcher,
+            &mut editor,
+            "toggle-truncate-lines",
+            Given::Nothing,
+            Reach::Look,
+        );
+        assert!(why.contains("permission card"), "{why}");
     }
 
     #[test]

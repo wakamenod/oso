@@ -10,8 +10,10 @@
 //!   wrote (a command, a diff, a reason, a question, its options, a plan) is fenced between
 //!   them, each row of it after `│ ` in a face of its own, so that none of it can stand as a key
 //!   row or pass for oso's own words (ADR 0170). Each of Claude's line breaks starts a row of
-//!   its own, and a row longer than the card is broken into rows at its width: no text of
-//!   Claude's runs past the card's edge or wraps unfenced, and a row is one row on screen.
+//!   its own, and a row longer than the card is broken into rows at its width, measured as
+//!   the display draws it, the rows it goes on to fenced `┊ `: no text of Claude's runs past
+//!   the card's edge or wraps unfenced, and a row is one row on screen. A mark that would
+//!   start a row goes on `◌`, as it would join the fence.
 //! - The card is at most [`MAX_ROWS`] rows; what is left out says so, and `RET` shows all of
 //!   it in the card ([`whole`]), at most [`MAX_WHOLE`] rows, with the keys on its title row.
 //! - A question's answer is an option's label, or several joined by `, ` (measured, CLI
@@ -35,6 +37,8 @@ pub const MAX_FENCED: usize = MAX_ROWS - 2;
 pub const MAX_WHOLE: usize = 2000;
 /// The fence before each row of Claude's text.
 pub const FENCE: &str = "│ ";
+/// The fence before a row that goes on with the row above, broken at the card's width.
+pub const FENCE_ON: &str = "┊ ";
 /// The narrowest card drawn, in cells.
 const MIN_WIDTH: usize = 20;
 
@@ -82,13 +86,14 @@ impl Shown {
         self.rows += 1;
     }
 
-    /// One fenced row: the fence, then `text`, which holds no line break.
-    fn fenced_row(&mut self, text: &str, face: Face) {
+    /// One fenced row: the fence, `│ ` or `┊ ` for one that goes on with the row above, then
+    /// `text`, which holds no line break.
+    fn fenced_row(&mut self, (text, on): (&str, bool), face: Face) {
         if !self.text.is_empty() {
             self.text.push('\n');
         }
         let start = self.text.len();
-        self.text.push_str(FENCE);
+        self.text.push_str(if on { FENCE_ON } else { FENCE });
         self.faces.push((start..self.text.len(), Face::Dim));
         let start = self.text.len();
         self.text.push_str(text);
@@ -97,33 +102,47 @@ impl Shown {
     }
 }
 
-/// Claude's `text` as the card's rows of at most `width` cells after the fence: a row at each
-/// line break, a tab as a space, and a longer row broken at the width. At most `most` rows,
-/// and whether more were left out.
-fn rows_of(text: &str, width: usize, most: usize) -> (Vec<String>, bool) {
+/// Claude's `text` as the card's rows of at most `width` cells after the fence, each with
+/// whether it goes on with the row above: a row at each line feed, a tab as a space, and a
+/// longer row broken at the width, measured as the display draws it (a mark past what one
+/// cluster holds is drawn boxed, wider). At most `most` rows, and whether more were left out.
+fn rows_of(text: &str, width: usize, most: usize) -> (Vec<(String, bool)>, bool) {
     let room = width.max(MIN_WIDTH).saturating_sub(cells_of(FENCE)).max(1);
     let mut rows = Vec::new();
-    for line in text.split(['\n', '\r', '\u{2028}', '\u{2029}', '\u{85}']) {
-        let mut row = String::new();
-        let mut used = 0;
+    for line in text.split('\n') {
+        let line = line.strip_suffix('\r').unwrap_or(line);
+        let (mut row, mut used, mut on) = (String::new(), 0, false);
         for c in line.chars() {
             let c = if c == '\t' { ' ' } else { c };
-            let mut buffer = [0; 4];
-            let cells = cells_of(c.encode_utf8(&mut buffer));
-            if used + cells > room && !row.is_empty() {
-                rows.push(std::mem::take(&mut row));
-                used = 0;
+            let before = row.len();
+            row.push(c);
+            // ASCII that prints is one cell; anything else is measured with what it joins.
+            let now = if c.is_ascii_graphic() || c == ' ' {
+                used + 1
+            } else {
+                cells_of(&row)
+            };
+            if now > room && before > 0 {
+                row.truncate(before);
+                rows.push((std::mem::take(&mut row), on));
                 if rows.len() >= most {
                     return (rows, true);
                 }
+                // A mark that starts a row would join the fence: it goes on a base of its own.
+                if joins(c) {
+                    row.push(BASE);
+                }
+                row.push(c);
+                used = cells_of(&row);
+                on = true;
+            } else {
+                used = now;
             }
-            row.push(c);
-            used += cells;
         }
         if rows.len() >= most {
             return (rows, true);
         }
-        rows.push(row);
+        rows.push((row, on));
     }
     (rows, false)
 }
@@ -160,7 +179,8 @@ impl Card {
                 ("Claude's plan, as its request gives it".to_owned(), lines)
             }
         };
-        shown.row(&title, Face::Tool);
+        // Cut to the card: what the title says first, as a warning, stays in sight.
+        shown.row(&title_of(&title, width), Face::Tool);
         let mut rows = Vec::new();
         let mut more = false;
         for (line, face) in &lines {
@@ -174,11 +194,11 @@ impl Card {
         if more {
             rows.truncate(MAX_FENCED - 1);
         }
-        for (row, face) in &rows {
-            shown.fenced_row(row, *face);
+        for ((row, on), face) in &rows {
+            shown.fenced_row((row, *on), *face);
         }
         if more {
-            shown.fenced_row("… more rows: RET shows all", Face::Dim);
+            shown.fenced_row(("… more rows: RET shows all", false), Face::Dim);
         }
         shown.row(self.keys(), Face::Prompt);
         shown
@@ -195,15 +215,31 @@ pub fn whole(card: &Card, details: &str, width: usize) -> Shown {
         Some(at) => format!("All of it:  {}[RET] back", &keys[..at]),
         None => format!("All of it:  {keys}  [RET] back"),
     };
-    shown.row(&keys, Face::Prompt);
+    shown.row(&title_of(&keys, width), Face::Prompt);
     let (rows, more) = rows_of(details, width, MAX_WHOLE);
-    for row in &rows {
-        shown.fenced_row(row, Face::Target);
+    for (row, on) in &rows {
+        shown.fenced_row((row, *on), Face::Target);
     }
     if more {
-        shown.fenced_row("… the rest is not shown here", Face::Dim);
+        shown.fenced_row(("… the rest is not shown here", false), Face::Dim);
     }
     shown
+}
+
+/// What a mark that starts a row goes on, as a lone mark is shown (`◌`).
+const BASE: char = '\u{25cc}';
+
+/// Whether `c` joins the character before it, as a combining mark does.
+fn joins(c: char) -> bool {
+    let mut joined = String::from("a");
+    joined.push(c);
+    !c.is_ascii() && cells_of(&joined) <= 1
+}
+
+/// `title` cut to `width` cells, with `…` where it was cut.
+fn title_of(title: &str, width: usize) -> String {
+    let (kept, cut) = oso_core::minibuffer::cut_to(title, width.max(MIN_WIDTH));
+    format!("{kept}{cut}")
 }
 
 /// An `AskUserQuestion`'s questions, answered one at a time.

@@ -17,7 +17,7 @@
 //!   `C-x o` to leave it, are any buffer's.
 //! - It is drawn again when its window's width changes, as its rows are broken at it.
 
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use oso_core::buffer::{BufferId, Mode};
 use oso_core::editor::NativeAction;
@@ -36,6 +36,8 @@ use crate::sessions::worker::SessionKey;
 
 /// The width a card is drawn at when no window shows it yet, in cells.
 const UNSHOWN_WIDTH: usize = 80;
+/// How much longer a card waits once a prompt an agent opened over it closed.
+const AFTER_AGENT: Duration = Duration::from_millis(1500);
 /// What a denial without a note says on its call's row.
 const BY_THE_PERSON: &str = "by the person";
 
@@ -85,6 +87,12 @@ impl App {
                 .permissions
                 .focus_pending
                 .push((key, now));
+            // A new call in the card in front: its wait starts again.
+            let card = (self.hosting.natives.map.get(&key)).and_then(|native| native.card);
+            let current = self.hosting.natives.permissions.current.as_mut();
+            if let Some(current) = current.filter(|current| Some(current.card) == card) {
+                current.since = now;
+            }
         }
         let resized: Vec<SessionKey> = (self.hosting.natives.permissions.drawn.iter())
             .filter(|&&(key, width)| self.card_width(key) != width)
@@ -219,9 +227,9 @@ impl App {
                     Card::Plan { .. } => Kind::Plan,
                     Card::Call { .. } => Kind::Call,
                 };
-                (kind, multi && !question.whole)
+                (kind, multi && !question.whole, question.whole)
             });
-        let Some((kind, multi)) = kind else {
+        let Some((kind, multi, whole)) = kind else {
             self.editor.message("No call waits for you here");
             return true;
         };
@@ -246,6 +254,9 @@ impl App {
             NativeAction::Note => self.write_for_card(Writing::Note(key)),
             NativeAction::Other if questions => self.write_for_card(Writing::Own(key)),
             NativeAction::Other => self.editor.message("This card asks no question"),
+            NativeAction::Choose(_) if whole => {
+                self.editor.message("RET goes back to the card's options");
+            }
             NativeAction::Choose(number) if questions => {
                 self.step_questions(key, |questions| questions.choose(number));
             }
@@ -288,24 +299,40 @@ impl App {
         true
     }
 
-    /// Whether session `key`'s card's window shows every row of it.
+    /// Whether session `key`'s card's window shows every row of it, from its start, at the
+    /// width it was drawn at, with no row wrapped.
     fn card_shows_all(&self, key: SessionKey) -> bool {
         let Some(native) = self.hosting.natives.map.get(&key) else {
             return false;
         };
-        let rows = native
-            .card
-            .and_then(|card| self.editor.buffer(card))
-            .map(|card| card.text().line_count());
-        let window = self.editor.dock_window(native.buffer, DockSlot::Card);
-        let shown = window
-            .and_then(|window| self.editor.regions(window))
-            .map(|regions| regions.text.rows);
+        let Some(buffer) = native.card.and_then(|card| self.editor.buffer(card)) else {
+            return false;
+        };
+        let Some(id) = self.editor.dock_window(native.buffer, DockSlot::Card) else {
+            return false;
+        };
+        let (Some(window), Some(regions)) = (self.editor.window_by_id(id), self.editor.regions(id))
+        else {
+            return false;
+        };
+        let drawn = (self.hosting.natives.permissions.drawn.iter())
+            .find_map(|&(drawn, width)| (drawn == key).then_some(width));
+        if drawn.is_none_or(|width| regions.text.columns < width) || buffer.wraps() {
+            return false;
+        }
         let whole = (self.hosting.natives.permissions.asks.shown(key))
             .and_then(|ask| ask.question.as_ref())
             .is_some_and(|question| question.whole);
-        // The whole view scrolls: its keys are on its title row.
-        matches!((rows, shown), (Some(rows), Some(shown)) if whole && shown > 0 || rows <= shown)
+        // The whole view scrolls, its keys on its title row; the card shows from its start.
+        let scroll = window.scroll();
+        match whole {
+            true => regions.text.rows > 0 && scroll.left == 0,
+            false => {
+                scroll.start == 0
+                    && scroll.left == 0
+                    && buffer.text().line_count() <= regions.text.rows
+            }
+        }
     }
 
     /// After each event: which card, if any, is the selected buffer, and since when.
@@ -315,18 +342,24 @@ impl App {
             .editor
             .buffer(selected)
             .is_some_and(|b| b.mode() == Mode::Card);
+        let agents = self
+            .editor
+            .prompt()
+            .is_some_and(|prompt| prompt.from_agent());
         let card = (is_card && self.editor.prompt().is_none()).then_some(selected);
         let permissions = &mut self.hosting.natives.permissions;
+        // A prompt an agent opened over a card may leave a key meant for it to the card: the
+        // card waits longer once it closes.
+        permissions.after_agent |= is_card && agents;
         match card {
             Some(card)
                 if permissions
                     .current
                     .is_some_and(|current| current.card == card) => {}
             Some(card) => {
-                permissions.current = Some(Current {
-                    card,
-                    since: Instant::now(),
-                });
+                let longer = std::mem::take(&mut permissions.after_agent);
+                let since = Instant::now() + if longer { AFTER_AGENT } else { Duration::ZERO };
+                permissions.current = Some(Current { card, since });
             }
             None => permissions.current = None,
         }

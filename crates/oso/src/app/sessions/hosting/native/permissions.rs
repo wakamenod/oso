@@ -62,8 +62,10 @@ pub(in crate::app) struct Permissions {
     looked: Option<Instant>,
     /// Each shown card's width as drawn.
     drawn: Vec<(SessionKey, usize)>,
-    /// The card that is the selected buffer, and since when.
+    /// The card that is the selected buffer, and since when; and whether a prompt an agent
+    /// opened is over one.
     current: Option<card::Current>,
+    after_agent: bool,
     /// What the person writes in the minibuffer for a card, once `N` or `o` asked.
     writing: Option<Writing>,
 }
