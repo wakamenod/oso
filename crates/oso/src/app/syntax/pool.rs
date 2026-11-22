@@ -93,7 +93,7 @@ impl<Key: Copy + Eq + Hash + Send + 'static> Pool<Key> {
     }
 
     /// A handle that opens, shows and closes documents no buffer owns on these threads, for a
-    /// review's view thread (ADR 0122, step 9). It keeps the threads' schedule, not the
+    /// review's view thread (ADR 0122, step 9) and native sessions' replies. It keeps the threads' schedule, not the
     /// threads: once the pool is dropped, what it opens never runs.
     pub(super) fn documents(&self) -> Documents<Key> {
         Documents {

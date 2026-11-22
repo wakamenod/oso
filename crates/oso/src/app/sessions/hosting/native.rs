@@ -14,7 +14,8 @@
 //! - Its buffer's keys, `TAB`, `RET`, `n`/`p` and `]`/`[`, are carried out in `keys`, which
 //!   routes the composer's and the queue's to `composer` (step 2).
 //! - Its composer, queue and history are `composer`'s; its run state and modeline note are
-//!   `note`'s; its first message, written in `*Brief*`, is `first`'s.
+//!   `note`'s; its first message, written in `*Brief*`, is `first`'s; its replies'
+//!   Markdown highlighting, once each is whole, is `markdown`'s (part 2g).
 //! - Its bridge asks the person's permission for its calls on the sessions' socket, in
 //!   `permissions` (step 2).
 //! - Its first message is its brief; a person's start with none opens `*Brief*` for it first.
@@ -25,6 +26,7 @@
 mod composer;
 mod first;
 mod keys;
+mod markdown;
 mod note;
 mod permissions;
 
@@ -34,7 +36,6 @@ use std::path::PathBuf;
 
 use oso_core::buffer::{Buffer, BufferId};
 use oso_core::project::ProjectId;
-use oso_core::syntax::Highlight;
 
 use self::note::NativeState;
 use super::{Begin, now_ms};
@@ -43,7 +44,7 @@ use crate::git::TrustedRoot;
 use crate::sessions::hosted::Run;
 use crate::sessions::identity::Origin;
 use crate::sessions::native::placed::Placed;
-use crate::sessions::native::render::{self, Face, Rendered};
+use crate::sessions::native::render;
 use crate::sessions::native::rows::{Changes, RowChange, Rows};
 use crate::sessions::native::turns;
 use crate::sessions::native::wire::Event;
@@ -63,6 +64,8 @@ pub(in crate::app) struct NativeSessions {
     briefs: HashMap<BufferId, Begin>,
     /// The sessions' socket and the permission questions asked on it (ADR 0165, step 2).
     permissions: permissions::Permissions,
+    /// The replies highlighted as Markdown that wait or are open (part 2g).
+    replies: markdown::Replies,
 }
 
 /// A native session's buffer, rows and process.
@@ -86,6 +89,8 @@ struct Native {
     composing: composer::Composing,
     /// Where its process is, as its modeline says it.
     state: NativeState,
+    /// Which of its replies are highlighted as Markdown, or wait to be (part 2g).
+    markdown: markdown::Marks,
 }
 
 impl NativeSessions {
@@ -194,6 +199,7 @@ impl App {
             calls: HashMap::new(),
             // Its first message's turn is under way once it runs.
             composing: composer::Composing::starting(first.is_some()),
+            markdown: markdown::Marks::default(),
         };
         self.hosting.natives.map.insert(key, native);
         // Its composer, docked under it (ADR 0170).
@@ -402,6 +408,8 @@ impl App {
         self.sweep_killed_natives();
         // After the sweep: no message goes to a session whose buffer was just killed.
         self.send_waiting_queues();
+        // After the sweep: nothing is opened for a session that is gone.
+        self.sync_reply_markdown();
     }
 
     /// Stops and archives each native session whose buffer was killed.
@@ -498,40 +506,14 @@ fn draw(
                 native.calls.insert(at, rendered.calls.clone());
             }
         }
-        let runs = runs(&rendered);
+        let runs = rendered.runs();
+        // Drawn plain: a whole reply is highlighted again (part 2g).
+        native.markdown.drawn(at);
         editor.replace_native_rows(native.buffer, range.clone(), &rendered.text, &runs);
         native.placed.put(at, range, rendered.text.len());
         debug_assert_eq!(
             editor.buffer(native.buffer).map(|b| b.text().len()),
             Some(native.placed.end() + native.composing.rows.len())
         );
-    }
-}
-
-/// A rendered row's faces as runs over its text.
-fn runs(rendered: &Rendered) -> Vec<(usize, Option<Highlight>)> {
-    let mut runs = Vec::new();
-    let mut at = 0;
-    for (range, face) in &rendered.faces {
-        if range.start > at {
-            runs.push((range.start - at, None));
-        }
-        runs.push((range.end - range.start, Some(highlight(*face))));
-        at = range.end;
-    }
-    runs
-}
-
-/// The theme's face for a row's.
-fn highlight(face: Face) -> Highlight {
-    match face {
-        Face::Prompt => Highlight::CommentPerson,
-        Face::Dim => Highlight::SessionQuiet,
-        Face::Tool => Highlight::Function,
-        Face::Target => Highlight::String,
-        Face::Added => Highlight::DiffAdded,
-        Face::Removed => Highlight::DiffRemoved,
-        Face::Hunk => Highlight::DiffHunkHeader,
-        Face::Error => Highlight::SessionAlert,
     }
 }

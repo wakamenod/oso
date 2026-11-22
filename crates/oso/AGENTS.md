@@ -90,7 +90,10 @@ often, so it must rebuild within 2 s.
   `oso-native-err`, and written to on `oso-native-write` (`stream`);
   `app/sessions/hosting/native.rs` draws its rows on the UI thread, row by row. Its composer and
   queue are `app/sessions/hosting/native/composer.rs`, over the queue's rules in
-  `sessions/native/queue.rs` (ADR 0165, step 2). `app/sessions.rs` and
+  `sessions/native/queue.rs` (ADR 0165, step 2); its whole replies are highlighted as Markdown
+  on the syntax threads, as documents no buffer owns, by
+  `app/sessions/hosting/native/markdown.rs`, and their runs put on each reply's row by
+  `sessions/native/markdown.rs` (part 2g). `app/sessions.rs` and
   `app/sessions/` carry out what the worker, the jobs and the start thread find.
 - `src/review.rs` runs git and diffs for an agent review on `oso-review` (ADR 0122), only for
   a trusted project's root, and git only through `oso_platform::process`, with `src/git.rs`'s

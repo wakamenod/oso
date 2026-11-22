@@ -18,8 +18,11 @@
 //!   answer (step 2), at the times the caller gives.
 //! - `queue`: the messages the person sent while a turn ran, held until the session is idle
 //!   (step 2).
+//! - `markdown`: which replies are highlighted as Markdown, and their runs on their row
+//!   (step 2, part 2g).
 
 pub mod asks;
+pub mod markdown;
 pub mod placed;
 pub mod point;
 pub mod queue;
