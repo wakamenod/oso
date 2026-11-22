@@ -1,6 +1,7 @@
 //! Streaming one long run of git, or of `gh` (step 5a-2), to its end (ADR 0127, steps 1b and 2): what it writes goes out
 //! as log lines, its time each second and, for a push, a pull or a fetch, its progress; a stop,
-//! the root's revocation or the event loop's going ends it.
+//! the root's revocation or the event loop's going ends it. A failure whose output names the
+//! index's lock as git's refusal does is told back through the watch (ADR 0168).
 //!
 //! Must not depend on: `app`, `dispatch`, winit or the UI thread; this runs on the repository's
 //! run thread and waits for git.
@@ -139,9 +140,14 @@ pub(super) fn stream_long(
     if let Some(text) = pending.take() {
         send(RunReport::Output(text));
     }
+    let stopped = long.stopped();
+    let failed = status.as_ref().is_ok_and(|status| !status.success());
+    if !stopped && failed && crate::vcs::lock::named(&tail) {
+        watch.named_lock.set(true);
+    }
     Streamed {
         status,
-        stopped: long.stopped(),
+        stopped,
         tail,
     }
 }

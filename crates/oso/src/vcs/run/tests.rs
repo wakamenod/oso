@@ -2,12 +2,17 @@
 //! output, a hook that fails and the name the failure gives, `--no-verify`, the message an
 //! amend starts from, a stop that ends a hook and leaves no lock, and a root it refuses; with a
 //! remote (`remote`), over what is stopped (`sequence`, step 3a), and over stashes (`stash`)
-//! and branches (`branch`, step 3b), and a graph's runs (`graph`, step 4b).
+//! and branches (`branch`, step 3b), and a graph's runs (`graph`, step 4b), and the index's
+//! lock a stop leaves or a failure finds (`lock`).
 //!
 //! Must not depend on: `app`, `dispatch` or winit.
 
+#[cfg(unix)]
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::Duration;
+#[cfg(unix)]
+use std::time::Instant;
 
 use oso_core::editor::{CommitKind, CommitSwitches};
 
@@ -17,6 +22,7 @@ use crate::review::tests::Repo;
 
 mod branch;
 mod graph;
+mod lock;
 mod pr;
 mod remote;
 mod sequence;
@@ -66,7 +72,9 @@ pub(super) fn until_end(got: &mpsc::Receiver<RunReport>) -> (RunEnd, String, boo
             | RunReport::Message(_)
             | RunReport::Subjects { .. }
             | RunReport::Discarded(_)
-            | RunReport::Restored(_) => {}
+            | RunReport::Restored(_)
+            | RunReport::Locked(_)
+            | RunReport::LockRemoved { .. } => {}
             RunReport::Ended(end) => return (end, output, began),
         }
     }
@@ -97,6 +105,33 @@ fn hook(repo: &Repo, name: &str, script: &str) {
     {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+}
+
+/// A pre-commit hook in `repo` that marks the first path as it starts and the second if it
+/// goes on for 30 s.
+#[cfg(unix)]
+fn slow_hook(repo: &Repo) -> (PathBuf, PathBuf) {
+    let began = repo.dir.join("hook-began");
+    let went_on = repo.dir.join("hook-went-on");
+    let script = format!(
+        "#!/bin/sh\ntouch '{}'\nsleep 30\ntouch '{}'\n",
+        began.display(),
+        went_on.display()
+    );
+    hook(repo, "pre-commit", &script);
+    (began, went_on)
+}
+
+/// Waits for the hook to mark `began`, by when git holds the index's lock. A stop timed by a
+/// sleep instead can come while a loaded machine still starts git, before the hook, and git
+/// stopped as it takes the lock can leave it behind.
+#[cfg(unix)]
+fn hook_began(began: &Path) {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !began.exists() {
+        assert!(Instant::now() < deadline, "the hook did not start");
+        std::thread::sleep(Duration::from_millis(10));
     }
 }
 
@@ -209,9 +244,7 @@ fn the_last_subjects_are_read_newest_first_and_none_before_the_first_commit() {
 #[test]
 fn a_stop_ends_the_hook_and_leaves_no_lock() {
     let repo = repo("run-stop");
-    let marker = repo.dir.join("hook-went-on");
-    let script = format!("#!/bin/sh\nsleep 30\ntouch '{}'\n", marker.display());
-    hook(&repo, "pre-commit", &script);
+    let (began, marker) = slow_hook(&repo);
     std::fs::write(repo.root.join("a.txt"), "two\n").unwrap();
     repo.git(&["add", "a.txt"]);
     let (runner, got) = runner(&repo);
@@ -219,7 +252,7 @@ fn a_stop_ends_the_hook_and_leaves_no_lock() {
     let Ok(RunReport::Began { .. }) = got.recv_timeout(Duration::from_secs(30)) else {
         panic!("the run begins");
     };
-    std::thread::sleep(Duration::from_millis(300));
+    hook_began(&began);
     runner.stop();
     let (end, _, _) = until_end(&got);
     assert_eq!(end, RunEnd::Stopped);
@@ -270,9 +303,7 @@ fn a_flood_is_sent_as_its_end_with_what_was_left_out() {
 #[test]
 fn a_root_revoked_while_a_hook_runs_stops_it() {
     let repo = repo("run-revoke-mid");
-    let marker = repo.dir.join("hook-went-on");
-    let script = format!("#!/bin/sh\nsleep 30\ntouch '{}'\n", marker.display());
-    hook(&repo, "pre-commit", &script);
+    let (began, marker) = slow_hook(&repo);
     std::fs::write(repo.root.join("a.txt"), "two\n").unwrap();
     repo.git(&["add", "a.txt"]);
     let root = TrustedRoot::for_tests(repo.root.clone());
@@ -285,8 +316,8 @@ fn a_root_revoked_while_a_hook_runs_stops_it() {
     let Ok(RunReport::Began { .. }) = got.recv_timeout(Duration::from_secs(30)) else {
         panic!("the run begins");
     };
-    std::thread::sleep(Duration::from_millis(300));
-    let revoked = std::time::Instant::now();
+    hook_began(&began);
+    let revoked = Instant::now();
     root.revoke();
     let (end, _, _) = until_end(&got);
     assert_eq!(end, RunEnd::Stopped);

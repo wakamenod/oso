@@ -1594,6 +1594,9 @@ pub oso_core::editor::GitRequest::Push::switches: oso_core::editor::PushSwitches
 pub oso_core::editor::GitRequest::Push::target: oso_core::editor::PushTarget
 pub oso_core::editor::GitRequest::Refresh
 pub oso_core::editor::GitRequest::Refresh::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::GitRequest::RemoveLock
+pub oso_core::editor::GitRequest::RemoveLock::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::GitRequest::RemoveLock::confirmed: bool
 pub oso_core::editor::GitRequest::RestoreDiscarded
 pub oso_core::editor::GitRequest::RestoreDiscarded::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::GitRequest::RestoreDiscarded::confirmed: bool

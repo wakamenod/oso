@@ -232,3 +232,34 @@ fn quitting_names_git_running_and_quit_when_idle_counts_it() {
     editor.set_git_running(log, false);
     assert_eq!(editor.git_runs().count(), 0);
 }
+
+#[test]
+fn removing_a_stale_lock_asks_the_host_in_a_project_or_a_log_only() {
+    let (mut editor, project) = crate::commands::review::tests::in_project(true);
+    let status = editor.add_git_status(project, "*git: p*");
+    editor.show(status);
+    let (result, _) = run(&mut editor, "git-remove-stale-lock", Args::NONE);
+    assert!(result.is_ok());
+    assert_eq!(
+        editor.take_git_requests(),
+        [GitRequest::RemoveLock {
+            buffer: status,
+            confirmed: false
+        }]
+    );
+    let log = editor.add_internal_buffer("*git log: p*", Mode::GitLog);
+    editor.show(log);
+    let (result, _) = run(&mut editor, "git-remove-stale-lock", Args::NONE);
+    assert!(result.is_ok());
+    assert_eq!(
+        editor.take_git_requests(),
+        [GitRequest::RemoveLock {
+            buffer: log,
+            confirmed: false
+        }]
+    );
+    let mut editor = crate::commands::tests::editor("");
+    let (result, _) = run(&mut editor, "git-remove-stale-lock", Args::NONE);
+    assert_eq!(result.unwrap_err().to_string(), "Not in a project");
+    assert!(editor.take_git_requests().is_empty());
+}

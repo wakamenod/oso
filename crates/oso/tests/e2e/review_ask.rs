@@ -50,12 +50,17 @@ const NARROW: &str = "\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u
                       \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\
                       \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}";
 
-/// A screen with Claude Code's input box holding `input`, its rules narrow enough for any
-/// window the flows show it in: the captured screens' rules are 100 columns, which wrap in a
-/// narrower terminal, and oso reads a wrapped box as none.
+/// The top rule of [`boxed_screen`]'s input box, 30 columns, with the session's name at its
+/// right end, as Claude Code draws it for a session started with `--name`, as oso starts them.
+const NAMED: &str = "\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\
+                     \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\
+                     \u{2500} worker \u{2500}";
+
+/// A screen with Claude Code's input box holding `input` after its sign and no-break space,
+/// its rules narrow enough for any window the flows show it in: the captured screens' rules
+/// are 100 columns, which wrap in a narrower terminal, and oso reads a wrapped box as none.
 fn boxed_screen(input: &str) -> String {
-    let rule = NARROW;
-    format!("talk\n{rule}\n\u{276f} {input}\n{rule}\n  ? for shortcuts\n")
+    format!("talk\n{NAMED}\n\u{276f}\u{a0}{input}\n{NARROW}\n  ? for shortcuts\n")
 }
 
 /// Shows an empty input box in the fake's terminal, and waits until oso has it on screen.
@@ -92,16 +97,20 @@ fn wait_saying(app: &mut App, what: &str, holds: impl Fn(&Value) -> bool) -> Val
 /// Waits for the fake to read the question's paste, then shows the folded paste in its box,
 /// as the TUI would.
 fn fold_paste(app: &mut App, flow: &Flow, pastes_before: usize, terminal_name: &str) {
-    pastes(flow, pastes_before + 1);
-    flow.scratch.write(
-        "screen",
-        boxed_screen("[Pasted text #1 +12 lines]").as_bytes(),
-    );
-    let folded = "\u{276f} [Pasted text #1 +12 lines]";
+    let read = pastes(flow, pastes_before + 1);
+    // The TUI counts the paste's line breaks, which a terminal may write as CR.
+    let paste = (read.rsplit("\u{1b}[200~").next())
+        .and_then(|paste| paste.split(END).next())
+        .unwrap_or_default();
+    let breaks = paste.matches(['\n', '\r']).count() - paste.matches("\r\n").count();
+    let folding = format!("[Pasted text #1 +{breaks} lines]");
+    flow.scratch
+        .write("screen", boxed_screen(&folding).as_bytes());
+    let folded = format!("\u{276f}\u{a0}{folding}");
     wait_saying(app, "the folded paste on screen", |state| {
         terminal(state, terminal_name).is_some_and(|terminal| {
             (terminal["rows"].as_array())
-                .is_some_and(|rows| rows.iter().any(|row| row.as_str() == Some(folded)))
+                .is_some_and(|rows| rows.iter().any(|row| row.as_str() == Some(folded.as_str())))
         })
     });
 }

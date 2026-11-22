@@ -1,6 +1,6 @@
 # 0163. Reviews in a space
 
-- Status: Accepted
+- Status: Accepted; "Submit once pasted, as amended" (2026-11-22)
 - Date: 2026-11-21
 
 ## Context
@@ -85,10 +85,16 @@ space.
   A paste that waited for Enter would make the person go into the slot to press it, leaving the
   diff. An Enter must reach only the input box, never a dialog, a draft or another mode, so oso
   reads Claude Code's input box on the screen the UI holds (`sessions::send::input_box`, a pure
-  function tested on the captured screens): the one row between the last two rules of `─`,
-  starting with `❯`.
-  - **Empty** (`❯` alone or its `Try "…"` hint): the question is pasted, and Enter goes as a key
-    of its own once the box shows Claude Code's folded paste alone (`[Pasted text #N +M lines]`),
+  function tested on the captured screens): the rows between the last two rules, the first
+  starting with `❯`. The rules are found as the state rules find them: a run of `─`, or one with
+  the session's name at its right end, `──── api-fix ─`, as Claude Code draws the top rule of a
+  session started with `--name`, as oso starts them. Both must start their rows and span at
+  least 20 columns, and the bottom one is `─` alone, so that rows a model indents do not pass for
+  them.
+  - **Empty** (`❯` alone or its `Try "…"` hint, whole or cut): the question is pasted, and Enter
+    goes as a key of its own once the box shows Claude Code's folded paste alone
+    (`[Pasted text #N +M lines]`, on one row or wrapped to at most three in a narrow terminal,
+    its `M` the question's line breaks, which text a model wrote cannot know),
     looked for from 150 ms after the paste every 100 ms for 2 s, and only while the session still
     takes a paste. Else it stays unsubmitted in the box, and the echo area says so. A paste that
     never reached the program, or that the terminal refused, never shows, so nothing is
@@ -96,7 +102,7 @@ space.
   - **Typed** (one row of other text): pasted, not submitted, for the person's Enter, so that a
     draft never goes out with it.
   - **No box** (a dialog, a picker, an option row `❯ 1.`, a slash command's menu, bash or memory
-    mode, a draft of several rows): nothing is pasted.
+    mode, a draft of several rows): nothing is pasted, and the echo area says which it saw.
 
   Claude Code queues a message submitted while it works.
 - **Where it goes:**
@@ -264,6 +270,27 @@ The rest is in the tip crate: `app/reviews/start.rs` (the steps, the target and 
   resume the orchestrator.
 - [ADR 0143](0143-agent-keys-on-c-c-a-and-an-agents-menu.md), the Agents menu: `v` is
   `review-layout`, `D` is `review-session`; session mode's `C-c C-v` is `review-layout`.
+
+## Submit once pasted, as amended
+
+Amended on 2026-11-22, the author's choice through the space's orchestrator. Once the input box
+was read for a named session, the author's questions were pasted but still not submitted: oso
+waited up to 2 s for the box to show the folded paste alone (`[Pasted text #N +M lines]`, `M` the
+question's line breaks), and on the author's machine it never matched, so the person had to go
+to the session and press Enter. Captured in a pty, Claude Code 2.1.330 and 2.1.326 fold oso's
+questions as expected, including after a resize, so why it did not match there is not known.
+The rule that holds now:
+
+- **While the input box shows** (empty, a folded paste, or other text on one row or several),
+  the question is pasted, and Enter goes as a key of its own 150 ms later,
+  with no wait for the folded paste and no check of what the box holds. Text the box held goes
+  with the question; the echo area says so.
+- **The one guard stays:** when no input box shows (no two rules, no prompt sign, a dialog's
+  options or a slash command's menu at the sign), nothing is pasted or submitted, and the echo
+  area says which. The Enter is sent only if the box still shows when it is due and the session
+  still takes a paste (the state rules: not needs input, not held by a full-screen view), so
+  that it never goes to a dialog or a picker that came meanwhile.
+- The passage above about **Empty**, **Typed** and the 2 s wait no longer holds.
 
 ## Consequences
 
