@@ -1,6 +1,7 @@
 //! The review layout (ADR 0160): the review at the left of the frame and one window at its
 //! right, the slot, which shows one thing at a time: the source a jump goes to, a side shown
-//! read-only, the message of comments to send, and later a space orchestrator's answer. One
+//! read-only, the message of comments to send, or the session `review-ask` asked. While it
+//! shows something else, the session goes below it, the slot's lower half (ADR 0169). One
 //! key, `review-layout`, shows it, goes back from the slot to the review where it was, and
 //! restores the windows from before it, as `q` in the review does.
 //!
@@ -30,8 +31,8 @@ use crate::sessions::spaces::kept::{self, Kept, ReviewKept};
 mod windows;
 
 use windows::{
-    carried, fit_slot, in_slot, in_tree, jump_slot, layout_window, show_in_slot, shows_review,
-    slot_of,
+    carried, fit_slot, in_slot, in_tree, jump_slot, layout_window, show_asked, show_in_slot,
+    shows_review, slot_of,
 };
 
 /// The slot's share of the row it is in, in fifths: the review keeps three (ADR 0160, Q4).
@@ -132,11 +133,16 @@ impl App {
     }
 
     /// Shows `buffer` in the slot while the frame is the review layout, selecting it with
-    /// `select`: the message of comments, and later an orchestrator's answer. Returns whether
-    /// it did.
+    /// `select`: the message of comments, selected; or, not selected, the session `review-ask`
+    /// shows, its terminal or its native buffer, which goes below what the slot shows (ADR
+    /// 0169). Returns whether it did.
     pub(in crate::app) fn show_in_review_slot(&mut self, buffer: BufferId, select: bool) -> bool {
         let kept = self.watch.spaces_mut().kept_mut();
-        let shown = show_in_slot(&mut self.editor, kept, buffer, select);
+        let shown = if !select {
+            show_asked(&mut self.editor, kept, buffer)
+        } else {
+            show_in_slot(&mut self.editor, kept, buffer, select)
+        };
         if shown {
             self.request_redraw();
         }
@@ -159,20 +165,40 @@ impl App {
     }
 
     /// A restart carried the review `review` shown in `window`, the layout's, with its slot in
-    /// `slot`: the frame is the layout again, with nothing to restore.
+    /// `slot` and the window below it in `ask`: the frame is the layout again, with nothing to
+    /// restore. The session `review-ask` showed is what `ask`, else the slot, shows, only while
+    /// it is a session's: a terminal, or a hosted session's buffer.
     pub(super) fn carried_review_layout(
         &mut self,
         review: ReviewId,
         window: WindowId,
         slot: WindowId,
+        ask: Option<WindowId>,
     ) {
+        // The session below the slot, else one filling the slot.
+        let session = |id: WindowId| {
+            (self.editor.window_by_id(id))
+                .map(oso_core::window::Window::buffer)
+                .filter(|buffer| self.is_session_buffer(*buffer))
+        };
+        let asked = ask.and_then(session).or_else(|| session(slot));
         let kept = self.watch.spaces_mut().kept_mut();
-        carried(&self.editor, kept, review, window, slot);
+        carried(&self.editor, kept, review, window, slot, ask, asked);
     }
 
-    /// The layout's slot, for a restart to name, while the frame is the layout of `review`.
-    pub(in crate::app) fn review_layout_slot(&self, review: ReviewId) -> Option<WindowId> {
-        slot_of(self.watch.spaces().kept(), review)
+    /// The layout's slot and the window below it, for a restart to name, while the frame is the
+    /// layout of `review`.
+    pub(in crate::app) fn review_layout_slot(
+        &self,
+        review: ReviewId,
+    ) -> Option<(WindowId, Option<WindowId>)> {
+        slot_of(&self.editor, self.watch.spaces().kept(), review)
+    }
+
+    /// Whether `buffer` is a session's: a terminal, or a hosted session's buffer.
+    fn is_session_buffer(&self, buffer: BufferId) -> bool {
+        self.terminals.map.get(buffer).is_some()
+            || (self.hosting.table().iter()).any(|session| session.buffer == Some(buffer))
     }
 }
 
@@ -305,6 +331,8 @@ pub(super) fn enter(editor: &mut Editor, kept: &mut Vec<Kept>, id: ReviewId) -> 
             window,
             slot: Some(slot),
             from: None,
+            ask: None,
+            asked: None,
         },
     );
     debug_assert!(pushed, "one layout a tree");
@@ -362,6 +390,7 @@ fn lay_out_again(editor: &mut Editor, kept: &mut [Kept]) -> Option<WindowTree> {
         laid.window = window;
         laid.slot = Some(slot);
         laid.from = None;
+        laid.ask = None;
     }
     Some(old)
 }

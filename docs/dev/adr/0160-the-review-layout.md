@@ -1,6 +1,6 @@
 # 0160. The review layout
 
-- Status: Accepted, amended by 0163 and 0167
+- Status: Accepted, amended by 0163, 0167 and 0169
 - Date: 2026-11-19
 
 ## Context

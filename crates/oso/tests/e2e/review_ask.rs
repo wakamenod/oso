@@ -1,8 +1,9 @@
 //! Asking in a review (ADR 0163), with `git_agent`'s fake `claude`: `Q` on a changed line sends
 //! the question with its place and hunk, pasted and then submitted, to the review's session
 //! outside a space with an orchestrator, and to the space's orchestrator in one, its terminal
-//! shown in the review layout's slot while the review stays selected; and `C-c C-c`'s message
-//! goes to the orchestrator too, naming the worktree.
+//! shown in the review layout's slot while the review stays selected, below the source the slot
+//! shows (ADR 0169), the split kept across a restart; and `C-c C-c`'s message goes to the
+//! orchestrator too, naming the worktree.
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test: the question's
 //! text, a region's rows and the message's head have their own tests.
@@ -152,6 +153,42 @@ fn shown(state: &Value) -> Vec<String> {
         .collect()
 }
 
+/// The frame's windows: what each shows, and its top row and left column.
+fn placed(state: &Value) -> Vec<(String, u64, u64)> {
+    let buffers = state["buffers"].as_array().cloned().unwrap_or_default();
+    let name = |id: &Value| {
+        (buffers.iter())
+            .find(|buffer| buffer["id"] == *id)
+            .and_then(|buffer| buffer["name"].as_str().map(str::to_owned))
+    };
+    let windows = state["windows"].as_array().cloned().unwrap_or_default();
+    (windows.iter())
+        .filter_map(|window| {
+            let area = &window["area"];
+            Some((
+                name(&window["buffer"])?,
+                area["row"].as_u64()?,
+                area["column"].as_u64()?,
+            ))
+        })
+        .collect()
+}
+
+/// Waits until the frame shows the review at the left, `top` in the slot's upper half and
+/// `below` under it in the same column (ADR 0169), and gives the state.
+fn split_slot(app: &mut App, top: &str, below: &str) -> Value {
+    wait_saying(app, "the slot split, the session below", |state| {
+        let placed = placed(state);
+        let at = |name: &str| placed.iter().find(|(shows, ..)| shows == name);
+        placed.len() == 3
+            && matches!(
+                (at(REVIEW), at(top), at(below)),
+                (Some((_, _, left)), Some((_, upper, column)), Some((_, lower, under)))
+                    if left < column && column == under && upper < lower
+            )
+    })
+}
+
 /// Asks `question` with `Q` on the review's first added line.
 fn ask(app: &mut App, question: &str) {
     app.send_keys("M-< n C-n Q");
@@ -170,7 +207,11 @@ fn a_question_goes_to_the_review_s_session_submitted_and_shows_beside_the_review
     let flow = Flow::with_fake("review-ask", "", FAKE);
     let (mut app, _bridge) = hosted(&flow);
     empty_box(&mut app, &flow, "*claude: repo*");
-    back_to(&mut app, "README.md");
+    // Another file than the source, so that `RET` is seen to change the slot's top.
+    app.open_file(&flow.repo.join(".gitignore"));
+    app.wait_for(".gitignore", |state| {
+        state["buffer"]["name"] == ".gitignore"
+    });
     show_review(&mut app);
 
     ask(&mut app, "Why");
@@ -198,6 +239,60 @@ fn a_question_goes_to_the_review_s_session_submitted_and_shows_beside_the_review
         windows.iter().any(|name| name == "*claude: repo*"),
         "{windows:?}"
     );
+    // The slot showed .gitignore: it stays on top, the session below it (ADR 0169).
+    split_slot(&mut app, ".gitignore", "*claude: repo*");
+
+    // `RET` to the source changes the top alone, selected there.
+    app.send_keys("M-< n C-n RET");
+    let state = wait_saying(&mut app, "the source on top", |state| {
+        state["buffer"]["name"] == "README.md"
+    });
+    assert_eq!(placed(&state).len(), 3, "{:?}", placed(&state));
+    split_slot(&mut app, "README.md", "*claude: repo*");
+
+    // Back in the review, a second question reuses the window below.
+    app.send_keys("C-x v r");
+    wait_saying(&mut app, "the review again", |state| {
+        state["buffer"]["name"] == REVIEW
+    });
+    empty_box(&mut app, &flow, "*claude: repo*");
+    ask(&mut app, "And");
+    fold_paste(&mut app, &flow, 1, "*claude: repo*");
+    submitted(&mut app, &flow, 2);
+    let state = split_slot(&mut app, "README.md", "*claude: repo*");
+    assert_eq!(state["buffer"]["name"], REVIEW, "{state}");
+    flow.exit_with(0);
+}
+
+/// The split slot survives a restart: the frame comes back as the review, the source on top
+/// and the session below, and a question after it reuses the window below (ADR 0169, Q3).
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_restart_keeps_the_split_slot_and_a_question_after_it_reuses_the_window_below() {
+    let flow = Flow::with_fake("review-ask-restart", "", FAKE);
+    let (mut old, _bridge) = hosted(&flow);
+    empty_box(&mut old, &flow, "*claude: repo*");
+    back_to(&mut old, "README.md");
+    show_review(&mut old);
+    ask(&mut old, "Why");
+    fold_paste(&mut old, &flow, 0, "*claude: repo*");
+    submitted(&mut old, &flow, 1);
+    split_slot(&mut old, "README.md", "*claude: repo*");
+
+    let mut new = flow.start_for_restart();
+    crate::terminal::restart::hand_over(&mut old, &mut new);
+    new.wait_for("the session carried", |state| {
+        terminal(state, "*claude: repo*").is_some_and(|terminal| terminal["running"] == true)
+    });
+    let state = split_slot(&mut new, "README.md", "*claude: repo*");
+    assert_eq!(state["buffer"]["name"], REVIEW, "{state}");
+
+    empty_box(&mut new, &flow, "*claude: repo*");
+    ask(&mut new, "And");
+    fold_paste(&mut new, &flow, 1, "*claude: repo*");
+    submitted(&mut new, &flow, 2);
+    let state = split_slot(&mut new, "README.md", "*claude: repo*");
+    assert_eq!(state["buffer"]["name"], REVIEW, "{state}");
     flow.exit_with(0);
 }
 

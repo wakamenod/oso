@@ -1,7 +1,8 @@
 //! The review layout (ADR 0160): entered and restored exactly, the slot each jump replaces,
 //! found again after the person rearranged the windows, the key's choices, a zoom inside it,
-//! a layout a restart carried, and a property that whatever is done inside it, restoring gives
-//! back the tree from before.
+//! a layout a restart carried, the session `review-ask` shows below what the slot shows
+//! (ADR 0169), and a property that whatever is done inside it, restoring gives back the tree
+//! from before.
 //!
 //! Must not depend on: the app's threads, git or files; these work on an editor made here.
 
@@ -13,7 +14,8 @@ use oso_core::window::WindowId;
 use proptest::prelude::*;
 
 use super::{
-    Key, back, carried, enter, in_slot, jump_slot, press, restore, show_in_slot, show_laid,
+    Key, back, carried, enter, in_slot, jump_slot, press, restore, show_asked, show_in_slot,
+    show_laid,
 };
 use crate::sessions::spaces::kept::{self, Kept};
 
@@ -65,6 +67,19 @@ fn columns(editor: &Editor, id: WindowId) -> usize {
         .find(|(window, _)| *window == id)
         .unwrap();
     regions.modeline.columns + regions.divider.map_or(0, |divider| divider.columns)
+}
+
+/// The rows window `id` takes, its modeline's too.
+fn rows(editor: &Editor, id: WindowId) -> usize {
+    let (_, regions) = (editor.frame().windows().iter())
+        .find(|(window, _)| *window == id)
+        .unwrap();
+    regions.text.rows + regions.modeline.rows
+}
+
+/// A buffer standing for a session's terminal.
+fn terminal(editor: &mut Editor, name: &str) -> BufferId {
+    editor.add_buffer(Buffer::from_text(name, "> "))
 }
 
 /// Two windows side by side, the second showing `other` at its line 30, the first selected.
@@ -255,7 +270,7 @@ fn a_layout_a_restart_carried_restores_to_the_review_s_window_burying_the_review
     let slot = editor.split_window(Way::Across, false).unwrap();
     editor.show_in(slot, file);
     let mut kept = Vec::new();
-    carried(&editor, &mut kept, review, left, slot);
+    carried(&editor, &mut kept, review, left, slot, None, None);
     assert!(kept::review_in_frame(&kept));
     jump_window(&mut editor, &mut kept, review).unwrap();
     assert_eq!(editor.window().id(), slot);
@@ -267,8 +282,197 @@ fn a_layout_a_restart_carried_restores_to_the_review_s_window_burying_the_review
     assert_eq!(shown[0].1, file, "what it showed behind the review");
     // A second carried layout is not taken over the first.
     let mut held = Vec::new();
-    carried(&editor, &mut held, review, left, slot);
+    carried(&editor, &mut held, review, left, slot, None, None);
     assert!(held.is_empty(), "the slot is gone");
+}
+
+#[test]
+fn a_question_goes_below_the_source_and_a_jump_then_changes_only_the_top() {
+    let (mut editor, review, file, other) = editor();
+    let mut kept = Vec::new();
+    assert!(enter(&mut editor, &mut kept, review));
+    let [(left, ..), (slot, ..)] = windows(&editor)[..] else {
+        panic!("two windows");
+    };
+    jump_window(&mut editor, &mut kept, review).unwrap();
+    editor.show(other);
+    back(&mut editor, &mut kept).unwrap();
+    let session = terminal(&mut editor, "*claude: repo*");
+    assert!(show_asked(&mut editor, &mut kept, session));
+    let shown = windows(&editor);
+    let [(_, _, _), (top, top_shows, _), (below, below_shows, _)] = shown[..] else {
+        panic!("the review, the source and the session: {shown:?}");
+    };
+    assert_eq!((top, top_shows), (slot, other), "the source stays on top");
+    assert_eq!(below_shows, session);
+    assert_eq!(editor.window().id(), left, "the review stays selected");
+    assert_eq!(
+        columns(&editor, below),
+        48,
+        "the slot's column, two fifths wide"
+    );
+    assert!(
+        rows(&editor, top).abs_diff(rows(&editor, below)) <= 1,
+        "halves"
+    );
+    // A jump changes the top alone.
+    jump_window(&mut editor, &mut kept, review).unwrap();
+    assert_eq!(editor.window().id(), slot);
+    editor.show(file);
+    let shown = windows(&editor);
+    assert_eq!(shown.len(), 3);
+    assert_eq!((shown[1].1, shown[2].1), (file, session));
+    // A later question reuses the window below, whichever session it shows.
+    back(&mut editor, &mut kept).unwrap();
+    let again = terminal(&mut editor, "*claude: other*");
+    assert!(show_asked(&mut editor, &mut kept, again));
+    let shown = windows(&editor);
+    assert_eq!(shown.len(), 3);
+    assert_eq!((shown[1].1, shown[2]), (file, (below, again, 0)));
+    assert_eq!(editor.window().id(), left);
+    // The message of comments takes the top too.
+    let message = editor.add_buffer(Buffer::from_text("*review message*", "x"));
+    assert!(show_in_slot(&mut editor, &mut kept, message, true));
+    assert_eq!(editor.window().id(), slot);
+    assert_eq!(
+        (windows(&editor)[1].1, windows(&editor)[2].1),
+        (message, again)
+    );
+}
+
+#[test]
+fn a_question_takes_the_whole_slot_over_messages_or_itself_and_a_jump_then_splits_it() {
+    let (mut editor, review, _, other) = editor();
+    let mut kept = Vec::new();
+    assert!(enter(&mut editor, &mut kept, review));
+    let [(left, ..), (slot, ..)] = windows(&editor)[..] else {
+        panic!("two windows");
+    };
+    let messages = editor.messages_buffer();
+    assert!(show_in_slot(&mut editor, &mut kept, messages, false));
+    let session = terminal(&mut editor, "*claude: repo*");
+    assert!(show_asked(&mut editor, &mut kept, session));
+    assert_eq!(windows(&editor).len(), 2, "*Messages* is the slot's filler");
+    assert_eq!(windows(&editor)[1].1, session);
+    assert!(show_asked(&mut editor, &mut kept, session));
+    assert_eq!(
+        windows(&editor).len(),
+        2,
+        "the slot shows the session already"
+    );
+    // A jump while the session fills the slot: the source on top, the session below.
+    jump_window(&mut editor, &mut kept, review).unwrap();
+    assert_eq!(editor.window().id(), slot);
+    editor.show(other);
+    let shown = windows(&editor);
+    assert_eq!(shown.len(), 3);
+    assert_eq!((shown[1].0, shown[1].1, shown[2].1), (slot, other, session));
+    back(&mut editor, &mut kept).unwrap();
+    assert_eq!(editor.window().id(), left);
+}
+
+#[test]
+fn a_window_of_the_split_slot_deleted_by_hand_is_made_again_below_or_above() {
+    let (mut editor, review, file, other) = editor();
+    let mut kept = Vec::new();
+    assert!(enter(&mut editor, &mut kept, review));
+    let left = editor.window().id();
+    let session = terminal(&mut editor, "*claude: repo*");
+    assert!(show_asked(&mut editor, &mut kept, session));
+    assert_eq!(windows(&editor).len(), 3, "below a.rs");
+    // The window below deleted: the next question splits again.
+    let below = windows(&editor)[2].0;
+    editor.select_window(below);
+    editor.delete_window().unwrap();
+    editor.select_window(left);
+    assert!(show_asked(&mut editor, &mut kept, session));
+    let shown = windows(&editor);
+    assert_eq!((shown.len(), shown[1].1, shown[2].1), (3, file, session));
+    // The top deleted: the next jump splits the window below, the session staying below.
+    editor.select_window(shown[1].0);
+    editor.delete_window().unwrap();
+    editor.select_window(left);
+    jump_window(&mut editor, &mut kept, review).unwrap();
+    editor.show(other);
+    let again = windows(&editor);
+    assert_eq!(again.len(), 3);
+    assert_eq!(
+        (again[1].0, again[1].1, again[2].1),
+        (shown[2].0, other, session)
+    );
+    assert!(in_slot(&editor, &kept));
+    assert!(rows(&editor, again[1].0).abs_diff(rows(&editor, again[2].0)) <= 1);
+}
+
+#[test]
+fn a_slot_too_short_to_split_shows_the_question_in_place() {
+    let (mut editor, review, _, _) = editor();
+    editor.set_frame_size(FrameSize {
+        rows: 5,
+        columns: 120,
+    });
+    let mut kept = Vec::new();
+    assert!(enter(&mut editor, &mut kept, review));
+    let session = terminal(&mut editor, "*claude: repo*");
+    assert!(show_asked(&mut editor, &mut kept, session));
+    let shown = windows(&editor);
+    assert_eq!((shown.len(), shown[1].1), (2, session));
+    // Outside the layout, nothing is shown.
+    restore(&mut editor, &mut kept).unwrap();
+    assert!(!show_asked(&mut editor, &mut kept, session));
+}
+
+#[test]
+fn a_restart_carries_the_window_below_the_slot_which_the_next_question_reuses() {
+    let (mut editor, review, file, _) = editor();
+    let buffer = editor.review_buffer(review).unwrap();
+    let left = editor.tiled().0.id();
+    editor.show_in(left, buffer);
+    let slot = editor.split_window(Way::Across, false).unwrap();
+    editor.show_in(slot, file);
+    editor.select_window(slot);
+    let below = editor.split_window(Way::Down, false).unwrap();
+    let session = terminal(&mut editor, "*claude: repo*");
+    editor.show_in(below, session);
+    editor.select_window(left);
+    let mut kept = Vec::new();
+    carried(
+        &editor,
+        &mut kept,
+        review,
+        left,
+        slot,
+        Some(below),
+        Some(session),
+    );
+    let laid = kept::review(&kept).unwrap();
+    assert_eq!((laid.ask, laid.asked), (Some(below), Some(session)));
+    let again = terminal(&mut editor, "*claude: other*");
+    assert!(show_asked(&mut editor, &mut kept, again));
+    let shown = windows(&editor);
+    assert_eq!((shown.len(), shown[2].0, shown[2].1), (3, below, again));
+    // A window below that is the slot, or gone, is not carried.
+    let mut held = Vec::new();
+    carried(&editor, &mut held, review, left, slot, Some(slot), None);
+    let laid = kept::review(&held).unwrap();
+    assert_eq!((laid.ask, laid.asked), (None, None));
+}
+
+#[test]
+fn a_session_filling_a_carried_slot_goes_below_on_the_next_jump() {
+    let (mut editor, review, _, other) = editor();
+    let buffer = editor.review_buffer(review).unwrap();
+    let left = editor.tiled().0.id();
+    editor.show_in(left, buffer);
+    let slot = editor.split_window(Way::Across, false).unwrap();
+    let session = terminal(&mut editor, "*claude: repo*");
+    editor.show_in(slot, session);
+    let mut kept = Vec::new();
+    carried(&editor, &mut kept, review, left, slot, None, Some(session));
+    jump_window(&mut editor, &mut kept, review).unwrap();
+    editor.show(other);
+    let shown = windows(&editor);
+    assert_eq!((shown.len(), shown[1].1, shown[2].1), (3, other, session));
 }
 
 /// What the person may do with the windows inside the layout.
@@ -282,6 +486,7 @@ enum Act {
     Back,
     Resize(i8),
     Zoom,
+    Ask,
 }
 
 fn act() -> impl Strategy<Value = Act> {
@@ -295,6 +500,7 @@ fn act() -> impl Strategy<Value = Act> {
         Just(Act::Back),
         (-8i8..8).prop_map(Act::Resize),
         Just(Act::Zoom),
+        Just(Act::Ask),
     ]
 }
 
@@ -314,6 +520,7 @@ proptest! {
         let mut kept = Vec::new();
         prop_assert!(enter(&mut editor, &mut kept, review));
         let buffer = editor.review_buffer(review).unwrap();
+        let session = terminal(&mut editor, "*claude: repo*");
         for act in acts {
             match act {
                 Act::Split(way) => {
@@ -339,6 +546,9 @@ proptest! {
                 }
                 Act::Zoom => {
                     let _ = kept::zoom(&mut editor, &mut kept);
+                }
+                Act::Ask => {
+                    show_asked(&mut editor, &mut kept, session);
                 }
             }
         }
