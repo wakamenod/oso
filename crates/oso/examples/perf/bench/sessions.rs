@@ -186,10 +186,11 @@ fn spinning(app: &mut App, scratch: &Path) -> Result<Vec<f64>, String> {
     Ok(frames)
 }
 
-/// What the sessions that are not working show, from `state`, for the error: each one's state
-/// and its buffer's size, an empty one being a screen that never came. Then the first is shown,
-/// and after a moment its state, last rows, modeline and echo area are read again, which tells
-/// a screen that waited for a frame from one that never came, and says how a terminal ended.
+/// What the sessions that are not working show, from `state`, for the error: each one's state,
+/// how its terminal ended and its screen's size. Then the first is shown, and after a moment its
+/// state, its terminal's last rows, size and history, the modeline and the echo area are read
+/// again, which tells a screen that waited for a frame from one that never came, and shows what
+/// a program that ended said, such as the shell's reason for a status of 127.
 fn not_working(app: &mut App, state: &serde_json::Value) -> Result<String, String> {
     let none = Vec::new();
     let buffers = state["buffers"].as_array().unwrap_or(&none);
@@ -202,13 +203,10 @@ fn not_working(app: &mut App, state: &serde_json::Value) -> Result<String, Strin
         let buffer = buffers.iter().find(|b| b["name"] == buffer_name.as_str());
         let id = buffer.and_then(|b| b["id"].as_u64());
         first = first.or(id.map(|id| (id, name.to_owned())));
+        let terminal = terminal_of(state, id);
         parts.push(format!(
-            "{name:?} {} (recap {}), buffer {:?} of {} bytes, {} lines",
-            session["state"],
-            session["recap"],
-            id,
-            buffer.map_or(&serde_json::Value::Null, |b| &b["bytes"]),
-            buffer.map_or(&serde_json::Value::Null, |b| &b["lines"]),
+            "{name:?} {} (recap {}), buffer {id:?}, terminal ended {}, size {}",
+            session["state"], session["recap"], terminal["ended"], terminal["size"],
         ));
     }
     let mut why = format!("not working: {}", parts.join("; "));
@@ -219,17 +217,40 @@ fn not_working(app: &mut App, state: &serde_json::Value) -> Result<String, Strin
         let listed = shown["sessions"]["sessions"].as_array().unwrap_or(&none);
         let session = listed.iter().find(|s| s["name"] == name.as_str());
         let now = session.map_or(serde_json::Value::Null, |s| s["state"].clone());
-        let text = shown["text"].as_str().unwrap_or_default();
-        let rows: Vec<&str> = text.lines().filter(|row| !row.trim().is_empty()).collect();
-        let last = &rows[rows.len().saturating_sub(4)..];
+        // A terminal's screen is its entry's rows, not the buffer's text; null while its
+        // program reads a password.
+        let terminal = terminal_of(&shown, Some(id));
+        let rows: Vec<&str> = terminal["rows"]
+            .as_array()
+            .unwrap_or(&none)
+            .iter()
+            .filter_map(serde_json::Value::as_str)
+            .filter(|row| !row.trim().is_empty())
+            .collect();
+        let last = &rows[rows.len().saturating_sub(8)..];
         // The modeline says how a session's terminal ended: exited with a status, killed by a
         // signal, ended or failed.
         why.push_str(&format!(
-            "; shown for 1 s, {name:?} is {now}, its last rows {last:?}, modeline {}, echo {}",
-            shown["modeline"], shown["echo"],
+            "; shown for 1 s, {name:?} is {now}, its terminal ended {}, size {}, history {}, \
+             last rows {last:?}, modeline {}, echo {}",
+            terminal["ended"],
+            terminal["size"],
+            terminal["history"],
+            shown["modeline"],
+            shown["echo"],
         ));
     }
     Ok(why)
+}
+
+/// The dev state's entry for the terminal in buffer `id`, or null.
+fn terminal_of(state: &serde_json::Value, id: Option<u64>) -> &serde_json::Value {
+    let found = state["terminals"].as_array().and_then(|terminals| {
+        terminals
+            .iter()
+            .find(|terminal| id.is_some() && terminal["id"].as_u64() == id)
+    });
+    found.unwrap_or(&serde_json::Value::Null)
 }
 
 /// Waits until the dev state lists `count` hosted sessions.
