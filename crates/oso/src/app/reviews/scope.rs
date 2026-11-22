@@ -27,6 +27,11 @@ pub(super) fn scope_label(scope: &Scope) -> String {
         Scope::Commit { revision } => format!("commit {revision}"),
         Scope::Range { from, to } => format!("range {from}..{to}"),
         Scope::PullRequest { number } => format!("pull request #{number}"),
+        Scope::Since { number, from, to } => format!(
+            "#{number} since {}..{}",
+            &from.as_str()[..SHORT.min(from.as_str().len())],
+            &to.as_str()[..SHORT.min(to.as_str().len())]
+        ),
     };
     one_line(&label, MAX_NAME)
 }

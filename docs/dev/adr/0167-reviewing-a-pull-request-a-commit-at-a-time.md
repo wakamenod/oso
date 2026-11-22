@@ -270,3 +270,66 @@ No new crate, crate edge or dependency.
   run for each row passed.
 - **Reading the commits through `gh pr view --json commits`:** it runs `gh` and stops at 250
   commits, while the clone holds them all once the pull request's sides are fetched.
+
+## Step 2, as built
+
+The second PR. The author answered its plan's four questions on 2026-11-22, through the
+coordinator, and approved its public items as listed.
+
+- **The checkpoint (Q1, Q3):**
+  - The checkpoint is the person's last review of a pull request: where its head left the base,
+    and its head, as its review last listed them.
+  - Pasting the pull request's comments records it: the second `C-c C-c`, from any of its
+    reviews. It records the head the message was made from, not one listed since. A dropped
+    message records nothing.
+  - `M-x review-checkpoint` (`ReviewRequest::Checkpoint { review }`, `Person`) records it too. It
+    records the head only and marks nothing viewed.
+  - It is saved in the pull request's review's header as `checkpoint` (two whole ids), written
+    only when there is one, and saved again whenever it moves.
+- **What is new:**
+  - A listing whose head is past the checkpoint asks the review's own thread what is new. The
+    ask is held as a look is: it stops no reading, it waits until nothing else does, and only the
+    latest is answered. A newer request stops it, which the thread says, and it is asked again
+    once that request has read. A listing at the same base and head as the one before keeps
+    what that one found, and asks nothing.
+  - When the head then is an ancestor of the head now, the commits after it are new.
+  - Else, after a rebase, a commit is new when its `git patch-id --verbatim` is not one the
+    commits then had, so that a change of white space alone is new.
+  - Patches are read in the listing's order with `git log -p --format='commit %H' --binary
+    --submodule=short --no-renames`, so that no message line reaches `patch-id`. At most 64 MiB
+    is read a side.
+  - A commit that changes something and has no patch read is new. So is every commit, when git
+    has no `--verbatim`.
+  - A head then that the clone no longer holds is gone. The list says so, and its row refuses.
+- **The list:**
+  - Its second row, while the head has moved past the checkpoint, is `Since last review · N new
+    commits`, `rebased, N new commits`, or `its head then is gone from this clone`.
+  - Its new commits are marked `new` in the marks column.
+  - The editor's `Commits` gains `since: Option<Since>`, plain data: how many commits are new,
+    rebased, gone, whether its review was shown last, and that review. `CommitEntry` gains `new`.
+- **The review of what changed since (Q4):**
+  - `RET` or `SPC` on the second row (`Step::Since`) opens a review of the head then against the
+    head now. It is a scope of its own, `since` in a saved file, keyed by the pull request and
+    the two ids, saved as any review is and swept after 30 days. Its echo area and modeline say
+    `#N since last review`.
+  - It is linked to the pull request's review, so the list stays above it, and its comments go
+    in the pull request's send, after the whole's, under "What changed in #N since the last
+    review".
+  - `M-n` from it steps to the first new commit that changes something, else the first commit.
+    `M-p` from it goes to the whole.
+  - A new checkpoint unlinks it.
+- **A range:** in the list, set the mark (`C-SPC`) on one commit's row and go to another's.
+  - `RET` or `SPC` then opens a review of those commits (`Step::Range(a, b)`), as `r` reviews a
+    range, and the mark goes.
+  - A mark on a row of no commit refuses.
+  - The review is of no one commit, so it is not linked, and the list goes while it is shown.
+- **Public items:** `ReviewRequest::Checkpoint`, `Step::Since`, `Step::Range`, `Since`,
+  `Commits::since` and `CommitEntry::new`.
+- **Tests:**
+  - Against temporary repositories: what is new after an ancestor, after a rebase (patch-ids
+    kept), and with a head that is gone.
+  - The list's second row, its marks and its cursor, and the modeline.
+  - The steps from and to what changed since, and a range.
+  - The saved `seen`.
+  - The commands: the second row, a marked range, a mark off the commits, and the checkpoint.
+  - An end-to-end flow, `review_since::a_checkpoint_shows_what_changed_since_and_m_n_steps_to_the_new_commit`.

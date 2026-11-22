@@ -17,6 +17,9 @@
 //!   as far as the parents listed and the base say. Both are listed and stepped over.
 //! - A commit's message is `git log -1` of its id, at most [`MAX_MESSAGE_BYTES`], cut to
 //!   [`MAX_MESSAGE_LINES`] lines, saying so.
+//! - A commit's patch-id (`git patch-id --stable` of `git log -p`), which a rebase keeps, tells
+//!   which commits the person reviewed before one (ADR 0167, step 2): at most
+//!   [`MAX_PATCH_BYTES`] of patches are read, and a commit past them has none.
 //! - Every word is anyone's: subjects, names and the message are escaped on one line each as
 //!   git's text is shown (`printable`), and nothing here logs them. No run shows a signature,
 //!   which would run gpg, nor notes.
@@ -38,6 +41,11 @@ pub(crate) const MAX_MESSAGE_BYTES: usize = 64 * 1024;
 pub(crate) const MAX_MESSAGE_LINES: usize = 100;
 /// The most characters of a subject, a name or a line of a message kept.
 const MAX_WORDS: usize = 1024;
+/// The most bytes of patches read for their ids.
+pub(crate) const MAX_PATCH_BYTES: usize = 64 * 1024 * 1024;
+/// The most bytes of `git patch-id`'s answer read: an id and a commit's a line.
+const MAX_PATCH_IDS: usize = (MAX_COMMITS + 1) * 160;
+
 /// What separates a listing's fields; no field before the subject, the last, holds it.
 const FIELD: u8 = 0;
 
@@ -114,6 +122,9 @@ pub(crate) struct Listed {
     pub(crate) commits: Vec<Listing>,
     /// Whether commits were left out: more than [`MAX_COMMITS`], or more output than read.
     pub(crate) more: bool,
+    /// Where the head left the base, and the head listed to, a checkpoint's (step 2).
+    pub(crate) base: Option<Id>,
+    pub(crate) tip: Option<Id>,
 }
 
 /// One commit of a listing.
@@ -201,11 +212,13 @@ pub(crate) fn list(
                 .and_then(|parent| trees.get(parent.as_str()))
                 .is_some_and(|parent_tree| *parent_tree == tree.as_str());
     }
+    listed.listed.base = Some(base.clone());
+    listed.listed.tip = Some(tip.clone());
     if tip != head && !listed.listed.commits.is_empty() {
         if stop() {
             return Err(ScopeError::Stopped);
         }
-        let unpushed = unpushed(git, head, tip)?;
+        let unpushed = commits_after(git, head, tip)?;
         for commit in &mut listed.listed.commits {
             commit.unpushed = unpushed.contains(commit.id.as_str());
         }
@@ -231,6 +244,8 @@ fn read_listing(out: &[u8], cut: bool) -> Read {
         listed: Listed {
             commits: Vec::new(),
             more: cut || lines.len() > MAX_COMMITS,
+            base: None,
+            tip: None,
         },
         trees: Vec::new(),
         parents: HashMap::new(),
@@ -295,8 +310,177 @@ fn one_spaced(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// The commits `tip` holds that `head` does not, at most [`MAX_COMMITS`] and one.
-fn unpushed(git: &Git, head: &Id, tip: &Id) -> Result<HashSet<String>, ScopeError> {
+/// The patch-ids of the commits from `base` to `tip` that are no merge, by their commit's
+/// id, and whether the patches were cut at [`MAX_PATCH_BYTES`], so that some commits have
+/// none. It runs git no more once `stop` says so.
+pub(super) fn patch_ids(
+    git: &Git,
+    base: &Id,
+    tip: &Id,
+    stop: &dyn Fn() -> bool,
+) -> Result<(HashMap<String, String>, bool), ScopeError> {
+    let range = format!("{}..{}", base.as_str(), tip.as_str());
+    let max = format!("--max-count={}", MAX_COMMITS + 1);
+    let args = [
+        "log",
+        "--no-color",
+        "--no-show-signature",
+        "--no-notes",
+        "--no-merges",
+        "--no-ext-diff",
+        "--no-textconv",
+        // The listing's order, so that the commits it keeps are the ones read here.
+        "--topo-order",
+        // Each commit by its id alone: no message line reaches `patch-id`, whatever the
+        // person's `format.pretty` says.
+        "--format=commit %H",
+        // A binary file's change and a submodule's are in the patch, in one form.
+        "--binary",
+        "--submodule=short",
+        // Renames are the slowest part of a patch, and change no patch-id worth telling.
+        "--no-renames",
+        "-p",
+        &max,
+        "--end-of-options",
+        &range,
+        "--",
+    ]
+    .map(OsStr::new);
+    let output = git.output(&args, &[], MAX_PATCH_BYTES)?;
+    if !output.status.success() && !output.cut {
+        return Err(GitError::Failed {
+            status: output.status.code(),
+            stderr: output.stderr,
+        }
+        .into());
+    }
+    if stop() {
+        return Err(ScopeError::Stopped);
+    }
+    let cut = output.cut;
+    // `--verbatim` keeps white space, which `--stable` drops: a change to it alone is a change.
+    let args = ["patch-id", "--verbatim"].map(OsStr::new);
+    let read = move |stdout| crate::git::read_at_most(stdout, MAX_PATCH_IDS);
+    let answer = git.output_with(&args, &[], Some(output.stdout), read)?;
+    if !answer.status.success() {
+        // A git that has no `--verbatim` gives no patch: every commit is then new.
+        return Ok((HashMap::new(), true));
+    }
+    let mut ids = read_patch_ids(&answer.stdout);
+    // The last patch read may have been cut short: its id is not the commit's.
+    if cut && let Some(last) = last_commit(&answer.stdout) {
+        ids.remove(&last);
+    }
+    Ok((ids, cut))
+}
+
+/// The ids in `git patch-id`'s answer, a line `PATCH COMMIT` each, by the commit's.
+fn read_patch_ids(out: &[u8]) -> HashMap<String, String> {
+    out.split(|b| *b == b'\n')
+        .filter_map(|line| {
+            let mut words = line.split(|b| *b == b' ');
+            let (patch, commit) = (Id::parse(words.next()?)?, Id::parse(words.next()?)?);
+            Some((commit.as_str().to_owned(), patch.as_str().to_owned()))
+        })
+        .collect()
+}
+
+/// The commit of the last line of `git patch-id`'s answer: the last patch it was given.
+fn last_commit(out: &[u8]) -> Option<String> {
+    let line = out.split(|b| *b == b'\n').rfind(|line| !line.is_empty())?;
+    let commit = Id::parse(line.split(|b| *b == b' ').nth(1)?)?;
+    Some(commit.as_str().to_owned())
+}
+
+/// The person's last review of a pull request (step 2): where its head left the base then,
+/// and its head then, as its review listed them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Checkpoint {
+    pub(crate) base: Id,
+    pub(crate) head: Id,
+}
+
+/// What changed in a pull request since its last review, asked of the review's thread: the
+/// checkpoint, `from`, and where its head now, `tip`, left its base, `base`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct SinceAsk {
+    pub(crate) from: Checkpoint,
+    pub(crate) base: Id,
+    pub(crate) tip: Id,
+}
+
+/// What changed since: the commits new since then, by their ids, the commits whose patch was
+/// read, whether the head then is no ancestor of the head now (`rebased`) or gone, and whether
+/// patches were left unread past [`MAX_PATCH_BYTES`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct SinceFound {
+    pub(crate) ask: SinceAsk,
+    pub(crate) new: HashSet<String>,
+    pub(crate) patched: HashSet<String>,
+    pub(crate) rebased: bool,
+    pub(crate) gone: bool,
+    pub(crate) cut: bool,
+    /// Whether a newer request stopped it before it found anything, so that it is asked again.
+    pub(crate) stopped: bool,
+}
+
+impl SinceFound {
+    /// Nothing found yet for `ask`: none new, nothing gone.
+    pub(crate) fn none(ask: SinceAsk) -> SinceFound {
+        SinceFound {
+            ask,
+            new: HashSet::new(),
+            patched: HashSet::new(),
+            rebased: false,
+            gone: false,
+            cut: false,
+            stopped: false,
+        }
+    }
+}
+
+/// What changed since the last review `ask` names: the commits after its head when that is an
+/// ancestor of the head now, else, after a rebase, those whose patch-id the commits then did
+/// not have. A head then that git no longer holds is gone. It runs git no more once `stop` says
+/// so.
+pub(crate) fn since(
+    git: &Git,
+    ask: SinceAsk,
+    stop: &dyn Fn() -> bool,
+) -> Result<SinceFound, ScopeError> {
+    let mut found = SinceFound::none(ask);
+    let ask = &found.ask;
+    let held = |id: &Id| {
+        git.resolve(id.as_str(), "commit")
+            .map(|held| held.is_some())
+    };
+    if !held(&ask.from.head)? || !held(&ask.from.base)? {
+        found.gone = true;
+        return Ok(found);
+    }
+    if stop() {
+        return Err(ScopeError::Stopped);
+    }
+    if git.is_ancestor(ask.from.head.as_str(), ask.tip.as_str())? {
+        found.new = commits_after(git, &ask.from.head, &ask.tip)?;
+        return Ok(found);
+    }
+    let (then, cut_then) = patch_ids(git, &ask.from.base, &ask.from.head, stop)?;
+    let (now, cut_now) = patch_ids(git, &ask.base, &ask.tip, stop)?;
+    let seen: HashSet<&String> = then.values().collect();
+    found.new = (now.iter())
+        .filter(|(_, patch)| !seen.contains(patch))
+        .map(|(commit, _)| commit.clone())
+        .collect();
+    found.patched = now.into_keys().collect();
+    found.rebased = true;
+    found.cut = cut_then || cut_now;
+    Ok(found)
+}
+
+/// The commits `tip` holds that `head` does not, at most [`MAX_COMMITS`] and one: those not
+/// pushed yet, or those after a pull request's head at its last review.
+fn commits_after(git: &Git, head: &Id, tip: &Id) -> Result<HashSet<String>, ScopeError> {
     let range = format!("{}..{}", head.as_str(), tip.as_str());
     let max = format!("--max-count={}", MAX_COMMITS + 1);
     let args = ["rev-list", &max, "--end-of-options", &range, "--"].map(OsStr::new);

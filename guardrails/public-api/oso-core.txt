@@ -2158,6 +2158,8 @@ pub oso_core::editor::ReviewRequest::Ask::question: alloc::string::String
 pub oso_core::editor::ReviewRequest::Ask::review: oso_core::editor::ReviewId
 pub oso_core::editor::ReviewRequest::Baseline
 pub oso_core::editor::ReviewRequest::Baseline::project: oso_core::project::ProjectId
+pub oso_core::editor::ReviewRequest::Checkpoint
+pub oso_core::editor::ReviewRequest::Checkpoint::review: oso_core::editor::ReviewId
 pub oso_core::editor::ReviewRequest::Close(oso_core::editor::ReviewId)
 pub oso_core::editor::ReviewRequest::Context
 pub oso_core::editor::ReviewRequest::Context::path: alloc::boxed::Box<[u8]>
@@ -2467,6 +2469,8 @@ pub enum oso_core::editor::Step
 pub oso_core::editor::Step::Commit(usize)
 pub oso_core::editor::Step::Next
 pub oso_core::editor::Step::Previous
+pub oso_core::editor::Step::Range(usize, usize)
+pub oso_core::editor::Step::Since
 pub oso_core::editor::Step::Whole
 impl core::clone::Clone for oso_core::editor::Step
 pub fn oso_core::editor::Step::clone(&self) -> oso_core::editor::Step
@@ -2644,6 +2648,7 @@ pub oso_core::editor::CommitEntry::date: alloc::string::String
 pub oso_core::editor::CommitEntry::empty: bool
 pub oso_core::editor::CommitEntry::hunks: usize
 pub oso_core::editor::CommitEntry::merge: bool
+pub oso_core::editor::CommitEntry::new: bool
 pub oso_core::editor::CommitEntry::short: alloc::string::String
 pub oso_core::editor::CommitEntry::subject: alloc::string::String
 pub oso_core::editor::CommitEntry::unpushed: bool
@@ -2678,6 +2683,7 @@ pub oso_core::editor::Commits::more: bool
 pub oso_core::editor::Commits::number: u64
 pub oso_core::editor::Commits::open: alloc::vec::Vec<(usize, oso_core::editor::ReviewId)>
 pub oso_core::editor::Commits::shown: core::option::Option<usize>
+pub oso_core::editor::Commits::since: core::option::Option<oso_core::editor::Since>
 impl core::clone::Clone for oso_core::editor::Commits
 pub fn oso_core::editor::Commits::clone(&self) -> oso_core::editor::Commits
 impl core::cmp::Eq for oso_core::editor::Commits
@@ -3996,6 +4002,21 @@ impl core::fmt::Debug for oso_core::editor::SessionMarks
 pub fn oso_core::editor::SessionMarks::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::SessionMarks
 impl core::marker::StructuralPartialEq for oso_core::editor::SessionMarks
+pub struct oso_core::editor::Since
+pub oso_core::editor::Since::gone: bool
+pub oso_core::editor::Since::new: usize
+pub oso_core::editor::Since::rebased: bool
+pub oso_core::editor::Since::review: core::option::Option<oso_core::editor::ReviewId>
+pub oso_core::editor::Since::shown: bool
+impl core::clone::Clone for oso_core::editor::Since
+pub fn oso_core::editor::Since::clone(&self) -> oso_core::editor::Since
+impl core::cmp::Eq for oso_core::editor::Since
+impl core::cmp::PartialEq for oso_core::editor::Since
+pub fn oso_core::editor::Since::eq(&self, &oso_core::editor::Since) -> bool
+impl core::fmt::Debug for oso_core::editor::Since
+pub fn oso_core::editor::Since::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::Since
+impl core::marker::StructuralPartialEq for oso_core::editor::Since
 pub struct oso_core::editor::SoleWindow
 impl core::clone::Clone for oso_core::editor::SoleWindow
 pub fn oso_core::editor::SoleWindow::clone(&self) -> oso_core::editor::SoleWindow

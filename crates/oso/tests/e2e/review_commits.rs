@@ -27,7 +27,7 @@ fn commit_review(id: &str) -> String {
 
 /// An instance on a project whose pull request #7, `feature` in a worktree of its own, adds
 /// b.txt and then c.txt, a commit each; with the two commits' ids.
-fn pull_request_of_two(scratch: &Scratch) -> (App, String, String) {
+pub(super) fn pull_request_of_two(scratch: &Scratch) -> (App, String, String) {
     let file = project(scratch);
     let root = scratch.path().join("proj-git");
     identity(&root);

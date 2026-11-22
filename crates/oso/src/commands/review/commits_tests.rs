@@ -27,6 +27,7 @@ fn entry(short: &str) -> CommitEntry {
         viewed: 0,
         hunks: 0,
         unsent: 0,
+        new: false,
     }
 }
 
@@ -40,6 +41,7 @@ fn with_pull() -> (Editor, ReviewId) {
         more: false,
         shown: None,
         open: Vec::new(),
+        since: None,
     };
     editor.set_review_commits(review, Some(commits));
     (editor, review)
@@ -160,4 +162,58 @@ fn question_mark_lists_the_lists_keys() {
     let text = editor.current().1.text().to_string();
     assert!(text.starts_with("Keys in a pull request's commit list"));
     assert!(text.contains("M-n     review-next-commit"), "{text}");
+}
+
+#[test]
+fn the_since_row_a_marked_range_and_the_checkpoint_ask_the_host() {
+    let (mut editor, review) = with_pull();
+    let mut commits = editor.review_commits(review).unwrap().clone();
+    commits.since = Some(oso_core::editor::Since {
+        new: 1,
+        rebased: false,
+        gone: false,
+        shown: false,
+        review: None,
+    });
+    editor.set_review_commits(review, Some(commits));
+    assert_eq!(run(&mut editor, "review-commits", Args::NONE).0, Ok(()));
+    let go = |editor: &mut Editor, line: usize, mark: Option<usize>| {
+        let text = editor.current().1.text();
+        let offset = text.line_start(line);
+        let mark = mark.map(|line| text.line_start(line));
+        let mut set = SelectionSet::new(offset);
+        set.update(|selection| {
+            selection.mark = mark;
+            Ok::<(), ()>(())
+        });
+        editor.current_mut().0.selections = set;
+    };
+    go(&mut editor, 1, None);
+    assert_eq!(
+        run(&mut editor, "review-commits-display", Args::NONE).0,
+        Ok(())
+    );
+    // The rows of commits are the third and the fourth: the mark on one, the cursor on the other.
+    go(&mut editor, 3, Some(2));
+    assert_eq!(
+        run(&mut editor, "review-commits-display", Args::NONE).0,
+        Ok(())
+    );
+    assert!(
+        editor.current().0.selections.primary().mark.is_none(),
+        "the mark goes"
+    );
+    go(&mut editor, 3, Some(1));
+    let refused = run(&mut editor, "review-commits-display", Args::NONE).0;
+    assert!(refused.unwrap_err().starts_with("A range is of commits"));
+    assert_eq!(
+        steps(&mut editor),
+        [(review, Step::Since), (review, Step::Range(0, 1))]
+    );
+    assert_eq!(run(&mut editor, "review-checkpoint", Args::NONE).0, Ok(()));
+    assert!(
+        editor
+            .take_review_requests()
+            .contains(&ReviewRequest::Checkpoint { review })
+    );
 }

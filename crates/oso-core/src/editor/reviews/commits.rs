@@ -15,7 +15,9 @@
 //!   pair of its panes, at most [`STRIP_ROWS`] rows tall, and goes, its rows given back to the
 //!   area below it, when it is hidden, after a command once no window shows it, or once no
 //!   window shows the pull request's review or any of its commits' reviews.
-//! - Its first row is the whole pull request, then a row a commit, oldest first. New commits
+//! - Its first row is the whole pull request, then, once a review of it was sent and its head
+//!   moved since, a row for what changed since that review (step 2), then a row a commit,
+//!   oldest first. New commits
 //!   lay out only the rows that changed, and its cursor goes to the row of the review shown
 //!   only when that one changed, so that a mark counted again never moves the person's cursor.
 //!   A whole new list, of another length, is laid out whole.
@@ -28,6 +30,13 @@ use crate::editor::{Editor, NoPair, ReviewId};
 use crate::frame::{TooSmall, Way};
 use crate::window::WindowId;
 
+/// What a review linked to a pull request's reviews of it: one of its commits, by its index,
+/// or what changed since the last review (step 2).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::editor) enum Link {
+    Commit(usize),
+    Since,
+}
 /// The most text rows the strip takes when it is made, its modeline besides.
 const STRIP_ROWS: usize = 9;
 /// The most characters of a commit's subject a row shows.
@@ -50,6 +59,25 @@ pub struct Commits {
     /// The reviews of its commits open, each with its commit's index: each is linked to the
     /// pull request's review while these name it.
     pub open: Vec<(usize, ReviewId)>,
+    /// What changed since the person's last review of it, once its head moved since (step 2).
+    pub since: Option<Since>,
+}
+
+/// What changed in a pull request since the person's last review of it: its row in the commit
+/// list, and its review, linked while it is open (ADR 0167, step 2).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Since {
+    /// How many of its commits are new since then.
+    pub new: usize,
+    /// Whether its head then is no ancestor of its head now, as after a rebase: the commits
+    /// new are those whose patch the review then did not hold.
+    pub rebased: bool,
+    /// Whether its head then is gone from the clone, so that nothing since can be shown.
+    pub gone: bool,
+    /// Whether its review is the one the walk showed last.
+    pub shown: bool,
+    /// Its review, while one is open.
+    pub review: Option<ReviewId>,
 }
 
 /// One commit of a pull request, as its row shows it. Its words are anyone's, escaped by the
@@ -73,6 +101,8 @@ pub struct CommitEntry {
     pub viewed: usize,
     pub hunks: usize,
     pub unsent: usize,
+    /// Whether it is new since the person's last review of the pull request (step 2).
+    pub new: bool,
 }
 
 /// What a pull request's review keeps of its commits and their strip.
@@ -102,8 +132,13 @@ impl Editor {
             return;
         }
         let before = std::mem::replace(&mut open.walk.commits, commits);
-        let links: Vec<(usize, ReviewId)> = (open.walk.commits.iter())
-            .flat_map(|commits| commits.open.iter().copied())
+        let links: Vec<(Link, ReviewId)> = (open.walk.commits.iter())
+            .flat_map(|commits| {
+                let since =
+                    (commits.since.and_then(|since| since.review)).map(|id| (Link::Since, id));
+                let open = (commits.open.iter()).map(|(at, id)| (Link::Commit(*at), *id));
+                open.chain(since)
+            })
             .collect();
         for other in &mut self.reviews.open {
             if other.pull.is_some_and(|(pull, _)| pull == id) {
@@ -127,7 +162,7 @@ impl Editor {
     }
 
     /// The index of the commit the review `id` reviews, among its pull request's commits.
-    pub(in crate::editor) fn review_pull_index(&self, id: ReviewId) -> Option<(ReviewId, usize)> {
+    pub(in crate::editor) fn review_pull_index(&self, id: ReviewId) -> Option<(ReviewId, Link)> {
         let (pull, index) = self.reviews.get(id)?.pull?;
         self.reviews.get(pull).map(|_| (pull, index))
     }
@@ -156,7 +191,9 @@ impl Editor {
         let shown = self.reviews.holding(self.windows[index].buffer());
         let of_pull = shown
             .is_some_and(|open| open.id == id || open.pull.is_some_and(|(pull, _)| pull == id));
-        let Some(count) = self.review_commits(id).map(|commits| commits.entries.len()) else {
+        let rows_of =
+            |commits: &Commits| commits.entries.len() + usize::from(commits.since.is_some());
+        let Some(count) = self.review_commits(id).map(rows_of) else {
             return Err(NoPair::NoBuffer);
         };
         if !of_pull {
@@ -250,10 +287,19 @@ impl Editor {
         else {
             return;
         };
-        let line = row_of(commits.shown);
+        let line = row_of(commits);
         let same_list = before.is_some_and(|before| {
-            (before.number, before.more, before.entries.len())
-                == (commits.number, commits.more, commits.entries.len())
+            (
+                before.number,
+                before.more,
+                before.entries.len(),
+                before.since.is_some(),
+            ) == (
+                commits.number,
+                commits.more,
+                commits.entries.len(),
+                commits.since.is_some(),
+            )
         });
         let shown: Vec<usize> = (0..self.windows.len())
             .filter(|index| self.windows[*index].buffer() == buffer)
@@ -267,7 +313,7 @@ impl Editor {
             }
             return;
         };
-        let moved = before.shown != commits.shown;
+        let moved = row_of(before) != row_of(commits);
         let rows = changed_rows(before, commits);
         let lines: Vec<(usize, usize)> = shown
             .iter()
@@ -357,18 +403,37 @@ impl Editor {
     }
 }
 
-/// The line of the commit list that the review shown, a commit's by its index or the whole
-/// pull request's, is on.
-fn row_of(shown: Option<usize>) -> usize {
-    shown.map_or(0, |index| index + 1)
+/// The line of the commit list that the review shown last is on: the whole pull request's,
+/// what changed since the last review's, or a commit's.
+fn row_of(commits: &Commits) -> usize {
+    match (commits.since, commits.shown) {
+        (Some(since), _) if since.shown => 1,
+        (_, Some(index)) => index + first_commit_row(commits),
+        (_, None) => 0,
+    }
 }
 
-/// The commit list's text: the whole pull request, then a row a commit, oldest first, the one
-/// shown last marked, and a last row when more were left out.
+/// The line of the commit list its first commit is on.
+fn first_commit_row(commits: &Commits) -> usize {
+    1 + usize::from(commits.since.is_some())
+}
+
+/// Whether the whole pull request's review is the one shown last.
+fn whole_shown(commits: &Commits) -> bool {
+    commits.shown.is_none() && !commits.since.is_some_and(|since| since.shown)
+}
+
+/// The commit list's text: the whole pull request, what changed since the last review, then a
+/// row a commit, oldest first, the one shown last marked, and a last row when more were left
+/// out.
 pub(crate) fn strip_text(commits: &Commits) -> String {
     let total = commits.entries.len();
-    let mut text = String::with_capacity(160 * (total + 2));
+    let mut text = String::with_capacity(160 * (total + 3));
     text.push_str(&whole_row(commits));
+    if let Some(since) = commits.since {
+        text.push('\n');
+        text.push_str(&since_row(since));
+    }
     for index in 0..total {
         text.push('\n');
         text.push_str(&commit_row(commits, index));
@@ -383,22 +448,38 @@ pub(crate) fn strip_text(commits: &Commits) -> String {
 }
 
 /// The rows of the commit list that differ between `before` and `now`, which list as many
-/// commits, each with its new text: the whole's and each commit's whose entry or mark of the
-/// review shown changed.
+/// commits and both a row since the last review or neither, each with its new text.
 fn changed_rows(before: &Commits, now: &Commits) -> Vec<(usize, String)> {
     let mut rows = Vec::new();
-    if before.shown.is_none() != now.shown.is_none() {
+    if whole_shown(before) != whole_shown(now) {
         rows.push((0, whole_row(now)));
     }
+    if let (Some(was), Some(since)) = (before.since, now.since)
+        && was != since
+    {
+        rows.push((1, since_row(since)));
+    }
+    let first = first_commit_row(now);
     let same = Arc::ptr_eq(&before.entries, &now.entries);
     for index in 0..now.entries.len() {
         let mark = |commits: &Commits| commits.shown == Some(index);
         let changed = !same && before.entries[index] != now.entries[index];
         if changed || mark(before) != mark(now) {
-            rows.push((index + 1, commit_row(now, index)));
+            rows.push((index + first, commit_row(now, index)));
         }
     }
     rows
+}
+
+/// The row of what changed since the last review.
+fn since_row(since: Since) -> String {
+    let new = if since.new == 1 { "commit" } else { "commits" };
+    let what = match (since.gone, since.rebased) {
+        (true, _) => "its head then is gone from this clone".to_owned(),
+        (false, true) => format!("rebased, {} new {new}", since.new),
+        (false, false) => format!("{} new {new}", since.new),
+    };
+    format!("{} Since last review \u{b7} {what}", mark(since.shown))
 }
 
 /// The whole pull request's row.
@@ -406,7 +487,7 @@ fn whole_row(commits: &Commits) -> String {
     let total = commits.entries.len();
     format!(
         "{} All changes \u{b7} #{} \u{b7} {total} {}",
-        mark(commits.shown.is_none()),
+        mark(whole_shown(commits)),
         commits.number,
         if total == 1 { "commit" } else { "commits" }
     )
@@ -444,6 +525,9 @@ fn marks(entry: &CommitEntry) -> String {
         marks.push_str("merge");
     } else if entry.empty {
         marks.push_str("empty");
+    }
+    if entry.new {
+        marks.push_str("new");
     }
     if entry.hunks > 0 && entry.viewed >= entry.hunks {
         marks.push('\u{2713}');

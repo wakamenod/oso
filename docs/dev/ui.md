@@ -520,6 +520,9 @@ project and how long ago the baseline was taken. Only a trusted project runs git
   row a commit with `▶` for the one shown, `✓`/`◐` for its hunks viewed, `●N` for its comments
   not sent and `↑` for one not pushed; `RET` shows a row's review, `SPC` shows it and stays.
   `C-c C-c` in any of them sends the comments of the whole and of each commit, a group each.
+  After a paste or `M-x review-checkpoint` records the head, the list's second row, once the
+  head moves, reviews what changed since, its commits marked `new` (after a rebase by patch-id);
+  a mark and `RET` there review a range of commits.
 - In a restricted project the commands and the menu's heads say "Reviewing runs git, which this
   project is not trusted to run: M-x trust-project".
 

@@ -45,6 +45,7 @@ fn header() -> Header {
         comments: 3,
         unsent: 1,
         pull: None,
+        checkpoint: None,
     }
 }
 
@@ -350,6 +351,24 @@ fn a_header_says_what_the_review_is_from_its_first_line_alone() {
     )
     .unwrap();
     assert!(!String::from_utf8_lossy(&plain).contains("\"pull\""));
+    // A pull request's review names the person's last review of it (step 2).
+    let pulled = Header {
+        scope: Scope::PullRequest { number: 12 },
+        checkpoint: Some(crate::review::commits::Checkpoint {
+            base: Id::parse(&[b'b'; 40]).unwrap(),
+            head: Id::parse(&[b'c'; 40]).unwrap(),
+        }),
+        ..header()
+    };
+    let read = encode(
+        &pulled,
+        &Saved::default(),
+        &SavedView::default(),
+        &withheld,
+        MAX_BYTES,
+    )
+    .unwrap();
+    assert_eq!(super::header(&read), Some(pulled));
     let forged = String::from_utf8_lossy(&bytes).replace("\"pull\":12", "\"pull\":0");
     assert_eq!(super::header(forged.as_bytes()).map(|h| h.pull), Some(None));
 }
