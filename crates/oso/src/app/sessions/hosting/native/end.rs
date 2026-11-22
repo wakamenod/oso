@@ -139,13 +139,16 @@ impl App {
     }
 
     /// After each event: a native session whose buffer was killed is stopped and archived, or
-    /// forgotten given no message, and a queue that may go does.
+    /// forgotten given no message, a queue that may go does, and the replies whole since are
+    /// highlighted (part 2g).
     pub(in crate::app) fn sync_native_sessions(&mut self) {
         self.sync_sessions_socket();
         self.sweep_killed_natives();
         // After the sweep: no message goes to a session whose buffer was just killed.
         self.send_waiting_queues();
         self.sync_slash_commands();
+        // After the sweep: nothing is opened for a session that is gone.
+        self.sync_reply_markdown();
     }
 
     /// Stops and archives each native session whose buffer was killed; one given no message is

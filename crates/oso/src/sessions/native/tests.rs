@@ -260,7 +260,8 @@ fn a_reply_that_grows_is_drawn_from_its_last_line() {
             "after {piece:?}"
         );
     }
-    assert_eq!(drawn, "● Hello\n  world\n  \n  \n  end\n");
+    // A blank line ends in no space.
+    assert_eq!(drawn, "● Hello\n  world\n\n\n  end\n");
     let whole = r#"{"type":"assistant","message":{"id":"m","content":[{"type":"text","text":"Hello\nworld\n\n\nend"}]}}"#;
     assert!(read(&mut rows, whole).is_empty());
 }

@@ -139,9 +139,10 @@ impl Editor {
         self.put_generated_text(id, whole, Highlights::new(len))
     }
 
-    /// Shows `highlights`, which the host built with the text it gave the internal buffer `id`
-    /// in `Mode::Sessions` (ADR 0131), and returns the ones before, for the host to drop. They
-    /// come back, changing nothing, for any other buffer, or when they do not cover its text.
+    /// Shows `highlights`, which the host built with the text it gave the internal buffer `id`,
+    /// in `Mode::Sessions` (ADR 0131) or a native session's (ADR 0165, part 2g), and returns
+    /// the ones before, for the host to drop. They come back, changing nothing, for a buffer
+    /// that is not internal, or when they do not cover its text.
     pub fn set_internal_highlights(
         &mut self,
         id: BufferId,

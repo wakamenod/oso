@@ -23,10 +23,13 @@
 //! - `control`: whether a session's CLI speaks the control layer, for which requests, and
 //!   which request an answer is to; `interrupt`: an interrupt from its request to its
 //!   fallback, a signal and a resume (step 2c).
+//! - `markdown`: which replies are highlighted as Markdown, and their runs on their row
+//!   (step 2, part 2g).
 
 pub mod asks;
 pub mod control;
 pub mod interrupt;
+pub mod markdown;
 pub mod placed;
 pub mod point;
 pub mod queue;

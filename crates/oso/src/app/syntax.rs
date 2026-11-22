@@ -15,7 +15,8 @@
 //! - With `global-font-lock-mode` off, no buffer is allowed, so every one is dropped.
 //! - A report asks for a frame only if a window shows runs it changed.
 //! - The threads know a text by [`SyntaxKey`]: a buffer, or a review's side, whose report goes
-//!   to the review's view thread untouched (ADR 0122, step 9).
+//!   to the review's view thread untouched (ADR 0122, step 9), or a native session's reply
+//!   (ADR 0165, part 2g).
 
 use std::collections::HashMap;
 use std::ops::Range;
@@ -34,12 +35,14 @@ mod pool;
 pub(in crate::app) use pool::Documents;
 use pool::Pool;
 
-/// What the syntax threads know a text by: a buffer, or a side of a review that its view thread
-/// opened under a number of its own (ADR 0122, step 9).
+/// What the syntax threads know a text by: a buffer, a side of a review that its view thread
+/// opened under a number of its own (ADR 0122, step 9), or a native session's reply.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum SyntaxKey {
     Buffer(BufferId),
     Side(ReviewId, u64),
+    /// A native session's reply, under a number the sessions give out (ADR 0165, part 2g).
+    Reply(u64),
 }
 
 /// What the UI keeps of highlighting.
@@ -494,22 +497,25 @@ impl App {
         self.syntax.pool.as_ref()
     }
 
-    /// A handle for a review's view to open its sides with, starting the threads; none while
-    /// highlighting is off or its threads could not start.
-    pub(super) fn side_documents(&mut self) -> Option<Documents<SyntaxKey>> {
+    /// A handle to open documents no buffer owns with, a review's sides or a native session's
+    /// replies, starting the threads; none while highlighting is off or its threads could not
+    /// start.
+    pub(super) fn unowned_documents(&mut self) -> Option<Documents<SyntaxKey>> {
         if !self.editor.font_lock() {
             return None;
         }
         Some(self.syntax_pool()?.documents())
     }
 
-    /// The worker highlighted, or stopped, a buffer or a review's side.
+    /// The worker highlighted, or stopped, a buffer, a review's side or a native session's
+    /// reply.
     pub(super) fn syntax_reported(&mut self, report: Report<SyntaxKey>) {
         let report = match report.buffer {
             SyntaxKey::Buffer(id) => rekeyed(report, id),
             SyntaxKey::Side(review, key) => {
                 return self.review_side_reported(review, rekeyed(report, key));
             }
+            SyntaxKey::Reply(key) => return self.native_reply_reported(rekeyed(report, key)),
         };
         let id = report.buffer;
         let taken = self.syntax.take(&mut self.editor, report);

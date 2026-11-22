@@ -16,7 +16,8 @@
 //! - Its composer, queue and history are `composer`'s; its run state and modeline note are
 //!   `note`'s; its resume and a native fork are `resume`'s; how it ends, stopped, failed,
 //!   archived or forgotten, `end`'s; its interrupt, `interrupting`'s (step 2c); its slash
-//!   commands, `slash`'s (step 2d).
+//!   commands, `slash`'s (step 2d); its replies' Markdown highlighting, once each is whole,
+//!   `markdown`'s (part 2g).
 //! - Its bridge asks the person's permission for its calls on the sessions' socket, in
 //!   `permissions` (step 2).
 //! - Its first message is its brief, if it was given one; else the person writes it in its
@@ -29,6 +30,7 @@ mod composer;
 mod end;
 mod interrupting;
 mod keys;
+mod markdown;
 mod note;
 mod permissions;
 mod resume;
@@ -40,7 +42,6 @@ use std::path::PathBuf;
 
 use oso_core::buffer::{Buffer, BufferId};
 use oso_core::project::ProjectId;
-use oso_core::syntax::Highlight;
 
 use self::note::NativeState;
 use super::Begin;
@@ -51,7 +52,7 @@ use crate::sessions::identity::Origin;
 use crate::sessions::native::control::Control;
 use crate::sessions::native::interrupt::Interrupt;
 use crate::sessions::native::placed::Placed;
-use crate::sessions::native::render::{self, Face, Rendered};
+use crate::sessions::native::render;
 use crate::sessions::native::rows::{Changes, RowChange, Rows};
 use crate::sessions::native::slash::SlashCommands;
 use crate::sessions::native::turns;
@@ -73,6 +74,8 @@ pub(in crate::app) struct NativeSessions {
     /// Whose slash commands, at which version, `native-composer-command` completes over
     /// (step 2d).
     slash_listed: Option<(SessionKey, u64)>,
+    /// The replies highlighted as Markdown that wait or are open (part 2g).
+    replies: markdown::Replies,
 }
 
 /// A native session's buffer, rows and process.
@@ -111,6 +114,8 @@ struct Native {
     /// another: then it neither resumes of itself nor by `session-resume` (step 2d).
     cli_id: Option<String>,
     moved: bool,
+    /// Which of its replies are highlighted as Markdown, or wait to be (part 2g).
+    markdown: markdown::Marks,
 }
 
 impl NativeSessions {
@@ -258,6 +263,7 @@ impl App {
             calls: HashMap::new(),
             // Its first message's turn is under way once it runs.
             composing: composer::Composing::starting(first.is_some()),
+            markdown: markdown::Marks::default(),
             spoke: first.is_some(),
             control: None,
             interrupt: Interrupt::new(interrupting::SIGNALS),
@@ -478,7 +484,9 @@ fn draw(
                 native.calls.insert(at, rendered.calls.clone());
             }
         }
-        let runs = runs(&rendered);
+        let runs = rendered.runs();
+        // Drawn plain: a whole reply is highlighted again (part 2g).
+        native.markdown.drawn(at);
         editor.replace_native_rows(native.buffer, range.clone(), &rendered.text, &runs);
         native.placed.put(at, range, rendered.text.len());
         debug_assert_eq!(
@@ -488,35 +496,7 @@ fn draw(
     }
 }
 
-/// A rendered row's faces as runs over its text.
-fn runs(rendered: &Rendered) -> Vec<(usize, Option<Highlight>)> {
-    let mut runs = Vec::new();
-    let mut at = 0;
-    for (range, face) in &rendered.faces {
-        if range.start > at {
-            runs.push((range.start - at, None));
-        }
-        runs.push((range.end - range.start, Some(highlight(*face))));
-        at = range.end;
-    }
-    runs
-}
-
 /// Whether `brief` says anything: a blank one is none, and starts nothing natively on its own.
 pub(super) fn has_brief(brief: Option<&str>) -> bool {
     brief.is_some_and(|brief| !brief.trim().is_empty())
-}
-
-/// The theme's face for a row's.
-fn highlight(face: Face) -> Highlight {
-    match face {
-        Face::Prompt => Highlight::CommentPerson,
-        Face::Dim => Highlight::SessionQuiet,
-        Face::Tool => Highlight::Function,
-        Face::Target => Highlight::String,
-        Face::Added => Highlight::DiffAdded,
-        Face::Removed => Highlight::DiffRemoved,
-        Face::Hunk => Highlight::DiffHunkHeader,
-        Face::Error => Highlight::SessionAlert,
-    }
 }

@@ -240,6 +240,9 @@ question (Q1–Q13), listed under the author's choices with the options not take
   Cargo's `credentials.toml` is the one that would have had colour.
 - In every buffer, the worker's messages and logs carry no buffer text, and a parse's time is
   not reported to `take-timings`.
+- A native session's replies are the one exception: they are parsed whatever they quote, as
+  their buffer is never judged secret; [ADR 0165](0165-native-claude-sessions-the-route.md),
+  part 2g, gives why nothing the parse makes leaves it.
 
 ### Faces and themes (Q5, Q10)
 
@@ -327,6 +330,9 @@ question (Q1–Q13), listed under the author's choices with the options not take
   copy of the tree (`Tree::clone` bumps a reference count) with its revision.
 - Structural motion (`C-M-f`, expand region) and a later language server's ranges can read the
   same tree.
+- **A native session's replies** ([ADR 0165](0165-native-claude-sessions-the-route.md), part
+  2g) are opened as documents no buffer owns once each is whole, and their runs put on the
+  reply's row past its marks.
 
 ### The local Windows check (Q13)
 
