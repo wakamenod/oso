@@ -18,6 +18,7 @@ dir='DIR'
 cat "$dir/stream.jsonl"
 n=0
 while IFS= read -r line; do
+  case "$line" in *'"control_request"'*) continue ;; esac
   n=$((n+1))
   said=$(printf '%s\n' "$line" | sed 's/.*"content":"\([^"]*\)".*/\1/')
   printf '%s\n' "$said" > "$dir/sent.$n"

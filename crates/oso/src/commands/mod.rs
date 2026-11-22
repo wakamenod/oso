@@ -446,6 +446,7 @@ mod tests {
         "native-queued-edit",
         "native-queued-up",
         "native-session-compose",
+        "native-session-interrupt",
         "native-session-queue",
         // Sending to a session is the person's typing into its terminal (ADR 0120, Q15).
         "session-follow-message",

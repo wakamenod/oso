@@ -467,4 +467,9 @@ impl super::Watch {
     pub(in crate::app) fn is_hung_up(&self, key: SessionKey) -> bool {
         self.hung_up.contains(&key)
     }
+
+    /// Whether the person is asked whether to stop session `key`.
+    pub(in crate::app) fn stop_asked(&self, key: SessionKey) -> bool {
+        self.stop.is_some_and(|(_, asked)| asked == key)
+    }
 }

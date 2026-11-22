@@ -4,16 +4,20 @@
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 //!
+//! - A session interrupted with a signal ends as asked, and resumes at once, as a resume
+//!   does (step 2c); its queue waits as the interrupt left it.
 //! - A session never given a message left Claude Code no conversation, and `--resume` of it
 //!   fails ("No conversation found", a probe of 2026-11-22; step 2). It is forgotten, its line
 //!   dropped from the record, when it ends cleanly with nothing in its composer or queue, when
 //!   its buffer is killed, and at oso's exit. Ended any other way, it stays, stopped or failed,
 //!   with what it said and what the person wrote; its resume says it has no conversation.
 
+use super::interrupting::SIGNALS;
 use super::note::NativeState;
 use super::{MAX_ERR_SHOWN, Native, draw};
 use crate::app::App;
 use crate::app::sessions::hosting::now_ms;
+use crate::sessions::native::interrupt::Interrupt;
 use crate::sessions::state::Exit;
 use crate::sessions::worker::{Job, SessionKey};
 
@@ -24,6 +28,10 @@ impl App {
         // Its bridge asks nothing any more.
         self.drop_permissions_of(key);
         let in_table = self.hosting.table.get(key).is_some();
+        // Nothing new runs while the person is asked to stop it, or oso waits to quit or
+        // restart.
+        let free =
+            !self.watch.stop_asked(key) && !self.editor.quit_when_idle() && !self.restart_holds();
         let Some(native) = self.hosting.natives.map.get_mut(&key) else {
             return;
         };
@@ -32,20 +40,30 @@ impl App {
             return;
         }
         native.stream = None;
+        let hung_up = self.watch.take_hung_up(key);
+        // Interrupted with a signal, it ended as asked, and resumes (step 2c): unless the
+        // person stopped it or is asked whether to, their replacement of an orchestrator waits
+        // for its end, or oso waits to quit or restart.
+        native.control = None;
+        let resumes = std::mem::replace(&mut native.interrupt, Interrupt::new(SIGNALS)).resumes()
+            && native.spoke
+            && !hung_up
+            && !self.hosting.spaces.replacing.contains_key(&key)
+            && free;
         let buffer = native.buffer;
-        let status = if self.watch.take_hung_up(key) {
-            Some(0)
-        } else {
-            status
-        };
+        let status = if hung_up || resumes { Some(0) } else { status };
         let unspoken = !native.spoke && native.composing.queued() == 0;
         // A clean end with nothing said or written: nothing is left to keep.
         if unspoken && status == Some(0) && self.composer_empty(key) {
             self.replaced_orchestrator_ended(key, true);
             return self.forget_unspoken_native(key);
         }
-        // No turn runs any more, and what is queued waits for the person.
-        self.composer_ended(key);
+        // No turn runs any more, and what is queued waits for the person; or, as it resumes,
+        // waits as the interrupt left it.
+        match resumes {
+            true => self.composer_idle(key),
+            false => self.composer_ended(key),
+        }
         let Some(native) = self.hosting.natives.map.get_mut(&key) else {
             return;
         };
@@ -79,7 +97,23 @@ impl App {
             worker.send(Job::Exited(key, exit));
         }
         self.remember_sessions();
+        if resumes {
+            return self.resume_interrupted(key);
+        }
         self.replaced_orchestrator_ended(key, status.is_some());
+    }
+
+    /// Native session `key`, interrupted with a signal, ended: it resumes, in its buffer, as
+    /// a resume does, under the trust judged now; or stays stopped, saying why.
+    fn resume_interrupted(&mut self, key: SessionKey) {
+        let Err(why) = self.resume_hosted(key, false) else {
+            return;
+        };
+        self.composer_ended(key);
+        if let Some(native) = self.hosting.natives.map.get_mut(&key) {
+            let change = native.rows.note(&format!("It did not resume: {why}"));
+            draw(&mut self.editor, native, [change]);
+        }
     }
 
     /// Native session `key` ended cleanly before it was given a message: the session and its
@@ -162,6 +196,9 @@ impl App {
     pub(in crate::app) fn kill_native_sessions(&mut self) {
         let mut unspoken = Vec::new();
         for (key, native) in &mut self.hosting.natives.map {
+            // Nothing resumes as oso exits.
+            native.control = None;
+            native.interrupt = Interrupt::new(SIGNALS);
             if let Some(stream) = native.stream.take() {
                 stream.kill();
             }

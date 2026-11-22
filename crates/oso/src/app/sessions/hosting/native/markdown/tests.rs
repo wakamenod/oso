@@ -17,10 +17,12 @@ use oso_syntax::{Failure, Outcome, Refused, Report};
 use serde_json::json;
 
 use super::super::composer::Composing;
+use super::super::interrupting::SIGNALS;
 use super::super::note::NativeState;
 use super::super::{Native, NativeSessions, draw};
 use super::{MAX_OPEN, MAX_WAITING, Marks, Opener, reported, sync};
 use crate::app::freer::Freer;
+use crate::sessions::native::interrupt::Interrupt;
 use crate::sessions::native::placed::Placed;
 use crate::sessions::native::render::Face;
 use crate::sessions::native::rows::{Changes, Rows};
@@ -80,6 +82,8 @@ fn native(buffer: BufferId) -> Native {
         calls: HashMap::new(),
         composing: Composing::starting(false),
         state: NativeState::Running,
+        control: None,
+        interrupt: Interrupt::new(SIGNALS),
         markdown: Marks::default(),
     }
 }

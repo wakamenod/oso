@@ -448,6 +448,7 @@ pub fn oso_platform::process::pty::Wakeup::fmt(&self, &mut core::fmt::Formatter<
 pub fn oso_platform::process::pty::open(oso_platform::process::pty::Size) -> std::io::error::Result<(oso_platform::process::pty::Master, oso_platform::process::pty::Slave)>
 pub fn oso_platform::process::pty::wake_pair() -> std::io::error::Result<(oso_platform::process::pty::Waker, oso_platform::process::pty::Wakeup)>
 pub enum oso_platform::process::Signal
+pub oso_platform::process::Signal::Interrupt
 pub oso_platform::process::Signal::Kill
 pub oso_platform::process::Signal::Terminate
 impl core::clone::Clone for oso_platform::process::Signal
@@ -495,6 +496,7 @@ pub oso_platform::process::Child::stdout: core::option::Option<std::process::Chi
 impl oso_platform::process::Child
 pub fn oso_platform::process::Child::exited(&mut self) -> std::io::error::Result<bool>
 pub fn oso_platform::process::Child::id(&self) -> u32
+pub fn oso_platform::process::Child::interrupt(&mut self) -> std::io::error::Result<()>
 pub fn oso_platform::process::Child::kill(&mut self) -> std::io::error::Result<()>
 pub fn oso_platform::process::Child::signal_group(&mut self, oso_platform::process::Signal) -> std::io::error::Result<()>
 pub fn oso_platform::process::Child::terminate(&mut self) -> std::io::error::Result<()>

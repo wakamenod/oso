@@ -17,9 +17,12 @@
 //! - `oso-native-write` writes the person's messages on standard input, in order, from a
 //!   queue of at most [`MAX_WAITING`] lines: [`Stream::send`] never waits, so a process that
 //!   does not read holds back no one but itself, and a full queue refuses the message (ADR
-//!   0165, step 2). The first message goes the same way, once the readers run, so that a
-//!   process that writes before it reads never waits on oso. If anything fails once the
-//!   process runs, its group is killed and it is reaped.
+//!   0165, step 2). The control layer's `initialize` goes first, then the first message, the
+//!   same way, once the readers run, so that a process that writes before it reads never
+//!   waits on oso; its requests share the queue, in order with the messages (step 2c). If
+//!   anything fails once the process runs, its group is killed and it is reaped.
+//! - An interrupt by signal (`SIGINT`) reaches the process alone: the CLI ends its own tools,
+//!   as a terminal's `C-c`, a byte, would have it do.
 //! - A stop closes standard input and sends the group `SIGTERM` at once, and `SIGKILL` after
 //!   [`STOP_WAIT`] if it has not ended. oso's exit kills the group at once.
 
@@ -32,6 +35,7 @@ use std::time::{Duration, Instant};
 
 use oso_platform::process::{Child, Signal};
 
+use super::native::wire::control::{self, INITIALIZE, Request};
 use super::native::wire::{self, Event, MAX_LINE};
 
 /// How often a batch of events goes to the UI thread, at most.
@@ -88,7 +92,7 @@ pub struct Stream {
 
 impl Stream {
     /// Reads `child`'s stream on threads of their own, handing what they read to `deliver`,
-    /// then writes `first` as the person's first message, if any. `child` was started with
+    /// then writes `initialize` and `first` as the person's first message, if any. `child` was started with
     /// piped standard input, output and error, in a session of its own. On any error, its group
     /// is killed and it is reaped.
     pub fn run(mut child: Child, first: Option<&str>, deliver: Deliver) -> std::io::Result<Self> {
@@ -122,6 +126,10 @@ impl Stream {
                 })
             })
             .and_then(|()| named("oso-native-write", move || write(stdin, &lines)))
+            .and_then(|()| {
+                (stream.request(INITIALIZE, Request::Initialize))
+                    .map_err(|_| std::io::ErrorKind::BrokenPipe.into())
+            })
             .and_then(|()| match first {
                 Some(first) => {
                     (stream.send(first)).map_err(|_| std::io::ErrorKind::BrokenPipe.into())
@@ -138,11 +146,25 @@ impl Stream {
     /// Hands `text` to the writer as the person's message, never waiting: refused if the
     /// writer's queue is full or the input closed.
     pub fn send(&self, text: &str) -> Result<(), NotSent> {
+        self.offer_line(wire::user_message(text))
+    }
+
+    /// Hands the control request `request`, with id `id`, to the writer, never waiting:
+    /// refused as [`Stream::send`] refuses.
+    pub fn request(&self, id: u64, request: Request) -> Result<(), NotSent> {
+        self.offer_line(control::request(id, request))
+    }
+
+    /// Hands `line` to the writer, never waiting.
+    fn offer_line(&self, line: String) -> Result<(), NotSent> {
         let input = self.input.lock().unwrap_or_else(PoisonError::into_inner);
-        offer(
-            input.as_ref().ok_or(NotSent::Closed)?,
-            wire::user_message(text),
-        )
+        offer(input.as_ref().ok_or(NotSent::Closed)?, line)
+    }
+
+    /// Interrupts the process with `SIGINT`, the process alone: the CLI ends the turn, then
+    /// itself (ADR 0165, measured).
+    pub fn interrupt(&self) {
+        let _ = lock(&self.child).interrupt();
     }
 
     /// Closes standard input once the writer has written what waits: the writer's queue goes.
