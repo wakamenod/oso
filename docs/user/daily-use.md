@@ -697,6 +697,15 @@ Claude shows its options numbered: type the number, or `o` to answer in your own
 is approved with `y`. Elsewhere, the session shows that it needs you, as a terminal session
 does.
 
+When Claude keeps a to-do list, it shows as one line above the composer, `☐ 2/5 ▶` and the
+item it works on; `C-c C-t`, in the conversation or the composer, opens it to a row an item
+and folds it back. It goes once every item is done and the turn ends. Claude Code gives a
+session its to-do tools only when you turn them on, in `~/.claude/settings.json`:
+
+```json
+{ "env": { "CLAUDE_CODE_ENABLE_TODO_TOOLS": "1" } }
+```
+
 `agents_start_without_asking` lets a session you started, with a key or a `y`, start sessions
 through `start_worktree_session` and `session_start`, and a space's orchestrator resume a stopped
 session of its space through `session_resume`, without asking you, in a trusted project

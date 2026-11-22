@@ -1011,6 +1011,81 @@ orchestrator chose (a) on the last. The author accepted the exception to ADR 011
     once would cost that for each, which waiting for a window avoids. An event with nothing
     to do takes 1.4 µs.
 
+## Step 3, as built
+
+### Part 3e: the to-do strip
+
+The author chose (a) on both of its questions (2026-11-23, through the space's orchestrator),
+and approved the public item `NativeAction::Todo`. The options, as they were put:
+
+- **Q-E1: the to-do tools are off by default on current models.** (a) oso sets nothing; the
+  strip shows when the person turns the tools on in Claude Code's own settings, and the docs
+  say how. (b) oso sets `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` for native sessions, which changes
+  Claude's tools from the TUI's. (c) No strip in step 3.
+- **Q-E2: the strip after a resume.** (a) Empty until the next to-do call. (b) Read the CLI's
+  own task files under `~/.claude/tasks/`.
+
+Measured on 2026-11-23 (CLI 2.1.330, `--model=haiku`, made-up prompts, empty directories):
+
+- **No to-do tool by default:** `-p`'s default tools hold none on current models. Claude
+  Code's documents give the task tools (`TaskCreate`, `TaskUpdate`, `TaskGet`, `TaskList`) by
+  default only to some older models, and to the others with `CLAUDE_CODE_ENABLE_TODO_TOOLS=1`
+  or when `--tools` names them; `CLAUDE_CODE_ENABLE_TASKS=0` gives the older `TodoWrite`.
+- **What the tools give back,** in the result message's `tool_use_result`:
+  - `TaskCreate {subject, description, activeForm}`: `{task: {id, subject, description}}`.
+  - `TaskUpdate {taskId, status | subject | …}`: `{success, taskId, updatedFields,
+    statusChange: {from, to}}`. A new subject is only in the call's input
+    (`updatedFields: ["subject"]`, no `statusChange`); a task deleted says `deleted` in both
+    `updatedFields` and `statusChange.to`.
+  - `TodoWrite {todos: [{content, status, activeForm}]}`, the whole list each time:
+    `{oldTodos, newTodos}`.
+  - The CLI also keeps its tasks in files of its own under `~/.claude/tasks/`.
+
+As built:
+
+- **oso sets no variable (Q-E1 (a)):** the strip shows once the person turns the tools on in
+  Claude Code's own settings (`env`'s `CLAUDE_CODE_ENABLE_TODO_TOOLS`), which `ui.md` and the
+  user's guide say; a native session's tools stay the TUI's.
+- **The list** (`sessions::native::todo`): only the main thread's `TaskCreate`, `TaskUpdate`
+  and `TodoWrite` calls count, each by what it gave back, matched with its call by id, and
+  none that is an error or a `TaskUpdate` that did not succeed or names another task than its
+  call. A `TodoWrite` replaces the list whole. At most 100 items, each text cut to 256 bytes
+  as read (`wire::todo`, the only place that reads them), and at most 64 calls waiting for
+  their result. A subagent's calls are not the session's list.
+- **`*todo: NAME*`,** an internal buffer, read-only and withheld from agents, as the card is,
+  docked in `DockSlot::Strip`, under the card and above the composer, while the list has an
+  item. Folded it is one line, `☐ 2/5 ▶ ITEM`, the item in progress or else the first not
+  started, and `C-c C-t list` at its right edge where there is room; `C-c C-t`
+  (`native-session-todo`, `Person`, in the transcript and the composer) opens it to a row an
+  item, `☑`, `▶` or `☐` and its text, at most 6 rows (with more, the 5 around the first not
+  completed and `… N more`), and folds it back. It shows while an item is not completed, and
+  once all are until the turn ends; then the list goes, and the strip with it, point going
+  to the composer if it was there.
+- **Claude's text, fenced (ADR 0170):** oso's marks and keys are in faces of oso's own, and
+  each item's text, after them, in a face of its own, its control characters as spaces, cut
+  to the strip's width with `…`, measured as the display draws it: none of it runs past the
+  strip's edge, wraps, or stands where oso's keys are. It is drawn again when its window's
+  width changes.
+- **After a resume (Q-E2 (a)):** a session resumed has no list until its next to-do call;
+  oso never reads the CLI's task files. A restart of oso brings a stopped session back with
+  none too. A tier-1 interrupt, which ends the process and resumes it, keeps the list, as the
+  person's turn goes on and the CLI keeps its tasks; a tier-2 one keeps the process.
+- **Built with** `sessions::native::wire::todo` and `sessions::native::todo` (pure, with unit
+  tests for each shape measured, the main thread only, the limits, the turn's end and the
+  strip's text at narrow widths and with marks that would join oso's text),
+  `app/sessions/hosting/native/todo.rs`, and the e2e flow `sessions::native::todo`.
+- **A mark at either end of an item's text** (a combining mark or a joiner first, a prepend
+  last) would join oso's space before it or its cell after it into one cluster, so that the
+  text measured alone would be narrower than drawn: such a mark goes on `◌`, as on the card;
+  and a cut that leaves a prepend last drops it, so that oso's `…` is a cell of its own. Every
+  row is at most the strip's width.
+- **Left as it is:** the strip's code beside the card's (its width, buffer and faces) is a
+  copy of the card's with its slot; one shared dock helper waits until step 3's parts are in.
+  The strip's window shows in the agent channel's state as a docked window of its rows,
+  folded or opened, as the card's does (ADR 0170), not its text. `C-c C-t` works in the
+  transcript and the composer, not in the strip itself, whose buffer has no keymap of its
+  own.
+
 ## Questions
 
 The author chose (a) on each, on 2026-11-21. The options are kept as they were put.

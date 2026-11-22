@@ -1,6 +1,7 @@
 //! The keys of a native session's buffer (ADR 0165, step 1; ADR 0130's design): `TAB` folds
 //! the row at point, `RET` shows a call's whole result, `n`/`p` move between the person's
-//! messages and `]`/`[` between tool rows. Each asks the host, which knows where each row is.
+//! messages and `]`/`[` between tool rows, and `C-c C-t`, from the composer too, opens or
+//! folds the to-do strip (part 3e). Each asks the host, which knows where each row is.
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the host-owned state
 //! and asks the host for the rest.
@@ -64,6 +65,14 @@ pub const COMMANDS: &[Command] = &[
         run: previous_tool,
         state: None,
     },
+    Command {
+        name: "native-session-todo",
+        doc: "Open the to-do strip of the native session whose transcript or composer this is to its rows, at most six, or fold it back to one line.\n\nThe strip shows while the session's to-do list has an item: Claude Code's task tools, which its settings turn on (`CLAUDE_CODE_ENABLE_TODO_TOOLS`).",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: todo,
+        state: None,
+    },
 ];
 
 /// Asks the host to `action` at point's line of the native session's buffer in front, or of
@@ -107,6 +116,10 @@ fn next_tool(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
 
 fn previous_tool(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
     at_point(ctx, NativeAction::Tool(-args.count()))
+}
+
+fn todo(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    at_point(ctx, NativeAction::Todo)
 }
 
 #[cfg(test)]

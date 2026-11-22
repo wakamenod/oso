@@ -50,6 +50,8 @@ pub const NATIVE: &[(&str, &str)] = &[
     ("d", "native-queued-drop"),
     ("M-<up>", "native-queued-up"),
     ("M-<down>", "native-queued-down"),
+    // The to-do strip, opened or folded (step 3, part 3e).
+    ("C-c C-t", "native-session-todo"),
 ];
 
 /// The keys of a native session's composer (ADR 0165, step 2), above the global ones in it.
@@ -65,6 +67,7 @@ pub const COMPOSER: &[(&str, &str)] = &[
     ("C-c /", "native-composer-command"),
     // The clipboard's image, as session mode's `C-c C-y` (ADR 0142): its `@PATH` at point.
     ("C-c C-y", "session-yank-image"),
+    ("C-c C-t", "native-session-todo"),
 ];
 
 /// The keys of a native session's permission card (ADR 0165, step 2e-2), above the global

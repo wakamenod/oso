@@ -14,13 +14,14 @@
 //! - The transcript format is not read here: only the stream. Of the control protocol, the
 //!   requests oso writes and the answers to them are `control`'s (tier 2, step 2c).
 //! - `messages` reads the messages' bodies, `tools` a tool call's input, `control` the
-//!   control protocol's lines and `slash` the slash commands listed: with this file, the
-//!   only places that touch JSON.
+//!   control protocol's lines, `slash` the slash commands listed and `todo` the to-do
+//!   tools' input and results: with this file, the only places that touch JSON.
 
 pub mod card;
 pub mod control;
 mod messages;
 pub mod slash;
+pub mod todo;
 pub mod tools;
 
 use serde_json::{Map, Value};
@@ -186,6 +187,8 @@ pub struct User {
     /// The CLI wrote it itself, such as a compaction's summary.
     pub synthetic: bool,
     pub results: Vec<ToolResult>,
+    /// What a to-do tool gave back, for a message of one result (part 3e).
+    pub todo: Option<todo::Done>,
 }
 
 /// A tool's result.

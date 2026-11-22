@@ -1349,6 +1349,14 @@ a switch made with its command stands until that setting changes in the file
   moment since the last key and since the card came in front. `y` allows, `n` denies, `N`
   denies with a note, `RET` shows the whole call in the card; an `AskUserQuestion` takes a
   digit, `RET` for several, or `o` for the person's words; an `ExitPlanMode` shows its plan.
+  While the session's to-do list has an item (part 3e), `*todo: NAME*`, withheld from agents,
+  is docked under the card and above the composer: one line, `☐ 2/5 ▶ ITEM` and `C-c C-t list`
+  at its right edge, Claude's text in a face of its own after oso's mark, cut to the width;
+  `C-c C-t` in the transcript or the composer opens it to a row an item (`☑`, `▶`, `☐`), at
+  most 6, and folds it back. It goes at the end of a turn that left every item completed, and
+  a resumed session has none until its next to-do call. Claude Code gives a session the to-do
+  tools only once its settings turn them on: `"env": {"CLAUDE_CODE_ENABLE_TODO_TOOLS": "1"}`
+  in `~/.claude/settings.json`; oso sets no variable for it.
 
   `claude` is started as the login shell would start it, so its `PATH`, version managers and
   proxies apply; set `claude` when the shell is not `sh`, `bash`, `zsh`, `dash` or `ksh`. `env`

@@ -144,7 +144,8 @@ impl App {
             | NativeAction::Deny
             | NativeAction::Note
             | NativeAction::Choose(_)
-            | NativeAction::Other => return false,
+            | NativeAction::Other
+            | NativeAction::Todo => return false,
         }
         self.request_redraw();
         true

@@ -121,6 +121,7 @@ pub(super) fn user(object: &Map<String, Value>) -> Option<User> {
                 .and_then(Value::as_bool)
                 .unwrap_or(false),
         results: Vec::new(),
+        todo: None,
     };
     match message.get("content")? {
         Value::String(content) => user.text = Some(capped(content, MAX_TEXT).0.to_owned()),
@@ -151,6 +152,7 @@ pub(super) fn user(object: &Map<String, Value>) -> Option<User> {
             if let [only] = user.results.as_mut_slice() {
                 only.changed = counts(&patch);
                 only.patch = patch;
+                user.todo = super::todo::done(object.get("tool_use_result"));
             }
             if !texts.is_empty() {
                 user.text = Some(joined(texts.iter().map(String::as_str)).0);

@@ -91,6 +91,7 @@ fn native(buffer: BufferId) -> Native {
         cli_id: None,
         moved: false,
         markdown: Marks::default(),
+        todo: super::super::todo::TodoStrip::default(),
     }
 }
 

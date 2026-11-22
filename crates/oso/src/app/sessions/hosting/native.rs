@@ -17,7 +17,7 @@
 //!   `note`'s; its resume and a native fork are `resume`'s; how it ends, stopped, failed,
 //!   archived or forgotten, `end`'s; its interrupt, `interrupting`'s (step 2c); its slash
 //!   commands, `slash`'s (step 2d); its replies' Markdown highlighting, once each is whole,
-//!   `markdown`'s (part 2g).
+//!   `markdown`'s (part 2g); its to-do strip, `todo`'s (part 3e).
 //! - Its bridge asks the person's permission for its calls on the sessions' socket, in
 //!   `permissions` (step 2).
 //! - Its first message is its brief, if it was given one; else the person writes it in its
@@ -35,6 +35,7 @@ mod note;
 mod permissions;
 mod resume;
 mod slash;
+mod todo;
 
 use std::collections::HashMap;
 use std::ops::Range;
@@ -118,6 +119,8 @@ struct Native {
     moved: bool,
     /// Which of its replies are highlighted as Markdown, or wait to be (part 2g).
     markdown: markdown::Marks,
+    /// Its to-do list and strip (part 3e).
+    todo: todo::TodoStrip,
 }
 
 impl NativeSessions {
@@ -274,6 +277,7 @@ impl App {
             slash_rows: None,
             cli_id: None,
             moved: false,
+            todo: todo::TodoStrip::default(),
         };
         self.hosting.natives.map.insert(key, native);
         // Its composer, docked under it (ADR 0170).
@@ -401,6 +405,7 @@ impl App {
         let mut changes = Changes::default();
         let mut targets = Vec::new();
         let mut then = Vec::new();
+        let mut todo = false;
         let interrupting = |native: &Native| native.interrupt.interrupting();
         let was_interrupting = interrupting(native);
         for mut event in events {
@@ -413,6 +418,7 @@ impl App {
                 native.composing.busy = !matches!(target, Target::Idle { .. });
                 targets.push(target);
             }
+            todo |= native.todo.list.apply(&event);
             for change in native.rows.apply(event) {
                 changes.add(change);
             }
@@ -427,6 +433,9 @@ impl App {
         }
         for then in then {
             self.interrupt_step(key, then);
+        }
+        if todo {
+            self.draw_todo(key);
         }
         // The interrupt ended with its turn.
         if noted {

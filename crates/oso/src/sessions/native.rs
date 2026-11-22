@@ -26,6 +26,8 @@
 //!   fallback, a signal and a resume (step 2c).
 //! - `markdown`: which replies are highlighted as Markdown, and their runs on their row
 //!   (step 2, part 2g).
+//! - `todo`: the session's to-do list from its to-do tools' results, and the strip that
+//!   shows it (step 3, part 3e).
 
 pub mod asks;
 pub mod card;
@@ -38,6 +40,7 @@ pub mod queue;
 pub mod render;
 pub mod rows;
 pub mod slash;
+pub mod todo;
 pub mod turns;
 pub mod wire;
 
