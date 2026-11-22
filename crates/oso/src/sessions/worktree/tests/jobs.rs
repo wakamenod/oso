@@ -15,10 +15,12 @@ use super::super::jobs::{Asked, Jobs, MAIN_UNTRUSTED, Report, Snapshot, Trust};
 use super::{Scratch, order};
 use crate::git::TrustedRoot;
 
-/// Jobs keeping their state under the scratch directory, and their reports.
+/// Jobs keeping their state under the scratch directory, with a scratch registry that is not
+/// there, and their reports.
 pub(super) fn jobs(s: &Scratch) -> (Jobs, mpsc::Receiver<Report>) {
     let (sent, got) = mpsc::channel();
-    let jobs = Jobs::new(Some(s.dir.join("job-state")), move |report| {
+    let state = Some(s.dir.join("job-state"));
+    let jobs = Jobs::new(state, Some(s.dir.join("registry")), move |report| {
         let _ = sent.send(report);
     });
     (jobs, got)

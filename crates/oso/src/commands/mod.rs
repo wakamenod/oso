@@ -132,6 +132,7 @@ const TABLES: &[&[Command]] = &[
     agent_sessions::COMMANDS,
     agent_sessions::LIST_COMMANDS,
     agent_sessions::MODE_COMMANDS,
+    agent_sessions::NATIVE_COMMANDS,
     agent_sessions::SEARCH_COMMANDS,
     agent_sessions::SEND_COMMANDS,
     agent_sessions::SPACE_COMMANDS,
@@ -415,6 +416,14 @@ mod tests {
         "conversation-go",
         "conversation-fork",
         "conversation-revert",
+        // A native session's buffer, withheld from agents, whose keys the host carries out
+        // after the command (ADR 0165).
+        "native-session-next-prompt",
+        "native-session-next-tool",
+        "native-session-previous-prompt",
+        "native-session-previous-tool",
+        "native-session-result",
+        "native-session-toggle",
         // Sending to a session is the person's typing into its terminal (ADR 0120, Q15).
         "session-follow-message",
         "session-mention",

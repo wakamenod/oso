@@ -23,7 +23,7 @@ use crate::sessions::adopt::{self, Found, Offered, Order as ListOrder, RegistryN
 use crate::sessions::identity::{Origin, cleaned};
 use crate::sessions::registry::{is_plain_directory, shown_directory};
 use crate::sessions::spaces::SpaceId;
-use crate::sessions::start::{Kind, Order};
+use crate::sessions::start::{Kind, Order, Runs};
 use crate::sessions::transcripts::Cache;
 use crate::sessions::worker::SessionKey;
 use crate::sessions::worker::externals::External;
@@ -297,7 +297,7 @@ impl App {
             trusted: trusted.map(|(_, root)| root),
             state: crate::app::reviews::state(),
             claude: self.configuration.session_claude().map(Path::to_path_buf),
-            terminal,
+            runs: Runs::Terminal(terminal),
             brief: None,
             steer_worktrees: self.configuration.steer_worktrees(),
             check_shared: false,

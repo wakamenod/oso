@@ -70,6 +70,7 @@ impl App {
                     parent,
                     pinned: session.pinned,
                     archived: false,
+                    native: false,
                     changed: session.changed,
                     baseline: session.baseline.clone(),
                     space: None,

@@ -253,13 +253,25 @@ fn drop_elsewhere(rules: RuleSet) {
 }
 
 /// Puts `text` in the internal `*Session explain*` buffer `kept` names, or in a new one if it
-/// is gone, withholds it from the agent channel, and shows it. Never a buffer that is not
-/// internal: one of that name anyone made stays theirs, and oso never shows it as its own.
-/// Whether it showed the text.
+/// is gone, withholds it from the agent channel, and shows it. Whether it showed the text.
 fn show_explanation(editor: &mut Editor, kept: &mut Option<BufferId>, text: &str) -> bool {
+    show_withheld(editor, kept, BUFFER, text)
+}
+
+/// Puts `text` in the internal buffer `kept` names, or in a new one named `name` if it is
+/// gone, withholds it from the agent channel, and shows it: `*Session explain*`, a native
+/// session's `*result: NAME*` (ADR 0165). Never a buffer that is not internal: one of that
+/// name anyone made stays theirs, and oso never shows it as its own. Whether it showed the
+/// text.
+pub(in crate::app) fn show_withheld(
+    editor: &mut Editor,
+    kept: &mut Option<BufferId>,
+    name: &str,
+    text: &str,
+) -> bool {
     let id = match kept.filter(|id| editor.buffer(*id).is_some_and(Buffer::is_internal)) {
         Some(id) => id,
-        None => editor.add_internal_buffer(BUFFER, Mode::Fundamental),
+        None => editor.add_internal_buffer(name, Mode::Fundamental),
     };
     *kept = Some(id);
     let Some(buffer) = editor.buffer_mut(id) else {
@@ -267,7 +279,7 @@ fn show_explanation(editor: &mut Editor, kept: &mut Option<BufferId>, text: &str
     };
     buffer.withhold_from_agents();
     editor.set_internal_text(id, text);
-    // A report of some 50 KiB at most, compared once.
+    // A report, or a result of at most `wire`'s 1 MiB and its change's headers, compared once.
     let set = editor.buffer(id).is_some_and(|buffer| {
         buffer.text().len() == text.len() && buffer.text().to_string() == text
     });

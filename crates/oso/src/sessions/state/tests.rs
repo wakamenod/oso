@@ -256,3 +256,14 @@ fn merged_work_needs_no_review() {
         "a word that comes while the next turn runs"
     );
 }
+
+#[test]
+fn a_streams_verdicts_count_at_once() {
+    let start = Instant::now();
+    let mut tracker = Tracker::stream(start);
+    let change = tracker.verdict(Target::Working, start + ms(10)).unwrap();
+    assert_eq!(change.state, State::Working);
+    assert_eq!(tracker.due(), None, "no grace period to wait out");
+    let change = tracker.verdict(SIGN, start + ms(20)).unwrap();
+    assert!(change.turn_ended, "a turn's result ends it at once");
+}

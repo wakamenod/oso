@@ -178,6 +178,11 @@ pub enum UserEvent {
     GitRun(vcs::RunEvent),
     /// A terminal's thread has a snapshot ready (ADR 0120).
     Terminal(oso_core::buffer::BufferId),
+    /// A native session's stream read events, or its process ended (ADR 0165).
+    NativeSession(
+        crate::sessions::worker::SessionKey,
+        crate::sessions::stream::Out,
+    ),
     /// A terminal's start thread found the shell and started it, or could not.
     TerminalStarted(Box<crate::terminal::hosted::Started>),
     /// A thread of a restart of terminals found something (ADR 0120, step 11).

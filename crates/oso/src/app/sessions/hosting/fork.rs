@@ -15,7 +15,7 @@ use crate::app::App;
 use crate::sessions::hosted::Hosted;
 use crate::sessions::identity::SessionId;
 use crate::sessions::registry::shown_directory;
-use crate::sessions::start::{Kind, Order};
+use crate::sessions::start::{Kind, Order, Runs};
 use crate::sessions::worker::SessionKey;
 
 /// The conversation a fork copies: a hosted session's, or one being adopted, whose name is only
@@ -106,7 +106,7 @@ impl App {
             trusted: None,
             state: crate::app::reviews::state(),
             claude: self.configuration.session_claude().map(Path::to_path_buf),
-            terminal,
+            runs: Runs::Terminal(terminal),
             brief: None,
             steer_worktrees: self.configuration.steer_worktrees(),
             check_shared: false,

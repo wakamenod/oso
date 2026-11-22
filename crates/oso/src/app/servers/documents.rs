@@ -75,6 +75,7 @@ fn language_id(mode: Mode, path: &std::path::Path) -> &'static str {
         | Mode::Conversation
         | Mode::RenamePreview
         | Mode::SessionMove
+        | Mode::NativeSession
         | Mode::GitDiscarded => "plaintext",
     }
 }

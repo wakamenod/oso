@@ -1,15 +1,29 @@
 # The self-hosted macOS runner
 
-`just ci (macos)` and `just e2e (macos)` run on a GitHub Actions runner on one of the author's
-Macs, labelled `[self-hosted, macOS, ARM64, oso]`
-([ADR 0166](adr/0166-macos-ci-on-a-self-hosted-mac-and-fewer-jobs-per-pull-request.md)).
-This page sets it up, keeps it running and removes it. The author does all of it by hand.
-No step is run by CI or by an agent.
+`just ci (macos)` and `just e2e (macos)` run on two GitHub Actions runners on one of the
+author's Macs
+([ADR 0166](adr/0166-macos-ci-on-a-self-hosted-mac-and-fewer-jobs-per-pull-request.md),
+as amended):
 
-The repository is public. A fork's pull request must never run on this Mac, and the runner
+| Runner      | Labels                               | Runs              | Folder               |
+| ----------- | ------------------------------------ | ----------------- | -------------------- |
+| `oso-mac`   | `[self-hosted, macOS, ARM64, oso]`    | `just e2e (macos)` | `~/actions-runner`   |
+| `oso-mac-2` | `[self-hosted, macOS, ARM64, oso-ci]` | `just ci (macos)`  | `~/actions-runner-2` |
+
+So the two jobs run at once, and only `oso-mac` opens windows. Both runners run as the same
+macOS user and use the same hooks. The first runner keeps `oso`, the label every macOS job
+asked for before, so a branch that has not merged `main` since still runs both jobs there,
+one after the other. Never give `oso-mac-2` the label `oso`: two e2e runs at once would take
+the focus from each other.
+
+This page sets them up, keeps them running and removes them. The author does all of it by
+hand. No step is run by CI or by an agent.
+
+The repository is public. A fork's pull request must never run on this Mac, and the runners
 must not be able to reach anything of yours. Three things keep forks off:
 
-- the job-started hook below, which lives on the Mac where a fork cannot edit it;
+- the job-started hook below, which both runners run, and which lives on the Mac where a
+  fork cannot edit it;
 - the approval setting in step 1;
 - the workflows, which send a fork's macOS jobs to GitHub's own runners.
 
@@ -22,7 +36,8 @@ it. `ci` is the runner's macOS user; any other name works if you use it everywhe
 - An Apple silicon Mac on macOS 15 or later, with `/usr/bin/jq`. It should be the Mac mini,
   with the runner's user logged in at its console. `just e2e` opens windows, so the runner
   needs a GUI session that is not in the background.
-- Disk space for the kept builds: the hooks keep them under 40 GB, plus the toolchains.
+- Disk space for the kept builds: the hooks keep each runner's under a cap, by default
+  30 GB for `oso-mac-2` and 15 GB for `oso-mac`, so 45 GB for both, plus the toolchains.
 - An admin account for the steps marked "as an admin".
 
 ## 1. Prepare the Mac and the repository (as an admin)
@@ -68,8 +83,26 @@ it. `ci` is the runner's macOS user; any other name works if you use it everywhe
 ## 2. Install the hooks (as an admin)
 
 The hooks run as the runner's user before and after every job. They are owned by root, so
-no job can change them, and they live outside the runner's folder, as GitHub asks. Before
-you paste the commands below, change `repo=OWNER/REPO` in them to the repository.
+no job can change them, and they live outside the runners' folders, as GitHub asks. Both
+runners use the same two scripts. Before you paste the commands below, change
+`repo=OWNER/REPO` in them to the repository.
+
+`clean.sh` cleans up only after its own runner, which it knows by `RUNNER_NAME`, the name
+the runner was registered with:
+
+- It stops the `oso` and `fake-lsp-server` processes whose executable lies in that runner's
+  kept builds, `~/ci-target/<runner>/`. `just ci` starts `fake-lsp-server` too, so stopping
+  every process of that name would break the other runner's job.
+- It keeps that folder under its runner's cap, removing pull requests' builds first, then
+  `main`'s. It never removes the other runner's builds, which may be in use, and it trims
+  nothing when its folder is a link.
+- The runner named by `e2e_runner`, the first one, has the cap `cap_gb_e2e`; any other
+  has `cap_gb_ci`. The first one also owns `~/ci-target/pr` and `~/ci-target/main`,
+  where a single runner kept its builds and where branches that have not merged `main` yet
+  still build.
+
+On a Mac set up for a single runner, only `clean.sh` changes: replace it with the one
+below, before you add the second runner. It works with a single runner too.
 
 ```sh
 sudo mkdir -p /usr/local/libexec/oso-ci
@@ -99,32 +132,108 @@ exec /usr/local/libexec/oso-ci/clean.sh
 EOF
 sudo tee /usr/local/libexec/oso-ci/clean.sh >/dev/null <<'EOF'
 #!/bin/sh
-# Cleans up around a job (ADR 0166) and never fails one: stops what an e2e run left
-# behind, and keeps the kept builds under the cap.
+# Cleans up around a job (ADR 0166, as amended) and never fails one. Two runners share
+# this Mac's user, so it touches only what this runner's own jobs could have left: the
+# oso and fake-lsp-server processes started from its own kept builds, and those builds,
+# which it keeps under the cap.
+
+# The first runner, which runs just e2e. It also owns the kept builds from before there
+# were two runners, ~/ci-target/pr and ~/ci-target/main, which branches that have not
+# merged main yet use.
+e2e_runner=oso-mac
+# Each runner's cap on its kept builds, in GB. Change them here, as an admin.
+cap_gb_e2e=15   # the e2e runner's
+cap_gb_ci=30    # the other runner's, which runs just ci
+
+# Letter ranges below mean ASCII letters only.
+export LC_ALL=C
+say() { echo "oso-ci: $*"; }
+name=${RUNNER_NAME:-}
+case "$name" in
+    '' | . | .. | pr | main | *[!A-Za-z0-9._-]*)
+        say "no usable runner name ('$name'): nothing cleaned"
+        exit 0 ;;
+esac
+# Without links, as lsof gives executables' paths.
+home=$(cd -P "${HOME:-/nonexistent}" 2>/dev/null && pwd) || home=
+case "$home" in
+    /?*) ;;
+    *) say "no usable home ('${HOME:-}'): nothing cleaned"; exit 0 ;;
+esac
+root="$home/ci-target"
+own="$root/$name"
+
+# Whether a path lies in this runner's kept builds.
+owned() {
+    case "$1" in
+        "$own"/*) return 0 ;;
+    esac
+    [ "$name" = "$e2e_runner" ] || return 1
+    case "$1" in
+        "$root/pr"/* | "$root/main"/*) return 0 ;;
+    esac
+    return 1
+}
+
+# A process counts as this runner's when its executable, with links resolved, lies in
+# this runner's builds. lsof gives that path; ps gives the path it was started by.
 uid=$(id -u)
-for name in oso fake-lsp-server; do
-    pkill -u "$uid" -x "$name" 2>/dev/null || true
+for proc in oso fake-lsp-server; do
+    for pid in $(pgrep -u "$uid" -x "$proc" 2>/dev/null); do
+        exe=$(/usr/sbin/lsof -a -p "$pid" -d txt -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1)
+        if [ -n "$exe" ] && owned "$exe"; then
+            kill "$pid" 2>/dev/null && say "stopped $proc ($pid)"
+        fi
+    done
 done
-root="$HOME/ci-target"
-cap_kb=$((40 * 1024 * 1024))
-used() { du -sk "$root" 2>/dev/null | cut -f1; }
-if [ -d "$root" ] && [ "$(used)" -gt "$cap_kb" ]; then
-    rm -rf "$root/pr"
-    [ "$(used)" -le "$cap_kb" ] || rm -rf "$root/main"
+
+if [ "$name" = "$e2e_runner" ]; then cap_gb=$cap_gb_e2e; else cap_gb=$cap_gb_ci; fi
+case "$cap_gb" in
+    '' | *[!0-9]*) say "the cap is not a number ('$cap_gb'): builds not trimmed"; exit 0 ;;
+esac
+# A link would take the trimming into another folder, such as the other runner's.
+if [ -L "$root" ] || [ -L "$own" ]; then
+    say "$root or $own is a link: builds not trimmed"
+    exit 0
 fi
+cap_kb=$((cap_gb * 1024 * 1024))
+used() { du -sk "$@" 2>/dev/null | awk '{ s += $1 } END { print s + 0 }'; }
+if [ "$name" = "$e2e_runner" ]; then
+    set -- "$own" "$root/pr" "$root/main"
+else
+    set -- "$own"
+fi
+# The oldest kind of build goes first: the single runner's, then pull requests', then main's.
+for drop in "$root/pr" "$root/main" "$own/pr" "$own/main"; do
+    [ "$(used "$@")" -gt "$cap_kb" ] || break
+    owned "$drop/x" || continue
+    [ -e "$drop" ] || continue
+    rm -rf "$drop" && say "removed $drop, over the cap of $cap_gb GB"
+done
+say "cleaned for runner $name"
 exit 0
 EOF
 sudo chown -R root:wheel /usr/local/libexec/oso-ci
 sudo chmod 755 /usr/local/libexec/oso-ci /usr/local/libexec/oso-ci/*.sh
 ```
 
-Then check that line:
+Then check these lines:
 
 ```sh
 grep '^repo=' /usr/local/libexec/oso-ci/job-started.sh
+grep -E '^(e2e_runner|cap_gb_e2e|cap_gb_ci)=' /usr/local/libexec/oso-ci/clean.sh
 ```
 
-## 3. Install the runner (as the runner's user)
+`e2e_runner` must be the first runner's name. The kept builds take up to the two caps
+together. Each runner keeps a build for pull requests and one for `main`, and a `just ci`
+build is several times larger than a `just e2e` one, so the ci runner's cap is the larger.
+
+To change a cap, edit `cap_gb_ci=` or `cap_gb_e2e=` with `sudo`; the next job uses it.
+Before you raise one, check that both fit, with room left for the toolchains:
+`df -h /Users/ci` for the free space, and `sudo du -sh /Users/ci/ci-target/*` for what the
+builds take now.
+
+## 3. Install the first runner (as the runner's user)
 
 Log in as `ci` at the Mac's console (not over SSH: the service needs this GUI session).
 Open Terminal there.
@@ -183,36 +292,67 @@ Open Terminal there.
    account over SSH or Screen Sharing instead. After a restart, log `ci` in again at the
    console. Automatic login works only with FileVault off.
 
-## 4. Check it
+## 4. Add the second runner (as the runner's user)
 
-- Settings → Actions → Runners shows `oso-mac` as Idle, with its four labels.
-- Push a branch of this repository, or re-run a pull request's `just ci (macos)`. In the
-  job's log, "Set up runner" shows the hook ran. Then `ls -l ~/ci-target/pr` lists `ci` and
-  `e2e`.
+Still as `ci` at the console. The second runner uses the same user, rustup, toolchains and
+hooks, in a folder of its own.
+
+1. Download the runner as in step 3.2, into `~/actions-runner-2` this time. Take a new token
+   from the "New self-hosted runner" page.
+2. Register it with the label `oso-ci`, and never `oso`:
+
+   ```sh
+   cd ~/actions-runner-2
+   ./config.sh --url https://github.com/OWNER/REPO --token TOKEN \
+       --name oso-mac-2 --labels oso-ci --work _work --unattended
+   ```
+
+   Check `cat .path` as in step 3.3.
+3. Turn the hooks on and run it as a service, as in steps 3.4 and 3.5, in
+   `~/actions-runner-2`. Its LaunchAgent has a name of its own, after the runner's, so the
+   first runner's service is not touched.
+
+Its name names its kept builds, `~/ci-target/oso-mac-2`. The hooks and the workflow refuse a
+name that is empty, `pr`, `main`, or has characters other than letters, digits, `.`, `_`
+and `-`.
+
+## 5. Check it
+
+- Settings → Actions → Runners shows `oso-mac` as Idle with the labels `self-hosted`,
+  `macOS`, `ARM64` and `oso`, and `oso-mac-2` with `oso-ci` in place of `oso`.
+- Push a branch of this repository, or re-run a pull request's checks. `just e2e (macos)`
+  runs on `oso-mac` and `just ci (macos)` on `oso-mac-2`, at the same time. In each job's
+  log, "Set up runner" shows `oso-ci: cleaned for runner …` with that job's runner. Then
+  `ls ~/ci-target/oso-mac/pr ~/ci-target/oso-mac-2/pr` lists `e2e` and `ci`.
 - A refused job fails at "Set up runner" with `oso-ci: this runner does not run this job`.
 
 ## Keeping it up
 
-- **The runner** updates itself when GitHub releases a new version. Leave it on.
+- **The runners** update themselves when GitHub releases a new version. Leave it on.
 - **Rust:** each job's `rustup toolchain install` installs a newly pinned toolchain.
   - Update rustup itself now and then, as `ci`: `rustup self update`.
   - Remove old toolchains: `rustup toolchain list`, then `rustup toolchain uninstall <name>`.
+  - When the pin changes, both runners' first jobs install the new toolchain at the same
+    time. If a job then fails with a broken toolchain, uninstall it and re-run the job.
 - **gh and minisign**, as an admin: `brew upgrade gh minisign`.
-- **Kept builds:** the hooks keep `~/ci-target` under 40 GB. To start clean, as `ci`, stop
-  the service, run `rm -rf ~/ci-target`, and start the service again.
-- **Pausing it**, for example while `just perf-remote` measures on this Mac: as `ci`, in
-  `~/actions-runner`, run `./svc.sh stop`. Then run `./svc.sh start` afterwards. Jobs queue
-  meanwhile.
-- **Changing the hooks:** edit them as an admin with `sudo`. After a change to `.env`, run
-  `./svc.sh stop && ./svc.sh start`.
+- **Kept builds:** the hooks keep each runner's folder in `~/ci-target` under its cap
+  (step 2). To start clean, as `ci`, stop both services, run `rm -rf ~/ci-target`, and start
+  them again. Once every open branch has merged `main`, nothing builds in `~/ci-target/pr`
+  or `~/ci-target/main` any more, and `oso-mac`'s hooks remove them when its folder is over
+  the cap. You can also remove them yourself while both services are stopped.
+- **Pausing them**, for example while `just perf-remote` measures on this Mac: as `ci`, run
+  `./svc.sh stop` in both `~/actions-runner` and `~/actions-runner-2`. Then run
+  `./svc.sh start` in both afterwards. Jobs queue meanwhile.
+- **Changing the hooks:** edit them as an admin with `sudo`. They apply from the next job.
+  After a change to a runner's `.env`, run `./svc.sh stop && ./svc.sh start` in its folder.
 
-## While it is offline
+## While a runner is offline
 
-macOS jobs stay "Queued" until the runner is back, and GitHub fails a job that waits more
+A macOS job stays "Queued" until its runner is back, and GitHub fails a job that waits more
 than 24 hours. No check is required yet, so nothing blocks a merge mechanically. Still, wait
 for `ci-ok`, which waits for them.
 
-To run them on GitHub's runners instead:
+To run both jobs on GitHub's runners instead:
 
 1. Open Settings → Secrets and variables → Actions → Variables.
 2. Add the repository variable `OSO_MACOS_RUNNER` with the value `macos-latest`.
@@ -220,7 +360,33 @@ To run them on GitHub's runners instead:
 
 Delete the variable once the runner is back.
 
-## Removing it
+When only `oso-mac-2` is offline, `oso-mac` can take `just ci (macos)` too, one job at a
+time, by getting the label `oso-ci`. In Settings → Actions → Runners → `oso-mac`, add the
+label, or with `gh`, as someone with admin access to the repository:
+
+```sh
+id=$(gh api repos/OWNER/REPO/actions/runners --jq '.runners[] | select(.name == "oso-mac") | .id')
+gh api -X POST "repos/OWNER/REPO/actions/runners/$id/labels" -f 'labels[]=oso-ci'
+```
+
+Remove it once `oso-mac-2` is back:
+`gh api -X DELETE "repos/OWNER/REPO/actions/runners/$id/labels/oso-ci"`. Never do the
+reverse: `oso-mac-2` must not get `oso`.
+
+## Removing the second runner
+
+1. As `ci`, in `~/actions-runner-2`, run `./svc.sh stop` and `./svc.sh uninstall`.
+2. Open Settings → Actions → Runners → `oso-mac-2` → Remove, and copy the token it shows.
+   Then, still in `~/actions-runner-2`, run `./config.sh remove --token TOKEN`.
+3. Give `oso-mac` the label `oso-ci` (see above), or `just ci (macos)` waits for a runner
+   that no longer exists.
+4. As `ci`, `rm -rf ~/actions-runner-2 ~/ci-target/oso-mac-2`.
+
+The hooks stay as they are: they work for one runner too.
+
+## Removing both
+
+Remove the second runner first, as above, skipping its step 3. Then:
 
 1. As `ci`, in `~/actions-runner`:
 
@@ -236,8 +402,8 @@ Delete the variable once the runner is back.
    ./config.sh remove --token TOKEN
    ```
 
-   The runner's registration is the only credential on the Mac. Removing the runner on
-   GitHub revokes it, even if the Mac is gone.
+   A runner's registration is the only credential on the Mac. Removing a runner on GitHub
+   revokes its registration, even if the Mac is gone.
 3. Set `OSO_MACOS_RUNNER` to `macos-latest` (see above), or change the workflows back, or
    macOS jobs will wait for a runner that no longer exists.
 4. As an admin, remove the hooks and the user:
