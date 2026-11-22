@@ -62,6 +62,13 @@ impl Child {
         self.process.signal(Signal::Terminate, false)
     }
 
+    /// Interrupts the process (`SIGINT` on Unix), as a terminal's `C-c` would, so that it can
+    /// stop what it does. Windows has no such signal: there it ends at once. Does nothing once
+    /// it has been waited for.
+    pub fn interrupt(&mut self) -> io::Result<()> {
+        self.process.signal(Signal::Interrupt, false)
+    }
+
     /// Sends `signal` to the process group the process leads, as one started with
     /// [`super::Spawn::own_process_group`] does on Unix, so that what it started gets it too,
     /// unless that moved to a group of its own. Refused for one that leads no group. Windows

@@ -17,6 +17,9 @@
 //! - The queue pauses when the process ends, and when a delivery fails, the person's or the
 //!   queue's: nothing queued goes until the person sends again, which goes on with the queue,
 //!   or, once it runs again, sends nothing, which sends the next once the session is idle.
+//! - An interrupt pauses it the same way (step 2c). A send now (`C-u C-c C-c`) while a turn
+//!   runs goes first, ahead of the queue, once the interrupted turn ends; the queue then goes
+//!   on, as after any send (the author's Q1 (a)). With no turn to interrupt, it is a send.
 
 use std::collections::VecDeque;
 
@@ -87,6 +90,8 @@ pub enum Sent {
     PutBack,
     /// The paused queue goes on, once the turn under way ends.
     Resumed,
+    /// Put first, to go once the turn under way ends: interrupt it. This many wait now.
+    Ahead(usize),
     /// Nothing changes.
     Refused(Refusal),
 }
@@ -97,6 +102,8 @@ pub enum Refusal {
     Empty,
     TooLong,
     Full,
+    /// A queued message is edited in the composer: it is put back first.
+    Editing,
 }
 
 /// Which way a message moves.
@@ -172,6 +179,38 @@ impl Queue {
             self.paused = Some(Pause::Ended);
         }
         Sent::Queued(self.waiting.len())
+    }
+
+    /// The person sends `text` now, interrupting the turn under way: put first, to go once it
+    /// ends, the queue going on after it. With no turn to interrupt, it is [`Queue::send`].
+    pub fn send_now(&mut self, text: String, turn: Turn) -> Sent {
+        if self.editing.is_some() {
+            return Sent::Refused(Refusal::Editing);
+        }
+        if !(turn.busy && turn.run == Run::Running) {
+            return self.send(text, turn);
+        }
+        if text.len() > MAX_MESSAGE {
+            return Sent::Refused(Refusal::TooLong);
+        }
+        if text.trim().is_empty() {
+            return Sent::Refused(Refusal::Empty);
+        }
+        if self.waiting.len() >= MAX_QUEUED {
+            return Sent::Refused(Refusal::Full);
+        }
+        self.next_id += 1;
+        let id = self.next_id;
+        self.waiting.push_front(Queued { id, text });
+        self.paused = None;
+        Sent::Ahead(self.waiting.len())
+    }
+
+    /// The person interrupted the turn under way: nothing queued goes until they send.
+    pub fn interrupted(&mut self) {
+        if !self.waiting.is_empty() {
+            self.paused = Some(Pause::Held);
+        }
     }
 
     /// The message to write now that `turn` has the session idle: the first, out of the queue,

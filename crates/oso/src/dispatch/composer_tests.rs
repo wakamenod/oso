@@ -54,7 +54,7 @@ fn the_transcripts_letters_go_to_the_composer_and_act_on_a_queued_message() {
     let (mut d, mut editor) = (Dispatcher::new(), Editor::default());
     let transcript = editor.add_native_session_buffer("*claude: s*");
     editor.show(transcript);
-    send(&mut d, &mut editor, "i e d M-<up> M-<down> C-c C-q");
+    send(&mut d, &mut editor, "i e d M-<up> M-<down> C-c C-q C-c C-k");
     assert_eq!(
         actions(&mut editor),
         [
@@ -64,6 +64,8 @@ fn the_transcripts_letters_go_to_the_composer_and_act_on_a_queued_message() {
             NativeAction::MoveQueued(-1),
             NativeAction::MoveQueued(1),
             NativeAction::Queue,
+            // The interrupt, over session mode's `C-c C-k`, which it leaves to a terminal.
+            NativeAction::Cancel,
         ]
     );
 }

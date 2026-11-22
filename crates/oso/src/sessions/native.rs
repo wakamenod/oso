@@ -6,8 +6,8 @@
 //! Must not depend on: `app`, `dispatch`, threads or the clock; plain functions and values
 //! over the lines a caller gives.
 //!
-//! - `wire`: one line of the stream read into an [`wire::Event`], and the line that sends a
-//!   message. The only place that touches JSON.
+//! - `wire`: one line of the stream read into an [`wire::Event`], and the lines that send a
+//!   message and a control request. The only place that touches JSON.
 //! - `rows`: the events folded into a session's rows, and what changed with each event.
 //! - `render`: a row as text and faces, folded or unfolded, as ADR 0130 has them, and
 //!   `placed`: where each row is in the buffer.
@@ -18,8 +18,13 @@
 //!   answer (step 2), at the times the caller gives.
 //! - `queue`: the messages the person sent while a turn ran, held until the session is idle
 //!   (step 2).
+//! - `control`: whether a session's CLI speaks the control layer, for which requests, and
+//!   which request an answer is to; `interrupt`: an interrupt from its request to its
+//!   fallback, a signal and a resume (step 2c).
 
 pub mod asks;
+pub mod control;
+pub mod interrupt;
 pub mod placed;
 pub mod point;
 pub mod queue;

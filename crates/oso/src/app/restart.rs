@@ -126,7 +126,7 @@ impl App {
     }
 
     /// Whether a restart is under way here, or this instance still takes over.
-    pub(super) fn restart_holds(&self) -> bool {
+    pub(in crate::app) fn restart_holds(&self) -> bool {
         self.restart.under_way || self.restart.taking_over
     }
 

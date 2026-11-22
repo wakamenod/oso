@@ -294,7 +294,11 @@ impl Rows {
             }
             Event::Result(result) => self.result(result),
             Event::Unreadable { bytes } => vec![self.push(Kind::Unreadable(bytes), 0, false)],
-            Event::Init(_) | Event::RateLimit(_) | Event::Status(_) | Event::Other(_) => Vec::new(),
+            Event::Init(_)
+            | Event::RateLimit(_)
+            | Event::Status(_)
+            | Event::Answer(_)
+            | Event::Other(_) => Vec::new(),
         };
         changes.sort_by_key(|change| (change.row(), change.rank()));
         changes.dedup_by_key(|change| change.row());

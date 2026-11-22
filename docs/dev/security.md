@@ -650,6 +650,14 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   new start at a trusted project's root, and a resume or a fork only at the root of a project
   an open buffer says is trusted now, never under the trust the session started with, which
   an untrust does not take back. The start thread looks at the root again before the spawn.
+  The resume that follows an interrupt by signal is such a resume, judged again then, and none
+  starts while the person is asked whether to stop the session, or oso waits to quit or
+  restart (step 2c).
+- A native session's control layer (ADR 0165, step 2c) writes only `initialize` and
+  `interrupt`, and reads of an answer only its id, its success and its error, cut to 256 bytes
+  and logged escaped; it answers no request of the CLI's. `SIGINT` goes to the session's
+  process alone, never its group, and only on Unix: on Windows it would end the process at
+  once and leave its tools running.
 - A native session's `claude -p` asks the person about a call through its bridge's
   `permission` tool, named as its `--permission-prompt-tool`
   ([ADR 0165](adr/0165-native-claude-sessions-the-route.md), step 2):

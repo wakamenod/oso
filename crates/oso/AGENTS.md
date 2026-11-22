@@ -84,13 +84,16 @@ often, so it must rebuild within 2 s.
   agent gets it, and none of it is logged. The clipboard's images a session is given
   (`images`, ADR 0142) are written, converted by `sips` and removed on one `oso-images` thread,
   never the worker's. A native session's stream (ADR 0165) is read, folded into rows and
-  rendered by pure functions (`native`); only `native/wire.rs` touches its JSON, and its
+  rendered by pure functions (`native`); only `native/wire.rs` and its modules touch its JSON,
+  the control layer's requests and answers included (`wire/control.rs`), and its
   fixtures are recordings scrubbed of ids, paths and the person's setup. Its `claude -p` is
   started on the start thread, read on `oso-native-read`, `oso-native-batch` and
   `oso-native-err`, and written to on `oso-native-write` (`stream`);
   `app/sessions/hosting/native.rs` draws its rows on the UI thread, row by row. Its composer and
   queue are `app/sessions/hosting/native/composer.rs`, over the queue's rules in
-  `sessions/native/queue.rs`, and its resume and a native fork `native/resume.rs`, under the
+  `sessions/native/queue.rs`, its interrupt `native/interrupting.rs`, over the control layer's
+  rules in `sessions/native/control.rs` and the interrupt's in `sessions/native/interrupt.rs`,
+  and its resume and a native fork `native/resume.rs`, under the
   trust `app/sessions/hosting/trust.rs` judges (ADR 0165, step 2). `app/sessions.rs` and
   `app/sessions/` carry out what the worker, the jobs and the start thread find.
 - `src/review.rs` runs git and diffs for an agent review on `oso-review` (ADR 0122), only for

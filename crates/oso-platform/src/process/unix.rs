@@ -495,6 +495,7 @@ impl Process {
             return Ok(());
         }
         let number = match signal {
+            Signal::Interrupt => libc::SIGINT,
             Signal::Terminate => libc::SIGTERM,
             Signal::Kill => libc::SIGKILL,
         };

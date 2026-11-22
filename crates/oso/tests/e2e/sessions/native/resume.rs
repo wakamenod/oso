@@ -23,6 +23,7 @@ for a in "$@"; do printf 'arg %s\n' "$a"; done > "$dir/run.$n"
 cat "$dir/stream.jsonl"
 m=0
 while IFS= read -r line; do
+  case "$line" in *'"control_request"'*) continue ;; esac
   m=$((m+1))
   said=$(printf '%s\n' "$line" | sed 's/.*"content":"\([^"]*\)".*/\1/')
   printf '%s\n' "$said" > "$dir/sent.$n.$m"
