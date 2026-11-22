@@ -98,9 +98,41 @@ pub(super) fn assistant(object: &Map<String, Value>) -> Option<Assistant> {
     Some(Assistant {
         message_id: string(message, "id"),
         parent: parent(object),
-        model: string(message, "model"),
+        model: super::whole(message, "model"),
         blocks,
+        context_tokens: context(message.get("usage")),
     })
+}
+
+/// The tokens a request read, of its `usage`: what the context holds, as `/context` counts it
+/// (measured, part 3a); `None` when it gives none of the three counts.
+fn context(usage: Option<&Value>) -> Option<u64> {
+    let usage = usage?.as_object()?;
+    let counts = [
+        "input_tokens",
+        "cache_creation_input_tokens",
+        "cache_read_input_tokens",
+    ];
+    let counts = counts.map(|key| usage.get(key).and_then(Value::as_u64));
+    counts
+        .iter()
+        .any(Option::is_some)
+        .then(|| counts.into_iter().flatten().fold(0, u64::saturating_add))
+}
+
+/// Each model's context window, of a `result`'s `modelUsage`.
+fn windows(usage: Option<&Value>) -> Vec<(String, u64)> {
+    let Some(usage) = usage.and_then(Value::as_object) else {
+        return Vec::new();
+    };
+    usage
+        .iter()
+        .filter_map(|(model, used)| {
+            let window = used.get("contextWindow").and_then(Value::as_u64)?;
+            Some((super::name(model), window))
+        })
+        .take(super::MAX_WINDOWS)
+        .collect()
 }
 
 pub(super) fn user(object: &Map<String, Value>) -> Option<User> {
@@ -278,6 +310,7 @@ pub(super) fn result(object: &Map<String, Value>) -> TurnResult {
             .and_then(Value::as_array)
             .map_or(0, Vec::len),
         session_id: string(object, "session_id"),
+        windows: windows(object.get("modelUsage")),
     }
 }
 

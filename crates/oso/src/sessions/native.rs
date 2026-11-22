@@ -26,6 +26,8 @@
 //!   fallback, a signal and a resume (step 2c).
 //! - `markdown`: which replies are highlighted as Markdown, and their runs on their row
 //!   (step 2, part 2g).
+//! - `status`: the status line, model, mode, context, cost and rate limit (part 3a); `usage`:
+//!   its `get_usage` request, once a process on tier 2.
 
 pub mod asks;
 pub mod card;
@@ -38,7 +40,9 @@ pub mod queue;
 pub mod render;
 pub mod rows;
 pub mod slash;
+pub mod status;
 pub mod turns;
+pub mod usage;
 pub mod wire;
 
 #[cfg(test)]

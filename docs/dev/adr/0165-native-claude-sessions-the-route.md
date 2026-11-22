@@ -1011,6 +1011,75 @@ orchestrator chose (a) on the last. The author accepted the exception to ADR 011
     once would cost that for each, which waiting for a window avoids. An event with nothing
     to do takes 1.4 µs.
 
+## Step 3, as built
+
+Step 3 is built in parts, one pull request each, the author's answers of 2026-11-23 given
+through the space's orchestrator. Each part's choices are recorded here as it lands.
+
+### Part 3a: the status line
+
+The author's (a) on each of Q-A1 to Q-A3 and Q-C1 of 2026-11-23.
+
+Measured on 2026-11-22 and 23 (CLI 2.1.330, `--model=haiku`, made-up prompts, empty
+directories):
+
+- The context `/context` counts is the last main-thread answer's `usage.input_tokens +
+  cache_creation_input_tokens + cache_read_input_tokens` (26 905 against its "27k / 1m (3%)");
+  the `result`'s `usage` sums every call of the turn, so it is not. The window is
+  `result.modelUsage[MODEL].contextWindow`. `/context`'s own reply is `<synthetic>`, with no
+  usage.
+- Plan mode answers with Sonnet under `--model haiku`, and `system/init` still says haiku.
+- `result.total_cost_usd` is the session's running total, and it carries over `--resume`: a
+  resumed process's `get_usage`, before its first turn, gives the earlier processes' cost.
+- `rate_limit_event` names the window that binds (`rateLimitType: seven_day`) with its use as
+  a fraction (0.28); `get_usage`'s `rate_limits` gives `five_hour` and `seven_day` as percent
+  (29), and some 30 other windows by names of the CLI's own, null here.
+- `system/status` with `status: null` gives `permissionMode` when the mode changes.
+- `initialize`'s `models` lists each model's `value` (an alias or an id), `resolvedModel` and
+  `displayName`; `default` resolves to a model but names none (`Default (recommended)`).
+
+As built:
+
+- **The line** (`sessions::native::status`, the author's Q-A1 to Q-A3 and Q-C1 (a)): the
+  modeline's note says, after the run's state and the queue's count, `MODEL · MODE · ctx N% ·
+  $C · 7d 28%`, each part once known, joined by ` · `.
+  - The model is the last main-thread, non-synthetic answer's, else `system/init`'s (Q-A3),
+    shown by the name `initialize` lists for its id (an alias's, not `default`'s), else as its
+    id less `claude-`; an effort level follows it once oso noted one (Q-C1; part 3c notes it).
+  - The mode is the CLI's word for it, from `system/init` and `system/status`.
+  - `ctx N%` is the context used (Q-A1), over the shown model's window, once a `result` gave
+    it; when the `result`s named one model only, over its window, whatever its id.
+  - The cost is the last `result`'s, `$0.82`, whole from $10 (`$12`); before one,
+    `get_usage`'s, if more than nothing.
+  - The window is the last `rate_limit_event`'s, `5h` or `7d`; before one, the more used of
+    `get_usage`'s two. Other windows are not shown.
+- **What reads as itself:** a part holds ASCII alone: a model's id letters, digits and
+  `._:/@[]-`, a mode or an effort level letters, digits, `-` and `_`, a listed model's name
+  printable ASCII with its words one space apart. One that holds anything else, or is longer
+  than 256 bytes (not cut), is not shown, so that no control, invisible, bidi or look-alike
+  character, nor a dot like the ` · ` the parts are joined with, gets in: a part could then
+  pass for two, and in a narrow modeline keep a mode no more in view. A model or a mode the
+  CLI gives that is not shown clears the one shown before, rather than leave it saying what
+  the CLI no more says. A cost or a
+  percentage that is not a number from 0 to a bound, or is -0, is none. At most 64 models and
+  16 windows are kept.
+- **`get_usage`** (`sessions::native::usage`, over the control layer, Q-A2 (a)): asked once a
+  process, as soon as its `initialize` is answered with success and its stream is there to
+  write it (the answer may come before the start thread says the process started), so that a
+  resumed session shows its cost and window before its first turn; the stream keeps them
+  current after. Its answer comes through the control layer, as `interrupt`'s does. Refused,
+  or unanswered within 10 s, it is logged; unanswered, it is forgotten, and a later answer is
+  none. One whose process ended waits for nothing, and has no deadline. Tier 1 never asks. Of
+  its answer only `rate_limits.five_hour`, `rate_limits.seven_day` and
+  `session.total_cost_usd` are read.
+- **A narrow modeline** (oso-core's `editor/status.rs`): a native session's note takes at most
+  96 cells, and its ` · ` parts drop whole from the right before its name would go under its
+  least, the first part never (`editor/status/note.rs`). The host and oso-core must join and
+  split by the same separator.
+- The note is written again only when an event may change it, and a frame is asked for only
+  when it changed while the session is shown.
+- **Public API:** none.
+
 ## Questions
 
 The author chose (a) on each, on 2026-11-21. The options are kept as they were put.

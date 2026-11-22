@@ -13,14 +13,16 @@
 //!   whatever the line.
 //! - The transcript format is not read here: only the stream. Of the control protocol, the
 //!   requests oso writes and the answers to them are `control`'s (tier 2, step 2c).
-//! - `messages` reads the messages' bodies, `tools` a tool call's input, `control` the
-//!   control protocol's lines and `slash` the slash commands listed: with this file, the
-//!   only places that touch JSON.
+//! - `messages` reads the messages' bodies, `tools` a tool call's input, `card` what a
+//!   permission card shows, `control` the control protocol's lines, `slash` the slash commands
+//!   listed and `status_line` what the status line reads of the answers (part 3a): with this
+//!   file, the only places that touch JSON.
 
 pub mod card;
 pub mod control;
 mod messages;
 pub mod slash;
+pub mod status_line;
 pub mod tools;
 
 use serde_json::{Map, Value};
@@ -39,14 +41,21 @@ pub const MAX_NAME: usize = 256;
 pub const MAX_DIFF_LINES: usize = 20_000;
 /// The most bytes of diff lines kept of one tool result, in all.
 pub const MAX_DIFF_BYTES: usize = MAX_TEXT;
+/// What [`whole`] gives for a field longer than [`MAX_NAME`]: no name's (part 3a).
+pub const TOO_LONG: &str = "\u{fffd}";
+/// The most models whose context window a `result` gives that are kept (part 3a).
+pub const MAX_WINDOWS: usize = 16;
 
 /// What one line says.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Event {
     /// `system/init`, sent with each turn.
     Init(Init),
-    /// `system/status`.
-    Status(Status),
+    /// `system/status`, and the permission mode it gives, if it gives one (part 3a).
+    Status {
+        status: Status,
+        mode: Option<String>,
+    },
     /// `system/compact_boundary`: the conversation was compacted.
     Compacted {
         pre_tokens: Option<u64>,
@@ -155,6 +164,9 @@ pub struct Assistant {
     pub parent: Option<String>,
     pub model: String,
     pub blocks: Vec<Block>,
+    /// The tokens its request read: its usage's input, cache creation and cache read counts,
+    /// where it says them (part 3a).
+    pub context_tokens: Option<u64>,
 }
 
 /// A block of an assistant's message.
@@ -229,6 +241,8 @@ pub struct TurnResult {
     pub denials: usize,
     /// The session id it ended in, which a `/clear` changes (step 2d).
     pub session_id: String,
+    /// Each model's context window, in tokens, as `modelUsage` gives them (part 3a).
+    pub windows: Vec<(String, u64)>,
 }
 
 /// What `rate_limit_event` says.
@@ -288,8 +302,8 @@ fn system(object: &Map<String, Value>) -> Event {
         "init" => Event::Init(Init {
             session_id: string(object, "session_id"),
             cwd: text(object, "cwd", MAX_TEXT).0,
-            model: string(object, "model"),
-            permission_mode: string(object, "permissionMode"),
+            model: whole(object, "model"),
+            permission_mode: whole(object, "permissionMode"),
             version: string(object, "claude_code_version"),
             capabilities: object
                 .get("capabilities")
@@ -306,16 +320,10 @@ fn system(object: &Map<String, Value>) -> Event {
             slash_commands: slash::names(object, "slash_commands"),
             terminal_commands: slash::names(object, "terminal_slash_commands"),
         }),
-        "status" => Event::Status(match object.get("status").and_then(Value::as_str) {
-            Some("requesting") => Status::Requesting,
-            Some("compacting") => Status::Compacting,
-            _ => match object.get("compact_result").and_then(Value::as_str) {
-                Some(outcome) => Status::Compacted {
-                    ok: outcome == "success",
-                },
-                None => Status::Other,
-            },
-        }),
+        "status" => Event::Status {
+            status: status_of(object),
+            mode: Some(whole(object, "permissionMode")).filter(|mode| !mode.is_empty()),
+        },
         "compact_boundary" => {
             let meta = object.get("compact_metadata").and_then(Value::as_object);
             let number = |key| meta.and_then(|meta| meta.get(key)).and_then(Value::as_u64);
@@ -345,6 +353,19 @@ fn system(object: &Map<String, Value>) -> Event {
     }
 }
 
+fn status_of(object: &Map<String, Value>) -> Status {
+    match object.get("status").and_then(Value::as_str) {
+        Some("requesting") => Status::Requesting,
+        Some("compacting") => Status::Compacting,
+        _ => match object.get("compact_result").and_then(Value::as_str) {
+            Some(outcome) => Status::Compacted {
+                ok: outcome == "success",
+            },
+            None => Status::Other,
+        },
+    }
+}
+
 /// A short string field, cut to [`MAX_NAME`]; empty when absent or not a string.
 pub(crate) fn string(object: &Map<String, Value>, key: &str) -> String {
     object
@@ -352,6 +373,17 @@ pub(crate) fn string(object: &Map<String, Value>, key: &str) -> String {
         .and_then(Value::as_str)
         .map(name)
         .unwrap_or_default()
+}
+
+/// A short string field, whole, or empty when absent or not a string: one longer than
+/// [`MAX_NAME`] is [`TOO_LONG`], so that what is shown of it is never a part that could read
+/// as the whole, and a reader can tell it was given (part 3a).
+pub(crate) fn whole(object: &Map<String, Value>, key: &str) -> String {
+    match object.get(key).and_then(Value::as_str) {
+        Some(text) if text.len() > MAX_NAME => TOO_LONG.to_owned(),
+        Some(text) => text.to_owned(),
+        None => String::new(),
+    }
 }
 
 pub(crate) fn name(text: &str) -> String {

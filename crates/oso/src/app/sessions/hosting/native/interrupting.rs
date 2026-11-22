@@ -13,7 +13,7 @@
 
 use std::time::Instant;
 
-use super::{Native, draw};
+use super::{Native, draw, status};
 use crate::app::App;
 use crate::sessions::native::control::Answered;
 use crate::sessions::native::interrupt::{NotBegun, Then};
@@ -116,7 +116,8 @@ impl App {
         }
     }
 
-    /// When a native session's control layer or interrupt is next due, if one is.
+    /// When a native session's control layer, interrupt, card focus or `get_usage` is next
+    /// due, if one is.
     pub(in crate::app) fn natives_deadline(&self) -> Option<Instant> {
         // A permission card that waits for point, too (step 2e-2).
         let card = self.card_focus_deadline();
@@ -126,12 +127,15 @@ impl App {
                 control.into_iter().chain(native.interrupt.deadline())
             })
             .chain(card)
+            .chain(self.usage_deadline())
             .min()
     }
 
-    /// Carries out what is due of each native session's control layer and interrupt at `now`.
+    /// Carries out what is due of each native session's control layer, interrupt, card focus
+    /// and `get_usage` at `now`.
     pub(in crate::app) fn natives_due(&mut self, now: Instant) {
         self.card_focus_due(now);
+        self.usage_due(now);
         let due: Vec<(SessionKey, Vec<Then>)> = (self.hosting.natives.map.iter_mut())
             .filter_map(|(key, native)| {
                 let control = native.control.as_mut()?;
@@ -163,7 +167,16 @@ pub(super) fn control_event(native: &mut Native, event: &mut Event, then: &mut V
                 if let Some(commands) = answer.commands.take() {
                     native.commands.initialized(commands);
                 }
+                // The models it lists, for the status line (part 3a).
+                status::initialize_answered(native, answer);
             }
+            Answered::Request {
+                request: Request::GetUsage,
+                id,
+                error,
+            } => then.extend(
+                status::usage_answered(native, id, error.as_deref(), answer).map(Then::Log),
+            ),
             Answered::Request {
                 request: Request::Interrupt,
                 id,

@@ -16,7 +16,9 @@
 //! do (ADR 0051), and the warnings remain for the person at the screen.
 
 use std::fmt::Write;
+use std::ops::Range;
 
+use self::note::NATIVE_NOTE_CELLS;
 use super::Editor;
 use super::messages::CUT;
 use crate::buffer::{Buffer, Mode, ServerMark, Verdict};
@@ -285,8 +287,11 @@ fn push_cut(out: &mut String, name: &str, cells: usize) {
     out.push_str(name);
 }
 
-/// The cells `text` takes.
+/// The cells `text` takes: its bytes when they are all printable ASCII, each a cell.
 fn text_cells(text: &str) -> usize {
+    if text.bytes().all(|byte| (b' '..=b'~').contains(&byte)) {
+        return text.len();
+    }
     text_clusters(text, 0).map(|cluster| cluster.cells).sum()
 }
 
@@ -313,7 +318,9 @@ fn push_encoding(out: &mut String, info: FileInfo, invalid: bool) {
     });
 }
 
-fn push_state(out: &mut String, window: &Window, buffer: &Buffer) {
+/// Writes what the modeline says of `buffer`'s state into `out`, and where a native session's
+/// note is in it.
+fn push_state(out: &mut String, window: &Window, buffer: &Buffer) -> Option<Range<usize>> {
     // A terminal has no position, no file and no encoding: its mode and what the host notes,
     // such as its program's title (ADR 0120). A session's says `Session` (ADR 0132).
     if buffer.is_terminal() {
@@ -326,13 +333,13 @@ fn push_state(out: &mut String, window: &Window, buffer: &Buffer) {
             out.push_str(GAP);
             push_cut(out, buffer.mode_note(), NOTE_CELLS);
         }
-        return;
+        return None;
     }
     // `*Spaces*` has no position worth saying: what the host notes, its name, grouping and
     // keys (ADR 0131, ADR 0140).
     if buffer.mode() == Mode::Sessions && !buffer.mode_note().is_empty() {
         push_cut(out, buffer.mode_note(), NOTE_CELLS);
-        return;
+        return None;
     }
     if let Some(progress) = buffer.loading() {
         let _ = match progress.total {
@@ -370,14 +377,21 @@ fn push_state(out: &mut String, window: &Window, buffer: &Buffer) {
             | crate::buffer::Mode::GitStatus
             | crate::buffer::Mode::NativeSession
     ) {
-        if !buffer.mode_note().is_empty() {
-            out.push(' ');
-            push_cut(out, buffer.mode_note(), NOTE_CELLS);
+        if buffer.mode_note().is_empty() {
+            return None;
         }
-        return;
+        out.push(' ');
+        let start = out.len();
+        if buffer.mode() == Mode::NativeSession {
+            push_cut(out, buffer.mode_note(), NATIVE_NOTE_CELLS);
+            return Some(start..out.len());
+        }
+        push_cut(out, buffer.mode_note(), NOTE_CELLS);
+        return None;
     }
     out.push_str(GAP);
     push_encoding(out, buffer.file_info(), !buffer.invalid_bytes().is_empty());
+    None
 }
 
 /// The warnings a modeline starts with, of `buffer`, into `out`; `docks_hidden` if the window is
@@ -438,7 +452,7 @@ impl Editor {
         }
         warnings_into(buffer, self.docks_hidden(id), &mut status.warnings);
         status.state.clear();
-        push_state(&mut status.state, window, buffer);
+        let note = push_state(&mut status.state, window, buffer);
         self.review_status_into(window.buffer(), &mut status.state);
         // `Def` while a keyboard macro is recorded, as Emacs's (ADR 0113).
         if id == tiled && self.macro_recording() {
@@ -474,8 +488,9 @@ impl Editor {
             + status.lsp.len()
             + status.lsp_counts.len()
             + status.waits.len()
-            + status.state.len();
+            + text_cells(&status.state);
         let columns = regions.modeline.columns;
+        let others = note::fit(&mut status.state, note, others, columns);
         let cells = columns.saturating_sub(others).max(MIN_NAME_CELLS);
         push_name(&mut status.name, buffer, marker, cells);
 
@@ -546,6 +561,8 @@ impl Editor {
         }
     }
 }
+
+mod note;
 
 #[cfg(test)]
 mod tests {
@@ -630,6 +647,64 @@ mod tests {
         let mut theirs = Status::default();
         editor.status_into(other, &mut theirs);
         assert_eq!(theirs.space, "", "only the selected window's says it");
+    }
+
+    /// An editor `columns` wide showing a native session whose note is `note`.
+    fn native(note: &str, columns: usize) -> Editor {
+        named_native("*claude: oso*", note, columns)
+    }
+
+    fn named_native(name: &str, note: &str, columns: usize) -> Editor {
+        let mut editor = Editor::default();
+        editor.set_frame_size(FrameSize { rows: 10, columns });
+        let id = editor.add_native_session_buffer(name);
+        editor.show(id);
+        editor.set_mode_note(id, note.to_owned());
+        editor
+    }
+
+    #[test]
+    fn a_native_sessions_note_is_whole_where_it_fits() {
+        let note = "2 queued · Haiku 5.5 · default · ctx 3% · $0.82 · 7d 28%";
+        let status = status(&native(note, 120));
+        assert_eq!(status.state, format!("1:0  Session {note}"));
+        assert_eq!(status.name, "%% *claude: oso*  ");
+    }
+
+    #[test]
+    fn a_narrow_window_drops_a_native_notes_parts_from_the_right_before_the_name() {
+        let name = "*claude: a session with a long name*";
+        let note = "2 queued · Haiku 5.5 · default · ctx 3% · $0.82 · 7d 28%";
+        let at = |columns| status(&named_native(name, note, columns));
+        let wide = at(200);
+        let least = 3 + MIN_NAME_CELLS + 2;
+        let fits = text_cells(&wide.modeline()) - text_cells(&wide.name) + least;
+        // The name is cut to its least first, and the note stays whole.
+        assert_eq!(at(fits).state, format!("1:0  Session {note}"));
+        assert_eq!(text_cells(&at(fits).name), least);
+        // One cell less: the last part goes, and the name keeps its least.
+        let less = at(fits - 1);
+        assert_eq!(
+            less.state,
+            "1:0  Session 2 queued · Haiku 5.5 · default · ctx 3% · $0.82"
+        );
+        assert!(text_cells(&less.name) >= least, "{less:?}");
+        assert!(text_cells(&less.modeline()) < fits);
+        // Narrower, more parts go, the first one never.
+        let narrow = at(fits - 25);
+        assert_eq!(narrow.state, "1:0  Session 2 queued · Haiku 5.5 · default");
+        let least = at(30);
+        assert_eq!(least.state, "1:0  Session 2 queued");
+        assert_eq!(text_cells(&least.name), 3 + MIN_NAME_CELLS + 2);
+    }
+
+    #[test]
+    fn a_long_native_note_is_cut_at_its_own_cap() {
+        let note = format!("{} · end", "x".repeat(120));
+        let status = status(&native(&note, 400));
+        let shown = status.state.strip_prefix("1:0  Session ").unwrap();
+        assert_eq!(text_cells(shown), NATIVE_NOTE_CELLS);
+        assert!(shown.ends_with(CUT));
     }
 
     #[test]
@@ -1032,6 +1107,13 @@ mod tests {
     }
 
     proptest! {
+        /// The cells of printable ASCII are its bytes, as `text_clusters` counts any text.
+        #[test]
+        fn text_cells_counts_as_clusters_do(text in "[ -~]{0,40}|\\PC{0,20}|[\\t\\r\\n -~]{0,20}") {
+            let clusters: usize = text_clusters(&text, 0).map(|cluster| cluster.cells).sum();
+            prop_assert_eq!(text_cells(&text), clusters);
+        }
+
         /// Whatever the name and the width, the warnings come first and whole, and the
         /// name stays within what it was given.
         #[test]
