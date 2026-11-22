@@ -93,6 +93,7 @@ pub(in crate::app::sessions::hosting::native) fn native(buffer: BufferId) -> Nat
         markdown: Marks::default(),
         status: Default::default(),
         unseen: false,
+        mode: Default::default(),
     }
 }
 

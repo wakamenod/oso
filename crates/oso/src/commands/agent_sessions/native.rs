@@ -5,6 +5,8 @@
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the host-owned state
 //! and asks the host for the rest.
 //!
+//! `S-TAB` switches the session's permission mode (part 3b), in its composer too.
+//!
 //! Every key is `Person`: the buffer is withheld from agents, and the host does the work after
 //! the command, where the channel's guards no longer see it, so what it folds, where it moves
 //! and what it says would tell an agent of the rows; and a result shown puts a buffer withheld
@@ -64,6 +66,14 @@ pub const COMMANDS: &[Command] = &[
         run: previous_tool,
         state: None,
     },
+    Command {
+        name: "native-session-cycle-mode",
+        doc: "Switch the native session whose transcript or composer this is to its next permission mode: default, acceptEdits, plan, auto, and round, as Claude Code's terminal does.\n\nThe modeline shows the mode once claude says it changed. With the `set_permission_mode` control request where the session's claude takes it; else claude, idle, ends and resumes its conversation in the new mode, and during a turn the mode can change once it is idle. bypassPermissions and dontAsk are never set.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: cycle_mode,
+        state: None,
+    },
 ];
 
 /// Asks the host to `action` at point's line of the native session's buffer in front, or of
@@ -109,6 +119,10 @@ fn previous_tool(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
     at_point(ctx, NativeAction::Tool(-args.count()))
 }
 
+fn cycle_mode(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    at_point(ctx, NativeAction::CycleMode)
+}
+
 #[cfg(test)]
 mod tests {
     use oso_core::buffer::Mode;
@@ -138,6 +152,7 @@ mod tests {
         )
         .unwrap();
         run(&mut editor, "native-session-toggle", Args::NONE).unwrap();
+        run(&mut editor, "native-session-cycle-mode", Args::NONE).unwrap();
         let at = |action| SessionRequest::Native {
             buffer: id,
             line: 1,
@@ -145,7 +160,11 @@ mod tests {
         };
         assert_eq!(
             editor.take_session_requests(),
-            [at(NativeAction::Tool(-3)), at(NativeAction::Toggle)]
+            [
+                at(NativeAction::Tool(-3)),
+                at(NativeAction::Toggle),
+                at(NativeAction::CycleMode)
+            ]
         );
     }
 

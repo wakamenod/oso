@@ -1359,13 +1359,22 @@ a switch made with its command stands until that setting changes in the file
   its effort level once noted), the permission mode, the context used, what the session cost
   and how much of the rate limit's window is used, each once known; a resumed session shows
   its cost and window before its first turn, where the CLI answers `get_usage`. A narrow
-  window drops them from the right.
+  window drops them from the right. `S-TAB` in the transcript or the composer switches the
+  permission mode to the next (part 3b): `default`, `acceptEdits`, `plan`, `auto`, and round,
+  as Claude Code's terminal does, and from any other mode to `default`; the modeline changes
+  once the CLI says the mode changed. Where the CLI takes `set_permission_mode`, the process
+  stays; else, or when the request goes unanswered (2 s) or is refused, an idle session's
+  `claude` ends and resumes its conversation in the new mode, and during a turn the mode can
+  change once it is idle. A new session starts in the mode Claude Code's own settings give
+  it, and so does one resumed after oso restarted; a resume, an interrupt's resume and a fork
+  keep the mode, `acceptEdits` and `auto` only when the person chose them with `S-TAB`. `bypassPermissions` and `dontAsk` are never set, and no agent changes the
+  mode.
 
   `claude` is started as the login shell would start it, so its `PATH`, version managers and
   proxies apply; set `claude` when the shell is not `sh`, `bash`, `zsh`, `dash` or `ksh`. `env`
   names at most 64 more variables a session takes from oso's environment; `PATH`, `LD_*` and
-  `DYLD_*` are refused. A session never gets a permission option: it starts in the mode Claude
-  Code's own settings give it. With `steer_worktrees`, a session oso starts gets a hook that
+  `DYLD_*` are refused. A session starts in the mode Claude Code's own settings give it: oso
+  gives a permission option only to a native session's later process, the mode it was in. With `steer_worktrees`, a session oso starts gets a hook that
   denies Claude's own `EnterWorktree` and `git worktree add`, pointing it to `C-c a w`; nothing
   is written into Claude Code's settings files.
 - A session gets oso's `CLAUDE_CONFIG_DIR`. If a login profile sets its own, set the same value

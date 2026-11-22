@@ -237,7 +237,8 @@ rule that only the person writes to a session are ADR 0130's.
 ### The permission mode (Q4)
 
 - The person may start a session in, and switch it between, `default`, `acceptEdits`, `plan` and
-  `auto`, shown in the modeline (`auto` is what the author uses in ECC). `bypassPermissions` and
+  `auto` (as built, part 3b: a session starts in Claude Code's settings' mode, and `S-TAB`
+  switches it), shown in the modeline (`auto` is what the author uses in ECC). `bypassPermissions` and
   `dontAsk` are never set. No agent or channel method changes the mode. On tier 1 a switch is a
   respawn with `--resume`, only while idle; on tier 2 it is `set_permission_mode`. This amends ADR
   0121's "no permission flag is ever passed".
@@ -1046,7 +1047,8 @@ As built:
   - The model is the last main-thread, non-synthetic answer's, else `system/init`'s (Q-A3),
     shown by the name `initialize` lists for its id (an alias's, not `default`'s), else as its
     id less `claude-`; an effort level follows it once oso noted one (Q-C1; part 3c notes it).
-  - The mode is the CLI's word for it, from `system/init` and `system/status`.
+  - The mode is the CLI's word for it, from `system/init` and `system/status`; part 3b holds
+    it (`sessions::native::mode`), and reads `initialize`'s answer too.
   - `ctx N%` is the context used (Q-A1), over the shown model's window, once a `result` gave
     it; when the `result`s named one model only, over its window, whatever its id.
   - The cost is the last `result`'s, `$0.82`, whole from $10 (`$12`); before one,
@@ -1079,6 +1081,74 @@ As built:
 - The note is written again only when an event may change it, and a frame is asked for only
   when it changed while the session is shown.
 - **Public API:** none.
+
+### Part 3b: permission modes
+
+The author's (a) on each of Q-B1 to Q-B3 of 2026-11-23, and their choices of the same day:
+tier 2's request with a 2 s wait, else tier 1; the mode shown changes only when the CLI says
+so; `--permission-mode` on every later process.
+
+Measured on 2026-11-23 (CLI 2.1.330, `--model=haiku`, made-up prompts, empty directories):
+
+- `set_permission_mode {mode}` is answered `success {"mode": M}`, then `system/status` says
+  `permissionMode: M`; to the mode the session is in already, a success and no status. An
+  unknown mode is an `error` (`invalid_mode`). Sent during a turn, it is answered at once, and
+  the turn's next call runs in the new mode.
+- `--resume` does not keep the mode: a session left in `acceptEdits` resumed in `default`, and
+  `--resume --permission-mode plan` resumed in `plan`.
+- `--permission-mode` takes `manual` as another name for `default`, which the CLI then says.
+- `initialize`'s answer says `current_permission_mode`.
+
+As built:
+
+- **The type** (`channel::protocol::mode::PermissionMode`): `default`, `acceptEdits`, `plan`
+  and `auto`, the only modes oso sends, on the command line and in the request. It sits below
+  `sessions` so that a session's bridge, in `channel`, can share it when part 3d's plan
+  approval gives the CLI a mode. It has no value for `bypassPermissions` or
+  `dontAsk`, so neither can be sent. No agent or channel method takes one.
+- **The mode held** (`sessions::native::mode::ModeState`): the one the CLI said last, in
+  `system/init`, `system/status` or the first `initialize` answer (the control layer takes no
+  later one, for its commands and models either), held to what reads as itself as part 3a's
+  parts are; a mode oso does not send is shown as the CLI says it. It is the one copy:
+  the status line is given it to write (part 3a, amended).
+- **The key** (Q-B1 (a)): `S-TAB` in the transcript and the composer,
+  `native-session-cycle-mode` (`Person`), switches to the next, in the CLI's terminal's order:
+  `default`, `acceptEdits`, `plan`, `auto`, and round; from a mode oso does not send, to
+  `default`. From a mode oso put the process in that it has not said yet, the next after it,
+  so that two quick presses go two steps. Before the CLI said a mode, it says the mode is not
+  known yet. There is no oso
+  setting: a new session starts as Claude Code's settings say.
+- **Tier 2:** the `set_permission_mode` request, over the control layer, as `interrupt` is. A
+  success changes nothing shown: the modeline waits for the CLI's `system/status`. With no
+  answer within 2 s, an error, or the request not written, it falls back to tier 1, and why is
+  logged.
+- **Tier 1** (Q-B3 (a)): an idle process is stopped and resumed at once with `--resume
+  --permission-mode`, as part 2c's tier-1 interrupt resumes, under the trust judged then; a row
+  says "Changing the mode to M: claude ends, and resumes its conversation in it". During a turn
+  it is refused: "it can change once idle". Windows has a tier 1 here, as no signal is needed.
+  A session never given a message has no conversation to resume, so it has none. While the
+  process starts, before `initialize` was answered, a switch is refused too, and so it is on
+  tier 1 while a resume could not start (a stop asked, oso waiting to quit or restart, an
+  orchestrator's replacement waiting, a conversation that moved), as the process would only
+  stop. A switch whose process ends without resuming is over, and a row says the mode did not
+  change.
+- **Every later process** is given `--permission-mode`: a resume (the person's, or an
+  orchestrator's `session_resume`), part 2c's tier-1 interrupt's resume, which lost a mode
+  other than the settings' before, and a fork, its source's. The mode is the one a tier-1
+  switch asked for; else the one oso gave the process before, until that process said a mode,
+  so that a step down is kept though the process ends before it speaks; else the one the CLI
+  said last, if it is `default` or `plan`, or if the person switched to it here (a request
+  answered with success, or a tier-1 switch). Else none, and the process starts as the
+  settings say. One switch goes at a time.
+- **The stream is not authenticated** (the security review): a tool the session runs, with
+  the person's leave, can write a line to the stream that says any mode. So a mode that asks
+  less, `acceptEdits` or `auto`, is shown as said but carried only when the person chose it;
+  a line that says a mode asking more is carried, the safe side. A line can still make the
+  modeline say another mode than the CLI's until the CLI says one again. Part 3d's approval
+  with a mode is to count as the person's choice when it lands.
+- **Across an oso restart** (Q-B2 (a)): the mode is not in the record, so a session resumed
+  after the restart starts as the settings say.
+- **Public API (approved):** `NativeAction::CycleMode`.
 
 ### Part 3f, as built: prompt suggestions and the recap
 
@@ -1138,7 +1208,6 @@ you were away" summary is the TUI's: nothing in `-p` sends it, so the recap is o
   with tests of what keeps and clears each; the queue's drawing in `composer/queued.rs`; a
   test that the agent channel does not read an echo withheld so; and the e2e flow
   `sessions::native::suggest`.
-
 ## Questions
 
 The author chose (a) on each, on 2026-11-21. The options are kept as they were put.

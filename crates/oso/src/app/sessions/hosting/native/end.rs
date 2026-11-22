@@ -4,8 +4,9 @@
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 //!
-//! - A session interrupted with a signal ends as asked, and resumes at once, as a resume
-//!   does (step 2c); its queue waits as the interrupt left it.
+//! - A session interrupted with a signal, or stopped while idle to change its mode (part 3b),
+//!   ends as asked, and resumes at once, as a resume does (step 2c), in the mode it was in or
+//!   is changed to; its queue waits as the interrupt left it.
 //! - A session never given a message left Claude Code no conversation, and `--resume` of it
 //!   fails ("No conversation found", a probe of 2026-11-22; step 2). It is forgotten, its line
 //!   dropped from the record, when it ends cleanly with nothing in its composer or queue, when
@@ -28,10 +29,7 @@ impl App {
         // Its bridge asks nothing any more.
         self.drop_permissions_of(key);
         let in_table = self.hosting.table.get(key).is_some();
-        // Nothing new runs while the person is asked to stop it, or oso waits to quit or
-        // restart.
-        let free =
-            !self.watch.stop_asked(key) && !self.editor.quit_when_idle() && !self.restart_holds();
+        let held = self.native_resume_held(key);
         let Some(native) = self.hosting.natives.map.get_mut(&key) else {
             return;
         };
@@ -41,16 +39,17 @@ impl App {
         }
         native.stream = None;
         let hung_up = self.watch.take_hung_up(key);
-        // Interrupted with a signal, it ended as asked, and resumes (step 2c): unless the
-        // person stopped it or is asked whether to, their replacement of an orchestrator waits
-        // for its end, or oso waits to quit or restart.
+        // Interrupted with a signal, or stopped to resume in another mode (part 3b), it ended
+        // as asked, and resumes (step 2c): unless the person stopped it, or a resume is held.
         native.control = None;
-        let resumes = std::mem::replace(&mut native.interrupt, Interrupt::new(SIGNALS)).resumes()
-            && native.spoke
-            && !native.moved
-            && !hung_up
-            && !self.hosting.spaces.replacing.contains_key(&key)
-            && free;
+        let interrupted =
+            std::mem::replace(&mut native.interrupt, Interrupt::new(SIGNALS)).resumes();
+        let resumes = (interrupted || native.mode.respawns()) && native.spoke && !hung_up && !held;
+        // A switch it was stopped for that does not resume is over, and says so.
+        if native.mode.ended(resumes) {
+            let change = (native.rows).note("The mode did not change: claude did not resume.");
+            draw(&mut self.editor, native, [change]);
+        }
         let buffer = native.buffer;
         let status = if hung_up || resumes { Some(0) } else { status };
         let unspoken = !native.spoke && native.composing.queued() == 0;
@@ -99,14 +98,26 @@ impl App {
         }
         self.remember_sessions();
         if resumes {
-            return self.resume_interrupted(key);
+            return self.resume_at_once(key);
         }
         self.replaced_orchestrator_ended(key, status.is_some());
     }
 
-    /// Native session `key`, interrupted with a signal, ended: it resumes, in its buffer, as
-    /// a resume does, under the trust judged now; or stays stopped, saying why.
-    fn resume_interrupted(&mut self, key: SessionKey) {
+    /// Whether a resume of native session `key` that would start of itself is held now: the
+    /// person is asked whether to stop it, oso waits to quit or restart, the replacement of an
+    /// orchestrator waits for its end, or its conversation moved to an id oso does not follow.
+    pub(super) fn native_resume_held(&self, key: SessionKey) -> bool {
+        self.watch.stop_asked(key)
+            || self.editor.quit_when_idle()
+            || self.restart_holds()
+            || self.hosting.spaces.replacing.contains_key(&key)
+            || self.hosting.natives.moved(key)
+    }
+
+    /// Native session `key`, interrupted with a signal or stopped to change its mode, ended: it
+    /// resumes, in its buffer, as a resume does, under the trust judged now; or stays stopped,
+    /// saying why.
+    fn resume_at_once(&mut self, key: SessionKey) {
         let Err(why) = self.resume_hosted(key, false) else {
             return;
         };

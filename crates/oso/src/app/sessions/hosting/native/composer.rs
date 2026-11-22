@@ -131,6 +131,8 @@ impl App {
             NativeAction::Transcript => self.composer_go(key, false),
             NativeAction::Compose => self.composer_go(key, true),
             NativeAction::Queue => self.queue_go(key, 0),
+            // The transcript's and the composer's `S-TAB` (part 3b).
+            NativeAction::CycleMode => self.native_cycle_mode(key),
             NativeAction::Open => match offset.and_then(|at| self.queued_at(key, at)) {
                 Some(id) => self.queued_take_back(key, id),
                 None => return false,

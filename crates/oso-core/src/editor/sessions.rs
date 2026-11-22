@@ -352,6 +352,9 @@ pub enum NativeAction {
     Choose(u8),
     /// From a question's card: answer it in the person's own words, read in the minibuffer.
     Other,
+    /// From the transcript or the composer (ADR 0165, part 3b): switch the session to its
+    /// next permission mode.
+    CycleMode,
 }
 
 impl Editor {
