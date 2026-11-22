@@ -610,34 +610,50 @@ As built:
   is asked (Q1 (a)): part 2e-1's question in the echo area is gone, and elsewhere the session's
   `needs input` (`permission`, `question` or `plan`) leads there, as a terminal's dialog does.
   Each session's call has its card, as each holds one connection.
-- **Claude's text, fenced:** the card's first row is oso's title and its last oso's keys;
-  what Claude wrote (a command, a diff, a reason, a question and its options, a plan) is between
-  them, each of its lines one row after `│ ` in a face of its own, a line break or tab in it
-  shown as a space, at most 10 rows, what is left out saying so (ADR 0170's rule). What the
-  card shows is what the stream says of the call, the request saying the same; a title says
-  when that is not all the call does (`(not all of it is shown: RET shows it)`), as part 2e-1's
-  label did. `RET` shows the whole call, or the whole plan, in the card itself, fenced the same
-  way, and back.
-- **What it says (Q4 (a)):** a command after `$ `; an `Edit`'s, `MultiEdit`'s or `Write`'s
-  change as `-` and `+` lines in ADR 0122's faces, at most 200 of 256 bytes each; the reason
-  (Bash's `description`) after `Why:`.
+- **Claude's text, fenced:** the card's first row is oso's title and its last oso's keys, a
+  plain row in oso's own face (not ADR 0075's chips, so that they stay the card's text);
+  what Claude wrote (a command, a diff, a reason, a question and its options, a plan) is
+  between them, each row of it after `│ ` in a face of its own. Each of Claude's line breaks
+  starts a row of its own, and a row longer than the card is broken into rows at the card's
+  width, drawn again when that width changes, the buffer never wrapping: no text of Claude's
+  runs past the card's edge or wraps unfenced, and a row of the card is a row on screen. At
+  most 10 rows are fenced, what is left out saying so (ADR 0170's rule). What the card shows
+  of a call's target is what the stream says of it, the request saying the same; what only
+  the request carries (a reason, an edit's strings, a question's text, a plan) is shown from
+  it. A title says when the card does not show all the call does (`(not all of it is shown:
+  RET shows it)`), a long tool name cut before the warning, never the warning: for a call
+  that does more than read, a command with more than its description and limit or holding a
+  control character, and an edit with more than its file and strings.
+- **`RET`** shows the whole call, or the whole plan, in the card itself, its keys on its
+  title row and at most 2000 fenced rows, scrolled as any buffer is, and goes back: a buffer
+  of its own in the host's window would take the transcript, and so the card, out of it. What
+  it shows is made the first time it is asked for.
+- **What it says (Q4 (a)):** a command after `$ `, each of its lines a row; an `Edit`'s,
+  `MultiEdit`'s or `Write`'s change as `-` and `+` lines in ADR 0122's faces, at most 200 of
+  256 bytes each; the reason (Bash's `description`) after `Why:`.
 - **Focus:** point moves to the card after 500 ms with no key, while the person is in that
-  session's transcript or composer; in it, a key answers only after 500 ms with no key, each
-  key and point's coming starting that wait again, as the agent channel's question has it.
-  Answered, the card goes and point goes to the composer.
+  session's transcript, or its composer with no draft in it, and the card's window shows all
+  of it. A key answers it (`y`, `n`, `N`, a digit, `o`, `RET`) only after 500 ms with no key
+  and since the card became the selected buffer, however point came there (the automatic
+  move, `C-x o`, the mouse, a prompt over it closing); never from a macro; never while its
+  window shows less than all of it, which says to make the window taller. A held answer key
+  answers once (ADR 0072). Its other keys, as `C-c C-o` (`native-card-leave`) or `C-x o` to
+  leave it, are any buffer's. Answered, the card goes and point goes to the composer.
 - **Keys:** `y` allows once (or approves a plan), `n` denies (declines the questions, or keeps
   planning), `N` denies with a note read in the minibuffer, which the CLI is told; the call's
-  row then says ` · denied: NOTE`. `C-c C-o` and `i` leave the card, the call still waiting.
-  The approved public items: `Mode::Card`, `NativeAction::{Allow, Deny, Note, Choose(u8),
-  Other}` and `SessionRequest::CardText(String)`, which carries a note or an own answer from
-  its prompt's command (`native-card-note-text`, `native-card-own-text`) to the host, as
-  `session-rename-to` does.
+  row then says ` · denied: NOTE`, or ` · denied: by the person`. An allowed call gains no
+  mark: its row goes on to say how it ran. A note or an own answer that a yank of a secret
+  entry turned secret is refused. The approved public items: `Mode::Card`,
+  `NativeAction::{Allow, Deny, Note, Choose(u8), Other}` and `SessionRequest::CardText(String)`,
+  which carries a note or an own answer from its prompt's command (`native-card-note-text`,
+  `native-card-own-text`) to the host, as `session-rename-to` does.
 - **`AskUserQuestion` (Q3 (a)):** one question at a time, its options numbered; a digit answers
   a question that takes one and moves on, and in one that takes several chooses or unchooses
   it, `RET` giving those chosen; `o` answers in the person's own words, and `n` declines. oso
   answers with `{"behavior": "allow", "answers": {…}}`, which the bridge puts in the call's
-  `updatedInput`; answers for any other tool change nothing. At most 4 questions of 9 options,
-  each text cut.
+  `updatedInput`, and only those: answers the model put in its own input are taken out, and
+  an `AskUserQuestion` whose questions cannot be read is denied unasked. Answers for any other
+  tool change nothing. At most 4 questions of 9 options, each text cut.
 - **`ExitPlanMode` (Q2 (a)):** the plan is shown as the request gives it, marked so, as only
   the request carries it: the request is the session's own `claude`'s, by ADR 0121's claim of
   its bridge, and the call is still found by its id and tool in the stream. `y` approves.

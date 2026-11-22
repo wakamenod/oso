@@ -34,7 +34,7 @@ fn question(label: &str) -> Question {
             title: label.into(),
             lines: Vec::new(),
         },
-        details: String::new(),
+        details: None,
         whole: false,
     }
 }

@@ -1216,7 +1216,9 @@ Full details are in [`security.md`](security.md).
     (`channel/protocol/permission.rs`), held until the person answers. `oso mcp --permission`
     lists the tool (`channel/mcp/permission.rs`) and connects as `initialize` comes; the queue
     of requests is `sessions::native::asks`, and the app finds each request's call in the
-    session's rows and asks (`app/sessions/hosting/native/permissions.rs`).
+    session's rows (`app/sessions/hosting/native/permissions.rs`) and asks on the session's
+    docked card (`permissions/card.rs`), whose text and questions are
+    `sessions::native::card`'s, from what `sessions::native::wire::card` reads of the call.
   - `oso mcp` (`channel/mcp.rs`) is a subcommand of the oso binary that opens no window: MCP's
     JSON-RPC on stdin and stdout, with the tools `state`, `text`, `diagnostics`, `commands`, `look`,
     `change`, `open` and `cancel`, which takes back a question the agent's change opened

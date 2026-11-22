@@ -134,8 +134,9 @@ impl App {
         if let Some(composer) = native.composing.buffer {
             self.editor.kill_buffer(composer);
         }
+        // An internal buffer no kill takes away.
         if let Some(card) = native.card {
-            self.editor.kill_buffer(card);
+            self.editor.remove_internal_buffer(card);
         }
         self.editor.kill_buffer(native.buffer);
     }

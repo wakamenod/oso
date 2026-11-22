@@ -14,7 +14,7 @@
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
 use oso_core::editor::{NativeAction, SessionRequest};
 
-use super::native::at_point as ask;
+use super::native::at_point;
 
 /// The command whose prompt reads a denial's note.
 pub const CARD_NOTE: &str = "native-card-note-text";
@@ -64,6 +64,22 @@ pub const COMMANDS: &[Command] = &[
         state: None,
     },
     Command {
+        name: "native-card-whole",
+        doc: "Show the whole call or plan in a native session's permission card, or go back to the card; in a question that takes several options, answer with those chosen.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: whole,
+        state: None,
+    },
+    Command {
+        name: "native-card-leave",
+        doc: "Leave a native session's permission card for its transcript: the call still waits on the card.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: leave,
+        state: None,
+    },
+    Command {
         name: CARD_NOTE,
         doc: "Give the permission card the host asked about the note read in its prompt, and deny its call with it.",
         args: ArgSpec::Text {
@@ -88,19 +104,27 @@ pub const COMMANDS: &[Command] = &[
 ];
 
 fn allow(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    ask(ctx, NativeAction::Allow)
+    at_point(ctx, NativeAction::Allow)
 }
 
 fn deny(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    ask(ctx, NativeAction::Deny)
+    at_point(ctx, NativeAction::Deny)
 }
 
 fn note(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    ask(ctx, NativeAction::Note)
+    at_point(ctx, NativeAction::Note)
 }
 
 fn other(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    ask(ctx, NativeAction::Other)
+    at_point(ctx, NativeAction::Other)
+}
+
+fn whole(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    at_point(ctx, NativeAction::Open)
+}
+
+fn leave(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    at_point(ctx, NativeAction::Transcript)
 }
 
 fn choose(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
@@ -111,12 +135,18 @@ fn choose(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     else {
         return Err(CommandError::new("Type an option's number, 1 to 9"));
     };
-    ask(ctx, NativeAction::Choose(digit))
+    at_point(ctx, NativeAction::Choose(digit))
 }
 
 /// The answer of [`CARD_NOTE`]'s or [`CARD_OWN`]'s prompt, for the card the host asked about.
 fn text(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     super::super::not_in_prompt(ctx)?;
+    // A yank of a secret entry turns it secret: it never goes to the session.
+    if ctx.answer_secret() {
+        return Err(CommandError::new(
+            "The text holds secret text, which is not sent: write it again without it",
+        ));
+    }
     let text = match ctx.answer().map(str::trim) {
         Some(text) if !text.is_empty() => text.to_owned(),
         _ => return Err(CommandError::new("Nothing written")),

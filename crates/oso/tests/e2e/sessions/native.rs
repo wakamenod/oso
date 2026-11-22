@@ -393,11 +393,6 @@ fn a_native_sessions_calls_are_asked_of_the_person_with_the_agent_channel_off() 
 
     // `y` gives the CLI its own input back; `n` and a call the stream lacks deny.
     check_answers(&flow);
-    assert_eq!(
-        app.state()["prompts"],
-        json!([]),
-        "the third was never asked"
-    );
     assert!(
         !app.state()["windows"]
             .as_array()

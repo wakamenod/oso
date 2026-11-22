@@ -101,10 +101,13 @@ impl Bridge {
 /// `AskUserQuestion`'s (step 2e-2). Answers for any other tool change nothing.
 fn answered(mut input: Value, tool_name: &str, answer: &Value) -> Value {
     if tool_name == "AskUserQuestion"
-        && let Some(answers) = permission::answers(answer)
         && let Some(object) = input.as_object_mut()
     {
-        object.insert("answers".to_owned(), Value::Object(answers));
+        // Only the person's: answers the model put in its own input never pass.
+        match permission::answers(answer) {
+            Some(answers) => object.insert("answers".to_owned(), Value::Object(answers)),
+            None => object.remove("answers"),
+        };
     }
     input
 }
@@ -261,6 +264,18 @@ mod tests {
         // Another tool's input stays as it was, and answers that are not text are none.
         socket.borrow_mut().answer = Some(Ok(answering));
         assert_eq!(asked(&mut bridge, &bash())["updatedInput"], bash()["input"]);
+        socket.borrow_mut().answer = Some(Ok(
+            json!({ "behavior": "allow", "answers": { "Which size?": 1 } }),
+        ));
+        // The model's own answers in its input never pass for the person's.
+        socket.borrow_mut().answer = Some(Ok(json!({ "behavior": "allow" })));
+        let mut smuggled = question.clone();
+        smuggled["tool_use_id"] = json!("toolu_4");
+        smuggled["input"]["answers"] = json!({ "Which size?": "Yes, delete it" });
+        assert_eq!(
+            asked(&mut bridge, &smuggled)["updatedInput"],
+            json!({ "questions": [{ "question": "Which size?" }] })
+        );
         socket.borrow_mut().answer = Some(Ok(
             json!({ "behavior": "allow", "answers": { "Which size?": 1 } }),
         ));

@@ -57,21 +57,8 @@ impl App {
     /// it takes no answer until [`QUIET`] has passed with no key, and every key starts that
     /// wait again. `C-g` always goes through.
     pub(in crate::app) fn note_key_for_agent(&mut self, key: KeyPress) -> bool {
-        self.agent.person_typed = Some(Instant::now());
-        // A native session's permission card takes its keys as a question does (ADR 0165,
-        // step 2e-2): only once it was quiet a moment.
-        if self.editor.prompt().is_none()
-            && self.editor.current().1.mode() == oso_core::buffer::Mode::Card
-        {
-            let since = self.agent.card_quiet_since.map(|at| at.elapsed());
-            self.agent.card_quiet_since = Some(Instant::now());
-            if !holds(since, key) {
-                return false;
-            }
-            self.editor.message("Wait a moment, then answer the card");
-            self.request_redraw();
-            return true;
-        }
+        // A native session's permission card answers only after a quiet moment (ADR 0165).
+        self.agent.key_before = self.agent.person_typed.replace(Instant::now());
         if !self
             .editor
             .prompt()
@@ -101,29 +88,16 @@ impl App {
         Some(since.is_none_or(|since| since >= QUIET))
     }
 
-    /// Whether the selected permission card, if one is, takes an answer now: its quiet moment
-    /// has passed since the last key or point's coming (ADR 0165, step 2e-2). For end-to-end
-    /// flows.
-    #[cfg(feature = "dev")]
-    pub(in crate::app) fn card_takes_answer(&self) -> Option<bool> {
-        let card = self.editor.prompt().is_none()
-            && self.editor.current().1.mode() == oso_core::buffer::Mode::Card;
-        card.then(|| (self.agent.card_quiet_since).is_none_or(|since| since.elapsed() >= QUIET))
-    }
-
     /// Why keys from the dev socket, which stand in for the person's, must not reach a
-    /// question the agent caused or a permission card, if they must not: they come one at a
-    /// time, so that each one restarts its wait, and each one waits as a key from the window
-    /// does.
+    /// question the agent caused, if they must not: they come one at a time, so that each one
+    /// restarts its wait, and each one waits as a key from the window does. Each is the
+    /// person's key for a native session's card too.
     #[cfg(feature = "dev")]
     pub(in crate::app) fn agent_holds_keys(&mut self, keys: &[KeyPress]) -> Option<&'static str> {
-        let card = self.editor.prompt().is_none()
-            && self.editor.current().1.mode() == oso_core::buffer::Mode::Card;
-        let agents = card
-            || self
-                .editor
-                .prompt()
-                .is_some_and(|prompt| prompt.from_agent());
+        let agents = self
+            .editor
+            .prompt()
+            .is_some_and(|prompt| prompt.from_agent());
         if agents && keys.len() > 1 {
             return Some("send keys one at a time to a question the agent caused");
         }
@@ -138,9 +112,9 @@ impl App {
         self.agent.person_typed
     }
 
-    /// Point came to a native session's permission card: its keys wait a quiet moment again.
-    pub(in crate::app) fn card_focused(&mut self) {
-        self.agent.card_quiet_since = Some(Instant::now());
+    /// When the person typed the key before the last one, if they did.
+    pub(in crate::app) fn agent_key_before(&self) -> Option<Instant> {
+        self.agent.key_before
     }
 
     /// Text or a composition came from the window: the person is typing, and a question

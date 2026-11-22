@@ -436,7 +436,8 @@ mod tests {
         "native-session-previous-tool",
         "native-session-result",
         "native-session-toggle",
-        // A native session's composer and queue, the person's message (ADR 0165, step 2).
+        // A native session's composer, queue and permission card: the person's message and
+        // answers (ADR 0165, step 2).
         "native-card-allow",
         "native-card-choose",
         "native-card-deny",
@@ -444,6 +445,8 @@ mod tests {
         "native-card-note-text",
         "native-card-other",
         "native-card-own-text",
+        "native-card-leave",
+        "native-card-whole",
         "native-composer-cancel",
         "native-composer-next",
         "native-composer-previous",

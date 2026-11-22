@@ -3005,7 +3005,6 @@ pub fn oso_core::editor::Editor::agent_channel(&self) -> oso_core::editor::Agent
 pub fn oso_core::editor::Editor::agent_log(&mut self, &str)
 pub fn oso_core::editor::Editor::allow_agent(&mut self)
 pub fn oso_core::editor::Editor::ask_for_agent(&mut self, impl core::convert::Into<alloc::string::String>, &'static str, [&'static str; 2]) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
-pub fn oso_core::editor::Editor::ask_for_agent_withheld(&mut self, impl core::convert::Into<alloc::string::String>, &'static str, [&'static str; 2]) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
 pub fn oso_core::editor::Editor::for_agent<R>(&mut self, impl core::ops::function::FnOnce(&mut Self) -> R) -> R
 pub fn oso_core::editor::Editor::request_agent_channel(&mut self, bool)
 pub fn oso_core::editor::Editor::runs_for_agent(&self) -> bool

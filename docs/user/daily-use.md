@@ -681,7 +681,8 @@ both start at once, with the composer ready. They need a file of the project ope
 project you trust: otherwise the resume says what to do, and the fork runs in a terminal.
 
 When Claude asks to run something, a card opens between the conversation and the composer,
-and the cursor moves to it once you have stopped typing for a moment: Claude's own words are
+and the cursor moves to it once you have stopped typing for a moment, unless you are writing
+in the composer (then `C-x o` goes to it): Claude's own words are
 on rows that start with `│`, and the keys on its last row. `y` allows it once, `n` denies it,
 `N` denies it with a note Claude is told, and `RET` shows all of the call. A question from
 Claude shows its options numbered: type the number, or `o` to answer in your own words. A plan

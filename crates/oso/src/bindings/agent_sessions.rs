@@ -79,9 +79,9 @@ pub const CARD: &[(&str, &str)] = &[
     ("8", "native-card-choose"),
     ("9", "native-card-choose"),
     // The whole call or plan, or a question's chosen options given.
-    ("RET", "native-session-result"),
+    ("RET", "native-card-whole"),
     ("i", "native-session-compose"),
-    ("C-c C-o", "native-composer-transcript"),
+    ("C-c C-o", "native-card-leave"),
 ];
 
 /// Session mode's commands a native session's buffer does not bind: an agent's reads of a

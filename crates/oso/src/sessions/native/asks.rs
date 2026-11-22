@@ -16,7 +16,7 @@
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
-use super::card::Card;
+pub use super::card::Question;
 use crate::channel::Connection;
 use crate::channel::protocol::permission::Call;
 use crate::sessions::worker::SessionKey;
@@ -58,15 +58,6 @@ pub struct Ask<R> {
     pub reply: R,
 }
 
-/// What the person is asked about a call: its card, what `RET` shows of it whole, and whether
-/// the card shows that now.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Question {
-    pub card: Card,
-    pub details: String,
-    pub whole: bool,
-}
-
 /// What the app finds of a request's call.
 #[derive(Debug)]
 pub enum Look {
@@ -78,6 +69,8 @@ pub enum Look {
     NotWaiting,
     /// It waits, but the request's input says something else.
     Differs,
+    /// It waits, but what the request asks cannot be read, as a question with no options.
+    Unreadable,
     /// The session is gone.
     Gone,
 }
@@ -97,6 +90,7 @@ pub enum Denied {
     NotFound,
     NoLonger,
     Differs,
+    Unreadable,
     Gone,
 }
 
@@ -147,7 +141,8 @@ impl<R> Asks<R> {
     /// request waits for the person, and one denied leaves the queue.
     pub fn look(&mut self, now: Instant, mut find: impl FnMut(&Ask<R>) -> Look) -> Vec<Outcome<R>> {
         let mut outcomes = Vec::new();
-        if self.waiting.is_empty() {
+        // Each shown one waits for the person only.
+        if self.waiting.iter().all(|ask| ask.shown.is_some()) {
             return outcomes;
         }
         let mut kept = VecDeque::with_capacity(self.waiting.len());
@@ -170,6 +165,7 @@ impl<R> Asks<R> {
                 }
                 Look::NotWaiting => None,
                 Look::Differs => Some(Denied::Differs),
+                Look::Unreadable => Some(Denied::Unreadable),
                 Look::Gone => Some(Denied::Gone),
             };
             match denied {

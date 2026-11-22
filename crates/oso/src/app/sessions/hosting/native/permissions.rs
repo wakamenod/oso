@@ -8,10 +8,11 @@
 //!
 //! - What the person is asked about is the call as the stream has it, by its id and tool, and
 //!   only if the request's input says the same of it: nothing a request says is drawn unless
-//!   the stream says it too, but an `ExitPlanMode`'s plan, which only the request carries. It
-//!   is asked on the session's card (step 2e-2, `card`), withheld from agents, answered only
-//!   from the window after a quiet moment; `RET` shows the input that runs whole, in a buffer
-//!   withheld from agents.
+//!   the stream says it too, but what only the request carries: an `ExitPlanMode`'s plan, and
+//!   the fields the stream's reading of a call leaves out (a description, an edit's strings, a
+//!   question's text). It is asked on the session's card (step 2e-2, `card`), withheld from
+//!   agents, answered only from the window after a quiet moment; `RET` shows in the card the
+//!   input that runs, whole.
 //! - Each session's call has its card, as each session holds one connection; while one waits,
 //!   its session is `needs input` with reason `permission`, `question` or `plan`.
 //! - The bridge going, the session ending or the socket stopping denies: nothing runs unless
@@ -34,7 +35,10 @@ use crate::channel::{self, Connection, Event, Reply};
 use crate::sessions::hosted::PermissionClaim;
 use crate::sessions::identity::SessionId;
 use crate::sessions::native::asks::{Ask, Asks, Denied, Look, Outcome, Refused};
-use crate::sessions::state::Target;
+use crate::sessions::native::card::question;
+use crate::sessions::native::rows::Tool;
+use crate::sessions::native::wire::tools::decode;
+use crate::sessions::state::{Reason, Target};
 use crate::sessions::worker::SessionKey;
 
 /// What the CLI is told when the person says no.
@@ -51,8 +55,15 @@ pub(in crate::app) struct Permissions {
     asks: Asks<Sender<Reply>>,
     /// When the loop is woken next to deny a request whose call has not shown.
     wake_at: Option<Instant>,
-    /// The sessions whose card point goes to once the person is quiet (step 2e-2).
-    focus_pending: Vec<SessionKey>,
+    /// The sessions whose card point goes to once the person is quiet, and when each was shown
+    /// (step 2e-2).
+    focus_pending: Vec<(SessionKey, Instant)>,
+    /// When the loop last looked for a card to move point to.
+    looked: Option<Instant>,
+    /// Each shown card's width as drawn.
+    drawn: Vec<(SessionKey, usize)>,
+    /// The card that is the selected buffer, and since when.
+    current: Option<card::Current>,
     /// What the person writes in the minibuffer for a card, once `N` or `o` asked.
     writing: Option<Writing>,
 }
@@ -249,7 +260,7 @@ impl App {
         }
     }
 
-    /// Denies `ask`, whose session, bridge or socket went: its question closes, and its
+    /// Denies `ask`, whose session, bridge or socket went: its card goes, and its
     /// session no longer waits on it.
     fn drop_ask(&mut self, ask: Ask<Sender<Reply>>) {
         if ask.shown.is_some() {
@@ -264,9 +275,8 @@ impl App {
     }
 
     /// After each event, before the agent channel's questions, and after each batch of a
-    /// native session's stream: takes the answer of the question that closed, finds the
-    /// waiting requests' calls, denies those that cannot be asked, and asks the oldest found
-    /// once the person is free.
+    /// native session's stream: finds the waiting requests' calls, denies those that cannot be
+    /// asked, and shows each found one's card.
     pub(in crate::app) fn sync_permissions(&mut self) {
         if self.hosting.natives.permissions.asks.is_empty() {
             return;
@@ -294,19 +304,17 @@ impl App {
             if ask.question.is_some() {
                 return Look::Waits;
             }
-            if !card::says_the_same(tool, ask.call.input.as_ref()) {
+            if !says_the_same(tool, ask.call.input.as_ref()) {
                 return Look::Differs;
             }
             let Some(session) = table.get(ask.key) else {
                 return Look::Gone;
             };
             let directory = native.rows.directory();
-            Look::Found(card::question(
-                &session.name,
-                tool,
-                directory,
-                ask.call.input.as_ref(),
-            ))
+            match question(&session.name, tool, directory, ask.call.input.as_ref()) {
+                Some(question) => Look::Found(question),
+                None => Look::Unreadable,
+            }
         });
         self.hosting.natives.permissions.asks = asks;
         for outcome in outcomes {
@@ -316,7 +324,7 @@ impl App {
                         .find(|ask| ask.key == key)
                         .map(|ask| ask.call.tool_name.clone())
                         .unwrap_or_default();
-                    self.tell_tracker(key, card::waits_for(&tool));
+                    self.tell_tracker(key, waits_for(&tool));
                 }
                 Outcome::Denied(ask, why, found) => {
                     if found {
@@ -347,6 +355,32 @@ impl App {
     }
 }
 
+/// The state a session waits in while its call's card is shown.
+fn waits_for(tool: &str) -> Target {
+    Target::NeedsInput(match tool {
+        "AskUserQuestion" => Reason::Question,
+        "ExitPlanMode" => Reason::Plan,
+        _ => Reason::Permission,
+    })
+}
+
+/// Whether the request's `input` says of the call what the stream's `tool` does: the same
+/// target, as both are read the same way. A request with no input, as its input was too large
+/// to send, says the same only of a call whose input the stream found too large too. An
+/// `ExitPlanMode`'s stream carries no plan (measured): its id and tool are the match.
+fn says_the_same(tool: &Tool, input: Option<&Value>) -> bool {
+    if tool.name == "ExitPlanMode" {
+        return input.is_some();
+    }
+    let Some(input) = input else {
+        return tool.input.cut;
+    };
+    let sent = decode(&tool.name, Some(input));
+    let kept = &tool.input;
+    (sent.path == kept.path && sent.text == kept.text)
+        && (sent.kind == kept.kind && sent.items == kept.items)
+}
+
 /// What the CLI is told of a request denied unasked.
 fn denial(why: Denied) -> &'static str {
     match why {
@@ -355,6 +389,7 @@ fn denial(why: Denied) -> &'static str {
         Denied::Differs => {
             "Denied: the call oso was asked about is not the one the session's stream shows."
         }
+        Denied::Unreadable => "Denied: oso could not read what the call asks the person.",
         Denied::Gone => "Denied: oso could not ask the person.",
     }
 }

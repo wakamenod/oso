@@ -135,13 +135,9 @@ impl Rows {
         Some(RowChange::Changed(row))
     }
 
-    /// The person answered call `id` on its card (step 2e-2): a denial says so on its row, with
-    /// the note the CLI was told; an allowed call's row goes on to say how it ran.
-    pub fn answered(&mut self, id: &str, allowed: bool, note: Option<&str>) -> Option<RowChange> {
-        if allowed {
-            return None;
-        }
-        let note = note.unwrap_or("by the person").to_owned();
+    /// The person denied call `id` on its card (step 2e-2): its row says so, with `note`.
+    pub fn denied(&mut self, id: &str, note: &str) -> Option<RowChange> {
+        let note = note.to_owned();
         self.update_call(id, |tool| tool.state = ToolState::Denied(note))
     }
 

@@ -672,19 +672,24 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   - Only a bridge started with `--permission`, which only a native session's MCP configuration
     gives, lists the tool; the CLI keeps the prompt tool from the model, as measured.
   - The person is asked about the call as the session's own stream has it, by its id and tool,
-    and only if the request's input says the same of it; a request whose call does not wait in
-    the stream within 2 s, or that stops waiting before it is asked, is denied unasked, and a
-    call is asked about once. So a process that passes the claim can raise no question of its
-    own text, but an `ExitPlanMode`'s plan, which only the request carries and its card marks
-    as the request's (step 2e-2).
+    and only if the request's input reads to the same target; a request whose call does not
+    wait in the stream within 2 s, or that stops waiting before it is asked, is denied unasked,
+    and a call is asked about once. What only the request carries is shown from it, marked so
+    where it is a plan: a reason, an edit's strings, a question's text, an `ExitPlanMode`'s
+    plan. So a process that passes the claim can show its own text for a waiting call, under
+    that call's tool and target; an allow to it runs only that call (step 2e-2).
   - It is asked on the session's permission card (step 2e-2), withheld from agents: oso's title
-    and keys around Claude's text, fenced row by row after `│ ` in a face of its own, so that
-    no text of Claude's stands as a key row or passes for oso's words; the title says when it
-    does not show all the call does, and `RET` shows the input that runs whole in the card.
-    Its keys are `Person`, answered only from the keyboard, after 500 ms with no key, each key
-    and point's coming starting that wait again. Whatever goes wrong, the bridge denies: a call
-    runs only on the person's `y` or answers, an `allow` gives the CLI back the input it sent,
-    and only an `AskUserQuestion`'s takes the person's answers.
+    and keys around Claude's text, fenced row by row after `│ ` in a face of its own, each of
+    Claude's line breaks a row, a long row broken at the card's width, so that no text of
+    Claude's runs off the card, stands as a key row or passes for oso's words; the title says
+    when it does not show all the call does, and `RET` shows the input that runs whole in the
+    card. Its keys are `Person`, and answer only from the keyboard, after 500 ms with no key and
+    since the card became the selected buffer, however point came; never from a macro, nor
+    from a window that shows less than all of the card; a held key answers once. Point moves
+    to it only from that session's transcript, or its composer with no draft. Whatever goes
+    wrong, the bridge denies: a call runs only on the person's `y` or answers, an `allow`
+    gives the CLI back the input it sent, and only an `AskUserQuestion`'s takes answers, the
+    person's alone. A note or an answer holding a yanked secret is refused.
 - Its MCP tools reach oso only through the `oso mcp` stdio bridge and the agent channel, a Unix
   socket with a peer user check (and a native session's permission questions through the
   sessions' socket, above); no TCP port is opened. There is no code-execution tool, and
