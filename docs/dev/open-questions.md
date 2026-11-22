@@ -438,10 +438,6 @@ item notes when it must be settled.
 - Check on the current Claude Code CLI before ADR 0128 step 1: that a `SendMessage` wakes an idle
   session, how long an MCP tool call may block, and how its agent teams place teammates
   ([ADR 0128](adr/0128-orchestration-and-automations.md)).
-- In ADR 0165 step 1, measure a native session's start time to its first event and its memory,
-  whether `ExitPlanMode` reaches the bridge's permission tool (or needs the stdio route), and
-  whether a `SendMessage` reaches a `-p` session
-  ([ADR 0165](adr/0165-native-claude-sessions-the-route.md)).
 - Check before ADR 0126 step 3 that a `statusLine` given with `--settings` overrides the person's
   own for that session only ([ADR 0126](adr/0126-sessions-and-worktrees-in-depth.md)).
 - After ADR 0121 step 6 lands, rename the hosted session's table entry,

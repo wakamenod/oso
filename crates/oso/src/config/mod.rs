@@ -30,6 +30,7 @@ mod modes;
 mod outcome;
 mod paths;
 mod problems;
+mod session_mode;
 mod settings;
 mod source;
 mod spaces;

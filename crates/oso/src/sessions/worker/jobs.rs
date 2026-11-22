@@ -299,6 +299,22 @@ impl Core {
         [sessions, self.poll.due()].into_iter().flatten().min()
     }
 
+    /// Session `key` started, or was resumed, with `tracker`.
+    fn started(&mut self, key: SessionKey, tracker: Tracker) {
+        let session = Session {
+            tracker,
+            evidence: None,
+            fresh: false,
+            judged: None,
+            last: None,
+            late: 0,
+            recap: String::new(),
+            messages: Seen::default(),
+            held: None,
+        };
+        self.sessions.insert(key, session);
+    }
+
     /// Does `job` at `now`.
     pub fn handle(&mut self, job: Job, now: Instant) -> Vec<Out> {
         let (key, change) = match job {
@@ -315,18 +331,11 @@ impl Core {
                 return Vec::new();
             }
             Job::Start(key) => {
-                let session = Session {
-                    tracker: Tracker::new(now),
-                    evidence: None,
-                    fresh: false,
-                    judged: None,
-                    last: None,
-                    late: 0,
-                    recap: String::new(),
-                    messages: Seen::default(),
-                    held: None,
-                };
-                self.sessions.insert(key, session);
+                self.started(key, Tracker::new(now));
+                return Vec::new();
+            }
+            Job::StartStream(key) => {
+                self.started(key, Tracker::stream(now));
                 return Vec::new();
             }
             Job::Screen(key, evidence) => {
@@ -373,6 +382,7 @@ impl Core {
                 return Vec::new();
             }
             Job::Exited(key, exit) => (key, self.tracker(key, |t| t.exited(exit, now))),
+            Job::Stream(key, target) => (key, self.tracker(key, |t| t.verdict(target, now))),
             Job::Seen(key) => (key, self.tracker(key, |t| t.seen(now))),
             Job::Changes(key, unmerged) => (key, self.tracker(key, |t| t.changes(unmerged, now))),
             Job::ReviewOpened(key) => (key, self.tracker(key, |t| t.review_opened(now))),

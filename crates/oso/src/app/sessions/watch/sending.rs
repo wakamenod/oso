@@ -164,6 +164,12 @@ impl App {
             .get(key)
             .ok_or_else(|| "That session is gone".to_owned())?;
         let name = session.name.clone();
+        // A native session takes messages from its composer, step 2 of ADR 0165.
+        if self.hosting.natives.has(key) {
+            return Err(format!(
+                "{name} is a native session: it takes messages in a later step"
+            ));
+        }
         let buffer = session
             .buffer
             .filter(|buffer| self.editor.buffer(*buffer).is_some())
