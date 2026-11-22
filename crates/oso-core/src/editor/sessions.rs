@@ -359,6 +359,10 @@ pub enum NativeAction {
     /// From a plan's card, approve the plan as Claude wrote it; from `*plan: NAME*`, as the
     /// person edited it. The session's permission mode then is the approval's.
     Approve(Approval),
+    /// `y` to the question a native session's plan card or `*plan: NAME*` asked before
+    /// approving with auto (ADR 0165 part 3d): the host approves the call it asked about,
+    /// if that call still waits.
+    Confirmed,
 }
 
 /// What an approved plan leaves the session's permission mode at (ADR 0165, part 3d), as the

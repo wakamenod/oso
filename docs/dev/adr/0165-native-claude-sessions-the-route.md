@@ -1043,13 +1043,27 @@ As built:
   edits it; `n`, `N` and `RET` are as before. They answer after the card's quiet wait, as
   every key of it does. The plan's row then says ` · approved`, ` · approved, edited`, or
   either with `, accept edits` or `, auto`, as it runs and once done.
+- **Auto asks first (the author, after review):** `A` and the edit's `C-c C-A` ask "Approve
+  NAME's plan … and leave it in auto mode …? (y or n)" before they approve, as `A` is the
+  first letter of many a sentence typed where point came to the card after the quiet wait;
+  `a` does not ask. The question is kept for the call it asked about (`plans.asked`), and its
+  `y` (`native-plan-confirmed`, which runs only as a question's answer) sends
+  `NativeAction::Confirmed`: the host approves only that call, if it still waits on its card,
+  from the edit it was asked in, still in front and checked again. The `y` counts only after
+  the card's quiet moment since the question opened and since the key before it: a question
+  takes every other key without closing, so a sentence typed on ("Are you…") would answer
+  it; one too soon approves nothing, and `A` asks again. The card's own checks (its quiet
+  wait, the window showing all of it) are not run again on the `y`: the call is the one the
+  person saw at `A`, bound by its id, whose input a repeated request may not change. A
+  question closed otherwise is dropped after that event, so no later `y` approves.
 - **The edit (Q-D1 (a)):** `*plan: NAME*`, the person's draft as a composer is: an editable
   buffer withheld from agents, whose changes the agent channel refuses, in `Mode::Plan`,
   which it keeps, highlighted as Markdown, with keys of its own. `e` makes it from the
   request's plan the first time for that call, and shows it in the window that carries the
   card, in place of the transcript, as `RET`'s `*result: NAME*` is shown; a later `e` for the
   same call shows it as it was left. `C-c C-c` there approves the plan as edited, manual
-  after it, and goes to the composer; `C-c C-k` gives the edit up and goes back to the card,
+  after it, `C-c C-a` with accept edits and `C-c C-A` with auto (the author, after review),
+  and goes to the composer; `C-c C-k` gives the edit up and goes back to the card,
   which waited all the while. A plan the request cut is not edited, as the edit would lose
   its end.
 - **What goes back:** `protocol::permission` carries, on an `ExitPlanMode`'s `allow`, `plan`,
@@ -1063,7 +1077,7 @@ As built:
 - **No agent command** runs while the edit is the selected buffer, a look included, as for a
   card: cursors or a region an agent left would steer the person's typing into what they
   approve.
-- **Refused:** `C-c C-c` from a macro, for a call that no longer waits or another call's
+- **Refused:** `C-c C-c`, `C-c C-a` and `C-c C-A` from a macro, for a call that no longer waits or another call's
   edit, on an empty plan, on one over 64 KiB, and on one a yank of a secret entry turned
   secret; the card's `y`, `a` and `A` while an edit for its call differs from Claude's, as
   they would approve the plan the person changed. A restart is refused while an edit the
@@ -1073,15 +1087,16 @@ As built:
   later plan's `e` is refused until `C-c C-k` gave it up, so that no edit is lost unasked.
   Whether an edit was changed is its text against Claude's plan; the restart, which sees only
   the buffer, goes by whether it was modified.
-- **The card's approvals in the edit:** `M-x native-card-approve-accept-edits` or
-  `native-card-approve-auto` run in `*plan: NAME*` approve the edit with that mode after it;
-  `C-c C-c` is manual after it. They are `Person`, as every key of the card is.
+- **The card's approvals in the edit:** `C-c C-a` and `C-c C-A` are the card's
+  `native-card-approve-accept-edits` and `native-card-approve-auto`, which in `*plan: NAME*`
+  approve the edit with that mode after it. They are `Person`, as every key of the card is.
 - **Parsed as Markdown:** the edit is highlighted on the syntax threads, Claude's text among
   it, under part 2g's reasoning for replies: nothing the parse makes leaves the buffer, and a
   yank that makes it secret stops it (ADR 0111).
 - **Public items** (approved by the author): `Mode::Plan`, `NativeAction::EditPlan`,
-  `NativeAction::Approve(Approval)` and `enum Approval {Manual, AcceptEdits, Auto}`;
-  `NativeAction::Cancel` is `C-c C-k` in the edit too.
+  `NativeAction::Approve(Approval)` and `enum Approval {Manual, AcceptEdits, Auto}`, and
+  `NativeAction::Confirmed` for auto's `y`; `NativeAction::Cancel` is `C-c C-k` in the edit
+  too.
 
 ## Questions
 

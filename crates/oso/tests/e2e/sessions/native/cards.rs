@@ -17,7 +17,8 @@ use super::{Flow, MESSAGE, answer_after_quiet, card, in_composer, sent, text, wa
 /// the bridge's answers to `answers`.
 pub(super) const CARDS_FAKE: &str = r#"#!/bin/sh
 dir='DIR'
-for a in "$@"; do printf 'arg %s\n' "$a"; done > "$dir/run.$$"
+for a in "$@"; do printf 'arg %s\n' "$a"; done > "$dir/tmp.$$"
+mv "$dir/tmp.$$" "$dir/run.$$"
 while IFS= read -r first; do
   case "$first" in *'"control_request"'*) ;; *) break ;; esac
 done

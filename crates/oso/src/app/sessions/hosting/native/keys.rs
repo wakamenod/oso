@@ -33,6 +33,11 @@ impl App {
         line: usize,
         action: NativeAction,
     ) {
+        // The `y` to the question before a plan's approval with auto (part 3d), which keeps
+        // the session it asked about.
+        if action == NativeAction::Confirmed {
+            return self.plan_confirmed();
+        }
         // From the composer, the session it is docked under (step 2).
         if let Some(key) = self.composer_session(buffer) {
             self.composer_key(key, None, action);

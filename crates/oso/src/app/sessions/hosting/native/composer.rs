@@ -146,7 +146,8 @@ impl App {
             | NativeAction::Choose(_)
             | NativeAction::Other
             | NativeAction::EditPlan
-            | NativeAction::Approve(_) => return false,
+            | NativeAction::Approve(_)
+            | NativeAction::Confirmed => return false,
         }
         self.request_redraw();
         true

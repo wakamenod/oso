@@ -1,7 +1,7 @@
 //! A native session's plan, edited before it is approved, and approved with a mode after it
 //! (ADR 0165, part 3d), with the cards' fake asking about two `ExitPlanMode` calls: the first
-//! is edited in `*plan: proj*` and approved with `C-c C-c`, its edit going back in the call's
-//! input; the second's edit is given up with `C-c C-k`, back to its card, where `a` approves
+//! is edited in `*plan: proj*` and approved with auto by `C-c C-A`, after `n` and then `y` to
+//! its question, its edit going back in the call's input; the second's edit is given up with `C-c C-k`, back to its card, where `a` approves
 //! it as Claude wrote it with accept edits after it.
 //!
 //! Must not depend on: the app's internals; the answer's shape and the rows' marks have their
@@ -41,6 +41,18 @@ fn editing(app: &mut App, what: &str) -> String {
     text(&state)
 }
 
+/// Waits for the question asked before an approval with auto.
+fn asked(app: &mut App, what: &str) {
+    app.wait_for(what, |state| {
+        state["prompts"][0]["prompt"]
+            .as_str()
+            .is_some_and(|prompt| {
+                prompt.starts_with("Approve proj's plan as you edited it and leave it in auto mode")
+                    && prompt.ends_with("(y or n)")
+            })
+    });
+}
+
 /// What the bridge told the fake, as the CLI reads it.
 fn answers(flow: &Flow) -> Vec<Value> {
     flow.wait_for_file("answers")
@@ -69,7 +81,8 @@ fn a_plan_is_edited_before_it_is_approved_and_approved_with_a_mode() {
     });
     flow.scratch.write("ask", b"");
 
-    // `e` shows Claude's plan, to edit, in place of the transcript; `C-c C-c` approves the edit.
+    // `e` shows Claude's plan, to edit, in place of the transcript; `C-c C-A` approves the edit
+    // with auto, once `y` answered its question.
     let first = card(&mut app, "the first plan's card");
     assert!(first.contains("│ Write hello.txt."), "{first}");
     assert!(first.contains("[e] edit"), "{first}");
@@ -83,7 +96,17 @@ fn a_plan_is_edited_before_it_is_approved_and_approved_with_a_mode() {
     app.wait_for("the edit", |state| {
         text(state).trim_end().ends_with("pelican.txt.")
     });
-    app.send_keys("C-c C-c");
+    app.send_keys("C-c C-A");
+    asked(&mut app, "the question before auto");
+    app.send_keys("n");
+    let state = app.wait_for("the question closed", |state| state["prompts"][0].is_null());
+    assert_eq!(state["buffer"]["name"], "*plan: proj*");
+    app.send_keys("C-c C-A");
+    asked(&mut app, "the question asked again");
+    app.wait_for("the question to take its y", |state| {
+        state["card"]["question_takes_answer"] == true
+    });
+    app.send_keys("y");
     app.wait_for("the edited plan approved", in_composer);
 
     // The second: its edit given up, back to its card, which approves it with accept edits.
@@ -104,6 +127,9 @@ fn a_plan_is_edited_before_it_is_approved_and_approved_with_a_mode() {
         json!({
             "behavior": "allow",
             "updatedInput": plan("Write hello.txt.\nThen write pelican.txt."),
+            "updatedPermissions": [
+                {"type": "setMode", "mode": "auto", "destination": "session"},
+            ],
         }),
     );
     assert_eq!(

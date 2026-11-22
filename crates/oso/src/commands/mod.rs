@@ -453,6 +453,7 @@ mod tests {
         "native-card-edit-plan",
         "native-plan-approve",
         "native-plan-cancel",
+        "native-plan-confirmed",
         "native-composer-cancel",
         "native-composer-command",
         "native-composer-next",

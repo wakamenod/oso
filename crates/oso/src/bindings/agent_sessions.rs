@@ -97,6 +97,8 @@ pub const CARD: &[(&str, &str)] = &[
 /// as a draft's, `C-c C-c` approves it and `C-c C-k` gives it up.
 pub const PLAN: &[(&str, &str)] = &[
     ("C-c C-c", "native-plan-approve"),
+    ("C-c C-a", "native-card-approve-accept-edits"),
+    ("C-c C-A", "native-card-approve-auto"),
     ("C-c C-k", "native-plan-cancel"),
 ];
 

@@ -708,7 +708,12 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     only two the protocol and the bridge carry: an answer naming any other mode, or a plan
     that is not a string within 64 KiB, denies, and only an `ExitPlanMode`'s `allow` takes
     either, so no other call's answer sets a mode. `auto` lets the CLI's classifier run what it
-    judges safe unasked; it is the person's `A`, after the card's quiet wait, as on any card.
+    judges safe unasked; it is the person's `A` (or `C-c C-A` in the edit), after the card's
+    quiet wait, as on any card, and then `y` to a question, as `A` begins many a typed
+    sentence. The question is kept for the call it asked about, and its `y` approves only that
+    call while it still waits, its edit checked again, and only after the card's quiet moment
+    since the question opened and since the key before it, as a question takes other keys
+    without closing; a question closed otherwise is dropped.
     An edit of the plan, `*plan: NAME*`, is the person's draft: withheld from agents, which may
     not change it (`Mode::Plan`, kept as a composer's mode is), approved only by the person's
     keys there, never from a macro, and only for the call it was made for; no agent command
