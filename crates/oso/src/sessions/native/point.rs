@@ -150,6 +150,7 @@ mod tests {
             input: ToolInput::default(),
             streamed: 0,
             state: ToolState::Done,
+            approved: None,
             result: Some(ToolResult {
                 tool_use_id: name.to_owned(),
                 error: false,

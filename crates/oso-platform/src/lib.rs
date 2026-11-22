@@ -2,7 +2,8 @@
 //! events (ADR 0070), what keeps text private to its user, what decides who may reach a
 //! file beyond its mode, the control sockets' transport (ADR 0085), process spawning
 //! and pseudo-terminals (ADR 0120), asking for the person's attention for agent sessions,
-//! random bytes from the system (ADR 0121), and the machine's name (ADR 0141).
+//! random bytes from the system (ADR 0121), the machine's name (ADR 0141), and the CPU time
+//! a thread has run, for the syntax worker's limits (ADR 0172).
 //!
 //! Must not depend on: any workspace crate (`oso-core`, `oso-render`, `oso`),
 //! wgpu or winit.
@@ -20,4 +21,5 @@ pub mod privacy;
 pub mod process;
 pub mod random;
 pub mod text;
+pub mod thread_time;
 pub mod window;

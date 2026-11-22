@@ -89,15 +89,15 @@ impl core::marker::Copy for oso_syntax::Refused
 impl core::marker::StructuralPartialEq for oso_syntax::Refused
 pub struct oso_syntax::Checkout<Key>
 impl<Key> oso_syntax::Checkout<Key>
-pub fn oso_syntax::Checkout<Key>::run(&mut self, &mut oso_syntax::Queries) -> oso_syntax::Highlighted
+pub fn oso_syntax::Checkout<Key>::run(&mut self, &mut oso_syntax::Queries, fn() -> core::option::Option<core::time::Duration>) -> oso_syntax::Highlighted
 pub struct oso_syntax::Document
 impl oso_syntax::Document
 pub fn oso_syntax::Document::edit(&mut self, &[oso_core::syntax::Splice], &oso_core::rope::Rope)
 pub fn oso_syntax::Document::language(&self) -> oso_syntax::Language
 pub fn oso_syntax::Document::new(oso_syntax::Language, oso_core::rope::Rope) -> Self
-pub fn oso_syntax::Document::parse(&mut self, core::time::Duration) -> oso_syntax::Parsed
+pub fn oso_syntax::Document::parse(&mut self, core::time::Duration, fn() -> core::option::Option<core::time::Duration>) -> oso_syntax::Parsed
 impl oso_syntax::Document
-pub fn oso_syntax::Document::highlight(&mut self, &mut oso_syntax::Queries, &[core::ops::range::Range<usize>], core::time::Duration) -> oso_syntax::Highlighted
+pub fn oso_syntax::Document::highlight(&mut self, &mut oso_syntax::Queries, &[core::ops::range::Range<usize>], core::time::Duration, fn() -> core::option::Option<core::time::Duration>) -> oso_syntax::Highlighted
 pub fn oso_syntax::Document::highlights(&self) -> &oso_core::syntax::highlights::Highlights
 pub struct oso_syntax::Doomed
 impl oso_syntax::Doomed

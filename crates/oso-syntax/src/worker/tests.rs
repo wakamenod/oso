@@ -9,7 +9,7 @@ use oso_core::rope::Rope;
 use oso_core::syntax::Splice;
 
 use super::{Job, Outcome, Report, Scheduler};
-use crate::document::{Failure, Highlighted};
+use crate::document::{Failure, Highlighted, wall};
 use crate::language::Language;
 use crate::queries::Queries;
 
@@ -36,7 +36,7 @@ fn shown(mut job: Job<u32>) -> Job<u32> {
 fn drain(scheduler: &mut Scheduler<u32>, queries: &mut Queries) -> Vec<Report<u32>> {
     let mut reports = Vec::new();
     while let Some(mut checkout) = scheduler.take_next() {
-        let outcome = checkout.run_for(queries, LONG);
+        let outcome = checkout.run_for(queries, LONG, wall);
         reports.extend(scheduler.give_back(checkout, outcome));
     }
     reports
@@ -66,7 +66,7 @@ fn edits_that_came_for_a_buffer_dropped_while_a_slice_ran_never_run() {
     };
     scheduler.submit(job(1, 2, "// fn a() {}\n", Some(vec![edit])));
     scheduler.drop_buffer(1);
-    let outcome = checkout.run(&mut queries);
+    let outcome = checkout.run(&mut queries, wall);
     assert!(
         scheduler.give_back(checkout, outcome).is_none(),
         "it reported"
@@ -83,7 +83,7 @@ fn a_buffer_dropped_and_sent_again_starts_over_and_its_old_slice_counts_for_noth
     let mut old = scheduler.take_next().unwrap();
     scheduler.drop_buffer(1);
     scheduler.submit(job(1, 5, "fn b() {}\n", None));
-    let outcome = old.run(&mut queries);
+    let outcome = old.run(&mut queries, wall);
     assert!(scheduler.give_back(old, outcome).is_none());
     let reports = drain(&mut scheduler, &mut queries);
     assert_eq!(reports.len(), 1);
@@ -141,7 +141,7 @@ fn edits_that_come_during_a_slice_follow_after_it() {
         "a checked-out buffer has one thread"
     );
     // A long slice, so that it ends, and reports, on a slow runner too.
-    let outcome = checkout.run_for(&mut queries, LONG);
+    let outcome = checkout.run_for(&mut queries, LONG, wall);
     let report = scheduler.give_back(checkout, outcome).unwrap();
     assert_eq!(
         report.revision, 1,
@@ -250,7 +250,7 @@ fn a_document_given_back_for_a_dropped_buffer_waits_to_be_freed() {
     scheduler.submit(job(1, 1, "fn a() {}\n", None));
     let mut checkout = scheduler.take_next().unwrap();
     scheduler.drop_buffer(1);
-    let outcome = checkout.run_for(&mut queries, LONG);
+    let outcome = checkout.run_for(&mut queries, LONG, wall);
     assert!(scheduler.give_back(checkout, outcome).is_none());
     assert_eq!(scheduler.take_doomed().len(), 1);
 }

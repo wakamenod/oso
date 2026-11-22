@@ -68,6 +68,8 @@ pub(in crate::app) struct Permissions {
     after_agent: bool,
     /// What the person writes in the minibuffer for a card, once `N` or `o` asked.
     writing: Option<Writing>,
+    /// The plans being edited before they are approved (part 3d).
+    plans: card::Plans,
 }
 
 impl App {

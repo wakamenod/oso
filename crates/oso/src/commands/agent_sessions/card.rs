@@ -1,9 +1,12 @@
 //! A native session's permission card, as keys (ADR 0165, step 2e-2; ADR 0170's card dock): `y`
 //! allows the call or approves the plan, `n` denies it, declines the questions or keeps
 //! planning, `N` denies with a note, a digit chooses a question's option, `o` answers it in the
-//! person's own words, and `RET` shows the whole call or plan. Each asks the host, which holds
-//! the call and answers its bridge; a note and an own answer are read in the minibuffer, from
-//! the host, which opens [`CARD_NOTE`]'s or [`CARD_OWN`]'s prompt.
+//! person's own words, and `RET` shows the whole call or plan. A plan's card (part 3d) also
+//! approves with accept edits (`a`) or auto (`A`, after `y` to a question) after it, or edits
+//! it (`e`) in `*plan: NAME*`, where `C-c C-c` approves the edit, `C-c C-a` and `C-c C-A` with
+//! those modes, and `C-c C-k` gives it up. Each asks the host,
+//! which holds the call and answers its bridge; a note and an own answer are read in the
+//! minibuffer, from the host, which opens [`CARD_NOTE`]'s or [`CARD_OWN`]'s prompt.
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the host-owned state
 //! and asks the host for the rest.
@@ -12,10 +15,12 @@
 //! do (ADR 0165, Q2).
 
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
-use oso_core::editor::{NativeAction, SessionRequest};
+use oso_core::editor::{Approval, NativeAction, SessionRequest};
 
 use super::native::at_point;
 
+/// The command a question's `y` runs to approve a plan with auto (part 3d).
+pub const PLAN_CONFIRMED: &str = "native-plan-confirmed";
 /// The command whose prompt reads a denial's note.
 pub const CARD_NOTE: &str = "native-card-note-text";
 /// The command whose prompt reads a question's answer in the person's own words.
@@ -80,6 +85,54 @@ pub const COMMANDS: &[Command] = &[
         state: None,
     },
     Command {
+        name: "native-card-approve-accept-edits",
+        doc: "Approve the plan a native session's card shows, or as edited in *plan: NAME*, and let the session's edits run unasked after it (accept edits): `a` on the card, `C-c C-a` in the edit.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: approve_accept_edits,
+        state: None,
+    },
+    Command {
+        name: "native-card-approve-auto",
+        doc: "Approve the plan a native session's card shows, or as edited in *plan: NAME*, and leave the session in auto mode after it, whose classifier lets what it judges safe run unasked, after `y` to a question: `A` on the card, `C-c C-A` in the edit.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: approve_auto,
+        state: None,
+    },
+    Command {
+        name: "native-card-edit-plan",
+        doc: "Edit the plan a native session's card shows, in *plan: NAME*, in place of the session's transcript: C-c C-c there approves the edit, C-c C-k gives it up.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: edit_plan,
+        state: None,
+    },
+    Command {
+        name: "native-plan-approve",
+        doc: "Approve the plan of a native session as edited in *plan: NAME*: the session's claude is given the edit.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: plan_approve,
+        state: None,
+    },
+    Command {
+        name: "native-plan-cancel",
+        doc: "Give up the edit of a native session's plan in *plan: NAME*, and go back to its card, which still waits.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: plan_cancel,
+        state: None,
+    },
+    Command {
+        name: PLAN_CONFIRMED,
+        doc: "Approve the plan a native session's card or *plan: NAME* asked about with auto, after `y` to the question `A` or `C-c C-A` asks.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: confirmed,
+        state: None,
+    },
+    Command {
         name: CARD_NOTE,
         doc: "Give the permission card the host asked about the note read in its prompt, and deny its call with it.",
         args: ArgSpec::Text {
@@ -125,6 +178,33 @@ fn whole(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 
 fn leave(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     at_point(ctx, NativeAction::Transcript)
+}
+
+fn approve_accept_edits(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    at_point(ctx, NativeAction::Approve(Approval::AcceptEdits))
+}
+
+fn approve_auto(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    at_point(ctx, NativeAction::Approve(Approval::Auto))
+}
+
+fn edit_plan(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    at_point(ctx, NativeAction::EditPlan)
+}
+
+fn plan_approve(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    at_point(ctx, NativeAction::Approve(Approval::Manual))
+}
+
+fn plan_cancel(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    at_point(ctx, NativeAction::Cancel)
+}
+
+fn confirmed(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    if !ctx.confirmed() {
+        return Err(CommandError::new("The plan's question answers this"));
+    }
+    at_point(ctx, NativeAction::Confirmed)
 }
 
 fn choose(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
