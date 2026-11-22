@@ -94,6 +94,11 @@ mod runs {
 
     use super::super::{Ask, DIRECTORY, run_within};
 
+    /// The limit of a run whose limit is not what is looked at. The stand-in is a script
+    /// written just before, whose first start, and its commands', a loaded machine can take
+    /// seconds over, as macOS checks the new executable; 10 s was once not enough.
+    const ROOM: Duration = Duration::from_secs(60);
+
     struct Scratch(PathBuf);
 
     impl Scratch {
@@ -153,7 +158,7 @@ mod runs {
             dir = scratch.0.display()
         );
         let ask = scratch.ask(scratch.claude(&body));
-        let named = run_within(&ask, Duration::from_secs(10)).unwrap();
+        let named = run_within(&ask, ROOM).unwrap();
         assert_eq!(named.slug.as_deref(), Some("login-fix"));
         let given = std::fs::read_to_string(scratch.0.join("in")).unwrap();
         assert!(given.contains("Fix the login"), "{given}");
@@ -173,12 +178,12 @@ mod runs {
         let scratch = Scratch::new("bad");
         let failed = scratch.ask(scratch.claude("cat > /dev/null; exit 1"));
         assert_eq!(
-            run_within(&failed, Duration::from_secs(10)),
+            run_within(&failed, ROOM),
             Err("claude did not answer".into())
         );
         let long = scratch.ask(scratch.claude("cat > /dev/null; head -c 70000 /dev/zero"));
         assert_eq!(
-            run_within(&long, Duration::from_secs(10)),
+            run_within(&long, ROOM),
             Err("its answer was too long".into())
         );
         let slow = scratch.ask(scratch.claude("cat > /dev/null; sleep 30 & wait"));
