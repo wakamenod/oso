@@ -306,7 +306,7 @@ fn question(app: &mut App, what: &str) -> String {
         Value::Null,
         "withheld: {state}"
     );
-    thread::sleep(Duration::from_millis(700));
+    wait_for_answers(app);
     app.send_keys("?");
     let state = app.wait_for("the call", |state| {
         state["buffer"]["name"] == "*Session call*"
@@ -434,10 +434,18 @@ fn check_answers(flow: &Flow) {
     );
 }
 
-/// Sends `key` once the last key is longer ago than the app's quiet moment: the question
-/// closes, and its `*Session call*` with it.
+/// Waits until the open question takes an answer: the app's quiet moment has passed since the
+/// last key, or anything else that started it again, such as the input method ending as
+/// `*Session call*` is shown.
+fn wait_for_answers(app: &mut App) {
+    app.wait_for("the question to take an answer", |state| {
+        state["agent_question"]["takes_answer"] == true
+    });
+}
+
+/// Sends `key` once the question takes an answer: it closes, and its `*Session call*` with it.
 fn answer_after_quiet(app: &mut App, key: &str) {
-    thread::sleep(Duration::from_millis(700));
+    wait_for_answers(app);
     app.send_keys(key);
     app.wait_for("the question answered", |state| {
         state["buffer"]["name"] != "*Session call*"

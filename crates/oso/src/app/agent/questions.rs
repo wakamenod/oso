@@ -77,6 +77,16 @@ impl App {
         true
     }
 
+    /// Whether the innermost question the agent caused, if one is open, takes an answer now:
+    /// its quiet moment has passed since the last key or start. For end-to-end flows, which
+    /// wait for it before they answer instead of sleeping a while.
+    #[cfg(feature = "dev")]
+    pub(in crate::app) fn agent_question_takes_answer(&self) -> Option<bool> {
+        self.editor.prompt().filter(|prompt| prompt.from_agent())?;
+        let since = self.agent.quiet_since.map(|at| at.elapsed());
+        Some(since.is_none_or(|since| since >= QUIET))
+    }
+
     /// Why keys from the dev socket, which stand in for the person's, must not reach a
     /// question the agent caused, if they must not: they come one at a time, so that each one
     /// restarts its wait, and each one waits as a key from the window does.
