@@ -50,6 +50,9 @@ const QUEUE: usize = 1024;
 const EXIT_POLL: Duration = Duration::from_millis(20);
 /// The most lines waiting for the writer.
 pub const MAX_WAITING: usize = 16;
+/// The longest message the person sends a session, in bytes: a brief's (ADR 0121) and a
+/// composer's (ADR 0165, step 2).
+pub const MAX_MESSAGE: usize = 64 << 10;
 
 /// Why a message was not taken.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

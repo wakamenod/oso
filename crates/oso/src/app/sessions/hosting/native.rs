@@ -11,7 +11,10 @@
 //!   last line only (ADR 0165, "Step 1, as built"). A frame is asked for only when a shown
 //!   session's rows changed, or a session ended.
 //! - A native session runs only in a trusted project (Q5): elsewhere a session is a terminal.
-//! - Its buffer's keys, `TAB`, `RET`, `n`/`p` and `]`/`[`, are carried out in `keys`.
+//! - Its buffer's keys, `TAB`, `RET`, `n`/`p` and `]`/`[`, are carried out in `keys`, which
+//!   routes the composer's and the queue's to `composer` (step 2).
+//! - Its composer, queue and history are `composer`'s; its run state and modeline note are
+//!   `note`'s; its first message, written in `*Brief*`, is `first`'s.
 //! - Its bridge asks the person's permission for its calls on the sessions' socket, in
 //!   `permissions` (step 2).
 //! - Its first message is its brief; a person's start with none opens `*Brief*` for it first.
@@ -22,6 +25,7 @@
 mod composer;
 mod first;
 mod keys;
+mod note;
 mod permissions;
 
 use std::collections::HashMap;
@@ -32,6 +36,7 @@ use oso_core::buffer::{Buffer, BufferId};
 use oso_core::project::ProjectId;
 use oso_core::syntax::Highlight;
 
+use self::note::NativeState;
 use super::{Begin, now_ms};
 use crate::app::{App, UserEvent};
 use crate::git::TrustedRoot;
@@ -47,8 +52,6 @@ use crate::sessions::state::{Exit, Target};
 use crate::sessions::stream::{Out, Stream};
 use crate::sessions::worker::{Job, SessionKey};
 
-/// What a stopped native session's modeline says.
-const STOPPED: &str = "stopped";
 /// The most of a failed process's standard error shown, its end.
 const MAX_ERR_SHOWN: usize = 2048;
 
@@ -81,6 +84,8 @@ struct Native {
     calls: HashMap<usize, Vec<(usize, Range<usize>)>>,
     /// Its composer, its queue and its history (step 2).
     composing: composer::Composing,
+    /// Where its process is, as its modeline says it.
+    state: NativeState,
 }
 
 impl NativeSessions {
@@ -143,7 +148,7 @@ impl App {
         self.start_sessions_socket();
         let buffer = self.add_native_buffer(key, name, directory, first);
         self.editor.set_running(buffer, true);
-        self.set_native_state(key, "starting");
+        self.set_native_state(key, NativeState::Starting);
         if shown {
             self.editor.show(buffer);
         }
@@ -181,6 +186,7 @@ impl App {
             rows,
             placed: Placed::default(),
             stream: None,
+            state: NativeState::Starting,
             first: first.is_some(),
             ended: None,
             result: None,
@@ -204,7 +210,7 @@ impl App {
         let (name, directory) = (session.name.clone(), session.directory.clone());
         let buffer = self.add_native_buffer(key, &name, directory, None);
         self.editor.set_running(buffer, false);
-        self.set_native_state(key, STOPPED);
+        self.set_native_state(key, NativeState::Stopped);
         if let Some(native) = self.hosting.natives.map.get_mut(&key) {
             let change = native
                 .rows
@@ -246,7 +252,7 @@ impl App {
         session.archived = false;
         session.native = true;
         let name = session.name.clone();
-        self.set_native_state(key, "");
+        self.set_native_state(key, NativeState::Running);
         self.editor.note_unlogged(format!(
             "Started native session {name} in {}",
             directory.display()
@@ -314,15 +320,9 @@ impl App {
         let buffer = native.buffer;
         let changed = !changes.is_empty();
         draw(&mut self.editor, native, changes);
-        let idle = targets
-            .iter()
-            .any(|target| matches!(target, Target::Idle { .. }));
+        // A turn that ended lets the queue's first go, after the event (`send_waiting_queues`).
         for target in targets {
             self.tell_tracker(key, target);
-        }
-        // A turn ended: the queue's first may go.
-        if idle {
-            self.send_queued(key);
         }
         if changed
             && self
@@ -383,8 +383,8 @@ impl App {
             return;
         };
         let state = match exit {
-            Exit::Stopped => STOPPED,
-            Exit::Failed => "failed",
+            Exit::Stopped => NativeState::Stopped,
+            Exit::Failed => NativeState::Failed,
         };
         self.set_native_state(key, state);
         if let Some(worker) = &self.sessions {
@@ -399,7 +399,13 @@ impl App {
     /// may go does.
     pub(in crate::app) fn sync_native_sessions(&mut self) {
         self.sync_sessions_socket();
+        self.sweep_killed_natives();
+        // After the sweep: no message goes to a session whose buffer was just killed.
         self.send_waiting_queues();
+    }
+
+    /// Stops and archives each native session whose buffer was killed.
+    fn sweep_killed_natives(&mut self) {
         let editor = &self.editor;
         self.hosting
             .natives

@@ -670,7 +670,7 @@ sent. A message you send while Claude is working waits in a queue, grey at the e
 conversation, and goes when the turn ends. On a queued message, `RET` takes it back into the
 composer, `e` edits it where it is (`C-c C-c` puts it back, `C-c C-k` leaves it as it was), `d`
 drops it, and `M-<up>` and `M-<down>` move it; `C-c C-q` goes to the queue. If the session
-stops, the queue waits for you: `C-c C-c` with an empty composer sends the next. oso does not
+stops, what is queued stays there: take a message back with `RET`, or drop it with `d`. oso does not
 restart while a composer or a queue holds a message: send, clear or drop it first. For now such
 a session does not resume: `M-x session-fork` continues it in a terminal.
 

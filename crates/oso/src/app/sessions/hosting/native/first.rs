@@ -5,12 +5,12 @@
 //! Must not depend on: key presses or how a frame is drawn; the commands ask, and this carries
 //! out.
 
-use oso_core::buffer::{Buffer, BufferId, Mode};
+use oso_core::buffer::{BufferId, Mode};
 
 use crate::app::App;
 use crate::app::sessions::hosting::Begin;
 use crate::app::sessions::withheld_draft;
-use crate::sessions::native::queue::MAX_MESSAGE;
+use crate::sessions::stream::MAX_MESSAGE;
 
 /// The buffer a native session's first message is written in.
 const FIRST_MESSAGE: &str = "*Brief*";
@@ -44,9 +44,17 @@ impl App {
         if !self.hosting.natives.briefs.contains_key(&buffer) {
             return false;
         }
-        let Some(text) = self.editor.buffer(buffer).map(Buffer::text) else {
+        let Some(shown) = self.editor.buffer(buffer) else {
             return true;
         };
+        // A yank of a secret entry turns the message secret: it stays here, as a review
+        // message's does (ADR 0122).
+        if shown.is_secret() {
+            self.editor
+                .message("The message holds secret text, which is not sent: take it out");
+            return true;
+        }
+        let text = shown.text();
         // Measured before it is copied.
         if text.len() > MAX_MESSAGE {
             self.editor.message("The message is over 64 KiB");

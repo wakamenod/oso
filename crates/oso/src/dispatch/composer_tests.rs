@@ -40,7 +40,7 @@ fn the_composer_takes_typing_and_its_own_keys() {
         actions(&mut editor),
         [
             NativeAction::Send,
-            NativeAction::GiveUp,
+            NativeAction::Cancel,
             NativeAction::History(1),
             NativeAction::History(-1),
             NativeAction::Transcript,

@@ -322,8 +322,8 @@ pub enum NativeAction {
     Send,
     /// From the composer: interrupt the turn, then send its text ahead of the queue.
     SendNow,
-    /// From the composer: give up the edit of a queued message, or interrupt the turn.
-    GiveUp,
+    /// From the composer: cancel the edit of a queued message, or interrupt the turn.
+    Cancel,
     /// From the composer: the session's message sent this many before, after if negative.
     History(isize),
     /// From the composer: back to the transcript.

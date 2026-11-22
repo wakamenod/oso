@@ -1922,10 +1922,10 @@ pub fn oso_core::editor::MergeMethod::fmt(&self, &mut core::fmt::Formatter<'_>) 
 impl core::marker::Copy for oso_core::editor::MergeMethod
 impl core::marker::StructuralPartialEq for oso_core::editor::MergeMethod
 pub enum oso_core::editor::NativeAction
+pub oso_core::editor::NativeAction::Cancel
 pub oso_core::editor::NativeAction::Compose
 pub oso_core::editor::NativeAction::DropQueued
 pub oso_core::editor::NativeAction::EditQueued
-pub oso_core::editor::NativeAction::GiveUp
 pub oso_core::editor::NativeAction::History(isize)
 pub oso_core::editor::NativeAction::MoveQueued(isize)
 pub oso_core::editor::NativeAction::Open

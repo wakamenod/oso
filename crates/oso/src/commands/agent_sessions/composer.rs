@@ -20,7 +20,7 @@ use super::native::at_point as ask;
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "native-composer-send",
-        doc: "Send the composer's text to its native session, or queue it while a turn runs.\n\nWhile a queued message is edited in the composer, put it back in its place. With a prefix argument, send it at once: the turn under way is interrupted.",
+        doc: "Send the composer's text to its native session, or queue it while a turn runs.\n\nWhile a queued message is edited in the composer, put it back in its place. With a prefix argument, send it at once, interrupting the turn under way (comes with a later step; until then it says so).",
         args: ArgSpec::Count,
         reach: Reach::Person,
         run: send,
@@ -118,7 +118,7 @@ fn send(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
 }
 
 fn cancel(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    ask(ctx, NativeAction::GiveUp)
+    ask(ctx, NativeAction::Cancel)
 }
 
 fn previous(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {

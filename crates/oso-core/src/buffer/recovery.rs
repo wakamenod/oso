@@ -49,13 +49,18 @@ impl Buffer {
     /// Sets its mode, as a command or a visit does, and says whether it took: an internal
     /// buffer and a terminal's keep the mode they were made with, and the emergency copies'
     /// modes, whose keys read copies, are only an internal buffer's, as `Terminal` is only a
-    /// terminal's. Highlights and edits logged for another mode
+    /// terminal's. A brief and a composer keep theirs. Highlights and edits logged for another mode
     /// go, and the mode's revision moves on even for the same mode, as setting a mode again
     /// gives highlighting that stopped another try (ADR 0111). Its indentation stays as it
     /// was; the editor's `set_buffer_mode` gives it the mode's too (ADR 0115).
     pub fn set_mode(&mut self, mode: Mode) -> bool {
         // A terminal's mode is its own, and no other buffer takes it (ADR 0120).
         if self.internal || self.terminal || mode.shows_copies() || mode == Mode::Terminal {
+            return false;
+        }
+        // A person's draft, a brief or a composer, keeps its mode: what may change it and how
+        // it is sent are the mode's (ADR 0121, ADR 0165).
+        if matches!(self.mode, Mode::Brief | Mode::Composer) && mode != self.mode {
             return false;
         }
         self.put_mode(mode);
@@ -245,5 +250,23 @@ impl Buffer {
     /// The recovery has been dealt with: its copy has gone.
     pub fn forget_recovery(&mut self) {
         self.recovery = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Buffer, Mode};
+
+    /// A person's draft keeps its mode, so that what refuses an agent's changes there, by its
+    /// mode, holds (ADR 0165, step 2).
+    #[test]
+    fn a_brief_and_a_composer_keep_their_mode() {
+        for draft in [Mode::Brief, Mode::Composer] {
+            let mut buffer = Buffer::from_text("*draft*", "");
+            assert!(buffer.set_mode(draft));
+            assert!(!buffer.set_mode(Mode::Fundamental), "{draft:?}");
+            assert!(buffer.set_mode(draft), "the same mode again");
+            assert_eq!(buffer.mode(), draft);
+        }
     }
 }

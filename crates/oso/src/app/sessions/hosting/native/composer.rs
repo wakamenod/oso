@@ -1,16 +1,18 @@
-//! A native session's composer and queue in the app (ADR 0165, step 2, the author's Q1 (a);
-//! ADR 0170): `*compose: NAME*`, an editable buffer withheld from agents, docked under the
-//! session's transcript. What it sends goes to the session's standard input, or waits in the
-//! queue, whose rules are `sessions::native::queue`'s; this carries out what they come to, and
-//! draws the queue's rows grey at the transcript's end, after its rows, which new rows go in
-//! above.
+//! A native session's composer in the app (ADR 0165, step 2, the author's Q1 (a); ADR 0170):
+//! `*compose: NAME*`, an editable buffer withheld from agents, docked under the session's
+//! transcript. What it sends goes to the session's standard input, or waits in the queue,
+//! whose rules are `sessions::native::queue`'s: this carries out what they come to, and
+//! `queued` draws the queue and acts on its rows.
 //!
 //! Must not depend on: key presses or how a frame is drawn; the commands ask, and this carries
 //! out.
 //!
-//! - The session's modeline note is written here alone, from its run's state and the queue.
 //! - What the composer holds is measured before it is copied: nothing longer than
-//!   [`MAX_MESSAGE`] is copied out of it.
+//!   [`MAX_MESSAGE`] is copied out of it, and nothing is sent from a buffer that is no longer
+//!   in `Composer` mode or that a yank turned secret.
+//! - The queue goes from one place, [`App::send_waiting_queues`], after each event.
+
+mod queued;
 
 use std::collections::VecDeque;
 
@@ -18,11 +20,10 @@ use oso_core::buffer::{Buffer, BufferId, Mode, Replacement};
 use oso_core::editor::NativeAction;
 use oso_core::window::DockSlot;
 
-use super::highlight;
+use super::note::NativeState;
 use crate::app::App;
 use crate::app::sessions::withheld_draft;
-use crate::sessions::native::queue::{MAX_MESSAGE, Move, Queue, Refusal, Sent, Turn};
-use crate::sessions::native::render::Face;
+use crate::sessions::native::queue::{MAX_MESSAGE, Queue, Refusal, Run, Sent, Turn};
 use crate::sessions::stream::NotSent;
 use crate::sessions::worker::SessionKey;
 
@@ -42,9 +43,6 @@ pub(super) struct Composing {
     at: Option<usize>,
     /// A turn is under way: what is sent now is queued.
     pub(super) busy: bool,
-    /// What its run says in its modeline before the queue's count: `starting`, `stopped`,
-    /// `failed`, or nothing while it runs.
-    state: &'static str,
 }
 
 impl Composing {
@@ -54,6 +52,11 @@ impl Composing {
             busy,
             ..Self::default()
         }
+    }
+
+    /// How many messages wait.
+    pub(super) fn queued(&self) -> usize {
+        self.queue.waiting().len()
     }
 }
 
@@ -70,16 +73,19 @@ impl App {
         }
     }
 
-    /// Native session `key`'s composer, docked again if the person killed it.
+    /// Native session `key`'s composer, docked again if the person killed it; the edit of a
+    /// queued message it held is given up.
     fn composer(&mut self, key: SessionKey) -> Option<BufferId> {
-        let native = self.hosting.natives.map.get(&key)?;
+        let native = self.hosting.natives.map.get_mut(&key)?;
         let kept = native.composing.buffer;
         if let Some(id) = kept.filter(|id| self.editor.buffer(*id).is_some()) {
             return Some(id);
         }
+        native.composing.queue.give_up_edit();
         let transcript = native.buffer;
         let name = self.hosting.table.get(key)?.name.clone();
         self.dock_composer(key, transcript, &name);
+        self.draw_queue(key);
         self.hosting.natives.map.get(&key)?.composing.buffer
     }
 
@@ -102,7 +108,7 @@ impl App {
             NativeAction::SendNow => self
                 .editor
                 .message("Interrupting comes with a later step: C-c C-c queues it meanwhile"),
-            NativeAction::GiveUp => self.composer_cancel(key),
+            NativeAction::Cancel => self.composer_cancel(key),
             NativeAction::History(count) => self.composer_history(key, count),
             NativeAction::Transcript => self.composer_go(key, false),
             NativeAction::Compose => self.composer_go(key, true),
@@ -126,13 +132,18 @@ impl App {
     }
 
     /// Where native session `key` is, for the queue's rules.
-    fn turn(&self, key: SessionKey) -> Turn {
-        let native = self.hosting.natives.map.get(&key);
-        Turn {
-            busy: native.is_some_and(|native| native.composing.busy),
-            running: native.is_some_and(|native| native.stream.is_some()),
+    fn turn(&self, key: SessionKey) -> Option<Turn> {
+        let native = self.hosting.natives.map.get(&key)?;
+        let run = match (&native.stream, native.state) {
+            (Some(_), _) => Run::Running,
+            (None, NativeState::Starting) => Run::Starting,
+            (None, _) => Run::Ended,
+        };
+        Some(Turn {
+            busy: native.composing.busy,
+            run,
             leaving: self.editor.quit_when_idle(),
-        }
+        })
     }
 
     /// `C-c C-c`: sends the composer's text now, queues it, or puts an edited queued message
@@ -141,43 +152,47 @@ impl App {
         let Some(id) = self.composer(key) else {
             return;
         };
-        let Some(text) = self.editor.buffer(id).map(Buffer::text) else {
+        let Some(buffer) = self.editor.buffer(id) else {
             return;
         };
+        if buffer.mode() != Mode::Composer {
+            return self.editor.message("This buffer is no longer the composer");
+        }
+        // A yank of a secret entry turns the message secret: it stays here, as a review
+        // message's does (ADR 0122).
+        if buffer.is_secret() {
+            return self
+                .editor
+                .message("The message holds secret text, which is not sent: take it out");
+        }
         // Measured before it is copied.
-        if text.len() > MAX_MESSAGE {
+        if buffer.text().len() > MAX_MESSAGE {
             return self.editor.message("The message is over 64 KiB");
         }
-        let text = text.to_string();
-        // A blank send writes the next of a paused queue, if anything.
-        let blank = text.trim().is_empty();
-        let turn = self.turn(key);
+        let text = buffer.text().to_string();
+        let Some(turn) = self.turn(key) else {
+            return;
+        };
         let Some(native) = self.hosting.natives.map.get_mut(&key) else {
             return;
         };
         match native.composing.queue.send(text, turn) {
-            // The person's text stays in the composer if it was not written; the queue's goes
-            // back first.
-            Sent::Now(text) => match (self.deliver(key, &text), blank) {
-                (true, false) => self.set_composer_text(key, ""),
-                (false, true) => self.requeue(key, text),
-                _ => {}
-            },
+            Sent::Now(text) if self.deliver(key, &text) => self.set_composer_text(key, ""),
+            // The person's text stays in the composer, and the queue waits for the person.
+            Sent::Now(_) => self.not_sent(key, None),
+            Sent::Next(text) if !self.deliver(key, &text) => self.not_sent(key, Some(text)),
+            Sent::Next(_) => {}
+            Sent::Resumed => self.editor.message("The queue goes on once the turn ends"),
             Sent::Queued(count) => {
                 self.set_composer_text(key, "");
-                let note = if turn.running {
-                    "C-c C-q goes to the queue"
-                } else {
-                    "it goes once the session runs"
+                let when = match turn.run {
+                    Run::Running => "C-c C-q goes to the queue",
+                    Run::Starting => "it goes once the first turn ends",
+                    Run::Ended => "the session stopped, so it waits",
                 };
-                self.editor.message(format!("Queued as {count}: {note}"));
+                self.editor.message(format!("Queued as {count}: {when}"));
             }
-            Sent::PutBack => {
-                self.set_composer_text(key, "");
-                // The turn may have ended during the edit, with the first held back.
-                return self.send_queued(key);
-            }
-            Sent::Resumed => self.editor.message("The queue goes on once the turn ends"),
+            Sent::PutBack => self.set_composer_text(key, ""),
             Sent::Refused(Refusal::Empty) => self.editor.message("The message is empty"),
             Sent::Refused(Refusal::TooLong) => self.editor.message("The message is over 64 KiB"),
             Sent::Refused(Refusal::Full) => self
@@ -205,6 +220,8 @@ impl App {
                 }
                 history.push_back(text.to_owned());
                 native.composing.at = None;
+                // A turn starts: an exit that waits for the sessions waits for it too.
+                self.idle_quit.restart();
                 true
             }
             Err(NotSent::Full) => {
@@ -219,56 +236,57 @@ impl App {
         }
     }
 
-    /// `text` was not written: it goes back first in the queue, which waits for the person.
-    fn requeue(&mut self, key: SessionKey, text: String) {
+    /// What the queue gave was not written: the queue's own (`Some`) goes back first, and the
+    /// queue waits for the person.
+    fn not_sent(&mut self, key: SessionKey, queued: Option<String>) {
         if let Some(native) = self.hosting.natives.map.get_mut(&key) {
-            native.composing.queue.failed(text);
+            native.composing.queue.failed(queued);
         }
     }
 
-    /// Native session `key` may be idle: the queue's first goes, if the rules say so.
-    pub(super) fn send_queued(&mut self, key: SessionKey) {
-        let turn = self.turn(key);
-        let Some(native) = self.hosting.natives.map.get_mut(&key) else {
-            return;
-        };
-        if let Some(text) = native.composing.queue.idle(turn)
-            && !self.deliver(key, &text)
-        {
-            self.requeue(key, text);
-        }
-        self.draw_queue(key);
-    }
-
-    /// After each event: a queue that may go and has not, as when oso no longer waits to exit
-    /// or the turn ended while its first was edited, sends its first.
+    /// After each event: each native session that is idle, with messages waiting the rules let
+    /// go, is written its queue's first.
     pub(super) fn send_waiting_queues(&mut self) {
-        let leaving = self.editor.quit_when_idle();
-        let ready: Vec<SessionKey> = (self.hosting.natives.map.iter())
-            .filter(|(_, native)| {
-                !leaving
-                    && !native.composing.busy
-                    && native.stream.is_some()
-                    && !native.composing.queue.is_empty()
-            })
+        let waiting: Vec<SessionKey> = (self.hosting.natives.map.iter())
+            .filter(|(_, native)| !native.composing.queue.is_empty())
             .map(|(key, _)| *key)
             .collect();
-        for key in ready {
-            self.send_queued(key);
+        for key in waiting {
+            let Some(turn) = self.turn(key) else {
+                continue;
+            };
+            let Some(native) = self.hosting.natives.map.get_mut(&key) else {
+                continue;
+            };
+            let Some(text) = native.composing.queue.idle(turn) else {
+                continue;
+            };
+            let buffer = native.buffer;
+            if !self.deliver(key, &text) {
+                self.not_sent(key, Some(text));
+            }
+            self.draw_queue(key);
+            if self
+                .editor
+                .windows()
+                .any(|window| window.buffer() == buffer)
+            {
+                self.request_redraw();
+            }
         }
     }
 
-    /// Why a restart cannot hand over now: a native session's queue holds messages not sent
-    /// (ADR 0165, step 2, the author's choice), which the restart would lose. The composer's
-    /// own text is the carry's to refuse.
-    pub(in crate::app) fn unsent_queue(&self) -> Result<(), String> {
+    /// Refuses a restart while a native session's queue holds messages, which it would lose
+    /// (ADR 0165, step 2, the author's choice): the composer's own text is the carry's to
+    /// refuse.
+    pub(in crate::app) fn refuse_unsent_queues(&self) -> Result<(), String> {
         let waiting =
             (self.hosting.natives.map.values()).find(|native| !native.composing.queue.is_empty());
         let Some(native) = waiting else {
             return Ok(());
         };
         let name = self.editor.buffer(native.buffer).map_or("", Buffer::name);
-        let count = native.composing.queue.waiting().len();
+        let count = native.composing.queued();
         Err(format!(
             "cannot hand over {name}: {count} queued message(s) not sent; send or drop them"
         ))
@@ -293,8 +311,7 @@ impl App {
         }
         native.composing.queue.give_up_edit();
         self.set_composer_text(key, "");
-        // The turn may have ended during the edit, with the first held back.
-        self.send_queued(key);
+        self.draw_queue(key);
     }
 
     /// `M-p` and `M-n`: the message sent `count` before the one shown, after if negative.
@@ -373,152 +390,5 @@ impl App {
         let id = (self.hosting.natives.map.get(&key)).and_then(|native| native.composing.buffer);
         id.and_then(|id| self.editor.buffer(id))
             .is_none_or(|buffer| buffer.text().is_empty())
-    }
-
-    /// Native session `key`'s run state for its modeline: `starting`, `stopped`, `failed`, or
-    /// nothing while it runs.
-    pub(super) fn set_native_state(&mut self, key: SessionKey, state: &'static str) {
-        if let Some(native) = self.hosting.natives.map.get_mut(&key) {
-            native.composing.state = state;
-        }
-        self.write_native_note(key);
-    }
-
-    /// Native session `key`'s modeline note: its run's state, and how many wait.
-    fn write_native_note(&mut self, key: SessionKey) {
-        let Some(native) = self.hosting.natives.map.get(&key) else {
-            return;
-        };
-        let count = native.composing.queue.waiting().len();
-        let state = native.composing.state;
-        let note = match (state, count) {
-            (state, 0) => state.to_owned(),
-            ("", count) => format!("{count} queued"),
-            (state, count) => format!("{state} · {count} queued"),
-        };
-        self.editor.set_mode_note(native.buffer, note);
-    }
-
-    /// Draws native session `key`'s queue as grey rows at its transcript's end, when they
-    /// changed, and says how many wait in its modeline.
-    pub(super) fn draw_queue(&mut self, key: SessionKey) {
-        let Some(native) = self.hosting.natives.map.get_mut(&key) else {
-            return;
-        };
-        let rows = native.composing.queue.rows();
-        if rows != native.composing.rows {
-            let start = native.placed.end();
-            let range = start..start + native.composing.rows.len();
-            let runs = [(rows.len(), Some(highlight(Face::Dim)))];
-            self.editor
-                .replace_native_rows(native.buffer, range, &rows, &runs);
-            native.composing.rows = rows;
-        }
-        self.write_native_note(key);
-    }
-
-    /// The queued message whose row is at `offset` of native session `key`'s transcript; the
-    /// queue's heading names the first.
-    fn queued_at(&self, key: SessionKey, offset: usize) -> Option<u64> {
-        let native = self.hosting.natives.map.get(&key)?;
-        let start = native.placed.end();
-        if offset < start || native.composing.queue.is_empty() {
-            return None;
-        }
-        let text = self.editor.buffer(native.buffer)?.text();
-        let line = text.offset_to_point(offset).row - text.offset_to_point(start).row;
-        let at = line.saturating_sub(1);
-        (native.composing.queue.waiting())
-            .nth(at)
-            .map(|queued| queued.id)
-    }
-
-    /// `C-c C-q`: point to the queue's row `at`, from 0, in the transcript.
-    fn queue_go(&mut self, key: SessionKey, at: usize) {
-        let Some(native) = self.hosting.natives.map.get(&key) else {
-            return;
-        };
-        if native.composing.queue.is_empty() {
-            return self.editor.message("Nothing is queued");
-        }
-        let (transcript, start) = (native.buffer, native.placed.end());
-        if self.editor.current().0.buffer() != transcript {
-            self.composer_go(key, false);
-        }
-        if self.editor.current().0.buffer() != transcript {
-            return;
-        }
-        let Some(row) = self.editor.buffer(transcript).map(|buffer| {
-            let text = buffer.text();
-            text.line_start(text.offset_to_point(start).row + 1 + at)
-        }) else {
-            return;
-        };
-        self.editor.current_mut().0.selections.move_primary(row);
-    }
-
-    /// `RET` on a queued row: its message goes back into the composer, above what is there.
-    fn queued_take_back(&mut self, key: SessionKey, id: u64) {
-        let empty = self.composer_empty(key);
-        let Some(native) = self.hosting.natives.map.get_mut(&key) else {
-            return;
-        };
-        let Some(mut taken) = native.composing.queue.take_back(id) else {
-            return;
-        };
-        if !empty {
-            taken.push_str("\n\n");
-        }
-        if let Some(composer) = self.composer(key) {
-            let edit = Replacement {
-                range: 0..0,
-                text: &taken,
-            };
-            let _ = self.editor.apply_edits(composer, &[edit]);
-        }
-        self.draw_queue(key);
-        self.composer_go(key, true);
-    }
-
-    /// `e`, `d`, `M-<up>` and `M-<down>` on queued message `id`.
-    fn queued_act(&mut self, key: SessionKey, id: u64, action: NativeAction) {
-        let empty = self.composer_empty(key);
-        let Some(native) = self.hosting.natives.map.get_mut(&key) else {
-            return;
-        };
-        let queue = &mut native.composing.queue;
-        match action {
-            NativeAction::EditQueued if !empty => self
-                .editor
-                .message("The composer holds a message: send or clear it first"),
-            NativeAction::EditQueued => {
-                let Some(text) = queue.edit(id) else {
-                    return;
-                };
-                self.set_composer_text(key, &text);
-                self.draw_queue(key);
-                self.composer_go(key, true);
-            }
-            NativeAction::DropQueued => {
-                queue.drop_one(id);
-                self.draw_queue(key);
-            }
-            NativeAction::MoveQueued(count) => {
-                let way = if count < 0 { Move::Up } else { Move::Down };
-                let mut place = None;
-                for _ in 0..count.unsigned_abs() {
-                    match queue.shift(id, way) {
-                        Some(at) => place = Some(at),
-                        None => break,
-                    }
-                }
-                self.draw_queue(key);
-                // Point stays on the message moved.
-                if let Some(at) = place {
-                    self.queue_go(key, at);
-                }
-            }
-            _ => {}
-        }
     }
 }

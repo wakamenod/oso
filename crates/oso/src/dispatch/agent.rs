@@ -208,7 +208,8 @@ const MESSAGE_REFUSED: &str = "a commit's message is the person's to write; ask 
 const REVIEW_MESSAGE_REFUSED: &str = "a review's message is the person's to send; ask the person";
 
 /// Why the agent may not change a brief before the person sends it (ADR 0165).
-const BRIEF_REFUSED: &str = "a brief is the person's to write; ask the person";
+const BRIEF_REFUSED: &str =
+    "a brief or a message being composed is the person's to write; ask the person";
 
 /// Why the agent may not change a window docked under a session's transcript (ADR 0170).
 const DOCK_REFUSED: &str = "what is docked under a session is the person's; ask the person";
@@ -992,6 +993,22 @@ mod tests {
             assert!(brief.set_mode(mode));
             let id = editor.add_buffer(brief);
             editor.show(id);
+            let why = refusal(
+                &mut dispatcher,
+                &mut editor,
+                "insert",
+                Given::Text("rm -rf ~"),
+                Reach::Change,
+            );
+            assert!(why.contains("the person's to write"), "{name}: {why}");
+            // Nor by taking it out of its mode first.
+            let _ = dispatcher.run_for_agent(
+                &mut editor,
+                "fundamental-mode",
+                Given::Nothing,
+                Reach::Look,
+            );
+            assert_eq!(editor.current().1.mode(), mode, "{name}");
             let why = refusal(
                 &mut dispatcher,
                 &mut editor,

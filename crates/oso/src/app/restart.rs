@@ -229,7 +229,9 @@ impl App {
         if let Err(why) = self.import_terminals(None, passed) {
             log::debug!("oso-restart: the carried terminals were not given up: {why}");
         }
-        if generation.is_some() && carry::exit_allowed(&self.editor, generation).is_ok() {
+        let allowed = carry::exit_allowed(&self.editor, generation)
+            .and_then(|()| self.refuse_unsent_queues());
+        if generation.is_some() && allowed.is_ok() {
             self.leave(event_loop, true);
         } else {
             self.editor.message(

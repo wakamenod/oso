@@ -1,7 +1,8 @@
 //! A native session's buffer's keys carried out (ADR 0165, ADR 0130's design): `TAB` folds the
 //! row at point, or the call of an open row of several that point is on, `RET` shows a call's
 //! whole result in `*result: NAME*`, and `n`/`p`, `]`/`[` move to the start of a prompt's row
-//! or a tool row.
+//! or a tool row. The composer's keys and the queue's (step 2) go to `composer` first: from
+//! the composer, for the session it is docked under; from the transcript, at point's line.
 //!
 //! Must not depend on: key presses; the command gave the line point is on, and `Placed` says
 //! which row it is in.

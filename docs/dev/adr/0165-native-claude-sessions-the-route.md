@@ -606,29 +606,38 @@ part 2a-1). The author chose (a) on Q1 and on each of Q1a to Q1e:
   queue. `e` refuses while the composer holds text, which it would replace. An edited message
   keeps the send's limits (not empty, at most 64 KiB), and the queue's first, while edited,
   waits: the next goes once the edit is put back or given up.
-- **Pausing:** the queue pauses when the process ends, when a delivery fails (the message goes
-  back first), and from part 2c on after an interrupt: nothing queued goes until the person
-  sends again, or sends with an empty composer, which sends the next once the session is idle.
-  A send while the process does not run is queued, and the queue stays paused. Nothing queued
-  goes while oso waits for the sessions to be idle to exit (`quit-when-idle`, ADR 0133), as it
-  would start a turn the exit waits for; what the person sends then goes. `C-u C-c C-c` (send
-  now, interrupting) and `C-c C-k` as an interrupt come with part 2c, and say so until then.
+- **Pausing:** the queue pauses when a delivery fails, the person's or the queue's (the
+  queue's goes back first), when the process ends, and from part 2c on after an interrupt:
+  nothing queued goes until the person sends again, or, while the process runs, sends with an
+  empty composer, which sends the next once the session is idle. A send while the process
+  starts waits, unpaused, for its first turn's end; one after it ended is queued, and the queue
+  stays paused, its heading saying the session stopped. Nothing queued goes while oso waits
+  for the sessions to be idle to exit (`quit-when-idle`, ADR 0133), as it would start a turn
+  the exit waits for; what the person sends then goes, and the exit's wait starts again. A
+  refused send changes nothing. `C-u C-c C-c` (send now, interrupting) and `C-c C-k` as an
+  interrupt come with part 2c, and say so until then.
 - **The rules are one pure state machine,** `sessions::native::queue`, told whether a turn runs,
-  the process does and oso waits to exit, and tested there; the app carries out what it comes
-  to. The session's modeline note (`starting`, `stopped`, `failed`, `N queued`) is written in
-  one place from the run's state and the queue.
+  whether the process starts, runs or ended, and whether oso waits to exit, and tested there;
+  the app carries out what it comes to, and the queue goes from one place, after each event.
+  The session's run state and modeline note (`starting`, `stopped`, `failed`, `N queued`) are
+  `note`'s alone.
+- **What is sent:** only from a buffer in `Composer` mode, which a brief and a composer keep
+  (`Buffer::set_mode` refuses to change it), and never text a yank of a secret entry turned
+  secret, as a review message (ADR 0122); a `*Brief*`'s first message too.
 - **History:** `M-p` walks the messages the composer sent; the first message, written in
   `*Brief*`, is not among them.
 - **A restart (the author's choice (b), 2026-11-22):** a restart ends a native session as
   before (R2 (a)); the composer is made again with it, empty. A restart is refused, naming the
   session and quoting nothing, only while its composer holds text or its queue holds messages,
-  which it would lose: the person sends, clears or drops them. Carrying a draft and a queue over
+  which it would lose: the person sends, clears or drops them. The restart's exit looks at the
+  queues again, as they are not in the buffers' generation. Carrying a draft and a queue over
   a restart is a possible follow-up, not wanted now.
 - **A turn oso did not start:** a message queued as a reply to the turn under way goes when the
   session is next idle, which may be after a peer's message made another turn: the person reads
-  the transcript before it goes, as nothing marks that turn yet.
+  the transcript before it goes, as nothing marks that turn yet. Such a turn is known only from its first event: a
+  queued message may go in the moment before it, accepted.
 - **A killed composer** is docked again, empty, the next time the session's composer keys need
-  it.
+  it; the edit of a queued message it held is given up.
 - **Left for later parts:** asking before a session's buffer with messages queued is killed or
   archived, and resuming a stopped session to take its queue (part 2b).
 

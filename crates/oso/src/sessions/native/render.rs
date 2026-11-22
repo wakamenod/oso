@@ -22,6 +22,10 @@ use std::fmt::Write as _;
 use std::ops::Range;
 use std::path::Path;
 
+mod queued;
+
+pub use queued::queue_rows;
+
 use super::capped;
 use super::rows::{Kind, Row, Tool, ToolState};
 use super::turns::interrupted;
