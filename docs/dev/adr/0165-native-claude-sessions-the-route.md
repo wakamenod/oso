@@ -1114,8 +1114,9 @@ As built:
   the status line is given it to write (part 3a, amended).
 - **The key** (Q-B1 (a)): `S-TAB` in the transcript and the composer,
   `native-session-cycle-mode` (`Person`), switches to the next, in the CLI's terminal's order:
-  `default`, `acceptEdits`, `plan`, `auto`, and round; from a mode oso does not send, to
-  `default`. From a mode oso put the process in that it has not said yet, the next after it,
+  `default`, `acceptEdits`, `plan`, `auto`, and round (the author kept the terminal's order
+  after the security review, though `plan` goes to `default` through `auto`, which on tier 2
+  holds from the turn's next call); from a mode oso does not send, to `default`. From a mode oso put the process in that it has not said yet, the next after it,
   so that two quick presses go two steps. Before the CLI said a mode, it says the mode is not
   known yet. There is no oso
   setting: a new session starts as Claude Code's settings say.
@@ -1133,7 +1134,8 @@ As built:
   orchestrator's replacement waiting, a conversation that moved), as the process would only
   stop. A switch whose process ends without resuming is over, and a row says the mode did not
   change.
-- **Every later process** is given `--permission-mode`: a resume (the person's, or an
+- **Every later process** is given `--permission-mode` (the author's choice after the security
+  review, 2026-11-23, an orchestrator's resume included): a resume (the person's, or an
   orchestrator's `session_resume`), part 2c's tier-1 interrupt's resume, which lost a mode
   other than the settings' before, and a fork, its source's. The mode is the one a tier-1
   switch asked for; else the one oso gave the process before, until that process said a mode,
