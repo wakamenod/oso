@@ -176,7 +176,7 @@ impl Keymaps {
         clippy::too_many_lines,
         reason = "one line for each keymap, named twice so that none is left out"
     )]
-    pub(super) fn all(&self) -> [&Keymap; 41] {
+    pub(super) fn all(&self) -> [&Keymap; 42] {
         let Self {
             global,
             user,
