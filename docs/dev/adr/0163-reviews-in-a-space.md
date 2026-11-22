@@ -88,10 +88,13 @@ space.
   function tested on the captured screens): the rows between the last two rules, the first
   starting with `❯`. The rules are found as the state rules find them: a run of `─`, or one with
   the session's name at its right end, `──── api-fix ─`, as Claude Code draws the top rule of a
-  session started with `--name`, as oso starts them.
+  session started with `--name`, as oso starts them. Both must start their rows and span at
+  least 20 columns, and the bottom one is `─` alone, so that rows a model indents do not pass for
+  them.
   - **Empty** (`❯` alone or its `Try "…"` hint, whole or cut): the question is pasted, and Enter
     goes as a key of its own once the box shows Claude Code's folded paste alone
-    (`[Pasted text #N +M lines]`, on one row or wrapped to at most three in a narrow terminal),
+    (`[Pasted text #N +M lines]`, on one row or wrapped to at most three in a narrow terminal,
+    its `M` the question's line breaks, which text a model wrote cannot know),
     looked for from 150 ms after the paste every 100 ms for 2 s, and only while the session still
     takes a paste. Else it stays unsubmitted in the box, and the echo area says so. A paste that
     never reached the program, or that the terminal refused, never shows, so nothing is

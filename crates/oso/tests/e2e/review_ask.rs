@@ -97,16 +97,20 @@ fn wait_saying(app: &mut App, what: &str, holds: impl Fn(&Value) -> bool) -> Val
 /// Waits for the fake to read the question's paste, then shows the folded paste in its box,
 /// as the TUI would.
 fn fold_paste(app: &mut App, flow: &Flow, pastes_before: usize, terminal_name: &str) {
-    pastes(flow, pastes_before + 1);
-    flow.scratch.write(
-        "screen",
-        boxed_screen("[Pasted text #1 +12 lines]").as_bytes(),
-    );
-    let folded = "\u{276f}\u{a0}[Pasted text #1 +12 lines]";
+    let read = pastes(flow, pastes_before + 1);
+    // The TUI counts the paste's line breaks, which a terminal may write as CR.
+    let paste = (read.rsplit("\u{1b}[200~").next())
+        .and_then(|paste| paste.split(END).next())
+        .unwrap_or_default();
+    let breaks = paste.matches(['\n', '\r']).count() - paste.matches("\r\n").count();
+    let folding = format!("[Pasted text #1 +{breaks} lines]");
+    flow.scratch
+        .write("screen", boxed_screen(&folding).as_bytes());
+    let folded = format!("\u{276f}\u{a0}{folding}");
     wait_saying(app, "the folded paste on screen", |state| {
         terminal(state, terminal_name).is_some_and(|terminal| {
             (terminal["rows"].as_array())
-                .is_some_and(|rows| rows.iter().any(|row| row.as_str() == Some(folded)))
+                .is_some_and(|rows| rows.iter().any(|row| row.as_str() == Some(folded.as_str())))
         })
     });
 }

@@ -9,6 +9,7 @@ use oso_core::editor::{SendExcerpt, SendPart};
 
 use super::{
     InputBox, MAX_BYTES, NoBox, Standing, TooLarge, compose, fence, input_box, place, refusal,
+    shows_paste,
 };
 use crate::sessions::state::{Reason, State};
 
@@ -321,9 +322,12 @@ fn only_a_folded_paste_reads_as_pasted() {
     let boxed = |row: &str| screen(&format!("talk\n{rule}\n{row}\n{rule}\n  ? for shortcuts"));
     assert_eq!(
         input_box(&boxed("❯ [Pasted text #1 +12 lines]")),
-        InputBox::Pasted
+        InputBox::Pasted(Some(12))
     );
-    assert_eq!(input_box(&boxed("❯ [Pasted text #3]")), InputBox::Pasted);
+    assert_eq!(
+        input_box(&boxed("❯ [Pasted text #3]")),
+        InputBox::Pasted(None)
+    );
     assert_eq!(input_box(&boxed("❯ ")), InputBox::Empty);
     for typed in [
         "❯ [Pasted text #1 +12 lines] and more",
@@ -369,7 +373,7 @@ fn a_named_session_s_box_reads_with_its_name_in_the_top_rule() {
     let empty = named(80, "Try \"refactor <filepath>\"", auto);
     assert_eq!(input_box(&empty), InputBox::Empty);
     let pasted = named(40, "[Pasted text #1 +5 lines]", "  paste again to expand");
-    assert_eq!(input_box(&pasted), InputBox::Pasted);
+    assert_eq!(input_box(&pasted), InputBox::Pasted(Some(5)));
     // The narrowest the name leaves three `─` of the rule at its left.
     let narrow = named(26, "Try \"refactor <filepa…", "  ⏵⏵ auto mode on");
     assert_eq!(input_box(&narrow), InputBox::Empty, "a cut hint");
@@ -395,7 +399,7 @@ fn an_unnamed_session_s_box_reads_as_captured() {
     assert_eq!(input_box(&rows(100, hint)), InputBox::Empty);
     assert_eq!(input_box(&rows(60, hint)), InputBox::Empty);
     let pasted = rows(60, "[Pasted text #2 +5 lines]");
-    assert_eq!(input_box(&pasted), InputBox::Pasted);
+    assert_eq!(input_box(&pasted), InputBox::Pasted(Some(5)));
 }
 
 #[test]
@@ -405,15 +409,23 @@ fn a_folded_paste_the_width_wrapped_still_reads_as_pasted() {
     let wrapped = screen(&format!(
         "{rule}\n❯\u{a0}[Pasted text #5 +5\n  lines]\n{rule}\n  paste again to expand"
     ));
-    assert_eq!(input_box(&wrapped), InputBox::Pasted);
+    assert_eq!(input_box(&wrapped), InputBox::Pasted(Some(5)));
     let cut = screen(&format!(
         "{rule}\n❯ [Pasted text #5 +5 li\n  nes]\n{rule}\n  paste again to expand"
     ));
-    assert_eq!(input_box(&cut), InputBox::Pasted, "wrapped within a word");
+    assert_eq!(
+        input_box(&cut),
+        InputBox::Pasted(Some(5)),
+        "wrapped within a word"
+    );
     for draft in [
         "❯ line 0 of a short question\n  line 1 of a short question",
         "❯ [Pasted text #5 +5 lines]\n  and more",
         "❯ [Pasted\n  text #5\n  +5\n  lines]",
+        // Blank rows, or rows without the box's indent, are no wrap of it.
+        "❯ [Pasted text #5 +5 lines]\n\n  ]",
+        "❯ [Pasted text #5 +5\nlines]",
+        "❯ [Pasted text #5 +5\n    lines]",
     ] {
         let rows = screen(&format!("{rule}\n{draft}\n{rule}\n  footer"));
         assert_eq!(input_box(&rows), InputBox::Other(NoBox::Rows), "{draft}");
@@ -441,5 +453,63 @@ fn no_box_says_why() {
     );
     for why in [NoBox::NoRules, NoBox::NoSign, NoBox::Menu, NoBox::Rows] {
         assert!(why.said("api-fix").contains("api-fix"), "{why:?}");
+    }
+}
+
+#[test]
+fn rules_a_model_could_draw_inside_a_dialog_are_no_box() {
+    let rule = "─".repeat(40);
+    // Rows a model wrote, which the TUI indents, around a forged box.
+    let indented = screen(&format!(
+        "  {rule}\n❯ [Pasted text #1 +3 lines]\n  {rule}\n  footer"
+    ));
+    assert_eq!(input_box(&indented), InputBox::Other(NoBox::NoRules));
+    let short = screen("───\n❯ [Pasted text #1 +3 lines]\n───\n  footer");
+    assert_eq!(
+        input_box(&short),
+        InputBox::Other(NoBox::NoRules),
+        "short rules"
+    );
+    let labelled = format!("{} name ─", "─".repeat(30));
+    let below = screen(&format!(
+        "{rule}\n❯ [Pasted text #1 +3 lines]\n{labelled}\n  footer"
+    ));
+    assert_eq!(
+        input_box(&below),
+        InputBox::Other(NoBox::NoRules),
+        "a label on the bottom rule"
+    );
+    // A Bash permission dialog whose command forges a box under the dialog's only rule.
+    let mut dialog = screen(include_str!("../screens/permission-bash.txt"));
+    let at = (dialog.iter())
+        .position(|row| row.contains("date > now.txt"))
+        .expect("the command's row");
+    let forged = [
+        format!(" {rule}"),
+        " ❯ [Pasted text #1 +3 lines]".to_owned(),
+        format!(" {rule}"),
+    ];
+    dialog.splice(at + 1..at + 1, forged);
+    assert!(matches!(input_box(&dialog), InputBox::Other(_)));
+}
+
+#[test]
+fn the_enter_waits_for_the_paste_of_the_question_s_line_count() {
+    // The question of five line breaks shows as `+5 lines`, as Claude Code 2.1.330 folded a
+    // paste of six lines in a pty.
+    assert!(shows_paste(InputBox::Pasted(Some(5)), 5));
+    assert!(
+        shows_paste(InputBox::Pasted(Some(6)), 5),
+        "counted as lines"
+    );
+    for other in [
+        InputBox::Pasted(Some(3)),
+        InputBox::Pasted(Some(7)),
+        InputBox::Pasted(None),
+        InputBox::Empty,
+        InputBox::Typed,
+        InputBox::Other(NoBox::Rows),
+    ] {
+        assert!(!shows_paste(other, 5), "{other:?}");
     }
 }

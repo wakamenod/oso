@@ -17,7 +17,8 @@
 //! - **Submitted (the one exception to ADR 0121's Q17):** the person typed the question and
 //!   confirmed it with `RET` in the prompt. Claude Code's input box is read from the screen the
 //!   UI holds (`sessions::send::input_box`): empty, the question is pasted, and Enter goes as a
-//!   key of its own only once the box shows the folded paste alone, at least [`ENTER_AFTER`]
+//!   key of its own only once the box shows the folded paste alone, of the question's line count
+//!   (`sessions::send::shows_paste`), at least [`ENTER_AFTER`]
 //!   later and at most [`ENTER_WAIT`]; with text typed, it is pasted and not submitted; with no
 //!   box, as when a dialog, a picker or another mode shows, nothing is pasted.
 //! - **Refused** as any send is, and then the session's terminal still shows in the slot, so
@@ -38,7 +39,7 @@ use super::super::App;
 use super::super::sessions::Orchestrator;
 use crate::commands::agent_sessions::MAX_SEND_BYTES;
 use crate::review::ask::{About, Where, compose, region_rows, row_text};
-use crate::sessions::send::{InputBox, NoBox, input_box};
+use crate::sessions::send::{InputBox, NoBox, input_box, shows_paste};
 use crate::sessions::spaces::SpaceId;
 use crate::sessions::worker::SessionKey;
 
@@ -63,11 +64,13 @@ pub(in crate::app) struct Asking {
     held: Option<Held>,
 }
 
-/// An Enter for session `key`'s terminal `buffer`, looked for at `next`, given up at `until`.
+/// An Enter for session `key`'s terminal `buffer`, for a paste of `newlines` line breaks,
+/// looked for at `next`, given up at `until`.
 #[derive(Debug)]
 struct Enter {
     key: SessionKey,
     buffer: BufferId,
+    newlines: usize,
     next: Instant,
     until: Instant,
 }
@@ -158,6 +161,7 @@ impl App {
                 why.said(&name)
             ));
         }
+        let newlines = question.text.matches('\n').count();
         if let Err(why) = self.paste_into_session(key, question.text) {
             return self.editor.message(why);
         }
@@ -166,6 +170,7 @@ impl App {
             self.reviews.asking.enter = Some(Enter {
                 key,
                 buffer,
+                newlines,
                 next: now + ENTER_AFTER,
                 until: now + ENTER_WAIT,
             });
@@ -335,7 +340,7 @@ impl App {
             return;
         }
         let (key, buffer, until) = (enter.key, enter.buffer, enter.until);
-        let pasted = self.input_box_of(buffer) == InputBox::Pasted;
+        let pasted = shows_paste(self.input_box_of(buffer), enter.newlines);
         if !pasted && !last && now < until {
             if let Some(enter) = &mut self.reviews.asking.enter {
                 enter.next = now + ENTER_POLL;
@@ -346,7 +351,7 @@ impl App {
         let name = self.review_session_name(key);
         let why = match pasted {
             true => self.submit_paste(key, buffer).err(),
-            false => Some("its input box did not show the paste alone".to_owned()),
+            false => Some("its input box did not show the question's paste alone".to_owned()),
         };
         if let Some(why) = why {
             self.editor.message(format!(
