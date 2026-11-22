@@ -69,10 +69,13 @@ fn boxed_screen(input: &str, more: &[&str]) -> String {
 fn empty_box(app: &mut App, flow: &Flow, terminal_name: &str) {
     flow.scratch
         .write("screen", boxed_screen("", &[]).as_bytes());
+    // The sign alone, as a screen before it, a folded paste's, has the same rules.
     app.wait_for("the empty input box", |state| {
         terminal(state, terminal_name).is_some_and(|terminal| {
-            (terminal["rows"].as_array())
-                .is_some_and(|rows| rows.iter().any(|row| row.as_str() == Some(NARROW)))
+            (terminal["rows"].as_array()).is_some_and(|rows| {
+                let has = |text: &str| rows.iter().any(|row| row.as_str() == Some(text));
+                has(NARROW) && has("\u{276f}")
+            })
         })
     });
 }
