@@ -26,7 +26,8 @@ use super::super::worktrees::keys;
 /// flow writes to `go`. `DIR` is the flow's scratch directory.
 const FAKE: &str = r#"#!/bin/sh
 dir='DIR'
-for a in "$@"; do printf 'arg %s\n' "$a"; done > "$dir/run.$$"
+for a in "$@"; do printf 'arg %s\n' "$a"; done > "$dir/tmp.$$"
+mv "$dir/tmp.$$" "$dir/run.$$"
 while IFS= read -r first; do
   case "$first" in *'"control_request"'*) ;; *) break ;; esac
 done
@@ -261,7 +262,8 @@ fn a_native_session_starts_with_its_first_message_and_shows_its_stream() {
 /// prints `after.jsonl` and waits for `go`.
 const ASKING_FAKE: &str = r#"#!/bin/sh
 dir='DIR'
-for a in "$@"; do printf 'arg %s\n' "$a"; done > "$dir/run.$$"
+for a in "$@"; do printf 'arg %s\n' "$a"; done > "$dir/tmp.$$"
+mv "$dir/tmp.$$" "$dir/run.$$"
 while IFS= read -r first; do
   case "$first" in *'"control_request"'*) ;; *) break ;; esac
 done
@@ -472,6 +474,7 @@ mod composed;
 mod interrupt;
 mod markdown;
 mod modes;
+mod plan;
 mod resume;
 mod slash;
 mod status;

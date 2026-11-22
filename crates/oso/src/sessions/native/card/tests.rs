@@ -173,6 +173,7 @@ fn tool(name: &str, input: &serde_json::Value) -> Tool {
         progress: None,
         folded: true,
         apart: false,
+        approved: None,
     }
 }
 
@@ -372,4 +373,30 @@ fn only_a_line_feed_breaks_claudes_row_and_a_separator_is_flagged() {
     let (title, rows) = card_of("Bash", &json!({"command": "echo a\u{2028}rm -rf ~"}));
     assert!(title.starts_with(NOT_ALL), "{title}");
     assert_eq!(rows[1], format!("{FENCE}$ echo a\u{2028}rm -rf ~"));
+}
+
+/// A plan's card names its approvals with a mode and its edit (part 3d), its keys in one row
+/// of an 80-cell card, cut with `…` in a narrower one rather than running off it.
+#[test]
+fn a_plans_card_offers_its_modes_and_its_edit_in_one_row() {
+    use oso_core::minibuffer::cells_of;
+    let plan = Card::Plan {
+        plan: "Do it.".into(),
+        cut: false,
+    };
+    let shown = plan.shown(80);
+    let keys = shown.text.lines().last().unwrap();
+    for key in [
+        "[y] approve",
+        "[a] accept edits",
+        "[A] auto",
+        "[e] edit",
+        "[N] note",
+    ] {
+        assert!(keys.contains(key), "{keys}");
+    }
+    assert!(cells_of(keys) <= 80, "{keys}");
+    let narrow = plan.shown(40);
+    let keys = narrow.text.lines().last().unwrap();
+    assert!(cells_of(keys) <= 40 && keys.ends_with('…'), "{keys}");
 }

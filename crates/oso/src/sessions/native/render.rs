@@ -22,6 +22,8 @@ use std::fmt::Write as _;
 use std::ops::Range;
 use std::path::Path;
 
+use oso_core::editor::Approval;
+
 mod queued;
 mod runs;
 
@@ -372,6 +374,18 @@ fn group_row(out: &mut Rendered, tools: &[Tool], folded: bool, indent: &str, dir
 
 /// What follows a tool's line: what came of it.
 fn suffix(tool: &Tool) -> (String, Face) {
+    // The person's approval, on its card (part 3d), until it fails.
+    if let Some((edited, after)) = tool.approved
+        && matches!(tool.state, ToolState::Running | ToolState::Done)
+    {
+        let edited = if edited { ", edited" } else { "" };
+        let after = match after {
+            Approval::Manual => "",
+            Approval::AcceptEdits => ", accept edits",
+            Approval::Auto => ", auto",
+        };
+        return (format!(" · approved{edited}{after}"), Face::Dim);
+    }
     match &tool.state {
         ToolState::Streaming => (format!(" · {} bytes…", tool.streamed), Face::Dim),
         ToolState::Running => {

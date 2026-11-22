@@ -19,6 +19,7 @@ fn tool(name: &str, input: &serde_json::Value) -> Tool {
         progress: None,
         folded: true,
         apart: false,
+        approved: None,
     }
 }
 

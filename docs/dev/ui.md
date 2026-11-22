@@ -1354,6 +1354,16 @@ a switch made with its command stands until that setting changes in the file
   moment since the last key and since the card came in front. `y` allows, `n` denies, `N`
   denies with a note, `RET` shows the whole call in the card; an `AskUserQuestion` takes a
   digit, `RET` for several, or `o` for the person's words; an `ExitPlanMode` shows its plan.
+  On a plan's card (part 3d) `y` approves it, `a` approves it and leaves the session in accept
+  edits, `A` in auto, after a y-or-n question, as Claude Code's own dialog offers; `e` edits it
+  in `*plan: NAME*`, in the session's window in place of the transcript, Markdown, withheld
+  from agents, where `C-c C-c` approves the plan as edited, `C-c C-a` with accept edits and
+  `C-c C-A` with auto, after the same question, and `C-c C-k` gives the edit up, back to the
+  card, which waits.
+  While an edit that differs waits, the card's approvals say to use `C-c C-c` there. A plan
+  holding secret text a yank brought, over 64 KiB, or empty is not approved, and a restart is
+  refused while an edit the person changed waits. The plan's row then says ` · approved`,
+  ` · approved, edited` or with the mode after it.
   The transcript's modeline says, after the run's state, the session's status (part 3a):
   `Sonnet 5.5 · acceptEdits · ctx 25% · $1.20 · 7d 28%`, the model that answered last (and
   its effort level once noted), the permission mode, the context used, what the session cost

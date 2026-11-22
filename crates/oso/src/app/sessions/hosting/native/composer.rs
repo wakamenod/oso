@@ -150,7 +150,10 @@ impl App {
             | NativeAction::Deny
             | NativeAction::Note
             | NativeAction::Choose(_)
-            | NativeAction::Other => return false,
+            | NativeAction::Other
+            | NativeAction::EditPlan
+            | NativeAction::Approve(_)
+            | NativeAction::Confirmed => return false,
         }
         self.request_redraw();
         true

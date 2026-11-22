@@ -10,6 +10,8 @@
 
 use std::path::{Path, PathBuf};
 
+use oso_core::editor::Approval;
+
 use super::render::{Face, LONG_RESULT, RESULT_EDGE, Shown, edges, render, seconds, tail, tokens};
 use super::rows::{Kind, RowChange, Rows, ToolState};
 use super::turns::target;
@@ -542,4 +544,42 @@ fn a_waiting_call_is_one_whose_whole_message_came_and_that_has_no_result() {
     let result = r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t","content":"ok"}]}}"#;
     read(&mut rows, result);
     assert!(rows.waiting_call("t").is_none());
+}
+
+/// A plan the person approved on its card says how on its row (ADR 0165, part 3d), as it runs
+/// and once its result came, but not once it failed.
+#[test]
+fn an_approved_plan_says_how_on_its_row() {
+    let mut rows = Rows::new(PathBuf::from("/w"));
+    let call = r#"{"type":"assistant","message":{"id":"m","content":[{"type":"tool_use","id":"p","name":"ExitPlanMode","input":{}}]}}"#;
+    read(&mut rows, call);
+    assert_eq!(
+        rows.approved("p", true, Approval::Auto),
+        Some(RowChange::Changed(0))
+    );
+    assert!(
+        shown(&rows).contains("ExitPlanMode · approved, edited, auto"),
+        "{}",
+        shown(&rows)
+    );
+    let done = r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"p","content":"User has approved your plan."}]}}"#;
+    read(&mut rows, done);
+    assert!(
+        shown(&rows).contains("· approved, edited, auto"),
+        "{}",
+        shown(&rows)
+    );
+    assert_eq!(rows.approved("none", false, Approval::Manual), None);
+    let failed = r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"q","is_error":true,"content":"no"}]}}"#;
+    let other = r#"{"type":"assistant","message":{"id":"n","content":[{"type":"tool_use","id":"q","name":"ExitPlanMode","input":{}}]}}"#;
+    read(&mut rows, other);
+    rows.approved("q", false, Approval::AcceptEdits);
+    read(&mut rows, failed);
+    assert!(
+        shown(&rows).contains("ExitPlanMode · error"),
+        "{}",
+        shown(&rows)
+    );
+    rows.approved("p", false, Approval::AcceptEdits);
+    assert!(shown(&rows).contains("· approved, accept edits"));
 }

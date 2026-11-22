@@ -566,7 +566,9 @@ check's change.
   session's first turn, so that a command the session runs, whose parent is the session's
   `claude` too, cannot take the slot first; a second claimant is refused, and the person told.
   The bridge sends the tool's name, the call's id and its input, if that is at most 64 KiB as
-  JSON, and gives the CLI back the input it sent, unchanged, as `updatedInput` on an `allow`.
+  JSON, and gives the CLI back the input it sent, unchanged, as `updatedInput` on an `allow`
+  (but an `AskUserQuestion`'s, which takes the person's answers, part 2e-2, and an
+  `ExitPlanMode`'s, which takes the person's edit of the plan and a mode after it, part 3d).
   Whatever fails, it answers `deny` with why.
 - **What the person is asked:** the call as the session's own rows have it, found by its id
   and tool among the calls whose whole message came and that have no result, and only if the
@@ -649,7 +651,8 @@ As built:
 - **Keys:** `y` allows once (or approves a plan), `n` denies (declines the questions, or keeps
   planning), `N` denies with a note read in the minibuffer, which the CLI is told; the call's
   row then says ` · denied: NOTE`, or ` · denied: by the person`. An allowed call gains no
-  mark: its row goes on to say how it ran. A note or an own answer that a yank of a secret
+  mark: its row goes on to say how it ran (but an approved plan, whose row says how it was
+  approved, part 3d). A note or an own answer that a yank of a secret
   entry turned secret is refused. The approved public items: `Mode::Card`,
   `NativeAction::{Allow, Deny, Note, Choose(u8), Other}` and `SessionRequest::CardText(String)`,
   which carries a note or an own answer from its prompt's command (`native-card-note-text`,
@@ -663,7 +666,8 @@ As built:
   tool change nothing. At most 4 questions of 9 options, each text cut.
 - **`ExitPlanMode` (Q2 (a)):** the plan is shown as the request gives it, marked so, as only
   the request carries it: the request is the session's own `claude`'s, by ADR 0121's claim of
-  its bridge, and the call is still found by its id and tool in the stream. `y` approves.
+  its bridge, and the call is still found by its id and tool in the stream. `y` approves
+  (and part 3d's `a`, `A` and `e`).
 
 
 ### Part 2a: the composer and the queue
@@ -1014,7 +1018,7 @@ orchestrator chose (a) on the last. The author accepted the exception to ADR 011
 
 ## Step 3, as built
 
-Step 3 is built in parts, one pull request each, the author's answers of 2026-11-23 given
+Step 3 is built in parts, one pull request each, from the author's answers of 2026-11-23,
 through the space's orchestrator. Each part's choices are recorded here as it lands.
 
 ### Part 3a: the status line
@@ -1157,6 +1161,83 @@ As built:
 - **Across an oso restart** (Q-B2 (a)): the mode is not in the record, so a session resumed
   after the restart starts as the settings say.
 - **Public API (approved):** `NativeAction::CycleMode`.
+### Part 3d, as built: editable plan review
+
+The author's (a) on Q-D1 (where a plan is edited) and Q-D2 (approving with a mode).
+
+Measured on 2026-11-23 (CLI 2.1.330, `--model=haiku`, an MCP `--permission-prompt-tool`, a
+made-up prompt in an empty directory):
+
+- **An edited plan is honoured:** an `allow` whose `updatedInput.plan` replaces Claude's makes
+  the tool's result "User has approved your plan… ## Approved Plan (edited by user):" with the
+  edit, its `tool_use_result` `planWasEdited: true`; the CLI writes the edit over its plan
+  file, and the model carries out the edited plan.
+- **A mode after it:** `updatedPermissions: [{type: "setMode", mode, destination: "session"}]`
+  on that `allow` gives `system/status` `permissionMode: acceptEdits` (or `auto`) at the
+  approval, and the next `init` says so: no control request, so it works on tier 1 too.
+  Without it the CLI goes back to `default`, as part 2e-2 measured.
+
+As built:
+
+- **The card's keys (Q-D2 (a)):** on a plan's card `y` approves the plan (manual), `a` approves
+  it with accept edits after it and `A` with auto, as Claude Code's own dialog offers; `e`
+  edits it; `n`, `N` and `RET` are as before. They answer after the card's quiet wait, as
+  every key of it does. The plan's row then says ` · approved`, ` · approved, edited`, or
+  either with `, accept edits` or `, auto`, as it runs and once done.
+- **Auto asks first (the author, after review):** `A` and the edit's `C-c C-A` ask "Approve
+  NAME's plan … and leave it in auto mode …? (y or n)" before they approve, as `A` is the
+  first letter of many a sentence typed where point came to the card after the quiet wait;
+  `a` does not ask. The question is kept for the call it asked about (`plans.asked`), and its
+  `y` (`native-plan-confirmed`, which runs only as a question's answer) sends
+  `NativeAction::Confirmed`: the host approves only that call, if it still waits on its card,
+  from the edit it was asked in, still in front and checked again. The `y` counts only after
+  the card's quiet moment since the question opened and since the key before it: a question
+  takes every other key without closing, so a sentence typed on ("Are you…") would answer
+  it; one too soon approves nothing, and `A` asks again. The card's own checks (its quiet
+  wait, the window showing all of it) are not run again on the `y`: the call is the one the
+  person saw at `A`, bound by its id, whose input a repeated request may not change. A
+  question closed otherwise is dropped after that event, so no later `y` approves.
+- **The edit (Q-D1 (a)):** `*plan: NAME*`, the person's draft as a composer is: an editable
+  buffer withheld from agents, whose changes the agent channel refuses, in `Mode::Plan`,
+  which it keeps, highlighted as Markdown, with keys of its own. `e` makes it from the
+  request's plan the first time for that call, and shows it in the window that carries the
+  card, in place of the transcript, as `RET`'s `*result: NAME*` is shown; a later `e` for the
+  same call shows it as it was left. `C-c C-c` there approves the plan as edited, manual
+  after it, `C-c C-a` with accept edits and `C-c C-A` with auto (the author, after review),
+  and goes to the composer; `C-c C-k` gives the edit up and goes back to the card,
+  which waited all the while. A plan the request cut is not edited, as the edit would lose
+  its end.
+- **What goes back:** `protocol::permission` carries, on an `ExitPlanMode`'s `allow`, `plan`,
+  the edit, only if it differs from Claude's, at most 64 KiB and never cut (`allow_plan`
+  gives none past it), and `mode`, `acceptEdits` or `auto` (`PlanMode`). The bridge puts the
+  edit in the call's `updatedInput` and the mode in `updatedPermissions` as a `setMode`; it
+  reads them only for an `ExitPlanMode`, whose answer carrying either in any other shape
+  denies, and ignores them for any other tool, so no other call, and no other mode, is ever
+  sent. Setting the mode at any
+  other moment is part 3b's.
+- **No agent command** runs while the edit is the selected buffer, a look included, as for a
+  card: cursors or a region an agent left would steer the person's typing into what they
+  approve.
+- **Refused:** `C-c C-c`, `C-c C-a` and `C-c C-A` from a macro, for a call that no longer waits or another call's
+  edit, on an empty plan, on one over 64 KiB, and on one a yank of a secret entry turned
+  secret; the card's `y`, `a` and `A` while an edit for its call differs from Claude's, as
+  they would approve the plan the person changed. A restart is refused while an edit the
+  person changed waits, as the composer's message refuses it.
+- **The card closing otherwise** (denied, its call or session gone): an edit the person never
+  changed goes with it; a changed one stays, stale, and the echo area says where, once. A
+  later plan's `e` is refused until `C-c C-k` gave it up, so that no edit is lost unasked.
+  Whether an edit was changed is its text against Claude's plan; the restart, which sees only
+  the buffer, goes by whether it was modified.
+- **The card's approvals in the edit:** `C-c C-a` and `C-c C-A` are the card's
+  `native-card-approve-accept-edits` and `native-card-approve-auto`, which in `*plan: NAME*`
+  approve the edit with that mode after it. They are `Person`, as every key of the card is.
+- **Parsed as Markdown:** the edit is highlighted on the syntax threads, Claude's text among
+  it, under part 2g's reasoning for replies: nothing the parse makes leaves the buffer, and a
+  yank that makes it secret stops it (ADR 0111).
+- **Public items** (approved by the author): `Mode::Plan`, `NativeAction::EditPlan`,
+  `NativeAction::Approve(Approval)` and `enum Approval {Manual, AcceptEdits, Auto}`, and
+  `NativeAction::Confirmed` for auto's `y`; `NativeAction::Cancel` is `C-c C-k` in the edit
+  too.
 
 ### Part 3f, as built: prompt suggestions and the recap
 

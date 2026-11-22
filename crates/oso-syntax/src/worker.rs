@@ -37,7 +37,7 @@ pub use doomed::Doomed;
 pub use unowned::Refused;
 use unowned::{Kind, Stale};
 
-use crate::document::{Document, Failure, Highlighted, MAX_WAITING};
+use crate::document::{Clock, Document, Failure, Highlighted, MAX_WAITING};
 use crate::language::Language;
 use crate::queries::Queries;
 
@@ -110,17 +110,18 @@ pub struct Checkout<Key> {
 
 impl<Key> Checkout<Key> {
     /// Follows what waited, then runs one slice. A thread calls it with its own queries, and
-    /// nothing locked: this is where documents are made and edited.
-    pub fn run(&mut self, queries: &mut Queries) -> Highlighted {
-        self.run_for(queries, SLICE)
+    /// nothing locked: this is where documents are made and edited. The time limits count the
+    /// thread's CPU time, as `clock` reads it (ADR 0172).
+    pub fn run(&mut self, queries: &mut Queries, clock: fn() -> Option<Duration>) -> Highlighted {
+        self.run_for(queries, SLICE, clock)
     }
 
-    fn run_for(&mut self, queries: &mut Queries, slice: Duration) -> Highlighted {
+    fn run_for(&mut self, queries: &mut Queries, slice: Duration, clock: Clock) -> Highlighted {
         self.follow();
         let document = self
             .document
             .get_or_insert_with(|| Document::new(self.language, Rope::new()));
-        document.highlight(queries, &self.shown, slice)
+        document.highlight(queries, &self.shown, slice, clock)
     }
 
     fn follow(&mut self) {

@@ -9,7 +9,9 @@
 //!   only when it is at most [`permission::MAX_INPUT`] bytes as JSON. oso asks the person about
 //!   the call as the session's own stream has it, if the input says the same; an `allow` gives
 //!   the CLI back the input it sent, unchanged, as `updatedInput`, but for an
-//!   `AskUserQuestion`'s, which takes the person's `answers` (step 2e-2).
+//!   `AskUserQuestion`'s, which takes the person's `answers` (step 2e-2), and an
+//!   `ExitPlanMode`'s, which takes the person's edit of the plan, with the session's mode after
+//!   it as a `setMode` in `updatedPermissions` (part 3d). Nothing else ever sets a mode.
 //! - Whatever goes wrong, the CLI is told `deny` with why: a call never runs unless the person
 //!   said `y`.
 
@@ -86,6 +88,7 @@ impl Bridge {
         }
         let answer = self.call(id, Which::SessionSocket, "permission", params)?;
         Ok(match answer.get("behavior").and_then(Value::as_str) {
+            Some("allow") if tool_name_kept == "ExitPlanMode" => planned(input, &answer),
             Some("allow") => {
                 json!({ "behavior": "allow", "updatedInput": answered(input, &tool_name_kept, &answer) })
             }
@@ -110,6 +113,27 @@ fn answered(mut input: Value, tool_name: &str, answer: &Value) -> Value {
         };
     }
     input
+}
+
+/// An `ExitPlanMode`'s `allow` (part 3d): the call's input with the person's edit of the plan
+/// in place of Claude's, and the session's mode after it as a `setMode`, as the CLI takes them
+/// (measured, CLI 2.1.330). An answer that carries either unreadably denies.
+fn planned(mut input: Value, answer: &Value) -> Value {
+    let Ok((plan, mode)) = permission::plan_answer(answer) else {
+        return permission::deny(&format!("{NOT_ASKED}: oso's answer was unreadable"));
+    };
+    if let (Some(plan), Some(object)) = (plan, input.as_object_mut()) {
+        object.insert("plan".to_owned(), Value::String(plan));
+    }
+    let mut allowed = json!({ "behavior": "allow", "updatedInput": input });
+    if let Some(mode) = mode {
+        allowed["updatedPermissions"] = json!([{
+            "type": "setMode",
+            "mode": mode.name(),
+            "destination": "session",
+        }]);
+    }
+    allowed
 }
 
 #[cfg(test)]
@@ -284,6 +308,54 @@ mod tests {
         assert_eq!(
             asked(&mut bridge, &again)["updatedInput"],
             json!({ "questions": [{ "question": "Which size?" }] })
+        );
+    }
+
+    #[test]
+    fn a_plans_allow_takes_the_persons_edit_and_mode() {
+        let (channel, socket) = (
+            Rc::<RefCell<Asked>>::default(),
+            Rc::<RefCell<Asked>>::default(),
+        );
+        let mut bridge = bridge(&channel, &socket, true);
+        let plan = |id: &str| {
+            json!({
+                "tool_name": "ExitPlanMode",
+                "tool_use_id": id,
+                "input": { "plan": "Write hello.txt", "planFilePath": "/p/plan.md" },
+            })
+        };
+        // Approved as it is: the input goes back unchanged, and no mode is set.
+        socket.borrow_mut().answer = Some(Ok(json!({ "behavior": "allow" })));
+        assert_eq!(
+            asked(&mut bridge, &plan("p1")),
+            json!({ "behavior": "allow", "updatedInput": plan("p1")["input"] })
+        );
+        // Edited, with accept edits after it.
+        socket.borrow_mut().answer = Some(Ok(
+            json!({ "behavior": "allow", "plan": "Write pelican.txt", "mode": "acceptEdits" }),
+        ));
+        assert_eq!(
+            asked(&mut bridge, &plan("p2")),
+            json!({
+                "behavior": "allow",
+                "updatedInput": { "plan": "Write pelican.txt", "planFilePath": "/p/plan.md" },
+                "updatedPermissions": [
+                    { "type": "setMode", "mode": "acceptEdits", "destination": "session" },
+                ],
+            })
+        );
+        // A mode oso never sends denies; and another tool's input takes neither.
+        socket.borrow_mut().answer = Some(Ok(
+            json!({ "behavior": "allow", "mode": "bypassPermissions" }),
+        ));
+        assert_eq!(asked(&mut bridge, &plan("p3"))["behavior"], "deny");
+        socket.borrow_mut().answer = Some(Ok(
+            json!({ "behavior": "allow", "plan": "rm -rf ~", "mode": "auto" }),
+        ));
+        assert_eq!(
+            asked(&mut bridge, &bash()),
+            json!({ "behavior": "allow", "updatedInput": bash()["input"] })
         );
     }
 

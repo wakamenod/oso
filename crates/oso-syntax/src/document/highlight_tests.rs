@@ -12,7 +12,7 @@ use oso_core::syntax::Splice;
 
 use super::inline::MAX_INLINE_BYTES;
 use super::tests::LONG;
-use super::{Document, Highlighted};
+use super::{Document, Highlighted, wall};
 use crate::language::Language;
 use crate::queries::Queries;
 
@@ -20,7 +20,7 @@ use crate::queries::Queries;
 pub(super) fn highlighted(language: Language, text: &str) -> Document {
     let mut document = Document::with_long_lines(language, Rope::from(text));
     assert_eq!(
-        document.highlight(&mut Queries::new(), &[], LONG),
+        document.highlight(&mut Queries::new(), &[], LONG, wall),
         Highlighted::Done
     );
     document
@@ -378,7 +378,7 @@ fn highlights_follow_edits_and_the_edited_lines_are_highlighted_again() {
     );
     assert_eq!(document.highlights().len(), after.len());
     assert!(!document.pending.ranges().is_empty());
-    let done = document.highlight(&mut Queries::new(), &[], LONG);
+    let done = document.highlight(&mut Queries::new(), &[], LONG, wall);
     assert_eq!(done, Highlighted::Done);
     let runs = runs(&document);
     assert!(has(&runs, "let", Keyword), "{runs:?}");
@@ -391,7 +391,7 @@ fn shown_text_goes_first() {
     let line = "fn f() {}\n";
     let text = line.repeat(30_000);
     let mut document = Document::with_long_lines(Language::Rust, Rope::from(text.as_str()));
-    assert_eq!(document.parse(LONG), super::Parsed::Done);
+    assert_eq!(document.parse(LONG, wall), super::Parsed::Done);
     let shown = text.len() - 100..text.len() - 50;
     let piece = document.next_piece(std::slice::from_ref(&shown)).unwrap();
     assert!(
@@ -409,11 +409,11 @@ fn shown_text_goes_first() {
 fn a_long_line_is_cut_at_a_character() {
     let text = format!("// {}\n", "日本".repeat(100_000));
     let mut document = Document::with_long_lines(Language::Rust, Rope::from(text.as_str()));
-    assert_eq!(document.parse(LONG), super::Parsed::Done);
+    assert_eq!(document.parse(LONG, wall), super::Parsed::Done);
     let piece = document.next_piece(&[]).unwrap();
     assert!(piece.end - piece.start <= super::highlight::PIECE);
     assert!(text.is_char_boundary(piece.end));
-    let done = document.highlight(&mut Queries::new(), &[], LONG);
+    let done = document.highlight(&mut Queries::new(), &[], LONG, wall);
     assert_eq!(done, Highlighted::Done);
     let highlights = document.highlights();
     assert_eq!(highlights.at(text.len() - 2), Some(Comment));
@@ -444,7 +444,7 @@ fn a_slice_resumes_where_it_stopped() {
     let mut queries = Queries::new();
     let mut calls = 0;
     loop {
-        match document.highlight(&mut queries, &[], std::time::Duration::from_millis(5)) {
+        match document.highlight(&mut queries, &[], std::time::Duration::from_millis(5), wall) {
             Highlighted::Done => break,
             Highlighted::Paused => calls += 1,
             failed => panic!("{failed:?} after {calls} slices"),
@@ -466,7 +466,7 @@ fn a_failed_document_is_plain() {
         }],
         &after,
     );
-    let failed = document.highlight(&mut Queries::new(), &[], LONG);
+    let failed = document.highlight(&mut Queries::new(), &[], LONG, wall);
     assert_eq!(failed, Highlighted::Failed(super::Failure::TooLarge));
     assert!(runs(&document).is_empty());
     assert_eq!(document.highlights().len(), after.len());

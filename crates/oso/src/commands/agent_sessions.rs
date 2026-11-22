@@ -24,7 +24,7 @@ mod search;
 mod send;
 mod spaces;
 
-pub use card::{CARD_NOTE, CARD_OWN, COMMANDS as CARD_COMMANDS};
+pub use card::{CARD_NOTE, CARD_OWN, COMMANDS as CARD_COMMANDS, PLAN_CONFIRMED};
 pub use composer::{COMMANDS as COMPOSER_COMMANDS, SLASH_LIST};
 pub use list::COMMANDS as LIST_COMMANDS;
 pub use list::{FOLDS, GUIDES, ROW_MARKS, SESSION_RENAME_TO, row_mark};

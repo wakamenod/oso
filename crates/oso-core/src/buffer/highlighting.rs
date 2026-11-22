@@ -251,7 +251,8 @@ impl Buffer {
             | Mode::Css
             | Mode::Json
             | Mode::Yaml
-            | Mode::GitCommit => true,
+            | Mode::GitCommit
+            | Mode::Plan => true,
             // These modes of ADR 0138 have no grammar yet.
             Mode::Fundamental
             | Mode::Latex

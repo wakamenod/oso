@@ -308,7 +308,7 @@ pub enum RowAction {
 }
 
 /// What a key of a native session's transcript does at the row it is on (ADR 0165, step 1),
-/// or a key of its composer does (step 2).
+/// or a key of its composer (step 2), its card (step 2e-2) or its plan's edit (part 3d) does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NativeAction {
     /// Fold or unfold the row, or in a row of several calls shown open, the call.
@@ -325,7 +325,8 @@ pub enum NativeAction {
     Send,
     /// From the composer: interrupt the turn, then send its text ahead of the queue.
     SendNow,
-    /// From the composer: cancel the edit of a queued message, or interrupt the turn.
+    /// From the composer: cancel the edit of a queued message, or interrupt the turn; from
+    /// `*plan: NAME*` (part 3d): give the plan's edit up, back to its card.
     Cancel,
     /// From the composer: the session's message sent this many before, after if negative.
     History(isize),
@@ -355,6 +356,28 @@ pub enum NativeAction {
     /// From the transcript or the composer (ADR 0165, part 3b): switch the session to its
     /// next permission mode.
     CycleMode,
+    /// From a plan's card (part 3d): edit the plan in `*plan: NAME*`, in place of the
+    /// transcript.
+    EditPlan,
+    /// From a plan's card, approve the plan as Claude wrote it; from `*plan: NAME*`, as the
+    /// person edited it. The session's permission mode then is the approval's.
+    Approve(Approval),
+    /// `y` to the question a native session's plan card or `*plan: NAME*` asked before
+    /// approving with auto (ADR 0165 part 3d): the host approves the call it asked about,
+    /// if that call still waits.
+    Confirmed,
+}
+
+/// What an approved plan leaves the session's permission mode at (ADR 0165, part 3d), as the
+/// TUI offers: each is one the CLI takes; none lets calls run unchecked.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Approval {
+    /// Calls ask again, as in the CLI's `default` mode.
+    Manual,
+    /// Edits run unasked: the CLI's `acceptEdits`.
+    AcceptEdits,
+    /// The CLI's `auto`, whose classifier lets what it judges safe run unasked.
+    Auto,
 }
 
 impl Editor {

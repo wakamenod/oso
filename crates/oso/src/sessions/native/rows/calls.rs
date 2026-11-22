@@ -141,6 +141,17 @@ impl Rows {
         self.update_call(id, |tool| tool.state = ToolState::Denied(note))
     }
 
+    /// The person approved call `id`, a plan, on its card (part 3d), `edited` or not, with
+    /// `after` the mode after it: its row says so.
+    pub fn approved(
+        &mut self,
+        id: &str,
+        edited: bool,
+        after: oso_core::editor::Approval,
+    ) -> Option<RowChange> {
+        self.update_call(id, |tool| tool.approved = Some((edited, after)))
+    }
+
     /// The call `id` of a whole message, which runs and has no result yet: what the person is
     /// asked about when the CLI asks permission for it (ADR 0165, step 2). `None` while its
     /// message streams, once it has a result, or if there is none.
@@ -166,5 +177,6 @@ pub(super) fn new_call(id: String, name: String, input: ToolInput, state: ToolSt
         progress: None,
         folded: true,
         apart: false,
+        approved: None,
     }
 }

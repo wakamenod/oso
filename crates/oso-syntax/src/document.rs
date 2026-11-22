@@ -12,6 +12,9 @@
 //! - A first parse may take [`FIRST_LIMIT`] of the worker's time, and a later one
 //!   [`LATER_LIMIT`]. Past that, or past [`MAX_BYTES`] (the inline cap for Markdown's inline
 //!   grammar), the document stops for good.
+//! - The worker's time is the thread's CPU time, from the clock its caller passes (ADR 0172),
+//!   and never more than the wall clock's: a thread the system holds back on a loaded machine
+//!   is not judged too slow. A slice still ends on the wall clock.
 //! - The highlights follow each edit at once, and the lines it touched are highlighted again,
 //!   with what the next parse changes (`highlight`).
 //! - A text with a line longer than 16 KiB is not parsed (`long_line`, ADR 0147).
@@ -24,6 +27,10 @@ use oso_core::rope::Rope;
 use oso_core::syntax::{Highlights, Splice, compose};
 use tree_sitter::{ParseOptions, ParseState, Parser, Tree};
 
+pub(crate) use self::clock::Clock;
+#[cfg(test)]
+pub(crate) use self::clock::wall;
+use self::clock::{Spent, Stopwatch};
 use crate::edit::input_edits;
 use crate::language::Language;
 use crate::pending::Pending;
@@ -83,7 +90,7 @@ pub struct Document {
     /// after them; no batch if they could not be joined, so that the next parse starts afresh.
     waiting: Option<(Option<Vec<Splice>>, Rope)>,
     /// A parse that a slice stopped part way: what it may take in all, and what it took.
-    running: Option<(Duration, Duration)>,
+    running: Option<(Duration, Spent)>,
     failed: Option<Failure>,
     /// [`FIRST_LIMIT`], [`LATER_LIMIT`] and [`highlight::HIGHLIGHT_LIMIT`], shorter in tests.
     limits: (Duration, Duration, Duration),
@@ -94,7 +101,7 @@ pub struct Document {
     /// once, and a trusted edit checks the lines it touched.
     lines_checked: bool,
     /// The worker's time highlighting took since it was last done.
-    spent: Duration,
+    spent: Spent,
     /// How many pieces fitted in a row since pieces last shrank or grew.
     fits: u32,
     /// How many times the highlights changed, so that the worker reports only a change.
@@ -135,7 +142,7 @@ impl Document {
             limits: (FIRST_LIMIT, LATER_LIMIT, highlight::HIGHLIGHT_LIMIT),
             max_line: long_line::MAX_LINE_BYTES,
             lines_checked: false,
-            spent: Duration::ZERO,
+            spent: Spent::default(),
             fits: 0,
             changes: 0,
             pending: Pending::default(),
@@ -216,8 +223,9 @@ impl Document {
         self.current = false;
     }
 
-    /// Parses for at most about `slice`, going on from where the last call stopped.
-    pub fn parse(&mut self, slice: Duration) -> Parsed {
+    /// Parses for at most about `slice`, going on from where the last call stopped. Its time
+    /// limits count the worker's time as `clock` reads it (ADR 0172).
+    pub fn parse(&mut self, slice: Duration, clock: fn() -> Option<Duration>) -> Parsed {
         // A slice past the first parse's limit gains nothing, and an `Instant` cannot overflow.
         let deadline = Instant::now() + slice.min(self.limits.0);
         loop {
@@ -248,33 +256,35 @@ impl Document {
                 }
                 self.lines_checked = true;
             }
-            let now = Instant::now();
-            if now >= deadline {
+            let watch = Stopwatch::start(clock);
+            if watch.started() >= deadline {
                 return Parsed::Paused;
             }
-            if let Some(parsed) = self.parse_until(deadline, now) {
+            if let Some(parsed) = self.parse_until(deadline, &watch) {
                 return parsed;
             }
         }
     }
 
-    /// Runs the parse in progress, or starts one, until `deadline` or its limit. `None` when the
-    /// tree is current, so that edits waiting can follow.
-    fn parse_until(&mut self, deadline: Instant, now: Instant) -> Option<Parsed> {
-        let (limit, spent) = self.running.unwrap_or(match self.tree {
-            None => (self.limits.0, Duration::ZERO),
-            Some(_) => (self.limits.1, Duration::ZERO),
+    /// Runs the parse in progress, or starts one, until `deadline`, timed by `watch`, started
+    /// now; it fails once it has passed its limit. `None` when the tree is current, so that
+    /// edits waiting can follow.
+    fn parse_until(&mut self, deadline: Instant, watch: &Stopwatch) -> Option<Parsed> {
+        let (limit, mut spent) = self.running.unwrap_or(match self.tree {
+            None => (self.limits.0, Spent::default()),
+            Some(_) => (self.limits.1, Spent::default()),
         });
-        let stop = deadline.min(now + limit.saturating_sub(spent));
+        // The slice's end alone: a parse may pass its limit by one slice, which spares a thread
+        // the system holds back a run of ever shorter calls as the limit nears (ADR 0172).
         let stopped = Cell::new(false);
-        let mut progress = until::<ParseState>(stop, &stopped);
+        let mut progress = until::<ParseState>(deadline, &stopped);
         let mut read = reader(&self.text);
         let options = ParseOptions::new().progress_callback(&mut progress);
         let tree = self
             .parser
             .parse_with_options(&mut read, self.tree.as_ref(), Some(options));
         drop(read);
-        let spent = spent + now.elapsed();
+        spent.add(watch);
         match tree {
             Some(tree) => {
                 self.take_changes(&tree);
@@ -283,7 +293,7 @@ impl Document {
                 self.running = None;
                 None
             }
-            None if spent >= limit => Some(self.fail(Failure::TooSlow)),
+            None if spent.total() >= limit => Some(self.fail(Failure::TooSlow)),
             None => {
                 self.running = Some((limit, spent));
                 Some(Parsed::Paused)
@@ -379,6 +389,7 @@ pub(super) fn reader<'text>(
     }
 }
 
+mod clock;
 mod embedded;
 mod fence;
 mod highlight;
@@ -387,6 +398,8 @@ mod long_line;
 mod nested;
 
 pub use highlight::Highlighted;
+#[cfg(test)]
+mod clock_tests;
 #[cfg(test)]
 mod crafted;
 #[cfg(test)]

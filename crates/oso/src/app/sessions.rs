@@ -120,6 +120,7 @@ impl App {
         // stop still asked.
         self.drop_unasked_stop();
         self.drop_unanswered_rename();
+        self.drop_unanswered_plan_question();
         self.forget_unanswered_space();
         // A space entered gives `session-search` its scope (ADR 0145).
         self.keep_space_scope(false);
