@@ -188,8 +188,8 @@ fn spinning(app: &mut App, scratch: &Path) -> Result<Vec<f64>, String> {
 
 /// What the sessions that are not working show, from `state`, for the error: each one's state
 /// and its buffer's size, an empty one being a screen that never came. Then the first is shown,
-/// and after a moment its state and last rows are read again, which tells a screen that waited
-/// for a frame from one that never came at all.
+/// and after a moment its state, last rows, modeline and echo area are read again, which tells
+/// a screen that waited for a frame from one that never came, and says how a terminal ended.
 fn not_working(app: &mut App, state: &serde_json::Value) -> Result<String, String> {
     let none = Vec::new();
     let buffers = state["buffers"].as_array().unwrap_or(&none);
@@ -222,8 +222,11 @@ fn not_working(app: &mut App, state: &serde_json::Value) -> Result<String, Strin
         let text = shown["text"].as_str().unwrap_or_default();
         let rows: Vec<&str> = text.lines().filter(|row| !row.trim().is_empty()).collect();
         let last = &rows[rows.len().saturating_sub(4)..];
+        // The modeline says how a session's terminal ended: exited with a status, killed by a
+        // signal, ended or failed.
         why.push_str(&format!(
-            "; shown for 1 s, {name:?} is {now}, its last rows {last:?}"
+            "; shown for 1 s, {name:?} is {now}, its last rows {last:?}, modeline {}, echo {}",
+            shown["modeline"], shown["echo"],
         ));
     }
     Ok(why)
