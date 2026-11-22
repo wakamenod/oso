@@ -259,6 +259,9 @@ runner a step's processes run at utility QoS, and the kernel's timer coalescing 
   user-interactive QoS, whose coalescing is capped at 1 ms, so this brings the runner closer
   to a real Mac, not further. The macOS results move once against the baseline, and that run
   becomes the new one, as any push's result does.
+- **`perf.yml` saves its build cache after a failed run too** (`cache-on-failure`). The cache
+  was saved only after a success, so while macOS failed, each run built from nothing: about 13
+  minutes of its 45.
 
 Rejected:
 
