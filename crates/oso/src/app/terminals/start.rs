@@ -99,8 +99,10 @@ impl App {
         };
         // A theme switched while it started is the one it answers colour queries from.
         terminal.set_palette(palette_of(&self.terminals.palettes, self.editor.theme()));
-        hosted.terminal = Some(terminal);
+        hosted.install(terminal);
         let waiting = std::mem::take(&mut hosted.waiting);
+        // Its first snapshot may be in flight already, its wake spent before it was installed.
+        self.take_terminal_soon(buffer);
         self.editor.set_running(buffer, true);
         for send in waiting {
             self.terminal_send(buffer, send);

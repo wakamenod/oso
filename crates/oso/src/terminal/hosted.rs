@@ -104,6 +104,29 @@ impl Hosted {
         true
     }
 
+    /// Takes `terminal`, which its start thread handed over. Its thread may have sent its first
+    /// snapshot already, and a take that came before this found no terminal and cleared
+    /// `ready`: the next take looks anyway. A snapshot never taken holds back every later one,
+    /// and the screen would never come.
+    pub(crate) fn install(&mut self, terminal: Terminal) {
+        self.terminal = Some(terminal);
+        self.ready = true;
+    }
+
+    /// The snapshot its thread has ready, if `ready` says one may be. `ready` is cleared once
+    /// none is, or while no terminal was handed over yet; it stays after one is taken, as
+    /// another may wait already.
+    pub(crate) fn take_ready(&mut self) -> Option<oso_term::Snapshot> {
+        if !self.ready {
+            return None;
+        }
+        let snapshot = self.terminal.as_ref().and_then(Terminal::take_snapshot);
+        if snapshot.is_none() {
+            self.ready = false;
+        }
+        snapshot
+    }
+
     /// Gives the PTY `size` once it runs, if it differs from the size it has. Before it
     /// starts, nothing is sent and nothing noted, so that the size it started with is compared
     /// again once it runs.
@@ -630,5 +653,66 @@ mod tests {
         assert_eq!(dropped.len(), 1);
         assert!(terminals.get(a).is_none());
         assert!(terminals.get(b).is_some());
+    }
+
+    /// A terminal's first snapshot can be in flight before its start thread hands it over, and
+    /// a frame between its wake and the hand-over clears `ready`: the hand-over looks again, or
+    /// nothing more would ever come, as its thread sends no snapshot while one is in flight.
+    #[cfg(unix)]
+    #[test]
+    fn a_snapshot_sent_before_the_hand_over_is_taken_after_it() {
+        use std::ffi::OsString;
+        use std::sync::{Mutex, mpsc};
+        use std::time::Duration;
+
+        use oso_platform::process::Executable;
+        use oso_term::{Palette, Rgb, Start, Terminal};
+
+        let (a, _) = ids();
+        let mut terminals = Terminals::default();
+        terminals.add(a);
+        let (tx, woken) = mpsc::channel();
+        let tx = Mutex::new(tx);
+        let start = Start {
+            executable: Executable::absolute("/bin/sh").unwrap(),
+            args: vec![OsString::from("-c"), OsString::from("exec sleep 30")],
+            cwd: None,
+            project: None,
+            inherit: Vec::new(),
+            set: Vec::new(),
+            size: Size {
+                rows: 6,
+                columns: 40,
+                width: 0,
+                height: 0,
+            },
+            scrollback: 100,
+            palette: Palette {
+                foreground: Rgb::default(),
+                background: Rgb::default(),
+                cursor: None,
+                ansi: [Rgb::default(); 16],
+            },
+            args_logged: true,
+        };
+        let terminal = Terminal::start(
+            start,
+            Box::new(move || {
+                let _ = tx.lock().unwrap().send(());
+            }),
+        )
+        .unwrap();
+        // Its thread sends its first snapshot as the child starts, and wakes the app.
+        woken.recv_timeout(Duration::from_secs(30)).unwrap();
+        let hosted = terminals.get_mut(a).unwrap();
+        hosted.ready = true;
+        // A frame before the hand-over finds no terminal to take it from.
+        assert!(hosted.take_ready().is_none());
+        assert!(!hosted.ready);
+        hosted.install(terminal);
+        assert!(
+            hosted.take_ready().is_some(),
+            "the snapshot sent before the hand-over"
+        );
     }
 }
