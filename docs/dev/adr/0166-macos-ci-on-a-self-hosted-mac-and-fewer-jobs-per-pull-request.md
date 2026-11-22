@@ -1,6 +1,6 @@
 # 0166. macOS CI on a self-hosted Mac, and fewer jobs per pull request
 
-- Status: Accepted
+- Status: Accepted; "Two runners on one Mac, as amended" (2026-11-22)
 - Date: 2026-11-21
 
 ## Context
@@ -175,3 +175,69 @@ The author accepted this on 2026-11-21, through the orchestrator.
   numbers when they matter.
 - **Path filters at the workflow level (`paths-ignore`) for everything:** a skipped workflow
   reports no check at all, so a required check would wait forever. `ci-ok` passes instead.
+
+## Two runners on one Mac, as amended
+
+Amended on 2026-11-22, with the author's choices through the orchestrator. With one runner,
+the Mac ran `just ci (macos)` and `just e2e (macos)` one after the other, and with several
+pull requests open its queue grew past an hour. Each job takes about 7 to 8 minutes, and every
+run has one of each.
+
+- **Two runners on the Mac, under the same macOS user `ci`**, each in its own folder with
+  its own service. Setting them up is in [`docs/dev/ci-runner.md`](../ci-runner.md).
+  - `oso-mac`, labelled `[self-hosted, macOS, ARM64, oso]`, runs `just e2e (macos)`, which
+    asks for `oso`.
+  - `oso-mac-2`, labelled `[self-hosted, macOS, ARM64, oso-ci]`, runs `just ci (macos)`,
+    which asks for `oso-ci`.
+
+  So the two jobs run at once, and e2e runs, which open windows, still run one at a time on
+  one runner. `oso-mac-2` never gets the label `oso`: a branch that has not merged `main`
+  since this change asks for `oso` for both jobs, and its e2e must not run beside another.
+  Such a branch runs both jobs on `oso-mac`, as before. While `oso-mac-2` is offline, the
+  author may give `oso-mac` the label `oso-ci` by hand. `OSO_MACOS_RUNNER` still overrides
+  both jobs.
+- **Each runner keeps its own builds**, in `~/ci-target/<runner name>/<pr|main>/<job>`. The
+  workflow and the hooks refuse a runner name that cannot name a folder there. The single
+  runner's `~/ci-target/pr` and `~/ci-target/main` belong to `oso-mac`.
+- **The hooks clean up only after their own runner**, which they know by `RUNNER_NAME`. The
+  job-started gate is unchanged and applies to both runners. `clean.sh`:
+  - stops only the `oso` and `fake-lsp-server` processes whose executable, with links
+    resolved, lies in its runner's builds. `just ci` starts `fake-lsp-server` too, so
+    stopping every process of that name, as before, would break the other runner's job;
+  - keeps only its runner's builds under a cap, and never removes the other's, which may be
+    in use. Each runner has its own cap, set by the admin in the hook: by default 30 GB for
+    `oso-mac-2`, whose `just ci` builds are the larger, and 15 GB for `oso-mac`. It was
+    40 GB for all builds.
+  - If `RUNNER_NAME` is missing or unusable, it cleans nothing and says so in the job's log.
+
+What this changes above:
+
+- "One runner, so jobs run one at a time and e2e windows do not compete for focus." Now: two
+  runners, and only `oso-mac` runs e2e, so e2e windows still do not compete.
+- "The hooks kill processes a job left behind and keep the build folders under 40 GB." Now:
+  each runner's hooks stop the processes started from its own builds, and keep its own
+  builds under its cap.
+- "The Mac's jobs run one at a time." Now: one `just ci` and one `just e2e` at a time, side
+  by side.
+- The rejected alternative "Two runners on the Mac" is taken, with e2e on one of them only.
+
+Residuals:
+
+- Both runners run as one user, so a job on one can change the other's files and
+  processes. That is within the trust boundary above, as a branch could already change the
+  runner user's files.
+- A leftover process started from a copy outside its runner's builds is not stopped.
+- When the toolchain pin changes, both runners install the new toolchain at the same time.
+  If that breaks it, the doc says how to repair it.
+
+Alternatives considered:
+
+- **`just ci` on either runner** (`oso-mac` labelled `oso-ci` too): the jobs take about as
+  long, one of each per run, so it gains little. `oso-mac` would sometimes take a `just ci`
+  while an e2e waits, and both runners would keep a `just ci` build.
+- **The label `e2e` on `oso-mac`, and `oso` on both:** a branch that had not merged `main`
+  would still ask for `oso` alone for e2e, and could run it on `oso-mac-2` beside another.
+- **Cleaning only on the e2e runner, by user:** `oso-mac`'s hooks would still stop the
+  `fake-lsp-server` of a `just ci` on `oso-mac-2`.
+- **A second macOS user for `oso-mac-2`:** processes, homes and caches apart, but it needs a
+  login session of its own for its service and a second rustup with its toolchains.
