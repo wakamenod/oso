@@ -2,13 +2,15 @@
 //! running `claude` keeps in `sessions` under its configuration directory, named by its
 //! process id, and whether the process it names still runs.
 //!
-//! Must not depend on: threads, the UI or `app`; the caller reads on a thread of its own, never
-//! the UI thread, and gives the process table's answer as a function.
+//! Must not depend on: threads of its own, the UI or `app`; the caller reads on a thread of its
+//! own, never the UI thread, which [`list`] may hold for [`SETTLE`], and gives the process
+//! table's answer as a function.
 //!
 //! - Only names of the form `<digits>.json` are opened. Other files sit beside them, and oso
 //!   never reads them.
 //! - At most [`MAX_FILES`] files, each a regular file of this user's, opened without following
-//!   a link, and at most [`MAX_BYTES`] of each. A larger one is left out.
+//!   a link, and at most [`MAX_BYTES`] of each. A larger one, and one that holds no entry for
+//!   its process, is left out, and the listing says it was not read in full.
 //! - Only the fields oso needs are kept, each bounded; the rest of an entry is not.
 //! - An entry is live if its process started when the entry says, within [`PROC_START_SLACK`]
 //!   of `procStart` or [`STARTED_AT_SLACK`] of `startedAt`: a process id the system gave
@@ -104,10 +106,15 @@ fn directory_from(config_dir: Option<OsString>, home: Option<PathBuf>) -> Option
     home.map(|home| home.join(".claude").join("sessions"))
 }
 
-/// The entries in `dir`, in no order. A directory that cannot be listed has none.
+/// The entries in `dir`, in no order. A directory that cannot be listed has none. Unlike
+/// [`list`], it never waits for a file being written.
 pub fn read(dir: &Path) -> Vec<Entry> {
-    list(dir).entries
+    list_in(dir, None).entries
 }
+
+/// How long [`list`] waits before it reads again a file that held no entry, which may have been
+/// read while it was written.
+pub const SETTLE: Duration = Duration::from_millis(100);
 
 /// What a read of the registry found.
 #[derive(Debug, Default)]
@@ -120,8 +127,9 @@ pub struct Listing {
     /// be told from it either. A directory that is not there is not unlistable: no session
     /// wrote to it.
     pub unlistable: bool,
-    /// A listed entry file could not be opened or read, for a reason other than its going: a
-    /// session it is for cannot be told either.
+    /// A listed entry file could not be opened or read, for a reason other than its going, or
+    /// was larger than [`MAX_BYTES`] or held no entry for its process: a session it is for
+    /// cannot be told either.
     pub unread: bool,
 }
 
@@ -134,8 +142,8 @@ pub enum Incomplete {
 }
 
 impl Listing {
-    /// Whether every entry file was listed and read: neither cut, unlistable nor unread. A file
-    /// read that does not pass [`read`]'s checks is still left out.
+    /// Whether every entry file was listed and read: neither cut, unlistable nor unread. A link,
+    /// a file that is not regular and another user's file are still left out.
     pub fn complete(&self) -> bool {
         self.incomplete().is_none()
     }
@@ -155,8 +163,15 @@ impl Listing {
 }
 
 /// The entries in `dir`, in no order, and whether files were left unread. A directory that
-/// cannot be listed has none.
+/// cannot be listed has none. A file that holds no entry is read once more after [`SETTLE`],
+/// all such files after one wait, so that one read while it was written is not counted unread.
 pub fn list(dir: &Path) -> Listing {
+    list_in(dir, Some(&|| std::thread::sleep(SETTLE)))
+}
+
+/// [`list`], reading again after `settle` returns the files that held no entry, if it is
+/// given.
+fn list_in(dir: &Path, settle: Option<&dyn Fn()>) -> Listing {
     let listing = match std::fs::read_dir(dir) {
         Ok(listing) => listing,
         Err(e) => {
@@ -175,17 +190,32 @@ pub fn list(dir: &Path) -> Listing {
     let cut = files.len() > MAX_FILES;
     files.truncate(MAX_FILES);
     let mut unread = false;
-    let entries = files
-        .into_iter()
-        .filter_map(|(pid, path)| match read_entry(&path, pid) {
-            Ok(entry) => entry,
+    let mut again = Vec::new();
+    let mut entries: Vec<Entry> = Vec::new();
+    for (pid, path) in files {
+        match read_entry(&path, pid) {
+            Ok(entry) => entries.extend(entry),
+            Err(e) if e.kind() == io::ErrorKind::InvalidData && settle.is_some() => {
+                again.push((pid, path));
+            }
             Err(e) => {
                 log::debug!("registry file {} cannot be read: {e}", path.display());
                 unread = true;
-                None
             }
-        })
-        .collect();
+        }
+    }
+    if let Some(settle) = settle.filter(|_| !again.is_empty()) {
+        settle();
+        for (pid, path) in again {
+            match read_entry(&path, pid) {
+                Ok(entry) => entries.extend(entry),
+                Err(e) => {
+                    log::debug!("registry file {} cannot be read: {e}", path.display());
+                    unread = true;
+                }
+            }
+        }
+    }
     Listing {
         entries,
         cut,
@@ -213,8 +243,9 @@ fn pid_of(name: &std::ffi::OsStr) -> Option<u32> {
     plain.then(|| digits.parse().ok()).flatten()
 }
 
-/// The entry in the file at `path`, which must be for `pid`: `None` if the file went or does not
-/// pass the checks, and an error if it could not be opened or read.
+/// The entry in the file at `path`, which must be for `pid`: `None` if the file went, is not a
+/// regular file or is another user's, and an error if it could not be opened or read, is larger
+/// than [`MAX_BYTES`] or holds no entry for `pid`.
 fn read_entry(path: &Path, pid: u32) -> io::Result<Option<Entry>> {
     let opened = match file_meta::open_regular_here(path) {
         Ok(opened) => opened,
@@ -225,15 +256,22 @@ fn read_entry(path: &Path, pid: u32) -> io::Result<Option<Entry>> {
     let Some((file, meta)) = opened else {
         return Ok(None);
     };
-    if !is_this_users(&meta) || meta.len() > MAX_BYTES {
+    if !is_this_users(&meta) {
         return Ok(None);
+    }
+    let too_large = || io::Error::new(io::ErrorKind::FileTooLarge, "larger than an entry is read");
+    if meta.len() > MAX_BYTES {
+        return Err(too_large());
     }
     let mut bytes = Vec::new();
     file.take(MAX_BYTES + 1).read_to_end(&mut bytes)?;
     if bytes.len() as u64 > MAX_BYTES {
-        return Ok(None);
+        return Err(too_large());
     }
-    Ok(parse(&bytes).filter(|entry| entry.pid == pid))
+    parse(&bytes)
+        .filter(|entry| entry.pid == pid)
+        .map(Some)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "no entry for its process"))
 }
 
 /// An entry from a registry file's bytes, if they hold an object with a process id.
@@ -757,11 +795,36 @@ mod tests {
         use std::os::unix::fs::PermissionsExt as _;
         let scratch = Scratch::new("unread");
         scratch.write("1.json", &entry_json(1, "Thu Nov 12 19:46:55 2026"));
-        // Not an entry, but read: left out, and the listing is complete.
-        scratch.write("2.json", "not json");
+        // Not a regular file: left out, and the listing is complete.
         std::fs::create_dir(scratch.0.join("3.json")).unwrap();
         let listing = list(&scratch.0);
         assert!(listing.complete() && listing.entries.len() == 1);
+        // Read, but no entry for its process, or too large to read: not complete.
+        for (name, text) in [
+            ("2.json", "not json".to_owned()),
+            ("2.json", "{}".to_owned()),
+            ("2.json", entry_json(5, "Thu Nov 12 19:46:55 2026")),
+            ("2.json", " ".repeat(super::MAX_BYTES as usize + 1)),
+        ] {
+            scratch.write(name, &text);
+            let listing = list(&scratch.0);
+            assert!(
+                listing.unread && !listing.complete(),
+                "{}",
+                &text[..text.len().min(20)]
+            );
+            assert_eq!(listing.entries.len(), 1);
+        }
+        std::fs::remove_file(scratch.0.join("2.json")).unwrap();
+        // One being written when it was first read: complete once it is, within the wait.
+        scratch.write("2.json", "");
+        let done = || scratch.write("2.json", &entry_json(2, "Thu Nov 12 19:46:55 2026"));
+        let listing = super::list_in(&scratch.0, Some(&done));
+        assert!(listing.complete() && listing.entries.len() == 2);
+        // `read` does not wait.
+        scratch.write("2.json", "");
+        assert_eq!(read(&scratch.0).len(), 1);
+        std::fs::remove_file(scratch.0.join("2.json")).unwrap();
         let shut = scratch.0.join("4.json");
         std::fs::write(&shut, entry_json(4, "Thu Nov 12 19:46:55 2026")).unwrap();
         std::fs::set_permissions(&shut, std::fs::Permissions::from_mode(0o000)).unwrap();

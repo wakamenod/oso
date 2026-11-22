@@ -605,16 +605,21 @@ mod tests {
             assert_eq!(live_in(None, &id), Some((None, None)));
             // An entry file that cannot be read. Root reads it anyway.
             let shut = dir.join("1.json");
-            std::fs::write(&shut, "{}").unwrap();
+            std::fs::write(&shut, r#"{"pid":1}"#).unwrap();
             std::fs::set_permissions(&shut, std::fs::Permissions::from_mode(0o000)).unwrap();
             let want = std::fs::File::open(&shut).is_err().then_some((None, None));
             assert_eq!(live_in(Some(dir), &id), want);
+            std::fs::remove_file(&shut).unwrap();
+            // One that holds no entry for its process, root or not.
+            std::fs::write(&shut, "not json").unwrap();
+            assert_eq!(live_in(Some(dir), &id), Some((None, None)));
             std::fs::remove_file(&shut).unwrap();
             // A file where the directory should be cannot be listed.
             std::fs::write(dir.join("file"), "").unwrap();
             assert_eq!(live_in(Some(&dir.join("file")), &id), Some((None, None)));
             for pid in 1..=crate::sessions::registry::MAX_FILES + 1 {
-                std::fs::write(dir.join(format!("{pid}.json")), "{}").unwrap();
+                let entry = format!(r#"{{"pid":{pid}}}"#);
+                std::fs::write(dir.join(format!("{pid}.json")), entry).unwrap();
             }
             assert_eq!(live_in(Some(dir), &id), Some((None, None)));
         }

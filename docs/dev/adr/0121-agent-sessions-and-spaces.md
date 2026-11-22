@@ -4,7 +4,8 @@
   "Merged work is not ready for review, as amended" (2026-11-17); "Removal archives its
   sessions, as amended" (2026-11-18); "An incomplete registry read refuses, as amended"
   (2026-11-22); "An unverifiable registry entry is busy, as amended" (2026-11-22); "Every
-  incomplete registry read refuses, as amended" (2026-11-22)
+  incomplete registry read refuses, as amended" (2026-11-22); "Registry entries and
+  directories, as amended" (2026-11-22)
 - Date: 2026-11-12
 
 ## Context
@@ -1854,6 +1855,35 @@ through the coordinator: the cases it left open fail closed too.
   ask before a second session in one directory and the warning of two live processes for one id
   still read what the registry gives, and do not refuse on an incomplete read: neither guards
   against a loss.
+
+## Registry entries and directories, as amended
+
+Amended on 2026-11-22, after "Every incomplete registry read refuses", with the author's choice
+through the coordinator.
+
+- **An entry file larger than 64 KiB (`registry::MAX_BYTES`), or one that holds no entry for
+  its process** (not JSON, no `pid`, or another process's), counts as a file that cannot be
+  read: the listing is not complete, so check 4 refuses with "has an entry file that cannot be
+  read" and a resume offers `session-fork`. Before, it was left out. A file that holds no
+  entry is read once more after 100 ms (`registry::SETTLE`), every such file after one wait, so
+  that one read while the CLI wrote it does not refuse; the registry poll does not wait. This replaces the "Not
+  covered" sentences of the two sections above on files that do not pass the registry's checks:
+  now only a link, a file that is not regular and another user's file are left out without a
+  refusal.
+- **A session oso did not start is in a worktree** when its directory is in the worktree's
+  path, each as given or with links resolved (`std::fs::canonicalize`), so that another name
+  for the same directory is caught. A directory that cannot be resolved, as it is gone, is
+  compared as given.
+- **What the person sees:** the refusals already named, in the same places; nothing new.
+- **Built with** `registry::read_entry` giving an error for these files, `registry::list`
+  reading them again, and `facts::Outside` keeping each session's resolved directory, resolved
+  once per job on its thread; no public item of a library crate. The unit tests cover each kind
+  of file, one completed during the wait, a merged worktree and a resume refused by one, and a
+  session in a linked name for the worktree, both ways.
+- **Not covered:** the directory of every live session oso does not host is resolved, whatever
+  repository it is in, so one on a mount that does not answer holds every worktree job while it
+  is resolved. A file that stays without an entry refuses until it is fixed or deleted. The sessions oso hosts, unsaved buffers and unsent briefs are
+  still placed in a worktree by the text of its path (`worktree::Snapshot::held`).
 
 ## Consequences
 
