@@ -453,3 +453,4 @@ fn answer_after_quiet(app: &mut App, key: &str) {
 }
 
 mod compose;
+mod resume;

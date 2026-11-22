@@ -671,8 +671,10 @@ conversation, and goes when the turn ends. On a queued message, `RET` takes it b
 composer, `e` edits it where it is (`C-c C-c` puts it back, `C-c C-k` leaves it as it was), `d`
 drops it, and `M-<up>` and `M-<down>` move it; `C-c C-q` goes to the queue. If the session
 stops, what is queued stays there: take a message back with `RET`, or drop it with `d`. oso does not
-restart while a composer or a queue holds a message: send, clear or drop it first. For now such
-a session does not resume: `M-x session-fork` continues it in a terminal.
+restart while a composer or a queue holds a message: send, clear or drop it first. `M-x session-resume` takes
+a stopped session up again in its own buffer, and `M-x session-fork` copies it into a new one;
+both start at once, with the composer ready. In a project you no longer trust, the resume says
+so, and the fork runs in a terminal.
 
 `agents_start_without_asking` lets a session you started, with a key or a `y`, start sessions
 through `start_worktree_session` and `session_start`, and a space's orchestrator resume a stopped

@@ -14,7 +14,8 @@
 //! - Its buffer's keys, `TAB`, `RET`, `n`/`p` and `]`/`[`, are carried out in `keys`, which
 //!   routes the composer's and the queue's to `composer` (step 2).
 //! - Its composer, queue and history are `composer`'s; its run state and modeline note are
-//!   `note`'s; its first message, written in `*Brief*`, is `first`'s.
+//!   `note`'s; its first message, written in `*Brief*`, is `first`'s; its resume and a native
+//!   fork are `resume`'s.
 //! - Its bridge asks the person's permission for its calls on the sessions' socket, in
 //!   `permissions` (step 2).
 //! - Its first message is its brief; a person's start with none opens `*Brief*` for it first.
@@ -27,6 +28,7 @@ mod first;
 mod keys;
 mod note;
 mod permissions;
+mod resume;
 
 use std::collections::HashMap;
 use std::ops::Range;
@@ -86,6 +88,8 @@ struct Native {
     composing: composer::Composing,
     /// Where its process is, as its modeline says it.
     state: NativeState,
+    /// It is being resumed in this buffer (step 2): a start that fails leaves it stopped.
+    resumed: bool,
 }
 
 impl NativeSessions {
@@ -153,6 +157,12 @@ impl App {
             self.editor.show(buffer);
         }
         self.hosting.starting.insert(key, buffer);
+        self.native_order(key, buffer)
+    }
+
+    /// The start thread's order for native session `key`, shown in `buffer`: its variables,
+    /// and where its stream's batches go.
+    fn native_order(&self, key: SessionKey, buffer: BufferId) -> NativeOrder {
         let waker = self.waker.clone();
         NativeOrder {
             buffer,
@@ -187,6 +197,7 @@ impl App {
             placed: Placed::default(),
             stream: None,
             state: NativeState::Starting,
+            resumed: false,
             first: first.is_some(),
             ended: None,
             result: None,
@@ -264,6 +275,7 @@ impl App {
             return false;
         };
         native.stream = Some(stream);
+        native.resumed = false;
         // Its first message was written: a turn is under way.
         if native.first
             && let Some(worker) = &self.sessions
@@ -280,6 +292,10 @@ impl App {
     /// Native session `key` did not start: its buffer goes.
     pub(super) fn session_native_not_started(&mut self, key: SessionKey) {
         self.hosting.starting.remove(&key);
+        // A resume keeps its buffer and rows, stopped again.
+        if self.native_resume_refused(key) {
+            return;
+        }
         if let Some(native) = self.hosting.natives.map.remove(&key) {
             self.editor.kill_buffer(native.buffer);
             if let Some(composer) = native.composing.buffer {

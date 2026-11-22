@@ -1323,9 +1323,12 @@ a switch made with its command stands until that setting changes in the file
   not written (`C-c C-c` with an empty composer then sends the next) and when the process ends
   (its heading says so, and `RET` or `d` deal with what waits). Nothing queued goes while oso
   waits to quit when idle. A message holding secret text a yank brought is not sent. A restart
-  is refused while a composer holds text or a queue holds messages. A send, a paste, `session-explain` or
-  a resume to it from elsewhere says it takes none yet (`session-fork` continues it in a
-  terminal); elsewhere, an agent's start with no brief, and a restricted project, keep the
+  is refused while a composer holds text or a queue holds messages. A send, a paste or `session-explain` to
+  it from elsewhere says it takes none yet. `session-resume` resumes a stopped native session
+  natively, in its own buffer, with a "Resumed" row and the composer selected, in a project
+  trusted now (else it says so, and `session-fork` continues it in a terminal); `session-fork`
+  forks a session natively in a trusted project under `mode = "native"`. Neither opens
+  `*Brief*`. Elsewhere, an agent's start with no brief, and a restricted project, keep the
   terminal.
 
   `claude` is started as the login shell would start it, so its `PATH`, version managers and

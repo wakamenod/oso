@@ -10,7 +10,7 @@
 //!   its process and directory, and the person is offered a fork. Five seconds after the
 //!   resume, the registry is read again, and two live processes with the id give a warning.
 //! - A missing directory refuses before anything starts.
-//! - In a trusted project, the baseline is taken first (ADR 0122), waiting at most
+//! - For a new session in a trusted project, the baseline is taken first (ADR 0122), waiting at most
 //!   [`BASELINE_WAIT`]; past that, the session starts and the baseline follows.
 //! - The shell is found as ADR 0120 has it, and `claude` on `PATH` when the shell is not one
 //!   that runs the wrapper, as [`launch`](super::launch) has it.
@@ -266,9 +266,9 @@ fn prepare(order: Order, send: &(dyn Fn(Report) + Sync)) {
         return refuse(why);
     }
     // The baseline before `claude` runs, so that the review shows what the session changed.
-    let baseline = order
-        .trusted
-        .clone()
+    // A new session's alone: a resume keeps the one it had, and a fork the one it began with.
+    let baseline = (order.trusted.clone())
+        .filter(|_| matches!(order.kind, Kind::New))
         .and_then(|root| Baseline::start(root, order.state.clone()));
     let in_time = baseline.as_ref().and_then(|b| b.wait(BASELINE_WAIT));
     let late = baseline.filter(|_| in_time.is_none());

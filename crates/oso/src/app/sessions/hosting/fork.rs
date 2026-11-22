@@ -84,7 +84,8 @@ impl App {
         self.fork_from(from);
     }
 
-    /// Starts a new hosted session that resumes `from`'s conversation under a new id.
+    /// Starts a new hosted session that resumes `from`'s conversation under a new id: native
+    /// as a new start would be (ADR 0165, step 2), else in a terminal.
     fn fork_from(&mut self, from: ForkFrom) {
         let ForkFrom {
             id: from,
@@ -96,17 +97,28 @@ impl App {
         // A fork in a space's directory passes its checks (ADR 0136).
         let space = self.space_checks(&directory);
         self.turn_agent_channel_on_for_a_session();
-        let terminal = self.session_terminal(key, &name, None, true);
+        // Native in a trusted project under `mode = "native"`, as a new start (ADR 0165).
+        let (runs, trusted) = match self.native_fork(key, &name, &directory, root.as_deref()) {
+            Some((order, trusted)) => {
+                self.hosting.trusts.insert(key, trusted.clone());
+                (Runs::Native(order), Some(trusted))
+            }
+            None => (
+                Runs::Terminal(self.session_terminal(key, &name, None, true)),
+                None,
+            ),
+        };
         self.order_session(Order {
             token: key,
             kind: Kind::Fork(from),
             name,
             directory,
             project: root,
-            trusted: None,
+            // Its trust, for a native fork; a fork takes no baseline.
+            trusted,
             state: crate::app::reviews::state(),
             claude: self.configuration.session_claude().map(Path::to_path_buf),
-            runs: Runs::Terminal(terminal),
+            runs,
             brief: None,
             steer_worktrees: self.configuration.steer_worktrees(),
             check_shared: false,

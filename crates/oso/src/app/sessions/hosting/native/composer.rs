@@ -332,7 +332,7 @@ impl App {
     }
 
     /// `i` and `C-c C-o`: to the composer, or back to the window that carries it.
-    fn composer_go(&mut self, key: SessionKey, to_composer: bool) {
+    pub(super) fn composer_go(&mut self, key: SessionKey, to_composer: bool) {
         let Some(transcript) = self
             .hosting
             .natives

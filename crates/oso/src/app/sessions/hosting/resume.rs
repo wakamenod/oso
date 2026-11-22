@@ -56,13 +56,9 @@ impl App {
         if session.runs() {
             return Err(format!("Session {} runs", session.name));
         }
-        // A native session resumes natively from step 2 of ADR 0165 (R1 (c)); its buffer
-        // takes no terminal.
+        // A native session resumes natively, in its own buffer (ADR 0165, step 2).
         if self.hosting.natives.has(key) {
-            return Err(format!(
-                "Session {} is native and does not resume yet: session-fork continues it in a terminal",
-                session.name
-            ));
+            return self.resume_native(key, shown);
         }
         let Some(buffer) = session
             .buffer
