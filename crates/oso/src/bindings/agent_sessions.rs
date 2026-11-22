@@ -60,6 +60,9 @@ pub const COMPOSER: &[(&str, &str)] = &[
     ("M-n", "native-composer-next"),
     ("C-c C-o", "native-composer-transcript"),
     ("C-c C-q", "native-session-queue"),
+    // The session's slash commands (step 2d); `/` as an empty composer's first character asks
+    // too, from the dispatcher.
+    ("C-c /", "native-composer-command"),
 ];
 
 /// The keys of a native session's permission card (ADR 0165, step 2e-2), above the global

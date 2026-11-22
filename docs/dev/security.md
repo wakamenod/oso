@@ -654,10 +654,20 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   starts while the person is asked whether to stop the session, or oso waits to quit or
   restart (step 2c).
 - A native session's control layer (ADR 0165, step 2c) writes only `initialize` and
-  `interrupt`, and reads of an answer only its id, its success and its error, cut to 256 bytes
-  and logged escaped; it answers no request of the CLI's. `SIGINT` goes to the session's
+  `interrupt`, and reads of an answer only its id, its success, its error, cut to 256 bytes
+  and logged escaped, and `initialize`'s slash commands (below); it answers no request of the
+  CLI's. `SIGINT` goes to the session's
   process alone, never its group, and only on Unix: on Windows it would end the process at
   once and leave its tools running.
+- The slash commands a native session's CLI lists (ADR 0165, step 2d) are the project's text
+  as much as the CLI's, as a skill's description is its file's: at most 512 and 8 aliases
+  each, each hint and description cut to one line and 256 bytes, a name or alias longer than
+  that or holding a space, a control, an invisible or a bidi character dropped, a project's
+  marked `not built in`, and shown only in the person's completion rows, which escape controls
+  and bidi characters. `/clear`, which would move the conversation to a session id oso's
+  record does not follow, is refused at each write, whatever a project's skill takes its name,
+  and an agent's brief held in the composer; a session whose conversation moved anyway, as its
+  stream's session id says, neither resumes nor forks while oso runs.
 - A native session's `claude -p` asks the person about a call through its bridge's
   `permission` tool, named as its `--permission-prompt-tool`
   ([ADR 0165](adr/0165-native-claude-sessions-the-route.md), step 2):

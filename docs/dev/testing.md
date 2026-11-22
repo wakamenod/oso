@@ -526,6 +526,10 @@ OS and architecture. Nothing is built or installed there.
   without a window stay reported only.
 - Key latency ends when `present` returns, so it leaves out the GPU's work as
   well as the display and the compositor.
+- On GitHub's macOS runner, `perf.yml` turns off the kernel's timer coalescing
+  (`kern.timer.coalescing_enabled=0`) before the benchmarks. Without that, the harness's
+  paced sleeps took about three times as long as asked, and the job ran past its timeout
+  ([ADR 0166](adr/0166-macos-ci-on-a-self-hosted-mac-and-fewer-jobs-per-pull-request.md)).
 - `crates/oso-core/examples/text_perf.rs` remains for looking closely at the
   rope and the display model. `-- cursors` runs only typing and undo at 1, 100 and 1000
   cursors, bare, with marks and over regions (ADR 0091).

@@ -26,6 +26,7 @@ use crate::sessions::native::interrupt::Interrupt;
 use crate::sessions::native::placed::Placed;
 use crate::sessions::native::render::Face;
 use crate::sessions::native::rows::{Changes, Rows};
+use crate::sessions::native::slash::SlashCommands;
 use crate::sessions::native::wire::parse;
 
 /// What the stand-in was told: opens with their text, and closes.
@@ -85,6 +86,10 @@ fn native(buffer: BufferId) -> Native {
         card: None,
         control: None,
         interrupt: Interrupt::new(SIGNALS),
+        commands: SlashCommands::default(),
+        slash_rows: None,
+        cli_id: None,
+        moved: false,
         markdown: Marks::default(),
     }
 }

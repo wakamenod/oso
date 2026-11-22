@@ -90,3 +90,115 @@ fn a_cards_keys_answer_its_call_and_a_digit_chooses() {
     // Its text is oso's: a key types nothing into it.
     assert_eq!(editor.current().1.text().to_string(), "");
 }
+
+/// A composer, selected, holding `text`.
+fn composer(editor: &mut Editor, text: &str) {
+    let composer = editor.add_buffer(Buffer::from_text("*compose: s*", text));
+    assert!(
+        editor
+            .buffer_mut(composer)
+            .unwrap()
+            .set_mode(Mode::Composer)
+    );
+    editor.show(composer);
+}
+
+fn list_commands(editor: &mut Editor) {
+    use oso_core::complete::Candidate;
+    let items = [
+        Candidate::new("model", "<model>", "Set the model"),
+        Candidate::new("context", "", "Show the context"),
+    ];
+    editor.set_listed(crate::commands::agent_sessions::SLASH_LIST, items.into());
+}
+
+#[test]
+fn a_slash_as_an_empty_composers_first_character_completes_over_its_commands() {
+    let (mut d, mut editor) = (Dispatcher::new(), Editor::default());
+    composer(&mut editor, "");
+    list_commands(&mut editor);
+    send(&mut d, &mut editor, "/");
+    assert!(editor.prompt().is_some(), "the commands' prompt opens");
+    send(&mut d, &mut editor, "m o d RET");
+    assert_eq!(editor.current().1.text().to_string(), "/model ");
+    assert!(editor.prompt().is_none());
+    // Its arguments follow.
+    send(&mut d, &mut editor, "h");
+    assert_eq!(editor.current().1.text().to_string(), "/model h");
+}
+
+#[test]
+fn c_g_leaves_the_slash_and_a_slash_elsewhere_is_only_a_slash() {
+    let (mut d, mut editor) = (Dispatcher::new(), Editor::default());
+    composer(&mut editor, "");
+    list_commands(&mut editor);
+    send(&mut d, &mut editor, "/ C-g");
+    assert!(editor.prompt().is_none());
+    assert_eq!(editor.current().1.text().to_string(), "/");
+    send(&mut d, &mut editor, "t m p /");
+    assert!(
+        editor.prompt().is_none(),
+        "not the composer's first character"
+    );
+    assert_eq!(editor.current().1.text().to_string(), "/tmp/");
+
+    // With no command listed, `/` is only a `/`.
+    let (mut d, mut editor) = (Dispatcher::new(), Editor::default());
+    composer(&mut editor, "");
+    send(&mut d, &mut editor, "/");
+    assert!(editor.prompt().is_none());
+}
+
+#[test]
+fn c_c_slash_replaces_the_command_the_composer_begins_with() {
+    let (mut d, mut editor) = (Dispatcher::new(), Editor::default());
+    composer(&mut editor, "/mo haiku");
+    list_commands(&mut editor);
+    send(&mut d, &mut editor, "C-c / c o n t RET");
+    assert_eq!(editor.current().1.text().to_string(), "/context haiku");
+
+    let (mut d, mut editor) = (Dispatcher::new(), Editor::default());
+    composer(&mut editor, "why");
+    list_commands(&mut editor);
+    send(&mut d, &mut editor, "C-c / m o d e l RET");
+    assert_eq!(editor.current().1.text().to_string(), "/model why");
+
+    // Outside a composer it says so.
+    let (mut d, mut editor) = (Dispatcher::new(), Editor::default());
+    list_commands(&mut editor);
+    send(&mut d, &mut editor, "/");
+    assert!(editor.prompt().is_none(), "a buffer's `/` is a `/`");
+}
+
+#[test]
+fn c_c_slash_puts_a_command_before_a_path_and_point_stays() {
+    let (mut d, mut editor) = (Dispatcher::new(), Editor::default());
+    composer(&mut editor, "/tmp/x look");
+    list_commands(&mut editor);
+    send(&mut d, &mut editor, "M-> C-c / m o d e l RET");
+    assert_eq!(editor.current().1.text().to_string(), "/model /tmp/x look");
+    send(&mut d, &mut editor, "!");
+    assert_eq!(
+        editor.current().1.text().to_string(),
+        "/model /tmp/x look!",
+        "point stays at the end of what was written"
+    );
+}
+
+#[test]
+fn a_macros_slash_opens_the_prompt_as_the_persons_does() {
+    let (mut d, mut editor) = (Dispatcher::new(), Editor::default());
+    composer(&mut editor, "");
+    list_commands(&mut editor);
+    send(&mut d, &mut editor, "C-x ( / m o d RET C-x )");
+    assert_eq!(editor.current().1.text().to_string(), "/model ");
+    send(&mut d, &mut editor, "C-a C-k");
+    assert_eq!(editor.current().1.text().to_string(), "");
+    send(&mut d, &mut editor, "C-x e");
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while editor.macro_replaying() {
+        d.replay(&mut editor, until);
+    }
+    assert_eq!(editor.current().1.text().to_string(), "/model ");
+    assert!(editor.prompt().is_none());
+}

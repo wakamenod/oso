@@ -15,8 +15,9 @@
 //!   routes the composer's and the queue's to `composer` (step 2).
 //! - Its composer, queue and history are `composer`'s; its run state and modeline note are
 //!   `note`'s; its resume and a native fork are `resume`'s; how it ends, stopped, failed,
-//!   archived or forgotten, `end`'s; its interrupt, `interrupting`'s (step 2c); its replies'
-//!   Markdown highlighting, once each is whole, is `markdown`'s (part 2g).
+//!   archived or forgotten, `end`'s; its interrupt, `interrupting`'s (step 2c); its slash
+//!   commands, `slash`'s (step 2d); its replies' Markdown highlighting, once each is whole,
+//!   `markdown`'s (part 2g).
 //! - Its bridge asks the person's permission for its calls on the sessions' socket, in
 //!   `permissions` (step 2).
 //! - Its first message is its brief, if it was given one; else the person writes it in its
@@ -33,6 +34,7 @@ mod markdown;
 mod note;
 mod permissions;
 mod resume;
+mod slash;
 
 use std::collections::HashMap;
 use std::ops::Range;
@@ -52,6 +54,7 @@ use crate::sessions::native::interrupt::Interrupt;
 use crate::sessions::native::placed::Placed;
 use crate::sessions::native::render;
 use crate::sessions::native::rows::{Changes, RowChange, Rows};
+use crate::sessions::native::slash::SlashCommands;
 use crate::sessions::native::turns;
 use crate::sessions::native::wire::Event;
 use crate::sessions::start::{NativeOrder, Ready, Started};
@@ -68,6 +71,9 @@ pub(in crate::app) struct NativeSessions {
     map: HashMap<SessionKey, Native>,
     /// The sessions' socket and the permission questions asked on it (ADR 0165, step 2).
     permissions: permissions::Permissions,
+    /// Whose slash commands, at which version, `native-composer-command` completes over
+    /// (step 2d).
+    slash_listed: Option<(SessionKey, u64)>,
     /// The replies highlighted as Markdown that wait or are open (part 2g).
     replies: markdown::Replies,
 }
@@ -102,6 +108,14 @@ struct Native {
     /// Its process's control layer, while it runs, and its interrupt (step 2c).
     control: Option<Control>,
     interrupt: Interrupt,
+    /// Its CLI's slash commands (step 2d), and the rows completion offers of them, as made
+    /// for that version of them.
+    commands: SlashCommands,
+    slash_rows: Option<(u64, std::sync::Arc<[oso_core::complete::Candidate]>)>,
+    /// The session id its process's first `system/init` gave, and whether a later one gave
+    /// another: then it neither resumes of itself nor by `session-resume` (step 2d).
+    cli_id: Option<String>,
+    moved: bool,
     /// Which of its replies are highlighted as Markdown, or wait to be (part 2g).
     markdown: markdown::Marks,
 }
@@ -110,6 +124,11 @@ impl NativeSessions {
     /// Whether session `key` is a native one.
     pub(in crate::app) fn has(&self, key: SessionKey) -> bool {
         self.map.contains_key(&key)
+    }
+
+    /// Whether native session `key`'s conversation moved to a session id oso does not follow.
+    pub(in crate::app) fn moved(&self, key: SessionKey) -> bool {
+        self.map.get(&key).is_some_and(|native| native.moved)
     }
 
     /// The process id of session `key`'s `claude`, while it runs and is not reaped.
@@ -140,6 +159,32 @@ impl App {
         self.configuration.native_sessions()
             && trusted
             && (has_brief(begin.brief.as_deref()) || begin.origin == Origin::Person)
+    }
+
+    /// A new native session `key`'s buffer, as [`App::native_session_buffer`] makes it, with
+    /// `brief` as its first message: none when blank, as the person writes it in the composer,
+    /// and none when it would clear the conversation (step 2d), which waits in the composer
+    /// instead and is taken out of `brief`.
+    pub(super) fn native_start_buffer(
+        &mut self,
+        key: SessionKey,
+        name: &str,
+        directory: PathBuf,
+        shown: bool,
+        brief: &mut Option<String>,
+    ) -> NativeOrder {
+        let first = brief.as_deref().filter(|brief| has_brief(Some(brief)));
+        let held = first.filter(|first| SlashCommands::default().refused(first).is_some());
+        let held = held.map(str::to_owned);
+        if held.is_some() {
+            *brief = None;
+        }
+        let first = brief.as_deref().filter(|brief| has_brief(Some(brief)));
+        let order = self.native_session_buffer(key, name, directory, shown, first);
+        if let Some(held) = held {
+            self.hold_in_composer(key, &held);
+        }
+        order
     }
 
     /// The buffer a native session `key`, named `name`, in `directory`, is shown in: made now,
@@ -176,6 +221,8 @@ impl App {
         if let Some(native) = self.hosting.natives.map.get_mut(&key) {
             native.control = Some(Control::started(std::time::Instant::now()));
             native.interrupt = Interrupt::new(interrupting::SIGNALS);
+            native.commands.new_process();
+            native.cli_id = None;
         }
         let waker = self.waker.clone();
         NativeOrder {
@@ -223,6 +270,10 @@ impl App {
             spoke: first.is_some(),
             control: None,
             interrupt: Interrupt::new(interrupting::SIGNALS),
+            commands: SlashCommands::default(),
+            slash_rows: None,
+            cli_id: None,
+            moved: false,
         };
         self.hosting.natives.map.insert(key, native);
         // Its composer, docked under it (ADR 0170).
@@ -352,8 +403,11 @@ impl App {
         let mut then = Vec::new();
         let interrupting = |native: &Native| native.interrupt.interrupting();
         let was_interrupting = interrupting(native);
-        for event in events {
-            interrupting::control_event(native, &event, &mut then);
+        for mut event in events {
+            interrupting::control_event(native, &mut event, &mut then);
+            if let Some(change) = slash::commands_event(native, &mut event) {
+                changes.add(change);
+            }
             if let Some(target) = turns::target(&event) {
                 // A turn under way, oso's or one it did not start, holds what is sent back.
                 native.composing.busy = !matches!(target, Target::Idle { .. });

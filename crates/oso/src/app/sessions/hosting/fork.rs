@@ -54,6 +54,17 @@ impl App {
                 }
             },
         };
+        // A conversation that moved to an id oso does not follow forks from before it
+        // (ADR 0165, step 2d).
+        let moved = (self.hosting.table.iter())
+            .find(|session| session.id == from.id)
+            .is_some_and(|session| self.hosting.natives.moved(session.key));
+        if moved {
+            return self.editor.message(
+                "This conversation moved to a session id oso does not follow: a fork would copy \
+                 the conversation before, so start a new session",
+            );
+        }
         self.fork_from(from);
     }
 
@@ -81,6 +92,17 @@ impl App {
                 }
             }
         };
+        // A conversation that moved to an id oso does not follow forks from before it
+        // (ADR 0165, step 2d).
+        let moved = (self.hosting.table.iter())
+            .find(|session| session.id == from.id)
+            .is_some_and(|session| self.hosting.natives.moved(session.key));
+        if moved {
+            return self.editor.message(
+                "This conversation moved to a session id oso does not follow: a fork would copy \
+                 the conversation before, so start a new session",
+            );
+        }
         self.fork_from(from);
     }
 

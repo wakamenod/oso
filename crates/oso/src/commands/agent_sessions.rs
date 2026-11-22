@@ -25,7 +25,7 @@ mod send;
 mod spaces;
 
 pub use card::{CARD_NOTE, CARD_OWN, COMMANDS as CARD_COMMANDS};
-pub use composer::COMMANDS as COMPOSER_COMMANDS;
+pub use composer::{COMMANDS as COMPOSER_COMMANDS, SLASH_LIST};
 pub use list::COMMANDS as LIST_COMMANDS;
 pub use list::{FOLDS, GUIDES, ROW_MARKS, SESSION_RENAME_TO, row_mark};
 pub use mode::{ARCHIVE_LABEL, COMMANDS as MODE_COMMANDS, PIN_LABEL, SESSION_HELP, agents_menu};

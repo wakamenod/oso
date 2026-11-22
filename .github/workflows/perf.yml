@@ -110,6 +110,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             xvfb mesa-vulkan-drivers libvulkan1 libx11-xcb1 libxcursor1 libxi6 libxrandr2 libxkbcommon-x11-0
+      # GitHub's macOS VM coalesces the timers of a step's processes, which run at utility
+      # QoS: a 25 ms sleep took 67 to 87 ms on average, so every paced key of the harness
+      # took about 3.5 times as long as on Linux, and the job ran out of time.
+      # taskpolicy and a higher QoS did not help; this did (ADR 0166). The VM is thrown
+      # away after the job.
+      - name: Turn off timer coalescing
+        if: runner.os == 'macOS'
+        run: sudo sysctl -w kern.timer.coalescing_enabled=0
       - name: Benchmark
         run: |
           if [ "$RUNNER_OS" = Linux ]; then

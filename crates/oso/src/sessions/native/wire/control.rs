@@ -5,15 +5,16 @@
 //!
 //! - Only `initialize` and `interrupt` are written (step 2c), each with an id of oso's,
 //!   `oso-N`: an answer whose id is not one of these is no answer of oso's.
-//! - Of an answer only its id, whether it succeeded and its error are read, the error cut to
-//!   [`super::MAX_NAME`]: what `initialize` answers otherwise (the commands, the models, the
-//!   account) is not kept yet.
+//! - Of an answer only its id, whether it succeeded, its error, cut to [`super::MAX_NAME`],
+//!   and the slash commands it lists (`commands`, step 2d) are read: what `initialize` answers
+//!   otherwise (the models, the account) is not kept.
 //! - A `control_request` of the CLI's is never answered, as oso asks it for none: its hooks,
 //!   its permission questions and its SDK servers are not oso's (permissions go through the
 //!   bridge, ADR 0165, Q2).
 
 use serde_json::{Map, Value};
 
+use super::slash::{SlashCommand, commands};
 use super::string;
 
 /// A request oso writes.
@@ -32,6 +33,8 @@ pub struct Answer {
     pub id: Option<u64>,
     /// Why it failed, cut to [`super::MAX_NAME`]; `None` when it succeeded.
     pub error: Option<String>,
+    /// The slash commands it lists, as `initialize`'s does (step 2d).
+    pub commands: Option<Vec<SlashCommand>>,
 }
 
 /// The id of `initialize`, the first request; the others have the ids after it.
@@ -69,5 +72,10 @@ pub(super) fn answer(object: &Map<String, Value>) -> Option<Answer> {
             false => error,
         }),
     };
-    Some(Answer { id, error })
+    let commands = (response.get("response").and_then(Value::as_object)).and_then(commands);
+    Some(Answer {
+        id,
+        error,
+        commands,
+    })
 }

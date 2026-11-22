@@ -13,12 +13,14 @@
 //!   whatever the line.
 //! - The transcript format is not read here: only the stream. Of the control protocol, the
 //!   requests oso writes and the answers to them are `control`'s (tier 2, step 2c).
-//! - `messages` reads the messages' bodies, `tools` a tool call's input and `control` the
-//!   control protocol's lines: with this file, the only places that touch JSON.
+//! - `messages` reads the messages' bodies, `tools` a tool call's input, `control` the
+//!   control protocol's lines and `slash` the slash commands listed: with this file, the
+//!   only places that touch JSON.
 
 pub mod card;
 pub mod control;
 mod messages;
+pub mod slash;
 pub mod tools;
 
 use serde_json::{Map, Value};
@@ -85,6 +87,9 @@ pub struct Init {
     pub permission_mode: String,
     pub version: String,
     pub capabilities: Vec<String>,
+    /// The slash commands' names, and those only a terminal's TUI runs (step 2d).
+    pub slash_commands: Vec<String>,
+    pub terminal_commands: Vec<String>,
 }
 
 /// What `system/status` says.
@@ -222,6 +227,8 @@ pub struct TurnResult {
     pub cost_usd: Option<f64>,
     pub turns: Option<u64>,
     pub denials: usize,
+    /// The session id it ended in, which a `/clear` changes (step 2d).
+    pub session_id: String,
 }
 
 /// What `rate_limit_event` says.
@@ -296,6 +303,8 @@ fn system(object: &Map<String, Value>) -> Event {
                         .collect()
                 })
                 .unwrap_or_default(),
+            slash_commands: slash::names(object, "slash_commands"),
+            terminal_commands: slash::names(object, "terminal_slash_commands"),
         }),
         "status" => Event::Status(match object.get("status").and_then(Value::as_str) {
             Some("requesting") => Status::Requesting,

@@ -150,14 +150,20 @@ impl App {
 
 /// Notes what `event` of a native session says to its control layer and its interrupt, and
 /// what that comes to in `then`.
-pub(super) fn control_event(native: &mut Native, event: &Event, then: &mut Vec<Then>) {
+pub(super) fn control_event(native: &mut Native, event: &mut Event, then: &mut Vec<Then>) {
     let Some(control) = native.control.as_mut() else {
         return;
     };
     match event {
         Event::Init(init) => then.extend(control.system_init(&init.capabilities).map(Then::Log)),
         Event::Answer(answer) => match control.answered(answer) {
-            Answered::Initialize(said) => then.extend(said.map(Then::Log)),
+            Answered::Initialize(said) => {
+                then.extend(said.map(Then::Log));
+                // The slash commands it lists, moved: no row needs them (step 2d).
+                if let Some(commands) = answer.commands.take() {
+                    native.commands.initialized(commands);
+                }
+            }
             Answered::Request {
                 request: Request::Interrupt,
                 id,

@@ -448,6 +448,7 @@ mod tests {
         "native-card-leave",
         "native-card-whole",
         "native-composer-cancel",
+        "native-composer-command",
         "native-composer-next",
         "native-composer-previous",
         "native-composer-send",
