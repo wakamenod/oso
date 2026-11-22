@@ -22,7 +22,7 @@ use super::fence::MAX_FENCE_BYTES;
 use super::highlight_tests::highlighted;
 use super::inline::MAX_INLINE_BYTES;
 use super::tests::{LONG, cases};
-use super::{Document, Failure, Highlighted};
+use super::{Document, Failure, Highlighted, wall};
 use crate::language::Language;
 use crate::queries::Queries;
 
@@ -94,7 +94,7 @@ fn highlight_on_a_small_stack(
             let mut queries = Queries::new();
             // A slice leaves plain what outlasts it, so each gets somewhere.
             for _ in 0..10_000 {
-                match document.highlight(&mut queries, &[], slice) {
+                match document.highlight(&mut queries, &[], slice, wall) {
                     Highlighted::Paused => continue,
                     Highlighted::Done => break,
                     // Too slow for a slice: plain, which the checks below still hold for.
@@ -102,7 +102,7 @@ fn highlight_on_a_small_stack(
                     failed => return Err(format!("{language:?}: {failed:?}")),
                 }
             }
-            let done = document.highlight(&mut queries, &[], slice);
+            let done = document.highlight(&mut queries, &[], slice, wall);
             if !matches!(
                 done,
                 Highlighted::Done | Highlighted::Failed(Failure::TooSlow)
@@ -177,7 +177,7 @@ fn a_text_too_slow_for_a_slice_fails_in_a_few_slices() {
     let started = std::time::Instant::now();
     let done = loop {
         calls += 1;
-        match document.highlight(&mut queries, &[], SLICE) {
+        match document.highlight(&mut queries, &[], SLICE, wall) {
             Highlighted::Paused if calls < 100 => continue,
             done => break done,
         }

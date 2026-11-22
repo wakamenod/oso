@@ -9,7 +9,7 @@ use oso_core::rope::Rope;
 use oso_core::syntax::Splice;
 use tree_sitter::Tree;
 
-use super::{Document, Failure, MAX_BYTES, Parsed};
+use super::{Document, Failure, MAX_BYTES, Parsed, wall};
 use crate::language::Language;
 
 pub(super) const LONG: Duration = Duration::from_secs(30);
@@ -61,7 +61,7 @@ pub(super) fn nodes(tree: &Tree) -> Vec<Node> {
 
 pub(super) fn parsed(language: Language, text: &str) -> Document {
     let mut document = Document::with_long_lines(language, Rope::from(text));
-    assert_eq!(document.parse(LONG), Parsed::Done);
+    assert_eq!(document.parse(LONG, wall), Parsed::Done);
     document
 }
 
@@ -127,7 +127,7 @@ fn a_slice_stops_a_parse_and_the_next_call_goes_on() {
     let text = "fn f(a: u32) -> u32 { a + 1 }\n".repeat(20_000);
     let mut document = Document::with_long_lines(Language::Rust, Rope::from(text.as_str()));
     let mut calls = 0;
-    while document.parse(Duration::from_micros(200)) == Parsed::Paused {
+    while document.parse(Duration::from_micros(200), wall) == Parsed::Paused {
         calls += 1;
         assert!(calls < 100_000, "the parse never ends");
     }
@@ -143,7 +143,10 @@ fn a_slice_stops_a_parse_and_the_next_call_goes_on() {
 fn edits_wait_for_a_stopped_parse_and_follow_it() {
     let text = Rope::from("fn f() {}\n".repeat(20_000).as_str());
     let mut document = Document::with_long_lines(Language::Rust, text.clone());
-    assert_eq!(document.parse(Duration::from_micros(100)), Parsed::Paused);
+    assert_eq!(
+        document.parse(Duration::from_micros(100), wall),
+        Parsed::Paused
+    );
     let batch = [(
         Splice {
             start: 3,
@@ -154,7 +157,7 @@ fn edits_wait_for_a_stopped_parse_and_follow_it() {
     )];
     let after = apply(&text, &batch);
     document.edit(&[batch[0].0], &after);
-    assert_eq!(document.parse(LONG), Parsed::Done);
+    assert_eq!(document.parse(LONG, wall), Parsed::Done);
     let fresh = parsed(Language::Rust, &after.to_string());
     assert_eq!(
         nodes(document.tree().unwrap()),
@@ -172,7 +175,7 @@ fn splices_that_do_not_fit_parse_again_from_nothing() {
         new_len: 1,
     };
     document.edit(&[wrong], &after);
-    assert_eq!(document.parse(LONG), Parsed::Done);
+    assert_eq!(document.parse(LONG, wall), Parsed::Done);
     let fresh = parsed(Language::Toml, "[t]\nb = \"x\"\n");
     assert_eq!(
         nodes(document.tree().unwrap()),
@@ -184,10 +187,16 @@ fn splices_that_do_not_fit_parse_again_from_nothing() {
 fn a_text_past_the_size_limit_is_not_parsed() {
     let text = "x".repeat(MAX_BYTES + 1);
     let mut document = Document::with_long_lines(Language::Markdown, Rope::from(text.as_str()));
-    assert_eq!(document.parse(LONG), Parsed::Failed(Failure::TooLarge));
+    assert_eq!(
+        document.parse(LONG, wall),
+        Parsed::Failed(Failure::TooLarge)
+    );
     assert!(document.tree().is_none());
     document.edit(&[], &Rope::from("small"));
-    assert_eq!(document.parse(LONG), Parsed::Failed(Failure::TooLarge));
+    assert_eq!(
+        document.parse(LONG, wall),
+        Parsed::Failed(Failure::TooLarge)
+    );
 }
 
 #[test]
@@ -201,7 +210,7 @@ fn a_parse_past_its_time_limit_stops_for_good() {
     );
     let mut result = Parsed::Paused;
     for _ in 0..100_000 {
-        result = document.parse(Duration::from_micros(100));
+        result = document.parse(Duration::from_micros(100), wall);
         if result != Parsed::Paused {
             break;
         }
@@ -216,7 +225,10 @@ fn edits_past_what_may_wait_parse_again_from_nothing() {
     let mut document = Document::with_long_lines(Language::Rust, text.clone());
     // A parse stopped part way: the first call may spend its slice reading the lines.
     while document.running.is_none() {
-        assert_eq!(document.parse(Duration::from_micros(5)), Parsed::Paused);
+        assert_eq!(
+            document.parse(Duration::from_micros(5), wall),
+            Parsed::Paused
+        );
     }
     // One batch of more splices than may wait, one each line.
     let batch: Vec<(Splice, String)> = (0..super::MAX_WAITING + 1)
@@ -241,7 +253,7 @@ fn edits_past_what_may_wait_parse_again_from_nothing() {
             .is_some_and(|(batch, _)| batch.is_none()),
         "too many to wait"
     );
-    assert_eq!(document.parse(LONG), Parsed::Done);
+    assert_eq!(document.parse(LONG, wall), Parsed::Done);
     let fresh = parsed(Language::Rust, &after.to_string());
     assert_eq!(
         nodes(document.tree().unwrap()),
@@ -258,12 +270,15 @@ fn a_line_past_the_limit_stops_the_document() {
         Language::Go,
         Rope::from(format!("var a\nvar b = \"{long}\"\n").as_str()),
     );
-    assert_eq!(document.parse(LONG), Parsed::Failed(Failure::LongLine));
+    assert_eq!(
+        document.parse(LONG, wall),
+        Parsed::Failed(Failure::LongLine)
+    );
 
     let half = "x".repeat(super::long_line::MAX_LINE_BYTES / 2 + 1);
     let before = format!("{half}\n{half}\n");
     let mut document = Document::new(Language::Go, Rope::from(before.as_str()));
-    assert_eq!(document.parse(LONG), Parsed::Done);
+    assert_eq!(document.parse(LONG, wall), Parsed::Done);
     let after = Rope::from(format!("{half}{half}\n").as_str());
     let join = Splice {
         start: half.len(),
@@ -271,7 +286,10 @@ fn a_line_past_the_limit_stops_the_document() {
         new_len: 0,
     };
     document.edit(&[join], &after);
-    assert_eq!(document.parse(LONG), Parsed::Failed(Failure::LongLine));
+    assert_eq!(
+        document.parse(LONG, wall),
+        Parsed::Failed(Failure::LongLine)
+    );
     assert_eq!(document.highlights().len(), after.len());
     assert!(
         document

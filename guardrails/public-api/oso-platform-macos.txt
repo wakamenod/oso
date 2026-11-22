@@ -712,6 +712,8 @@ pub fn oso_platform::text::NullTextSystem::metrics(&self) -> oso_platform::text:
 pub fn oso_platform::text::NullTextSystem::rasterize(&mut self, oso_platform::text::GlyphKey) -> core::option::Option<oso_platform::text::GlyphBitmap>
 pub fn oso_platform::text::NullTextSystem::shape(&mut self, &str, &mut alloc::vec::Vec<oso_platform::text::ShapedGlyph>)
 pub fn oso_platform::text::load(&oso_platform::text::FontRequest<'_>, f64) -> core::result::Result<alloc::boxed::Box<dyn oso_platform::text::TextSystem>, oso_platform::text::TextError>
+pub mod oso_platform::thread_time
+pub fn oso_platform::thread_time::now() -> core::option::Option<core::time::Duration>
 pub mod oso_platform::window
 pub enum oso_platform::window::Event<'a>
 pub oso_platform::window::Event::CloseRequested

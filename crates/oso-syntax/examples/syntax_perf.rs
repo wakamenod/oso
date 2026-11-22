@@ -50,10 +50,12 @@ fn main() {
     let mut queries = Queries::new();
     let start = Instant::now();
     let mut document = Document::new(language, Rope::from(text.as_str()));
-    assert_eq!(document.parse(LONG), Parsed::Done);
+    // A clock that reads none: the limits count the wall clock's time, which this example
+    // measures, and which is never less than the thread's CPU time the app counts (ADR 0172).
+    assert_eq!(document.parse(LONG, || None), Parsed::Done);
     let parsed = start.elapsed();
     assert_eq!(
-        document.highlight(&mut queries, &[], LONG),
+        document.highlight(&mut queries, &[], LONG, || None),
         Highlighted::Done
     );
     let first = start.elapsed();
@@ -69,7 +71,7 @@ fn main() {
     let (mut slices, mut longest) = (0, Duration::ZERO);
     loop {
         let start = Instant::now();
-        let done = sliced.highlight(&mut queries, &[], SLICE);
+        let done = sliced.highlight(&mut queries, &[], SLICE, || None);
         longest = longest.max(start.elapsed());
         slices += 1;
         if done != Highlighted::Paused {
@@ -114,7 +116,7 @@ fn after_one_key(
     let (mut slices, mut longest) = (0, Duration::ZERO);
     loop {
         let begun = Instant::now();
-        let done = document.highlight(queries, std::slice::from_ref(&shown), slice);
+        let done = document.highlight(queries, std::slice::from_ref(&shown), slice, || None);
         longest = longest.max(begun.elapsed());
         slices += 1;
         if done != Highlighted::Paused {

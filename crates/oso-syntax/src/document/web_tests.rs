@@ -13,7 +13,7 @@ use oso_core::syntax::Splice;
 use super::embedded::MAX_EMBEDDED_BYTES;
 use super::highlight_tests::{highlighted, runs};
 use super::tests::LONG;
-use super::{Document, Highlighted};
+use super::{Document, Highlighted, wall};
 use crate::language::Language;
 use crate::queries::Queries;
 
@@ -306,7 +306,7 @@ fn an_edit_to_a_start_tag_highlights_its_element_again() {
     let mut queries = Queries::new();
     let mut document = Document::new(Language::Html, Rope::from(before.as_str()));
     assert_eq!(
-        document.highlight(&mut queries, &[], LONG),
+        document.highlight(&mut queries, &[], LONG, wall),
         Highlighted::Done
     );
     let last = before.rfind("let").unwrap();
@@ -320,7 +320,7 @@ fn an_edit_to_a_start_tag_highlights_its_element_again() {
     };
     document.edit(&[splice], &Rope::from(after.as_str()));
     assert_eq!(
-        document.highlight(&mut queries, &[], LONG),
+        document.highlight(&mut queries, &[], LONG, wall),
         Highlighted::Done
     );
     let last = after.rfind("let").unwrap();
@@ -332,7 +332,7 @@ fn an_edit_to_a_start_tag_highlights_its_element_again() {
     };
     document.edit(&[undo], &Rope::from(before.as_str()));
     assert_eq!(
-        document.highlight(&mut queries, &[], LONG),
+        document.highlight(&mut queries, &[], LONG, wall),
         Highlighted::Done
     );
     let last = before.rfind("let").unwrap();
@@ -345,7 +345,7 @@ fn an_embedded_query_is_compiled_at_its_first_element() {
     let mut queries = Queries::new();
     let mut document = Document::new(Language::Html, Rope::from("<p>x</p>\n"));
     assert_eq!(
-        document.highlight(&mut queries, &[], LONG),
+        document.highlight(&mut queries, &[], LONG, wall),
         Highlighted::Done
     );
     let tried =
@@ -355,7 +355,7 @@ fn an_embedded_query_is_compiled_at_its_first_element() {
     let text = "<style>a { b: c }</style>\n";
     let mut document = Document::new(Language::Html, Rope::from(text));
     assert_eq!(
-        document.highlight(&mut queries, &[], LONG),
+        document.highlight(&mut queries, &[], LONG, wall),
         Highlighted::Done
     );
     assert!(tried(&queries, Language::Css));

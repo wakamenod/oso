@@ -49,7 +49,7 @@ crates/
                     shaping/rasterizing backends, the window layer,
                     clipboard, filesystem and paths (the home
                     directory among them), process spawning, PTY,
-                    random bytes
+                    random bytes, a thread's CPU time
 ```
 
 Commands live in the tip crate because it changes most often and rebuilds
@@ -755,7 +755,8 @@ The UI thread never blocks on I/O or parsing:
 - Tree-sitter parsing runs on two worker threads of the tip crate (`app/syntax.rs`), each on an
   8 MiB stack, which share one schedule of every buffer's document (`oso_syntax::Scheduler`):
   shown buffers first, and at most one thread on a buffer no window shows, so a slice that runs
-  long never holds the shown ones. The UI thread never calls tree-sitter, and nothing under the
+  long never holds the shown ones. The time limits count each thread's CPU time, from
+  `oso_platform::thread_time` (ADR 0172); a slice ends on the wall clock. The UI thread never calls tree-sitter, and nothing under the
   lock makes or frees a document; the UI sends a job after each command and drops a buffer that
   turned secret at once. A buffer's highlights are a map of runs
   in `oso-core` (`syntax::Highlights`) that follows edits with the buffer, and the worker's
