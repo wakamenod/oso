@@ -80,7 +80,8 @@ impl Rendered {
     }
 
     /// `text`'s lines, each after `first` or, past the first, `rest`; `face` on each line's
-    /// text, if any.
+    /// text, if any. An empty line's mark ends at its last character that is not a space, so
+    /// that no row ends in spaces: a blank line of a reply is empty, not two spaces.
     fn lines(
         &mut self,
         text: &str,
@@ -91,15 +92,25 @@ impl Rendered {
     ) {
         let mut any = false;
         for (at, line) in text.lines().enumerate() {
-            self.put(if at == 0 { first } else { rest }, mark);
+            let before = if at == 0 { first } else { rest };
+            self.put(blank_mark(before, line.is_empty()), mark);
             self.put(line, face);
             self.put("\n", None);
             any = true;
         }
         if !any {
-            self.put(first, mark);
+            self.put(blank_mark(first, true), mark);
             self.put("\n", None);
         }
+    }
+}
+
+/// The mark before a line: `mark`, or for an empty line, `mark` without the spaces at its end.
+pub(super) fn blank_mark(mark: &str, empty: bool) -> &str {
+    if empty {
+        mark.trim_end_matches(' ')
+    } else {
+        mark
     }
 }
 

@@ -702,7 +702,8 @@ orchestrator chose (a) on the last. The author accepted the exception to ADR 011
   take their own language as in any Markdown buffer (ADR 0111, step 7). Only the report that
   says it is done counts, once.
 - **On its row:** the row draws each line after a mark (`● `, or two spaces past the first,
-  after its indent); the report's runs are put past each line's mark, which keeps its face, in
+  after its indent), an empty line's without the spaces at its end, so that no row ends in
+  spaces, which the trailing whitespace aid would show (as for every row's lines); the report's runs are put past each line's mark, which keeps its face, in
   one walk over the lines and the runs (`sessions::native::markdown`), and laid over the row's
   bytes in the buffer's highlights (`Editor::set_internal_highlights`), O(log n) and a step a
   run. The rows' faces as highlights (`Face::highlight`, `Rendered::runs`) moved to

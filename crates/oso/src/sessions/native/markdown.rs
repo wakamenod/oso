@@ -8,7 +8,8 @@
 //!   end of its turn, and its text at most [`MAX_REPLY`] bytes. A reply that streams stays
 //!   plain.
 //! - Its row draws each line of its text after a mark (`● `, or two spaces past the first
-//!   line, after the row's indent), as `render` does; the projection walks the text's lines and
+//!   line, after the row's indent), an empty line's without its spaces at the end, as `render`
+//!   does; the projection walks the text's lines and
 //!   the highlights' runs together, shifting each line's runs past its mark, which keeps its
 //!   own face. A line's break, and the `\r` before it, have no run. O(runs + lines).
 //! - Past [`MAX_RUNS`] runs the reply stays plain, which bounds what the UI thread puts in.
@@ -17,7 +18,7 @@ use std::ops::Range;
 
 use oso_core::syntax::{Highlight, Highlights};
 
-use super::render::Face;
+use super::render::{Face, blank_mark};
 use super::rows::{Kind, Row};
 
 /// The longest reply highlighted, in bytes (the author's choice): a longer one stays plain.
@@ -79,18 +80,25 @@ fn lay(
     text: &str,
     mut line: impl FnMut(Range<usize>, &mut Vec<Run>) -> bool,
 ) -> Option<Vec<Run>> {
-    let indent = 2 * usize::from(row.depth);
-    // `● ` is 4 bytes, two spaces 2: as `tail` draws them.
-    let (first, rest) = (indent + "● ".len(), indent + 2);
-    let mark = Some(Face::Dim.highlight());
+    let indent = "  ".repeat(usize::from(row.depth));
+    // As `tail` draws them.
+    let (first, rest) = (format!("{indent}● "), format!("{indent}  "));
+    let face = Some(Face::Dim.highlight());
     let mut runs = Vec::new();
+    let mark = |runs: &mut Vec<Run>, mark: &str, empty: bool| {
+        let width = blank_mark(mark, empty).len();
+        if width > 0 {
+            runs.push((width, face));
+        }
+    };
     let mut at = 0;
     for (index, whole) in text.split_inclusive('\n').enumerate() {
-        runs.push((if index == 0 { first } else { rest }, mark));
         // As `str::lines`: a line's break, and a `\r` just before it, are not its text.
         let shown = whole
             .strip_suffix('\n')
             .map_or(whole, |shown| shown.strip_suffix('\r').unwrap_or(shown));
+        let before = if index == 0 { &first } else { &rest };
+        mark(&mut runs, before, shown.is_empty());
         if !line(at..at + shown.len(), &mut runs) {
             return None;
         }
@@ -102,7 +110,8 @@ fn lay(
         }
     }
     if text.is_empty() {
-        runs.extend([(first, mark), (1, None)]);
+        mark(&mut runs, &first, true);
+        runs.push((1, None));
     }
     Some(runs)
 }

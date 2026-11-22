@@ -96,6 +96,22 @@ fn an_empty_reply_is_its_mark_alone() {
 }
 
 #[test]
+fn a_blank_line_has_no_mark_and_no_row_ends_in_a_space() {
+    let text = "# A\n\n\r\nb";
+    for depth in [0, 1] {
+        let row = reply(text, depth);
+        let drawn = tail(&row, 0, 0).text;
+        assert!(drawn.lines().all(|line| !line.ends_with(' ')), "{drawn:?}");
+        let highlights = marked(text, &[0..1, 1..3]);
+        let runs = project(&row, &highlights).expect("projected");
+        check(&row, &highlights, &runs);
+        assert!(runs.iter().all(|(len, _)| *len > 0), "no empty run");
+    }
+    assert_eq!(tail(&reply(text, 1), 0, 0).text, "  ● # A\n\n\n    b\n");
+    assert_eq!(tail(&reply("", 1), 0, 0).text, "  ●\n");
+}
+
+#[test]
 fn only_a_whole_reply_within_the_limit_is_highlighted() {
     let streaming = Row {
         kind: Kind::Reply {
