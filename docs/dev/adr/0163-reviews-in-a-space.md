@@ -1,6 +1,6 @@
 # 0163. Reviews in a space
 
-- Status: Accepted; "Submit once pasted, as amended" (2026-11-22)
+- Status: Accepted, amended by 0169; "Submit once pasted, as amended" (2026-11-22)
 - Date: 2026-11-21
 
 ## Context

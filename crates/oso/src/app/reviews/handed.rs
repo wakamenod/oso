@@ -34,6 +34,8 @@ pub(super) struct Handed {
     windows: Vec<WindowId>,
     /// The review layout's slot, when the frame was its layout (ADR 0160).
     slot: Option<WindowId>,
+    /// The window below the slot that showed `review-ask`'s session (ADR 0169).
+    ask: Option<WindowId>,
     until: Instant,
 }
 
@@ -43,11 +45,15 @@ impl App {
     pub(in crate::app) fn reviews_to_hand_over(&self) -> Vec<carry::reviews::Shown> {
         (self.reviews.open.iter())
             .filter(|running| !running.revoked)
-            .map(|running| carry::reviews::Shown {
-                root: running.root.path().to_owned(),
-                scope: running.scope.clone(),
-                review: running.id,
-                slot: self.review_layout_slot(running.id),
+            .map(|running| {
+                let laid = self.review_layout_slot(running.id);
+                carry::reviews::Shown {
+                    root: running.root.path().to_owned(),
+                    scope: running.scope.clone(),
+                    review: running.id,
+                    slot: laid.map(|(slot, _)| slot),
+                    ask: laid.and_then(|(_, ask)| ask),
+                }
             })
             .collect()
     }
@@ -68,6 +74,7 @@ impl App {
                     scope: entry.scope,
                     windows: shown,
                     slot: entry.slot.and_then(|at| windows.get(at).copied()),
+                    ask: entry.ask.and_then(|at| windows.get(at).copied()),
                     until,
                 });
             }
@@ -108,6 +115,7 @@ impl App {
             scope,
             windows,
             slot,
+            ask,
             ..
         } = handed;
         let selected = self.editor.tiled().0.id();
@@ -130,7 +138,7 @@ impl App {
         let review = (self.editor.window_by_id(first))
             .and_then(|w| super::slot::owner(&self.editor, w.buffer()));
         if let (Some(review), Some(slot)) = (review, slot) {
-            self.carried_review_layout(review, first, slot);
+            self.carried_review_layout(review, first, slot, ask);
         }
         let back = if self.editor.window_by_id(selected).is_some() {
             selected

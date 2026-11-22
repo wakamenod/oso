@@ -45,6 +45,8 @@ fn each_space_keeps_the_trees_behind_its_own_and_a_review_layout_goes_with_it() 
         window,
         slot: None,
         from: None,
+        ask: None,
+        asked: None,
     }));
     let file = editor.add_buffer(Buffer::from_text("b.rs", "b"));
     spaces.showed(two, None, Some(file));
