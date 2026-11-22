@@ -20,6 +20,7 @@
 //!   free off the UI thread, as a 64 MiB text's highlights take milliseconds to drop.
 
 mod cells;
+mod commits;
 mod draft;
 mod files;
 mod kept;
@@ -42,11 +43,12 @@ use crate::sum_tree::Bias;
 use crate::syntax::Highlights;
 
 pub use cells::ReviewCells;
+pub use commits::{CommitEntry, Commits};
 pub use draft::DraftFor;
 pub use menu::{Count, ScopeMenu};
 pub use panes::{ReviewArea, ReviewChoice, ReviewLayout};
 pub use places::LineMoves;
-pub use request::{ReviewRequest, ReviewStart};
+pub use request::{ReviewRequest, ReviewStart, Step};
 
 /// A review's id, never reused while the editor runs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -115,6 +117,10 @@ struct Open {
     kept: bool,
     /// Its files pane and its filter (step 6b).
     files: files::Files,
+    /// A pull request's commits and their list (ADR 0167).
+    walk: commits::Walk,
+    /// The pull request review this one reviews a commit of, and that commit's index.
+    pull: Option<(ReviewId, usize)>,
 }
 
 impl Open {
@@ -202,6 +208,8 @@ impl Editor {
             spare: Vec::new(),
             kept: false,
             files: files::Files::default(),
+            walk: commits::Walk::default(),
+            pull: None,
         });
         (id, buffer)
     }
@@ -210,6 +218,7 @@ impl Editor {
     /// where it was, and the host is asked to stop its threads.
     pub fn remove_review(&mut self, id: ReviewId) {
         self.close_review_files(id);
+        self.close_review_commits(id);
         let Some(index) = self.reviews.open.iter().position(|open| open.id == id) else {
             return;
         };
@@ -553,6 +562,23 @@ impl Editor {
         }
         if let Some((read, listed)) = open.reading {
             let _ = write!(out, "  reading {read}/{listed}");
+        }
+        // Which commit of its pull request it is, or how many commits the pull request has
+        // (ADR 0167).
+        if let Some((pull, index)) = self.review_pull_index(open.id)
+            && let Some(commits) = self.review_commits(pull)
+        {
+            let _ = write!(
+                out,
+                "  #{} {}/{}",
+                commits.number,
+                index + 1,
+                commits.entries.len()
+            );
+        } else if let Some(commits) = open.walk.commits.as_ref() {
+            let total = commits.entries.len();
+            let noun = if total == 1 { "commit" } else { "commits" };
+            let _ = write!(out, "  #{} all {total} {noun}", commits.number);
         }
         // How far the person is (ADR 0122, step 5).
         let (decided, viewed, hunks) = open.review.progress();

@@ -50,6 +50,7 @@ fn header(root: &str, opened: u64) -> Header {
         opened,
         comments: 1,
         unsent: 1,
+        pull: None,
     }
 }
 

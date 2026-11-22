@@ -71,6 +71,15 @@ impl fmt::Debug for Report {
                 .field("number", number)
                 .finish_non_exhaustive(),
             Self::Jumped(jumped) => f.debug_tuple("Jumped").field(jumped).finish(),
+            Self::Commits(listed) => f
+                .debug_struct("Commits")
+                .field("commits", &listed.commits.len())
+                .field("more", &listed.more)
+                .finish(),
+            Self::Message(message) => f
+                .debug_struct("Message")
+                .field("lines", &message.lines.len())
+                .finish_non_exhaustive(),
         }
     }
 }

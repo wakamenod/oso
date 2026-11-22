@@ -49,6 +49,9 @@ pub(crate) struct Header {
     /// How many comments it holds, and of them the person's not sent.
     pub(crate) comments: usize,
     pub(crate) unsent: usize,
+    /// The pull request a review of one commit was stepped to from (ADR 0167), so that it is
+    /// linked to that pull request's review again once its commits are listed.
+    pub(crate) pull: Option<u64>,
 }
 
 /// Where a window's cursor was in the review: a line of a side of a file, or the file's header.
@@ -276,7 +279,7 @@ pub(super) fn side_of(value: &Value) -> Option<Side> {
 }
 
 fn header_value(header: &Header, next_id: u64) -> Value {
-    json!({
+    let mut value = json!({
         "oso-review": VERSION,
         "root": bytes_value(header.root.as_os_str().as_encoded_bytes()),
         "scope": scope_value(&header.scope),
@@ -284,7 +287,13 @@ fn header_value(header: &Header, next_id: u64) -> Value {
         "comments": header.comments,
         "unsent": header.unsent,
         "next_id": next_id,
-    })
+    });
+    // Written only when there is one, so that a file of a review stepped to from no pull
+    // request is as it was.
+    if let (Some(pull), Some(map)) = (header.pull, value.as_object_mut()) {
+        map.insert("pull".to_owned(), json!(pull));
+    }
+    value
 }
 
 /// `scope` as a saved review, and a restart's state (`carry`), write it.
@@ -409,6 +418,11 @@ fn header_of(line: &[u8]) -> Option<(Header, u64)> {
         opened: value.get("opened")?.as_u64()?,
         comments: count("comments")?,
         unsent: count("unsent")?,
+        // A number of digits a pull request may have, or none (ADR 0167).
+        pull: value
+            .get("pull")
+            .and_then(Value::as_u64)
+            .filter(|number| *number > 0 && number.to_string().len() <= 18),
     };
     Some((header, value.get("next_id")?.as_u64()?))
 }

@@ -77,7 +77,7 @@ fn review_visit(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
             }
         }
         RowKind::Hunk { hunk } => hunk_start(hunk).unwrap_or(first),
-        RowKind::File | RowKind::Note => first,
+        RowKind::File | RowKind::Note | RowKind::Message => first,
         RowKind::Label { comment } | RowKind::Card { comment } => {
             let found = (model.into_iter())
                 .flat_map(|model| model.comments_on(row.path))

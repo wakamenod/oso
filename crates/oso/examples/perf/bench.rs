@@ -27,6 +27,7 @@ mod finding;
 mod git_status;
 mod lsp;
 mod review;
+mod review_commits;
 mod sessions;
 mod startup;
 mod syntax;
@@ -161,6 +162,7 @@ pub fn run_all(exe: &Path, scale: &Scale) -> Result<Report, String> {
     syntax::highlighted_typing(exe, scale.key_runs, scale.keys, &mut report)?;
     syntax::indented_returns(exe, scale.key_runs, scale.keys, &mut report)?;
     review::review(exe, scale.key_runs, scale.keys, &mut report)?;
+    review_commits::review_commits(exe, scale.key_runs, &mut report)?;
     git_status::git_status(exe, scale.key_runs, scale.keys, &mut report)?;
     sessions::sessions(exe, scale.key_runs, &mut report)?;
     conversations::conversations(exe, scale.key_runs, scale.keys, &mut report)?;

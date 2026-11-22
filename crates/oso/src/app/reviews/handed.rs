@@ -117,7 +117,7 @@ impl App {
         };
         self.editor.select_window(first);
         // A session review compares with the baseline it had (step 6).
-        self.open_scope(project, scope, false);
+        self.open_scope(project, scope, super::Show::Window);
         for window in windows.into_iter().filter(|id| *id != first) {
             if self.editor.window_by_id(window).is_some() {
                 self.editor.select_window(window);

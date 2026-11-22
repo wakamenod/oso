@@ -59,7 +59,7 @@ fn band(kind: RowKind) -> Band {
         } => Band::Added,
         RowKind::File | RowKind::Hunk { .. } | RowKind::Gap { .. } => Band::Header,
         RowKind::Label { .. } | RowKind::Card { .. } => Band::Card,
-        RowKind::Note | RowKind::Context { .. } => Band::None,
+        RowKind::Note | RowKind::Message | RowKind::Context { .. } => Band::None,
         RowKind::Filler => Band::Filler,
     }
 }

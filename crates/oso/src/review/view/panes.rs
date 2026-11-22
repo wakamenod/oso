@@ -367,8 +367,8 @@ impl State {
         self.panes.dirty = false;
         let said = self.said_now();
         let title = Arc::new(Sides {
-            old: section::title(&self.title, &said),
-            new: section::title(&self.title, &said),
+            old: section::title(&self.title, self.message.as_deref(), &said),
+            new: section::title(&self.title, self.message.as_deref(), &said),
         });
         let mut size = title.len();
         let mut pairs = vec![title];

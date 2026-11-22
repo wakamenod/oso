@@ -45,6 +45,7 @@ mod listed;
 mod panes;
 mod project;
 mod section;
+mod title;
 mod withheld;
 
 use std::collections::hash_map::Entry as Slot;
@@ -146,6 +147,8 @@ pub(crate) enum Tell {
     /// The files of the open buffers that may hold secrets or are withheld from agents: they
     /// show no unchanged line (step 13).
     HeldBuffers(Arc<std::collections::HashSet<PathBuf>>),
+    /// The message of the commit the review reviews, shown under its title (ADR 0167).
+    Message(Arc<super::commits::Message>),
 }
 
 /// How a file's comments are carried to its new reading.
@@ -240,6 +243,8 @@ impl Drop for View {
 struct State {
     title: String,
     said: Vec<String>,
+    /// The message of the commit it reviews, if it reviews one (ADR 0167).
+    message: Option<Arc<super::commits::Message>>,
     order: Vec<Box<[u8]>>,
     files: HashMap<Box<[u8]>, File>,
     gone: BTreeMap<Box<[u8]>, Gone>,
@@ -280,6 +285,7 @@ impl State {
         State {
             title,
             said: Vec::new(),
+            message: None,
             order: Vec::new(),
             files: HashMap::new(),
             gone: BTreeMap::new(),
@@ -359,6 +365,10 @@ impl State {
             Tell::Said(said) => {
                 self.dirty |= said != self.said;
                 self.said = said;
+            }
+            Tell::Message(message) => {
+                self.dirty |= self.message.as_ref() != Some(&message);
+                self.message = Some(message);
             }
             Tell::Panes(on) => self.show_panes(on),
             Tell::Filter(filter) => self.filter(filter),

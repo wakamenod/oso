@@ -20,11 +20,26 @@ pub(super) fn scope_label(scope: &Scope) -> String {
         Scope::Unstaged => "unstaged".to_owned(),
         Scope::Staged => "staged".to_owned(),
         Scope::Branch { base } => format!("branch {base}"),
+        // A step through a pull request's commits names one by its full id (ADR 0167).
+        Scope::Commit { revision } if is_full_id(revision) => {
+            format!("commit {}", &revision[..SHORT])
+        }
         Scope::Commit { revision } => format!("commit {revision}"),
         Scope::Range { from, to } => format!("range {from}..{to}"),
         Scope::PullRequest { number } => format!("pull request #{number}"),
     };
     one_line(&label, MAX_NAME)
+}
+
+/// How many of a full id's digits a review's name shows.
+const SHORT: usize = 12;
+
+/// Whether `revision` is a whole object id, of 40 or 64 lower-case hex digits.
+fn is_full_id(revision: &str) -> bool {
+    matches!(revision.len(), 40 | 64)
+        && revision
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 /// Whether `a` and `b` review the same thing: the session scope whatever its baseline.

@@ -79,6 +79,7 @@ pub oso_core::buffer::Mode::Markdown
 pub oso_core::buffer::Mode::NativeSession
 pub oso_core::buffer::Mode::RenamePreview
 pub oso_core::buffer::Mode::Review
+pub oso_core::buffer::Mode::ReviewCommits
 pub oso_core::buffer::Mode::ReviewFiles
 pub oso_core::buffer::Mode::ReviewMessage
 pub oso_core::buffer::Mode::Rust
@@ -2188,6 +2189,9 @@ pub oso_core::editor::ReviewRequest::Reject::review: oso_core::editor::ReviewId
 pub oso_core::editor::ReviewRequest::Resume(alloc::string::String)
 pub oso_core::editor::ReviewRequest::Send(oso_core::editor::ReviewId)
 pub oso_core::editor::ReviewRequest::Start(oso_core::editor::ReviewStart)
+pub oso_core::editor::ReviewRequest::Step
+pub oso_core::editor::ReviewRequest::Step::review: oso_core::editor::ReviewId
+pub oso_core::editor::ReviewRequest::Step::to: oso_core::editor::Step
 pub oso_core::editor::ReviewRequest::Undo(oso_core::editor::ReviewId)
 pub oso_core::editor::ReviewRequest::Viewed
 pub oso_core::editor::ReviewRequest::Viewed::hunks: alloc::vec::Vec<usize>
@@ -2459,6 +2463,20 @@ pub fn oso_core::editor::StashAction::eq(&self, &oso_core::editor::StashAction) 
 impl core::fmt::Debug for oso_core::editor::StashAction
 pub fn oso_core::editor::StashAction::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::editor::StashAction
+pub enum oso_core::editor::Step
+pub oso_core::editor::Step::Commit(usize)
+pub oso_core::editor::Step::Next
+pub oso_core::editor::Step::Previous
+pub oso_core::editor::Step::Whole
+impl core::clone::Clone for oso_core::editor::Step
+pub fn oso_core::editor::Step::clone(&self) -> oso_core::editor::Step
+impl core::cmp::Eq for oso_core::editor::Step
+impl core::cmp::PartialEq for oso_core::editor::Step
+pub fn oso_core::editor::Step::eq(&self, &oso_core::editor::Step) -> bool
+impl core::fmt::Debug for oso_core::editor::Step
+pub fn oso_core::editor::Step::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::Step
+impl core::marker::StructuralPartialEq for oso_core::editor::Step
 pub enum oso_core::editor::TerminalRequest
 pub oso_core::editor::TerminalRequest::Keys(alloc::vec::Vec<oso_core::key::KeyPress>)
 pub oso_core::editor::TerminalRequest::Open
@@ -2620,6 +2638,25 @@ impl core::cmp::Eq for oso_core::editor::CodeActionItem
 impl core::cmp::PartialEq for oso_core::editor::CodeActionItem
 pub fn oso_core::editor::CodeActionItem::eq(&self, &oso_core::editor::CodeActionItem) -> bool
 impl core::marker::StructuralPartialEq for oso_core::editor::CodeActionItem
+pub struct oso_core::editor::CommitEntry
+pub oso_core::editor::CommitEntry::author: alloc::string::String
+pub oso_core::editor::CommitEntry::date: alloc::string::String
+pub oso_core::editor::CommitEntry::empty: bool
+pub oso_core::editor::CommitEntry::hunks: usize
+pub oso_core::editor::CommitEntry::merge: bool
+pub oso_core::editor::CommitEntry::short: alloc::string::String
+pub oso_core::editor::CommitEntry::subject: alloc::string::String
+pub oso_core::editor::CommitEntry::unpushed: bool
+pub oso_core::editor::CommitEntry::unsent: usize
+pub oso_core::editor::CommitEntry::viewed: usize
+impl core::clone::Clone for oso_core::editor::CommitEntry
+pub fn oso_core::editor::CommitEntry::clone(&self) -> oso_core::editor::CommitEntry
+impl core::cmp::Eq for oso_core::editor::CommitEntry
+impl core::cmp::PartialEq for oso_core::editor::CommitEntry
+pub fn oso_core::editor::CommitEntry::eq(&self, &oso_core::editor::CommitEntry) -> bool
+impl core::fmt::Debug for oso_core::editor::CommitEntry
+pub fn oso_core::editor::CommitEntry::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::editor::CommitEntry
 pub struct oso_core::editor::CommitSwitches
 pub oso_core::editor::CommitSwitches::allow_empty: bool
 pub oso_core::editor::CommitSwitches::no_verify: bool
@@ -2635,6 +2672,20 @@ impl core::fmt::Debug for oso_core::editor::CommitSwitches
 pub fn oso_core::editor::CommitSwitches::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::CommitSwitches
 impl core::marker::StructuralPartialEq for oso_core::editor::CommitSwitches
+pub struct oso_core::editor::Commits
+pub oso_core::editor::Commits::entries: alloc::sync::Arc<[oso_core::editor::CommitEntry]>
+pub oso_core::editor::Commits::more: bool
+pub oso_core::editor::Commits::number: u64
+pub oso_core::editor::Commits::open: alloc::vec::Vec<(usize, oso_core::editor::ReviewId)>
+pub oso_core::editor::Commits::shown: core::option::Option<usize>
+impl core::clone::Clone for oso_core::editor::Commits
+pub fn oso_core::editor::Commits::clone(&self) -> oso_core::editor::Commits
+impl core::cmp::Eq for oso_core::editor::Commits
+impl core::cmp::PartialEq for oso_core::editor::Commits
+pub fn oso_core::editor::Commits::eq(&self, &oso_core::editor::Commits) -> bool
+impl core::fmt::Debug for oso_core::editor::Commits
+pub fn oso_core::editor::Commits::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::editor::Commits
 pub struct oso_core::editor::CompletionPopup
 impl oso_core::editor::CompletionPopup
 pub fn oso_core::editor::CompletionPopup::highlights(&self, &oso_core::complete::Candidate, &mut alloc::vec::Vec<core::ops::range::Range<usize>>)
@@ -3260,6 +3311,13 @@ pub fn oso_core::editor::Editor::take_line_search_request(&mut self) -> core::op
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::go_to_listed_mark(&mut self, &str) -> core::result::Result<(), oso_core::minibuffer::PromptError>
 pub fn oso_core::editor::Editor::open_mark_list(&mut self, &str) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::hide_review_commits(&mut self, oso_core::editor::ReviewId) -> bool
+pub fn oso_core::editor::Editor::review_commits(&self, oso_core::editor::ReviewId) -> core::option::Option<&oso_core::editor::Commits>
+pub fn oso_core::editor::Editor::review_commits_pane(&self, oso_core::editor::ReviewId) -> core::option::Option<oso_core::buffer::BufferId>
+pub fn oso_core::editor::Editor::review_pull(&self, oso_core::editor::ReviewId) -> core::option::Option<oso_core::editor::ReviewId>
+pub fn oso_core::editor::Editor::set_review_commits(&mut self, oso_core::editor::ReviewId, core::option::Option<oso_core::editor::Commits>)
+pub fn oso_core::editor::Editor::show_review_commits(&mut self, oso_core::editor::ReviewId, oso_core::window::WindowId) -> core::result::Result<oso_core::window::WindowId, oso_core::editor::NoPair>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::hide_review_files(&mut self, oso_core::editor::ReviewId) -> bool
 pub fn oso_core::editor::Editor::review_files(&self, oso_core::editor::ReviewId) -> core::option::Option<oso_core::buffer::BufferId>
@@ -5752,6 +5810,7 @@ pub oso_core::review::RowKind::Lines
 pub oso_core::review::RowKind::Lines::first: u32
 pub oso_core::review::RowKind::Lines::hunk: usize
 pub oso_core::review::RowKind::Lines::side: oso_core::review::Side
+pub oso_core::review::RowKind::Message
 pub oso_core::review::RowKind::Note
 impl core::clone::Clone for oso_core::review::RowKind
 pub fn oso_core::review::RowKind::clone(&self) -> oso_core::review::RowKind

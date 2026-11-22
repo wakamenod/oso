@@ -104,6 +104,8 @@ pub(crate) struct Found {
     pub(super) view: SavedView,
     /// Lines of the file left out, as not ones oso writes.
     pub(super) left_out: usize,
+    /// The pull request a review of one commit was stepped to from (ADR 0167).
+    pub(super) pull: Option<u64>,
 }
 
 /// What the store found or did, for the UI thread.
@@ -466,6 +468,7 @@ fn read(directory: &Path, name: &str, asked: &Header) -> Result<Option<Found>, S
         review,
         view: read.view,
         left_out: read.left_out,
+        pull: read.header.pull,
     }))
 }
 

@@ -213,6 +213,12 @@ pub fn review_files_keymap(registry: &Registry) -> Keymap {
     Keymap::from_table(registry, review::FILES).unwrap_or_default()
 }
 
+/// A pull request's commit list's own keymap, above the global one in it (ADR 0167). Empty
+/// for a registry without its commands.
+pub fn review_commits_keymap(registry: &Registry) -> Keymap {
+    Keymap::from_table(registry, review::COMMITS).unwrap_or_default()
+}
+
 /// A review message's own keymap, above the global one in it (ADR 0122, step 12). Empty for a
 /// registry without its commands.
 pub fn review_message_keymap(registry: &Registry) -> Keymap {

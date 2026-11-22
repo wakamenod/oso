@@ -24,6 +24,9 @@ pub enum RowKind {
     File,
     /// A note on a file: why it is not shown, or what else changed.
     Note,
+    /// A line of the commit message a commit's review shows under its title (ADR 0167): no
+    /// motion stops on it and no comment goes on it.
+    Message,
     /// The header of the file's hunk of this index.
     Hunk { hunk: usize },
     /// Lines of a side in a hunk, numbered from `first` there.

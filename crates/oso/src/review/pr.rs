@@ -106,6 +106,8 @@ pub(crate) struct PrFound {
     /// Its head branch is the one checked out here, holding its head commit, so the new side
     /// is the work tree.
     pub(crate) head_checked_out: bool,
+    /// Its head commit (ADR 0167).
+    pub(crate) head: Id,
 }
 
 /// What a resolve tells its caller while it waits.
@@ -285,6 +287,7 @@ pub(super) fn resolve_with(
         head_branch: sides.head_branch,
         worktree,
         head_checked_out: here,
+        head: sides.head.clone(),
     };
     Ok((
         Sides {

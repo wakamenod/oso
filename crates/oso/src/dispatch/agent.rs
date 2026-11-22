@@ -341,6 +341,7 @@ fn has_own_keys(mode: Mode) -> bool {
         | Mode::Worktrees
         | Mode::Review
         | Mode::ReviewFiles
+        | Mode::ReviewCommits
         | Mode::Terminal
         | Mode::Directory
         | Mode::GitStatus

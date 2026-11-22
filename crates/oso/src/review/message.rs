@@ -19,6 +19,9 @@
 //!   bidirectional and invisible characters, so that a line reads as the bytes it holds.
 //! - The message holds the comments in the order given until the next would pass `max`; the
 //!   rest are left for a later message, and the caller says how many.
+//! - A pull request read a commit at a time (ADR 0167) sends its reviews' comments in groups,
+//!   the whole pull request's first, then each commit's, oldest first, each under a heading,
+//!   after a note saying that a commit's lines are as that commit left them.
 
 use std::fmt::Write as _;
 
@@ -63,6 +66,17 @@ pub(crate) struct Item<'a> {
     pub(crate) shape: Option<&'a Shape>,
 }
 
+impl<'a> Item<'a> {
+    /// The same item, borrowed again.
+    pub(crate) fn again(&self) -> Item<'a> {
+        Item {
+            comment: self.comment,
+            parent: self.parent,
+            shape: self.shape,
+        }
+    }
+}
+
 /// A message, and how many of the items given, from the first, it holds.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Message {
@@ -82,6 +96,70 @@ pub(crate) fn compose(
     secret: impl Fn(&[u8]) -> bool,
 ) -> Message {
     let mut text = format!("{head}\nScope: {}.", printable(scope, MAX_PATH_CHARS));
+    let taken = put_items(&mut text, items, max, &secret);
+    Message { text, taken }
+}
+
+/// Of a pull request read a commit at a time (ADR 0167): the comments of its reviews, one of
+/// `groups` a review, each under its heading.
+pub(crate) struct Group<'a> {
+    /// What the group is of: `The whole of #12`, `Commit 2/5 abc1234: subject`, as oso wrote
+    /// it, but for the subject, which is escaped.
+    pub(crate) heading: String,
+    pub(crate) items: Vec<Item<'a>>,
+}
+
+/// What a message of groups says after its scope, of pull request `number`.
+pub(crate) fn groups_note(number: u64) -> String {
+    format!(
+        "They are on pull request #{number}, read a commit at a time: a group a review, the \
+         whole pull request first, then its commits, oldest first. A commit's lines are as that \
+         commit left them, and a later commit may have changed them: read every group before \
+         changing anything."
+    )
+}
+
+/// The message of `groups`' items, in their order, each group under its heading, as
+/// [`compose`] makes one of items, after the note [`groups_note`] of pull request `number`;
+/// `taken` counts the items of every group, in order.
+pub(crate) fn compose_groups(
+    head: &str,
+    scope: &str,
+    number: u64,
+    groups: &[Group<'_>],
+    max: usize,
+    secret: impl Fn(&[u8]) -> bool,
+) -> Message {
+    let mut text = format!(
+        "{head}\nScope: {}.\n{}",
+        printable(scope, MAX_PATH_CHARS),
+        groups_note(number)
+    );
+    let mut taken = 0;
+    for group in groups.iter().filter(|group| !group.items.is_empty()) {
+        let heading = format!("# {}", printable(&group.heading, MAX_PATH_CHARS));
+        let first = entry(&group.items[0], secret(group.items[0].comment.path()));
+        if text.len() + 4 + heading.len() + first.len() > max {
+            break;
+        }
+        text.push_str("\n\n");
+        text.push_str(&heading);
+        let put = put_items(&mut text, &group.items, max, &secret);
+        taken += put;
+        if put < group.items.len() {
+            break;
+        }
+    }
+    Message { text, taken }
+}
+
+/// Puts `items` in `text`, in their order, while the next fits in `max` bytes; how many.
+fn put_items(
+    text: &mut String,
+    items: &[Item<'_>],
+    max: usize,
+    secret: &impl Fn(&[u8]) -> bool,
+) -> usize {
     let mut taken = 0;
     for item in items {
         let entry = entry(item, secret(item.comment.path()));
@@ -92,7 +170,7 @@ pub(crate) fn compose(
         text.push_str(&entry);
         taken += 1;
     }
-    Message { text, taken }
+    taken
 }
 
 /// One comment's entry: its place, its hunk, what it replies to and its text.

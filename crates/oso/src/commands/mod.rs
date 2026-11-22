@@ -123,6 +123,7 @@ const TABLES: &[&[Command]] = &[
     review::DECISION_COMMANDS,
     review::VISIT_COMMANDS,
     review::FILES_COMMANDS,
+    review::COMMITS_COMMANDS,
     review::SAVED_COMMANDS,
     review::SEND_COMMANDS,
     review::START_COMMANDS,
@@ -320,6 +321,14 @@ mod tests {
         "review-mark-baseline",
         "review-pull-request",
         "review-range",
+        // A step through a pull request's commits opens a commit's review, which runs git
+        // (ADR 0167).
+        "review-commits",
+        "review-commits-display",
+        "review-commits-visit",
+        "review-next-commit",
+        "review-previous-commit",
+        "review-pull-request-whole",
         // A start in a space finds its repositories' projects and opens the review menu for
         // one (ADR 0163).
         "review-checkout",

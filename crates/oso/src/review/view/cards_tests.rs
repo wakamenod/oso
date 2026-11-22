@@ -96,6 +96,7 @@ fn grid(rendered: &Rendered) -> String {
         let kind = match rows.at(number).unwrap().kind {
             RowKind::File => "file".to_owned(),
             RowKind::Note => "note".to_owned(),
+            RowKind::Message => "message".to_owned(),
             RowKind::Hunk { .. } => "hunk".to_owned(),
             RowKind::Lines { .. } => "line".to_owned(),
             RowKind::Context { .. } => "context".to_owned(),

@@ -37,17 +37,20 @@ use super::super::App;
 use super::super::sessions::Orchestrator;
 use super::target::places;
 use crate::commands::agent_sessions::{MAX_SEND_BYTES, too_large};
-use crate::review::message::{HEAD, Item, compose, relay_head};
+use crate::review::message::{HEAD, relay_head};
 use crate::sessions::worker::SessionKey;
+use groups::{composed, gather};
 
 /// What the buffer of a review's message is called.
 const NAME: &str = "*review message*";
 
-/// A message waiting in its buffer to be sent, what it was made from, and the comments it took.
+/// A message waiting in its buffer to be sent, what it was made from, and the comments it took,
+/// each with its review: of a pull request read a commit at a time, the whole pull request's
+/// and its commits' (ADR 0167).
 pub(in crate::app) struct Waiting {
     buffer: BufferId,
     origin: Origin,
-    taken: Vec<Comment>,
+    taken: Vec<(ReviewId, Comment)>,
     /// The first line it was made with, and the worktree a message to an orchestrator names:
     /// a message that goes elsewhere is sent with the other line, while its first line is
     /// still this one (ADR 0163).
@@ -74,7 +77,8 @@ pub(in crate::app) struct Sending {
 
 impl App {
     /// `review-send`: gathers the person's comments of `review` not sent into a message, shown
-    /// in its buffer.
+    /// in its buffer. Of a pull request read a commit at a time, every review of it open, the
+    /// whole pull request's and its commits', each a group, from the whole's review (ADR 0167).
     pub(super) fn send_review(&mut self, review: ReviewId) {
         if self.show_waiting_message() {
             return;
@@ -82,6 +86,11 @@ impl App {
         let Some(index) = self.reviews.index(review) else {
             return;
         };
+        let (index, members) = match self.walk_of(index) {
+            Some(pull) => (pull, self.walk_members(pull)),
+            None => (index, vec![(review, None)]),
+        };
+        let review = self.reviews.open[index].id;
         let (Some(scope), Some(worktree)) = (self.review_scope(index), self.review_worktree(index))
         else {
             return;
@@ -91,36 +100,32 @@ impl App {
         let relays =
             self.picked_session(review).is_none() && self.review_orchestrator(review).is_some();
         let head = message_head(relays, &worktree);
-        let (Some(model), rows) = (self.editor.review(review), self.editor.review_rows(review))
-        else {
-            return;
-        };
-        let ids = unsent(model, rows);
-        if ids.is_empty() {
+        let (members, groups) = gather(&self.editor, members);
+        let count: usize = groups.iter().map(|group| group.items.len()).sum();
+        if count == 0 {
             return self.editor.message("No comment of yours waits to be sent");
         }
-        let items: Vec<Item<'_>> = (ids.iter())
-            .filter_map(|id| model.comment(*id))
-            .map(|comment| Item {
-                comment,
-                parent: comment.reply_to().and_then(|to| model.comment(to)),
-                shape: model.file(comment.path()).map(|shape| &**shape),
-            })
-            .collect();
         // A file may hold secrets by its name, or as an open buffer of it does (`secrets`).
         let held = super::secrets::held_paths(&self.editor);
         let withheld =
             |path: &[u8]| (places.iter()).any(|root| super::secrets::withheld(root, &held, path));
-        let composed = compose(&head, &scope, &items, MAX_SEND_BYTES, withheld);
+        let number = match self.reviews.open[index].scope {
+            crate::review::Scope::PullRequest { number } => Some(number),
+            _ => None,
+        };
+        let composed = composed(&head, &scope, number, &groups, withheld);
         if composed.taken == 0 {
             return self
                 .editor
                 .message("Your first comment is too long to send");
         }
-        let taken: Vec<Comment> = (items[..composed.taken].iter())
-            .map(|item| item.comment.clone())
+        let taken: Vec<(ReviewId, Comment)> = (members.iter().zip(&groups))
+            .flat_map(|(member, group)| {
+                (group.items.iter()).map(|item| (*member, item.comment.clone()))
+            })
+            .take(composed.taken)
             .collect();
-        let left = items.len() - composed.taken;
+        let left = count - composed.taken;
         let name = self.unique_name(NAME);
         let mut buffer = Buffer::from_text(name, &composed.text);
         buffer.set_mode(Mode::ReviewMessage);
@@ -130,7 +135,7 @@ impl App {
             self.editor.show(buffer);
         }
         let count = taken.len();
-        let hidden = self.hidden_comments(review, &taken, withheld);
+        let hidden = self.hidden_comments(&taken, withheld);
         self.reviews.sending.message = Some(Waiting {
             buffer,
             origin: Origin::Review(review),
@@ -157,40 +162,48 @@ impl App {
         ));
     }
 
-    /// What the echo says of `taken`'s comments on files the filter hides (step 6b), judged
-    /// from the filter the editor holds, as the view judges them, not from the text it built
-    /// last; a file `withheld` says may hold secrets by its path alone. Nothing while none is.
-    /// O(the review's comments).
+    /// What the echo says of `taken`'s comments on files the filter of their review hides
+    /// (step 6b), judged from the filter the editor holds, as the view judges them, not from
+    /// the text it built last; a file `withheld` says may hold secrets by its path alone.
+    /// Nothing while none is. O(the reviews' comments).
     fn hidden_comments(
         &self,
-        review: ReviewId,
-        taken: &[Comment],
+        taken: &[(ReviewId, Comment)],
         withheld: impl Fn(&[u8]) -> bool,
     ) -> String {
-        let (Some(filter), Some(model)) = (
-            self.editor.review_filter(review),
-            self.editor.review(review),
-        ) else {
-            return String::new();
-        };
-        let mut texts: HashMap<&[u8], Vec<&str>> = (taken.iter())
-            .map(|comment| (comment.path(), Vec::new()))
-            .collect();
-        for comment in model.comments() {
-            if let Some(texts) = texts.get_mut(comment.path()) {
-                texts.push(comment.text());
+        let mut reviews: Vec<ReviewId> = taken.iter().map(|(review, _)| *review).collect();
+        reviews.dedup();
+        let mut count = 0;
+        for review in reviews {
+            let (Some(filter), Some(model)) = (
+                self.editor.review_filter(review),
+                self.editor.review(review),
+            ) else {
+                continue;
+            };
+            let mine = (taken.iter())
+                .filter(|(of, _)| *of == review)
+                .map(|(_, comment)| comment);
+            let mut texts: HashMap<&[u8], Vec<&str>> = mine
+                .clone()
+                .map(|comment| (comment.path(), Vec::new()))
+                .collect();
+            for comment in model.comments() {
+                if let Some(texts) = texts.get_mut(comment.path()) {
+                    texts.push(comment.text());
+                }
             }
+            let hidden: HashSet<&[u8]> = (texts.iter())
+                .filter(|(path, texts)| {
+                    let texts: &[&str] = if withheld(path) { &[] } else { texts };
+                    !filter.matches(path, texts)
+                })
+                .map(|(path, _)| *path)
+                .collect();
+            count += mine
+                .filter(|comment| hidden.contains(comment.path()))
+                .count();
         }
-        let hidden: HashSet<&[u8]> = (texts.iter())
-            .filter(|(path, texts)| {
-                let texts: &[&str] = if withheld(path) { &[] } else { texts };
-                !filter.matches(path, texts)
-            })
-            .map(|(path, _)| *path)
-            .collect();
-        let count = (taken.iter())
-            .filter(|comment| hidden.contains(comment.path()))
-            .count();
         match count {
             0 => String::new(),
             count => format!("; {count} on files the filter hides"),
@@ -284,7 +297,7 @@ impl App {
         if to.is_some() {
             self.reviews.sending.picked.insert(review, key);
         }
-        let (marked, changed) = self.mark_sent(review, &message.taken);
+        let (marked, changed) = self.mark_sent(&message.taken);
         let changed = match changed {
             0 => String::new(),
             n => format!("; {} changed meanwhile stay unsent", comments(n)),
@@ -443,30 +456,37 @@ impl App {
             .collect()
     }
 
-    /// Marks sent each of `taken` that `review` still holds with the text it was taken with,
-    /// and shows their files' cards again; how many were marked, and how many changed or went.
-    fn mark_sent(&mut self, review: ReviewId, taken: &[Comment]) -> (usize, usize) {
-        let Some(model) = self.editor.review_mut(review) else {
-            return (0, taken.len());
-        };
-        let mut same = Vec::new();
-        let mut paths: BTreeSet<&[u8]> = BTreeSet::new();
-        for then in taken {
-            let unchanged = (model.comment(then.id()))
-                .is_some_and(|now| same_text(now, then) && now.author() == Author::Person);
-            if unchanged {
-                same.push(then.id());
-                paths.insert(then.path());
+    /// Marks sent each of `taken` that its review still holds with the text it was taken
+    /// with, and shows their files' cards again; how many were marked, and how many changed or
+    /// went.
+    fn mark_sent(&mut self, taken: &[(ReviewId, Comment)]) -> (usize, usize) {
+        let mut reviews: Vec<ReviewId> = taken.iter().map(|(review, _)| *review).collect();
+        reviews.dedup();
+        let mut marked = 0;
+        for review in reviews {
+            let Some(model) = self.editor.review_mut(review) else {
+                continue;
+            };
+            let mut same = Vec::new();
+            let mut paths: BTreeSet<&[u8]> = BTreeSet::new();
+            for (_, then) in taken.iter().filter(|(of, _)| *of == review) {
+                let unchanged = (model.comment(then.id()))
+                    .is_some_and(|now| same_text(now, then) && now.author() == Author::Person);
+                if unchanged {
+                    same.push(then.id());
+                    paths.insert(then.path());
+                }
+            }
+            model.mark_sent(&same);
+            marked += same.len();
+            let paths: Vec<Box<[u8]>> = paths.into_iter().map(Box::from).collect();
+            if let Some(index) = self.reviews.index(review) {
+                for path in paths {
+                    self.tell_cards(index, &path);
+                }
             }
         }
-        model.mark_sent(&same);
-        let paths: Vec<Box<[u8]>> = paths.into_iter().map(Box::from).collect();
-        if let Some(index) = self.reviews.index(review) {
-            for path in paths {
-                self.tell_cards(index, &path);
-            }
-        }
-        (same.len(), taken.len() - same.len())
+        (marked, taken.len() - marked)
     }
 }
 
@@ -547,6 +567,8 @@ fn resolved_threads(model: &Review) -> HashSet<CommentId> {
     under
 }
 
+#[path = "send/groups.rs"]
+mod groups;
 #[path = "send/pull.rs"]
 mod pull;
 

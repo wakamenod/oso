@@ -134,6 +134,7 @@ impl App {
             opened: store::now(),
             comments: 0,
             unsent: 0,
+            pull: None,
         };
         let read = match name.clone() {
             Some(name) => (self.review_store()).is_some_and(|store| store.read(id, name, asked)),
@@ -242,7 +243,13 @@ impl App {
             review,
             view,
             left_out,
+            pull,
         } = found;
+        // A commit's review stepped to from a pull request: linked again once that pull
+        // request's commits are listed (ADR 0167).
+        if pull.is_some() {
+            self.want_pull(index, pull);
+        }
         let comments = review.comments().count();
         let Some(model) = self.editor.review_mut(id) else {
             return self.freer.free(review);
@@ -415,6 +422,16 @@ impl App {
             return None;
         }
         let saved = model?.save();
+        // A commit's review a step opened that holds nothing, and was never saved, is not
+        // written: walking a long pull request keeps no file a commit (ADR 0167).
+        let pull = self.pull_number(running);
+        if pull.is_some()
+            && saving.handed.is_none()
+            && saved.comments.is_empty()
+            && saved.files.is_empty()
+        {
+            return None;
+        }
         let unsent = (saved.comments.iter())
             .filter(|comment| comment.author == Author::Person && !comment.sent)
             .count();
@@ -425,6 +442,7 @@ impl App {
             opened: saving.opened,
             comments: saved.comments.len(),
             unsent,
+            pull,
         };
         let choices = self.choices(running.id);
         let view = SavedView {

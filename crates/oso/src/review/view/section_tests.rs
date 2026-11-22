@@ -223,9 +223,34 @@ fn a_path_or_a_reason_never_makes_a_line_of_its_own() {
     assert!(rendered.bytes.windows(4).any(|w| w == b"\xff\xe2\x80\xae"));
     let total: usize = rendered.runs.iter().map(|(len, _)| len).sum();
     assert_eq!(total, decoded_len(&rendered.bytes));
-    let said = title("Review\nuncommitted", &["first\nsecond".into()]);
+    let said = title("Review\nuncommitted", None, &["first\nsecond".into()]);
     assert_eq!(said.section.lines(), 2);
     assert_eq!(text_of(&said), "Review uncommitted\nfirst second\n");
+}
+
+#[test]
+fn a_commits_message_goes_under_the_title_indented_as_its_own_rows() {
+    let message = crate::review::commits::Message {
+        short: "abc1234".into(),
+        author: "Ann".into(),
+        date: "2026-11-20".into(),
+        lines: vec!["Add b".into(), String::new(), "modified  evil  +1".into()],
+        left_out: 3,
+        cut: false,
+    };
+    let rendered = title("Review", Some(&message), &["said".into()]);
+    assert_eq!(
+        text_of(&rendered),
+        "Review\ncommit abc1234 \u{b7} 2026-11-20 \u{b7} Ann\n    Add b\n\n    modified  evil  +1\n    \u{22ef} 3 more lines are not shown\n\nsaid\n"
+    );
+    let lines = lines_of(&rendered);
+    let kinds: Vec<RowKind> = lines.iter().map(|(_, kind)| *kind).collect();
+    assert_eq!(kinds[0], RowKind::Note);
+    assert!(
+        kinds[1..7].iter().all(|kind| *kind == RowKind::Message),
+        "{kinds:?}"
+    );
+    assert_eq!(kinds[7], RowKind::Note);
 }
 
 #[test]

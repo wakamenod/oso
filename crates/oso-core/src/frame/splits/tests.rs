@@ -452,7 +452,7 @@ proptest! {
                     splits.unpair(pick(w));
                 }
                 Op::Aside(w, c) => {
-                    if splits.split_left(pick(w), WindowId::new(next), c, &frame).is_ok() {
+                    if splits.split_aside(pick(w), WindowId::new(next), Way::Across, c, &frame).is_ok() {
                         next += 1;
                     }
                 }

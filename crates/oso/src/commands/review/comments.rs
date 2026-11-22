@@ -136,7 +136,7 @@ fn point(ctx: &Ctx<'_>) -> Result<(ReviewId, Point), CommandError> {
             anchor: Anchor::Hunk { index: hunk },
         },
         RowKind::Label { comment } | RowKind::Card { comment } => Point::Comment(comment),
-        RowKind::File | RowKind::Note => Point::Other,
+        RowKind::File | RowKind::Note | RowKind::Message => Point::Other,
         RowKind::Context { .. } | RowKind::Gap { .. } => Point::Context,
         RowKind::Filler => Point::Filler,
     };

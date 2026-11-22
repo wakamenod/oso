@@ -10,8 +10,9 @@ use std::path::PathBuf;
 use oso_core::editor::{Editor, ReviewId, ScopeKind};
 use oso_core::project::ProjectId;
 
+use super::scope::same_scope;
 use super::state::{Baseliner, Reopen, Reviews, Running};
-use super::{fetching_said, found_said, same_scope, scope_label, scope_of};
+use super::{fetching_said, found_said, scope_label, scope_of};
 use crate::commands::review::{MAX_NAME, one_line};
 use crate::git::Id;
 use crate::git::TrustedRoot;
@@ -138,6 +139,9 @@ fn running(id: ReviewId, project: ProjectId, scope: Scope, serial: u64) -> Runni
         jumping: None,
         sides: Vec::new(),
         held: std::sync::Arc::default(),
+        walk: None,
+        pull: None,
+        pull_wanted: None,
     }
 }
 
@@ -243,6 +247,7 @@ fn what_is_said_of_a_pull_request_puts_its_escaped_title_last() {
         head_branch: branch.into(),
         worktree: None,
         head_checked_out,
+        head: crate::git::Id::parse(&[b'a'; 40]).unwrap(),
     };
     assert_eq!(
         found_said(&found("Add b", "feature", false)),

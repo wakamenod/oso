@@ -55,6 +55,9 @@ pub enum Mode {
     Review,
     /// A review's files pane: one row a file (ADR 0122, step 6b).
     ReviewFiles,
+    /// A pull request review.s commit list, a strip above the review: one row a commit (ADR
+    /// 0167).
+    ReviewCommits,
     /// `*review message*`, the message of a review's comments before it is sent to an agent
     /// session (ADR 0122, step 12): the person's to change.
     ReviewMessage,
@@ -168,6 +171,7 @@ impl Mode {
             Self::Worktrees => "Worktrees",
             Self::Review => "Review",
             Self::ReviewFiles => "Review Files",
+            Self::ReviewCommits => "Review Commits",
             Self::ReviewMessage => "Review Message",
             Self::Terminal => "Terminal",
             Self::Directory => "Dired",
@@ -220,6 +224,7 @@ impl Mode {
             | Self::Worktrees
             | Self::Review
             | Self::ReviewFiles
+            | Self::ReviewCommits
             | Self::ReviewMessage
             | Self::Terminal
             | Self::Directory
@@ -280,6 +285,7 @@ impl Mode {
             | Self::Worktrees
             | Self::Review
             | Self::ReviewFiles
+            | Self::ReviewCommits
             | Self::Terminal
             | Self::Directory
             | Self::GitStatus

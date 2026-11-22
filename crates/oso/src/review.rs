@@ -48,6 +48,7 @@
 
 pub(crate) mod ask;
 mod batch;
+pub(crate) mod commits;
 pub(crate) mod count;
 mod debug;
 mod diff;
@@ -197,6 +198,10 @@ pub(crate) enum Report {
     Fetching { number: u64, remote: String },
     /// Where the jump with the host's ticket landed, or why it could not.
     Jumped(jump::Jumped),
+    /// A pull request's commits, after what `gh` said of it (ADR 0167).
+    Commits(Box<commits::Listed>),
+    /// The message of the commit a review of one commit shows, once its id is known or moved.
+    Message(Arc<commits::Message>),
 }
 
 /// `text` on one line, at most `max` characters, with no control character.
