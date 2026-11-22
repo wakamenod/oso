@@ -22,19 +22,25 @@ impl App {
         self.carry_terminals();
         if let Some(hosted) = self.terminals.map.get_mut(buffer) {
             hosted.ready = true;
-            let shown = (self.editor.frame().windows().iter()).any(|(id, _)| {
-                self.editor
-                    .window_by_id(*id)
-                    .is_some_and(|w| w.buffer() == buffer)
-            });
-            if shown {
-                self.request_redraw();
-            } else {
-                // Its end, or its title, is taken within a moment though no frame comes.
-                self.terminals
-                    .hidden_due
-                    .get_or_insert_with(|| Instant::now() + HIDDEN_PACE);
-            }
+            self.take_terminal_soon(buffer);
+        }
+    }
+
+    /// Has terminal `buffer`'s snapshot taken soon: by the next frame if a window shows it,
+    /// else within [`HIDDEN_PACE`].
+    pub(in crate::app) fn take_terminal_soon(&mut self, buffer: BufferId) {
+        let shown = (self.editor.frame().windows().iter()).any(|(id, _)| {
+            self.editor
+                .window_by_id(*id)
+                .is_some_and(|w| w.buffer() == buffer)
+        });
+        if shown {
+            self.request_redraw();
+        } else {
+            // Its end, or its title, is taken within a moment though no frame comes.
+            self.terminals
+                .hidden_due
+                .get_or_insert_with(|| Instant::now() + HIDDEN_PACE);
         }
     }
 
@@ -72,15 +78,7 @@ impl App {
         let mut again = false;
         let host = self.terminals.host_name.as_deref();
         for (id, hosted) in self.terminals.map.iter_mut() {
-            if !hosted.ready {
-                continue;
-            }
-            let Some(terminal) = &hosted.terminal else {
-                hosted.ready = false;
-                continue;
-            };
-            let Some(mut snapshot) = terminal.take_snapshot() else {
-                hosted.ready = false;
+            let Some(mut snapshot) = hosted.take_ready() else {
                 continue;
             };
             // Another may wait already, as the end does behind one in flight: the next frame
@@ -120,7 +118,7 @@ impl App {
             if hosted.ended.is_some() {
                 // Nothing follows the end; its handle goes.
                 hosted.terminal = None;
-            } else {
+            } else if let Some(terminal) = &hosted.terminal {
                 terminal.recycle(snapshot);
             }
         }
