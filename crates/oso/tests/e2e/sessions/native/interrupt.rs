@@ -25,7 +25,8 @@ const INTERRUPT_FAKE: &str = r#"#!/bin/sh
 dir='DIR'
 n=$(ls "$dir" | grep -c '^run\.')
 n=$((n+1))
-for a in "$@"; do printf 'arg %s\n' "$a"; done > "$dir/run.$n"
+for a in "$@"; do printf 'arg %s\n' "$a"; done > "$dir/tmp.$n"
+mv "$dir/tmp.$n" "$dir/run.$n"
 tier=$(cat "$dir/tier")
 aborted='{"type":"result","subtype":"error_during_execution","is_error":true,"terminal_reason":"aborted_streaming"}'
 trap 'printf "%s\n" "$aborted"; echo x > "$dir/signalled.$n"; exit 0' INT
