@@ -628,6 +628,52 @@ fn a_removal_takes_a_worktree_whose_reviewable_work_was_merged() {
     flow.exit_with(0);
 }
 
+/// A hosted session whose registry entry says idle but not when its process started is busy:
+/// its worktree is kept, though its screen is settled and its work merged, until its own entry
+/// is back.
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn an_idle_registry_entry_with_no_start_time_keeps_its_worktree() {
+    let flow = Flow::with_fake("session-tools-unknown-idle", "", FAKE);
+    let (mut app, mut bridge) = hosted(&flow);
+    let (place, run) = worktree_with_work(&mut app, &mut bridge, &flow, "e2e-unknown");
+    let name = "e2e-unknown";
+    turn(&mut app, &flow, &run, name);
+    app.wait_for("ready for review", |state| {
+        state_of(state, name).as_deref() == Some("ready for review")
+    });
+    merge(&flow, name);
+
+    let file = flow
+        .home
+        .join(".claude/sessions")
+        .join(format!("{}.json", run.pid));
+    let own = fs::read(&file).unwrap();
+    let mut entry: Value = serde_json::from_slice(&own).unwrap();
+    let fields = entry.as_object_mut().unwrap();
+    fields.remove("startedAt");
+    fields.remove("procStart");
+    fs::write(&file, entry.to_string()).unwrap();
+    thread::sleep(AFTER_TYPING);
+    let path = place.display().to_string();
+    let (kept, error) = bridge.tool("worktree_remove", json!({ "path": path }));
+    assert!(error, "{kept}");
+    assert!(
+        kept.as_str().is_some_and(|said| said.contains("busy")),
+        "{kept}"
+    );
+    assert!(
+        place.exists(),
+        "an unverifiable entry let the removal through"
+    );
+
+    fs::write(&file, own).unwrap();
+    let (removed, error) = bridge.tool("worktree_remove", json!({ "path": path }));
+    assert!(!error, "{removed}");
+    assert!(!place.exists(), "the worktree is still there");
+    flow.exit_with(0);
+}
+
 /// A worktree session whose agent never called oso, so that no bridge of its own ever claimed
 /// it, is known by its process from its start. Done after its turn and idle in Claude Code's
 /// registry, by an entry that carries no id oso gave, it is not listed as another's session,
@@ -686,18 +732,25 @@ fn an_idle_session_with_no_bridge_of_its_own_is_known_and_its_worktree_removed()
 }
 
 /// Has Claude Code's registry, under the flow's home, say `run` is idle in `cwd`, as a
-/// `claude` at its prompt does: the other half of a removal's check that it is not busy.
+/// `claude` at its prompt does: the other half of a removal's check that it is not busy. Its
+/// `startedAt` is the process's own start, which check 4 matches, as the CLI's is.
 fn registered_idle(flow: &Flow, run: &Run, cwd: &Path) {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_millis();
+    let millis = |time: std::time::SystemTime| {
+        time.duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    };
+    let now = millis(std::time::SystemTime::now());
+    let pid = run.pid.parse::<u32>().unwrap();
+    let started = oso_platform::process::start_time(pid)
+        .expect("the system says when the fake started")
+        .expect("the fake runs");
     let registry = flow.home.join(".claude").join("sessions");
     fs::create_dir_all(&registry).unwrap();
     let entry = json!({
-        "pid": run.pid.parse::<u32>().unwrap(),
+        "pid": pid,
         "cwd": cwd,
-        "startedAt": now,
+        "startedAt": millis(started),
         "kind": "interactive",
         "status": "idle",
         "statusUpdatedAt": now,

@@ -129,7 +129,9 @@ impl App {
             .worktrees
             .jobs
             .get_or_insert_with(|| {
-                Jobs::new(state, move |report| {
+                // The environment alone: no disk.
+                let registry = crate::sessions::registry::directory();
+                Jobs::new(state, registry, move |report| {
                     waker
                         .lock()
                         .unwrap_or_else(PoisonError::into_inner)

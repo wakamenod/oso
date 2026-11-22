@@ -115,6 +115,15 @@ pub(super) fn trusted_status(scratch: &Scratch, file: &Path) -> App {
     app.wait_for("the status", |state| {
         state["buffer"]["name"] == "*git: proj-git*"
     });
+    // The status then reads the branch's pull request on a thread of its own and, with no
+    // GitHub remote here, says once why there is none (`pr_head_read`'s error). Said late, that
+    // notice would take the place of what the next keys say, as a refusal or `Copied`, before a
+    // test reads it. A head read that came to say nothing here would leave this to time out.
+    app.wait_for("the pull request's notice", |state| {
+        state["echo"]
+            .as_str()
+            .is_some_and(|echo| echo.starts_with("PR: "))
+    });
     app
 }
 

@@ -369,6 +369,49 @@ One pull request each, after the author's answers. Nothing here changes TUI sess
 5. **The rest,** each its own change: `/btw`, jump to source, subagent and task rows, past sessions
    rendered from their transcript, skills and plugins buffers, `/login`.
 
+## Step 1, as built
+
+The author answered step 1's questions on 2026-11-21, through the space's orchestrator:
+
+- A session's first message is its brief, or for `session-new` a one-line prompt; nothing more
+  is sent until step 2's composer.
+- New starts, resumes and forks in trusted projects run native under `[sessions] mode =
+  "native"`; adopting, `move_to_space`'s resume and carried sessions stay TUI sessions until
+  step 4.
+- A call that would ask is denied by the CLI's manual mode, the person's own allow rules still
+  applying, and shows as a denied row.
+- An agent reads a native session's buffer only after the person allowed it, as a terminal's.
+- A tool result is as ADR 0130 has it: one folded row, `TAB` unfolds it, past 200 lines its
+  first and last 50, `RET` shows it whole.
+- A resumed session's buffer starts with one line; its earlier turns are step 5's.
+- Replies are plain text with the rows' faces in part 1b; Markdown highlighting is a follow-up
+  within step 1.
+
+Part 1a, the pure part (`sessions::native`), with the security, performance and architecture
+reviews' findings:
+
+- **One module owns the wire, not one file** (the author's choice): `wire` reads the stream's
+  lines, with `wire/messages` for the messages' bodies and `wire/tools` for a tool call's
+  input, which is read into a typed value. Nothing past `wire` touches JSON. Tier 2's requests
+  go to `wire/control` in step 2.
+- **Rows:** consecutive `Read`, `Grep` and `Glob` calls share a row (`Read 3 files`), as
+  [`native-sessions-ux.md`](../native-sessions-ux.md) decided, at most 50, each call folding
+  on its own; never a call that names a path outside the session's directory or one that may
+  hold secrets (ADR 0044), which keeps a row of its own (the author's choice).
+- **The person's messages:** a replayed message is shown as the person's only when oso sent its
+  text; any other replay is a note, or nothing when a command or a hook wrapped it.
+- **Cost:** a reply that grows is drawn again from its last line only; a result shows at most
+  64 KiB, walking only what it shows; a diff keeps at most 1 MiB; a folded row that shows
+  nothing new reports no change.
+- **States:** a replayed message or a request is `Working`, a turn's `result` is idle; an
+  error result shows in its row, and `failed` stays the exit's. ADR 0121's tracker holds a new
+  session's screen back for a grace period and debounces idleness; part 1b adds an entry for a
+  stream, which needs neither, so the tracker is reused with that entry, not unchanged.
+- **Fixtures:** a four-turn session recorded from CLI 2.1.330 in an empty directory with
+  `--safe-mode`, scrubbed of ids, paths, signatures, the account's values and the setup's
+  lists; a proptest target checks that a buffer kept by the changes alone holds what rendering
+  every row gives.
+
 ## Questions
 
 The author chose (a) on each, on 2026-11-21. The options are kept as they were put.

@@ -18,22 +18,10 @@ use std::path::PathBuf;
 
 use crate::sessions::registry::is_plain_directory;
 pub(super) use crate::sessions::transcripts::TITLES;
-use crate::sessions::transcripts::{MAX_CWD, MAX_TITLE};
+use crate::sessions::transcripts::{MAX_CWD, MAX_TITLE, WRAPPERS};
 
 /// The deepest a value nests before the line is left unread.
 const MAX_DEPTH: usize = 128;
-
-/// How a prompt that a command or a hook wrapped starts: never a person's words. A deny list:
-/// a wrapper Claude Code adds later is searched and shown until it is listed here, which
-/// shows on the screen only, never to an agent.
-const WRAPPERS: [&str; 6] = [
-    "<command-",
-    "<local-command",
-    "<bash-",
-    "<task-notification",
-    "<system-reminder",
-    "[Request interrupted",
-];
 
 /// What a line says.
 #[derive(Debug, Default, PartialEq, Eq)]
