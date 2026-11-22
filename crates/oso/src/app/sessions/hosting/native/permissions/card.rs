@@ -11,16 +11,21 @@
 //!   input` leads there, as a terminal's dialog does.
 //! - Point moves to it after [`QUIET`] with no key, while the person is in that session's
 //!   transcript or its composer, and the composer holds no draft.
-//! - Its answers (`y`, `n`, `N`, a digit, `o`, `RET`) count only after [`QUIET`] with no key
-//!   and since the card became the selected buffer, however point came; never from a macro,
-//!   and never while the card's window shows less than all of it. Other keys, as `C-c C-o` or
+//! - Its answers (`y`, `n`, `N`, a digit, `o`, `RET`, and a plan's `a`, `A`, `e`) count only
+//!   after [`QUIET`] with no key and since the card became the selected buffer, however point
+//!   came; never from a macro, and never while the card's window shows less than all of it. Other keys, as `C-c C-o` or
 //!   `C-x o` to leave it, are any buffer's.
 //! - It is drawn again when its window's width changes, as its rows are broken at it.
+//! - A plan's card approves with a mode after it, or edits the plan first: `plan` (part 3d).
+
+mod plan;
+
+pub(super) use plan::Plans;
 
 use std::time::{Duration, Instant};
 
 use oso_core::buffer::{BufferId, Mode};
-use oso_core::editor::NativeAction;
+use oso_core::editor::{Approval, NativeAction};
 use oso_core::syntax::Highlights;
 use oso_core::window::DockSlot;
 
@@ -53,8 +58,17 @@ enum Answer {
     Allow,
     /// Each question with its answer.
     Answers(Vec<(String, String)>),
+    /// A plan approved: the person's edit of it, if any, and the mode after it (part 3d).
+    Plan(Option<String>, Approval),
     /// What the CLI is told, and what the call's row says.
     Deny(String, String),
+}
+
+/// What an answered call's row says of the person's answer.
+enum Mark {
+    Denied(String),
+    /// A plan's: whether the person edited it, and the mode after it (part 3d).
+    Approved(bool, Approval),
 }
 
 /// What the card in front is.
@@ -186,7 +200,7 @@ impl App {
             permissions.writing = None;
         }
         let Some(native) = self.hosting.natives.map.get(&key) else {
-            return;
+            return self.plan_card_closed(key);
         };
         let (transcript, card) = (native.buffer, native.card);
         let was_in = card.is_some_and(|card| self.editor.window().buffer() == card);
@@ -197,6 +211,7 @@ impl App {
         if was_in {
             self.composer_go(key, true);
         }
+        self.plan_card_closed(key);
         self.request_redraw();
     }
 
@@ -214,6 +229,8 @@ impl App {
                 | NativeAction::Choose(_)
                 | NativeAction::Other
                 | NativeAction::Open
+                | NativeAction::EditPlan
+                | NativeAction::Approve(_)
         );
         if !answers {
             return false;
@@ -242,7 +259,16 @@ impl App {
                 self.editor
                     .message("Choose an option, or o to answer in your words");
             }
+            NativeAction::Allow if kind == Kind::Plan => {
+                self.approve_plan_card(key, Approval::Manual)
+            }
+            NativeAction::Approve(approval) if kind == Kind::Plan => {
+                self.approve_plan_card(key, approval);
+            }
             NativeAction::Allow => self.answer_card(key, Answer::Allow),
+            NativeAction::Approve(_) => self.editor.message("This card holds no plan: y allows it"),
+            NativeAction::EditPlan if kind == Kind::Plan => self.edit_plan(key),
+            NativeAction::EditPlan => self.editor.message("This card holds no plan"),
             NativeAction::Deny => {
                 let why = match kind {
                     Kind::Questions => "The person declined to answer in oso.",
@@ -421,17 +447,25 @@ impl App {
         let Some(ask) = self.hosting.natives.permissions.asks.take_shown(key) else {
             return;
         };
-        let (reply, denied, said) = match answer {
+        let (reply, mark, said) = match answer {
             Answer::Allow => (permission::allow(), None, "allowed"),
             Answer::Answers(answers) => (permission::allow_answering(&answers), None, "answered"),
-            Answer::Deny(why, row) => (permission::deny(&why), Some(row), "denied"),
+            Answer::Plan(edit, approval) => {
+                let (reply, mark, said) = plan::answered(edit.as_deref(), approval);
+                (reply, Some(mark), said)
+            }
+            Answer::Deny(why, row) => (permission::deny(&why), Some(Mark::Denied(row)), "denied"),
         };
         self.agent_log(&format!(
             "a native session's {}: {said}",
             ask.call.tool_name
         ));
-        if let (Some(row), Some(native)) = (denied, self.hosting.natives.map.get_mut(&key))
-            && let Some(change) = native.rows.denied(&ask.call.tool_use_id, &row)
+        let id = &ask.call.tool_use_id;
+        if let (Some(mark), Some(native)) = (mark, self.hosting.natives.map.get_mut(&key))
+            && let Some(change) = match mark {
+                Mark::Denied(row) => native.rows.denied(id, &row),
+                Mark::Approved(edited, after) => native.rows.approved(id, edited, after),
+            }
         {
             super::super::draw(&mut self.editor, native, [change]);
         }

@@ -375,6 +375,12 @@ pub fn card_keymap(registry: &Registry) -> Keymap {
     Keymap::from_table(registry, agent_sessions::CARD).unwrap_or_default()
 }
 
+/// The keymap of a native session's plan's edit, `*plan: NAME*` (ADR 0165, part 3d). Empty
+/// for a registry without its commands, as in tests that bring their own.
+pub fn plan_keymap(registry: &Registry) -> Keymap {
+    Keymap::from_table(registry, agent_sessions::PLAN).unwrap_or_default()
+}
+
 /// The keymap of a native session's buffer (ADR 0165): its own keys and session mode's, which
 /// share no key. Empty for a registry without their commands, as in tests that bring their
 /// own.

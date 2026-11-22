@@ -45,7 +45,8 @@ clipboard control notify process text window
 privacy
 # `random` reads the system's random bytes, for session ids (ADR 0121, step 1 as built).
 # `host` gives the machine's name, for a terminal's OSC 7 directory (ADR 0141).
-file_meta random host
+# `thread_time` gives a thread's CPU time, for the syntax worker's limits (ADR 0172).
+file_meta random host thread_time
 
 [oso-render]
 capture

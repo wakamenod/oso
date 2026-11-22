@@ -34,6 +34,17 @@ pub(super) fn handed(buffer: &Buffer) -> Result<Handed<'_>, String> {
             buffer.name()
         ));
     }
+    // A plan's edit goes with its call, which a restart denies: one the person changed refuses
+    // the restart, which would lose it (ADR 0165, part 3d).
+    if buffer.mode() == Mode::Plan {
+        if !buffer.is_modified() {
+            return Ok(Handed::Nothing);
+        }
+        return Err(format!(
+            "cannot hand over {}: it holds an edit of a plan not approved; C-c C-k there gives it up",
+            buffer.name()
+        ));
+    }
     let path = buffer.path().map(|path| {
         path.to_str().ok_or_else(|| {
             format!(

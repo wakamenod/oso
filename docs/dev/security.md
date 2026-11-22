@@ -702,7 +702,28 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     to it only from that session's transcript, or its composer with no draft. Whatever goes
     wrong, the bridge denies: a call runs only on the person's `y` or answers, an `allow`
     gives the CLI back the input it sent, and only an `AskUserQuestion`'s takes answers, the
-    person's alone. A note or an answer holding a yanked secret is refused.
+    person's alone, and an `ExitPlanMode`'s the person's edit and mode (part 3d, below). A
+    note or an answer holding a yanked secret is refused.
+  - A plan's card (part 3d) also approves with a mode after it, `acceptEdits` or `auto`, the
+    only two the protocol and the bridge carry: an answer naming any other mode, or a plan
+    that is not a string within 64 KiB, denies, and only an `ExitPlanMode`'s `allow` takes
+    either, so no other call's answer sets a mode. `auto` lets the CLI's classifier run what it
+    judges safe unasked; it is the person's `A` (or `C-c C-A` in the edit), after the card's
+    quiet wait, as on any card, and then `y` to a question, as `A` begins many a typed
+    sentence. The question is kept for the call it asked about, and its `y` approves only that
+    call while it still waits, its edit checked again, and only after the card's quiet moment
+    since the question opened and since the key before it, as a question takes other keys
+    without closing; a question closed otherwise is dropped.
+    An edit of the plan, `*plan: NAME*`, is the person's draft: withheld from agents, which may
+    not change it (`Mode::Plan`, kept as a composer's mode is), approved only by the person's
+    keys there, never from a macro, and only for the call it was made for; no agent command
+    runs while it is selected, a look included, as cursors or a region would steer the
+    person's typing into what they approve. It is sent
+    only if it differs from Claude's plan, never cut, and never once a yank made it secret.
+    While an edit that differs waits, the card's approvals are refused, so that a `y` never
+    approves a plan the person changed. Claude's plan text in it is shown as an editor shows
+    any text; what goes back unedited is the CLI's own plan, as the card showed it, and an
+    edited one goes back whole as the person's, any of Claude's text left in it included.
   - A session's to-do strip (step 3, part 3e), `*todo: NAME*`, is withheld from agents too, and
     fences Claude's text as the card does: each item's text after oso's mark, in a face of its
     own, its control characters as spaces, cut to the strip's width, so that none of it runs
@@ -988,8 +1009,10 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   columns of a row, and rasterizes a bounded number of new glyphs per frame
   ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)).
 - Parsing runs in the background with cancellation and timeouts. Tree-sitter parses no file over
-  2 MiB, and stops highlighting a buffer whose first parse passes 5 s or a later one 1 s, or whose
-  highlighting runs too long (ADR 0111, as built). A buffer that may hold secrets, including one
+  2 MiB, and stops highlighting a buffer whose first parse passes 5 s of the worker thread's CPU
+  time or a later one 1 s, or whose highlighting takes 2 s of it (ADR 0111, as built; ADR 0172).
+  The time is the thread's, at most the wall clock's: on a loaded machine the wall time crafted
+  text takes to fail grows with the load. A buffer that may hold secrets, including one
   not judged yet, gets no job, and one that turns secret is dropped from the worker after the
   event that made it so: what waited for it never runs. Its
   queries are oso's own, compiled in, with a match limit; nothing is loaded at run time

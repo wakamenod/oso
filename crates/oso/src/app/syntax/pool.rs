@@ -12,6 +12,8 @@
 //!   links, and an inline node at its cap needs about 512 KiB (ADR 0111, as built).
 //! - A slice that panics loses its buffer or document only; its thread compiles its queries
 //!   afresh and goes on. Nothing logged names a buffer or quotes its text.
+//! - Each thread's limits count its own CPU time (`oso_platform::thread_time`, ADR 0172), so
+//!   that a loaded machine holding a thread back does not stop highlighting as too slow.
 //! - Dropping the pool tells the threads to stop; they end at their next wait.
 //! - It is generic over the schedule's key, so that documents no buffer owns (ADR 0122) share
 //!   the threads with buffers under keys of their own.
@@ -177,7 +179,9 @@ fn work<Key: Copy + Eq + Hash>(shared: &Shared<Key>, send: &impl Fn(Report<Key>)
         let Some(mut checkout) = checkout else {
             continue;
         };
-        let outcome = panic::catch_unwind(AssertUnwindSafe(|| checkout.run(&mut queries)));
+        let outcome = panic::catch_unwind(AssertUnwindSafe(|| {
+            checkout.run(&mut queries, oso_platform::thread_time::now)
+        }));
         let (report, doomed) = {
             let mut state = lock(&shared.state);
             let report = match outcome {

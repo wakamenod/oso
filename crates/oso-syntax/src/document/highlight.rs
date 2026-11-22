@@ -14,7 +14,9 @@
 //!   after a few fit in a row. The document fails as too slow, as after a slow parse, if a
 //!   piece of [`MIN_PIECE`] bytes, or a piece widened past the limit, still does not
 //!   fit; if a piece runs far past its slice; or if highlighting takes [`HIGHLIGHT_LIMIT`] in
-//!   all before it is done.
+//!   all before it is done. Each counts the worker's time, not the wall clock's (ADR 0172): a
+//!   piece the slice stopped that ran less than half a slice of it was held back, and is done
+//!   again in the next slice, though pieces still shrink by the wall clock.
 //! - Line breaks are never highlighted ([`crate::paint`]).
 
 use std::cell::Cell;
@@ -29,7 +31,7 @@ use tree_sitter::{
 };
 
 use super::nested::{Nested, widen};
-use super::{Document, Failure, Parsed, until};
+use super::{Clock, Document, Failure, Parsed, Spent, Stopwatch, until};
 use crate::language::Language;
 use crate::paint::{Capture, paint};
 use crate::queries::{Host, Kind, Queries};
@@ -38,7 +40,7 @@ use crate::queries::{Host, Kind, Queries};
 pub(super) const PIECE: usize = 16 << 10;
 
 /// The fewest bytes a piece shrinks to.
-const MIN_PIECE: usize = 1 << 10;
+pub(super) const MIN_PIECE: usize = 1 << 10;
 
 /// How far past its slice's end a piece may run, at least, before the document fails as too
 /// slow: tree-sitter asks its progress callback only every so many steps. A slice shorter than
@@ -87,12 +89,13 @@ pub(super) enum Piece {
 impl Document {
     /// Parses and highlights for at most about `slice`, going on from where the last call
     /// stopped. Of the text still to highlight, what meets `first` (the ranges windows show)
-    /// goes first.
+    /// goes first. Its time limits count the worker's time as `clock` reads it (ADR 0172).
     pub fn highlight(
         &mut self,
         queries: &mut Queries,
         first: &[Range<usize>],
         slice: Duration,
+        clock: fn() -> Option<Duration>,
     ) -> Highlighted {
         let budget = slice.min(self.limits.0);
         let deadline = Instant::now() + budget;
@@ -104,17 +107,17 @@ impl Document {
             return Highlighted::Failed(Failure::Incompatible);
         }
         // What compiling the queries left of the slice.
-        match self.parse(deadline.saturating_duration_since(Instant::now())) {
+        match self.parse(deadline.saturating_duration_since(Instant::now()), clock) {
             Parsed::Done => {}
             Parsed::Paused => return Highlighted::Paused,
             Parsed::Failed(failure) => return Highlighted::Failed(failure),
         }
-        let started = Instant::now();
-        let done = self.highlight_pieces(queries, first, budget, deadline);
-        self.spent += started.elapsed();
+        let watch = Stopwatch::start(clock);
+        let done = self.highlight_pieces(queries, first, (budget, deadline), clock);
+        self.spent.add(&watch);
         match done {
-            Highlighted::Done => self.spent = Duration::ZERO,
-            Highlighted::Paused if self.spent > self.limits.2 => {
+            Highlighted::Done => self.spent = Spent::default(),
+            Highlighted::Paused if self.spent.total() > self.limits.2 => {
                 self.fail(Failure::TooSlow);
                 return Highlighted::Failed(Failure::TooSlow);
             }
@@ -123,33 +126,41 @@ impl Document {
         done
     }
 
-    /// Highlights pieces until `deadline` or none is left.
+    /// Highlights pieces until `deadline`, a slice of `budget` from now, or none is left;
+    /// judging each by the worker's time as `clock` reads it.
     fn highlight_pieces(
         &mut self,
         queries: &mut Queries,
         first: &[Range<usize>],
-        budget: Duration,
-        deadline: Instant,
+        (budget, deadline): (Duration, Instant),
+        clock: Clock,
     ) -> Highlighted {
         // tree-sitter asks its callback only so often, so one piece can run past the deadline.
         // A slice shorter than that is too short to fail a piece by, though pieces shrink in it:
         // only the total limit holds it.
         let judged = budget >= MIN_OVERRUN;
-        let overrun = deadline + budget.max(MIN_OVERRUN);
+        let overrun = budget.max(MIN_OVERRUN);
         while let Some(piece) = self.next_piece(first) {
-            let started = Instant::now();
-            if started >= deadline {
+            let watch = Stopwatch::start(clock);
+            let left = deadline.saturating_duration_since(watch.started());
+            if left.is_zero() {
                 return Highlighted::Paused;
             }
-            // A piece that had most of a slice and still did not fit will not fit the next.
-            let had_a_slice = deadline - started >= budget / 2;
             let (piece, outcome) = self.highlight_piece(queries, piece, deadline);
             // Compiling is no sign of slow text, and happens once a language: the piece stays
             // to do, and the next goes on from the time now.
             if matches!(outcome, Piece::Compiled) {
                 continue;
             }
-            if judged && Instant::now() > overrun {
+            // The worker's time, so that a piece the system held back is not judged by the
+            // wall clock's (ADR 0172).
+            let took = watch.elapsed();
+            // A piece that had most of a slice and still did not fit will not fit the next: it
+            // shrinks by the wall clock, which costs little and fits pieces to the time the
+            // system gives the thread. It fails only if it also ran most of the slice.
+            let had_a_slice = left >= budget / 2;
+            let ran_a_slice = had_a_slice && took >= budget / 2;
+            if judged && took > left + overrun {
                 self.fail(Failure::TooSlow);
                 return Highlighted::Failed(Failure::TooSlow);
             }
@@ -177,7 +188,7 @@ impl Document {
                     self.fits = 0;
                 }
                 // Too slow for any slice: the document stops, as after a slow parse.
-                Piece::Stopped if had_a_slice && judged => {
+                Piece::Stopped if ran_a_slice && judged => {
                     self.fail(Failure::TooSlow);
                     return Highlighted::Failed(Failure::TooSlow);
                 }

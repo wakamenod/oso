@@ -79,6 +79,7 @@ pub oso_core::buffer::Mode::Json
 pub oso_core::buffer::Mode::Latex
 pub oso_core::buffer::Mode::Markdown
 pub oso_core::buffer::Mode::NativeSession
+pub oso_core::buffer::Mode::Plan
 pub oso_core::buffer::Mode::RenamePreview
 pub oso_core::buffer::Mode::Review
 pub oso_core::buffer::Mode::ReviewCommits
@@ -1373,6 +1374,19 @@ impl core::fmt::Debug for oso_core::editor::AgentChannel
 pub fn oso_core::editor::AgentChannel::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::AgentChannel
 impl core::marker::StructuralPartialEq for oso_core::editor::AgentChannel
+pub enum oso_core::editor::Approval
+pub oso_core::editor::Approval::AcceptEdits
+pub oso_core::editor::Approval::Auto
+pub oso_core::editor::Approval::Manual
+impl core::clone::Clone for oso_core::editor::Approval
+pub fn oso_core::editor::Approval::clone(&self) -> oso_core::editor::Approval
+impl core::cmp::Eq for oso_core::editor::Approval
+impl core::cmp::PartialEq for oso_core::editor::Approval
+pub fn oso_core::editor::Approval::eq(&self, &oso_core::editor::Approval) -> bool
+impl core::fmt::Debug for oso_core::editor::Approval
+pub fn oso_core::editor::Approval::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::Approval
+impl core::marker::StructuralPartialEq for oso_core::editor::Approval
 pub enum oso_core::editor::BranchAction
 pub oso_core::editor::BranchAction::Checkout
 pub oso_core::editor::BranchAction::Confirmed
@@ -1924,11 +1938,14 @@ impl core::marker::Copy for oso_core::editor::MergeMethod
 impl core::marker::StructuralPartialEq for oso_core::editor::MergeMethod
 pub enum oso_core::editor::NativeAction
 pub oso_core::editor::NativeAction::Allow
+pub oso_core::editor::NativeAction::Approve(oso_core::editor::Approval)
 pub oso_core::editor::NativeAction::Cancel
 pub oso_core::editor::NativeAction::Choose(u8)
 pub oso_core::editor::NativeAction::Compose
+pub oso_core::editor::NativeAction::Confirmed
 pub oso_core::editor::NativeAction::Deny
 pub oso_core::editor::NativeAction::DropQueued
+pub oso_core::editor::NativeAction::EditPlan
 pub oso_core::editor::NativeAction::EditQueued
 pub oso_core::editor::NativeAction::History(isize)
 pub oso_core::editor::NativeAction::MoveQueued(isize)

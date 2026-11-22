@@ -10,7 +10,7 @@ use oso_core::rope::Rope;
 
 use super::super::{Checkout, Job, Outcome, Report, Scheduler};
 use super::{MAX_DOCUMENTS, MAX_STARTED, Refused};
-use crate::document::{Document, Highlighted, MAX_BYTES};
+use crate::document::{Document, Highlighted, MAX_BYTES, wall};
 use crate::language::Language;
 use crate::queries::Queries;
 
@@ -60,7 +60,7 @@ fn start(scheduler: &mut Scheduler<u32>) -> u32 {
 fn drain(scheduler: &mut Scheduler<u32>, queries: &mut Queries) -> Vec<Report<u32>> {
     let mut reports = Vec::new();
     while let Some(mut checkout) = scheduler.take_next() {
-        let outcome = checkout.run_for(queries, LONG);
+        let outcome = checkout.run_for(queries, LONG, wall);
         reports.extend(scheduler.give_back(checkout, outcome));
     }
     reports
@@ -168,7 +168,10 @@ fn a_document_is_highlighted_whole_as_a_fresh_one_and_reports_epoch_and_revision
     open(&mut scheduler, 1, false);
     let reports = drain(&mut scheduler, &mut queries);
     let mut fresh = Document::new(Language::Rust, Rope::from(TEXT));
-    assert_eq!(fresh.highlight(&mut queries, &[], LONG), Highlighted::Done);
+    assert_eq!(
+        fresh.highlight(&mut queries, &[], LONG, wall),
+        Highlighted::Done
+    );
     let [report] = reports.as_slice() else {
         panic!("{} reports", reports.len());
     };
@@ -191,12 +194,18 @@ fn a_document_done_with_nothing_new_still_reports_done() {
     let mut queries = Queries::new();
     open(&mut scheduler, 1, true);
     let mut checkout = scheduler.take_next().unwrap();
-    assert_eq!(checkout.run_for(&mut queries, LONG), Highlighted::Done);
+    assert_eq!(
+        checkout.run_for(&mut queries, LONG, wall),
+        Highlighted::Done
+    );
     // Given back as if work were left: reported, not done, and queued again.
     let first = scheduler.give_back(checkout, Highlighted::Paused).unwrap();
     assert!(!first.done);
     let mut checkout = scheduler.take_next().unwrap();
-    assert_eq!(checkout.run_for(&mut queries, LONG), Highlighted::Done);
+    assert_eq!(
+        checkout.run_for(&mut queries, LONG, wall),
+        Highlighted::Done
+    );
     let last = scheduler.give_back(checkout, Highlighted::Done).unwrap();
     assert!(
         last.done,
@@ -241,7 +250,7 @@ fn a_document_closed_during_its_slice_gives_back_nothing_and_waits_to_be_freed()
     let mut checkout = scheduler.take_next().unwrap();
     scheduler.close(1);
     open(&mut scheduler, 1, false);
-    let outcome = checkout.run_for(&mut queries, LONG);
+    let outcome = checkout.run_for(&mut queries, LONG, wall);
     assert!(
         scheduler.give_back(checkout, outcome).is_none(),
         "it reported"
@@ -417,7 +426,7 @@ fn a_refused_open_closes_what_was_open_under_the_key() {
     );
     assert_eq!(refused, Err(Refused::MayHoldSecrets));
     assert!(!scheduler.has(1), "the old document stayed open");
-    let outcome = checkout.run_for(&mut queries, LONG);
+    let outcome = checkout.run_for(&mut queries, LONG, wall);
     assert!(
         scheduler.give_back(checkout, outcome).is_none(),
         "it reported"

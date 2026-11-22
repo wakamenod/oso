@@ -16,7 +16,7 @@ use super::fence::MAX_FENCE_BYTES;
 use super::highlight::Piece;
 use super::highlight_tests::{highlighted, runs};
 use super::tests::LONG;
-use super::{Document, Failure, Highlighted};
+use super::{Document, Failure, Highlighted, wall};
 use crate::language::Language;
 use crate::queries::{Host, Kind, Queries};
 
@@ -83,7 +83,7 @@ fn a_fences_query_is_compiled_at_its_first_fence() {
     let mut queries = Queries::new();
     let mut document = Document::new(Language::Markdown, Rope::from("# Notes\n\n*text*\n"));
     assert_eq!(
-        document.highlight(&mut queries, &[], LONG),
+        document.highlight(&mut queries, &[], LONG, wall),
         Highlighted::Done
     );
     let fenced = Language::ALL
@@ -97,7 +97,7 @@ fn a_fences_query_is_compiled_at_its_first_fence() {
     }
     let mut document = Document::new(Language::Markdown, Rope::from("```go\nfunc f() {}\n```\n"));
     assert_eq!(
-        document.highlight(&mut queries, &[], LONG),
+        document.highlight(&mut queries, &[], LONG, wall),
         Highlighted::Done
     );
     assert!(queries.get(Kind::Highlights(Language::Go)).is_some());
@@ -111,7 +111,7 @@ fn a_piece_that_compiles_a_query_is_done_again() {
     let text = "Text.\n\n```rust\nfn f() {}\n```\n\n```go\nfunc g() {}\n```\n";
     let mut queries = Queries::new();
     let mut document = Document::new(Language::Markdown, Rope::from(text));
-    assert_eq!(document.parse(LONG), super::Parsed::Done);
+    assert_eq!(document.parse(LONG, wall), super::Parsed::Done);
     assert!(queries.prepare(Kind::Injections(Host::Markdown)));
     assert!(queries.prepare(Kind::Highlights(Language::Markdown)));
     assert!(queries.prepare(Kind::Highlights(Language::MarkdownInline)));
@@ -131,7 +131,7 @@ fn a_piece_that_compiles_a_query_is_done_again() {
     let mut queries = Queries::new();
     let mut document = Document::new(Language::Markdown, Rope::from(text));
     let done = (0..10_000)
-        .map(|_| document.highlight(&mut queries, &[], Duration::from_millis(20)))
+        .map(|_| document.highlight(&mut queries, &[], Duration::from_millis(20), wall))
         .find(|done| *done != Highlighted::Paused);
     assert_eq!(done, Some(Highlighted::Done));
     assert!(has(text, "g", Function));
@@ -232,7 +232,7 @@ fn edit_matches_fresh(before: &str, at: usize, old: usize, new: &str) {
         new_len: new.len(),
     };
     document.edit(&[splice], &Rope::from(after.as_str()));
-    let done = document.highlight(&mut Queries::new(), &[], LONG);
+    let done = document.highlight(&mut Queries::new(), &[], LONG, wall);
     assert_eq!(done, Highlighted::Done);
     let fresh = highlighted(Language::Markdown, &after);
     assert_eq!(all_runs(&document), all_runs(&fresh), "{after:?}");
@@ -290,7 +290,7 @@ fn crafted_and_many_fences_stay_within_the_limits() {
         let mut queries = Queries::new();
         let started = Instant::now();
         let done = loop {
-            match document.highlight(&mut queries, &[], Duration::from_millis(20)) {
+            match document.highlight(&mut queries, &[], Duration::from_millis(20), wall) {
                 Highlighted::Paused => continue,
                 done => break done,
             }
@@ -332,7 +332,7 @@ fn fences_that_follow_each_other_stay_apart() {
         "{:?}",
         document.code_blocks.ranges()
     );
-    let done = document.highlight(&mut Queries::new(), &[], LONG);
+    let done = document.highlight(&mut Queries::new(), &[], LONG, wall);
     assert_eq!(done, Highlighted::Done);
     let fences = document.code_blocks.ranges().to_vec();
     assert_eq!(fences.len(), 4, "{fences:?}");
@@ -376,7 +376,7 @@ fn a_key_among_fences_in_a_container_ends() {
         document.edit(&[splice], &Rope::from(after.as_str()));
         let fences = document.code_blocks.ranges().len();
         assert_eq!(fences, 5, "{prefix:?}: they touch, and stay apart");
-        let done = document.highlight(&mut Queries::new(), &[], LONG);
+        let done = document.highlight(&mut Queries::new(), &[], LONG, wall);
         let took = started.elapsed();
         assert_eq!(done, Highlighted::Done, "{prefix:?}");
         assert!(took < Duration::from_secs(2), "{prefix:?}: {took:?}");

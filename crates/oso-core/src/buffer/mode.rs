@@ -106,6 +106,9 @@ pub enum Mode {
     /// call that waits for the person asks, which oso writes, with keys of its own to answer it
     /// (ADR 0165, step 2e-2; ADR 0170).
     Card,
+    /// A native session's plan being edited before it is approved, `*plan: NAME*`, shown in
+    /// place of its transcript: Claude's plan, then the person's (ADR 0165, part 3d).
+    Plan,
 }
 
 impl Mode {
@@ -197,6 +200,7 @@ impl Mode {
             Self::SessionMove => "Session Move",
             Self::NativeSession => "Session",
             Self::Card => "Card",
+            Self::Plan => "Plan",
         }
     }
 
@@ -251,7 +255,8 @@ impl Mode {
             | Self::RenamePreview
             | Self::SessionMove
             | Self::NativeSession
-            | Self::Card => None,
+            | Self::Card
+            | Self::Plan => None,
         };
         given.unwrap_or_default()
     }
@@ -273,7 +278,8 @@ impl Mode {
         match self {
             Self::Rust => Some(indent::rust),
             Self::Toml => Some(indent::toml),
-            Self::Markdown => Some(indent::markdown),
+            // A plan is Markdown (ADR 0165, part 3d).
+            Self::Markdown | Self::Plan => Some(indent::markdown),
             // ADR 0164.
             Self::Css => Some(indent::css),
             Self::Json => Some(indent::json),
@@ -379,6 +385,7 @@ mod tests {
             Mode::Markdown,
             Mode::Fundamental,
             Mode::Brief,
+            Mode::Plan,
         ];
         assert!(modes.iter().all(|mode| mode.indent_rules().is_some()));
         assert!(Mode::CopyList.indent_rules().is_none());
