@@ -8,7 +8,6 @@
 use oso_core::buffer::Replacement;
 use oso_core::editor::NativeAction;
 
-use super::super::highlight;
 use crate::app::App;
 use crate::sessions::native::queue::Move;
 use crate::sessions::native::render::{Face, queue_rows};
@@ -25,7 +24,7 @@ impl App {
         if rows != native.composing.rows {
             let start = native.placed.end();
             let range = start..start + native.composing.rows.len();
-            let runs = [(rows.len(), Some(highlight(Face::Dim)))];
+            let runs = [(rows.len(), Some(Face::Dim.highlight()))];
             self.editor
                 .replace_native_rows(native.buffer, range, &rows, &runs);
             native.composing.rows = rows;

@@ -384,8 +384,8 @@ The author answered step 1's questions on 2026-11-21, through the space's orches
 - A tool result is as ADR 0130 has it: one folded row, `TAB` unfolds it, past 200 lines its
   first and last 50, `RET` shows it whole.
 - A resumed session's buffer starts with one line; its earlier turns are step 5's.
-- Replies are plain text with the rows' faces in part 1b; Markdown highlighting is a follow-up
-  within step 1.
+- Replies are plain text with the rows' faces in part 1b; Markdown highlighting moved to
+  step 2, part 2g.
 
 Part 1a, the pure part (`sessions::native`), with the security, performance and architecture
 reviews' findings:
@@ -755,6 +755,68 @@ As built:
 - **Public API (approved):** `oso_platform::process::Signal::Interrupt` and
   `Child::interrupt`; on Windows, which has no `SIGINT`, the process ends at once, as
   `terminate` does there.
+
+### Part 2g: Markdown in replies
+
+The author chose (a) on Q8 and on each of the plan's questions (2026-11-22); the space's
+orchestrator chose (a) on the last. The author accepted the exception to ADR 0111's Q2 below
+(2026-11-22). No public API changes.
+
+- **Once whole (Q8 (a)):** a reply is highlighted once its block closed, by its message or by
+  the end of its turn (an interrupt's too), and a subagent's too; while it streams it is plain.
+  Its text is copied, at most 64 KiB, and opened as a document no buffer owns
+  ([ADR 0122](0122-agent-review.md), step 8) on ADR 0111's threads, in Markdown, under
+  `SyntaxKey::Reply` and a key never used before, with the session buffer's verdict. Fences
+  take their own language as in any Markdown buffer (ADR 0111, step 7). Only the report that
+  says it is done counts, once.
+- **On its row:** the row draws each line after a mark (`● `, or two spaces past the first,
+  after its indent), an empty line's without the spaces at its end, so that no row ends in
+  spaces, which the trailing whitespace aid would show (as for every row's lines); the report's runs are put past each line's mark, which keeps its face, in
+  one walk over the lines and the runs (`sessions::native::markdown`), and laid over the row's
+  bytes in the buffer's highlights (`Editor::set_internal_highlights`), O(log n) and a step a
+  run. The rows' faces as highlights (`Face::highlight`, `Rendered::runs`) moved to
+  `sessions::native::render` so that the pure part shares them. Wrapping is the window's and
+  folding redraws other rows only: both leave the runs where they are. A row drawn again is
+  plain: what was open for it is closed at once, and a whole reply drawn again is opened again;
+  a report under a key it no longer waits under is dropped, and one whose runs do not cover the
+  row's bytes changes nothing. Markdown's markers stay, in their face; hiding them waits for
+  the display map.
+- **Budgets:** a reply past 64 KiB (the author's choice, Q1), cut short, or whose runs, its
+  marks and breaks among them, would pass 65536 stays plain. At most 4 replies are open at
+  once, of every session, as many as hold a tree at once, and at most 256 wait, the newest
+  first; the oldest past that stay plain. They share the schedule with a review's sides: a
+  full schedule makes them wait a second. A reply whose row is on screen as it opens ranks as
+  shown, the others after buffers no window shows; it keeps that rank until done. The threads'
+  own limits (ADR 0111: the parse's time, a line past 16 KiB) bound the rest: a reply that
+  fails stays plain and nothing is said (Q5 (a)), as a reply is read-only and a message for
+  each would be noise.
+- **Replies are parsed whatever they quote (an exception to ADR 0111, Q2):** a session
+  buffer is never judged secret, as no file is its source, so a reply that quotes a file the
+  model read, a secret one too, is parsed like any other. That is safe because nothing the
+  parse makes leaves the buffer: the buffer is withheld from agents
+  ([ADR 0085](0085-agent-channel-and-oso-mcp.md)), the threads' messages and logs carry no text and a
+  parse's time is not reported (ADR 0111), the document is closed once its report comes and
+  nothing of it is saved, and the runs only colour text the person already sees. The verdict
+  still goes with the text, so a buffer judged otherwise would not be opened.
+- **`global-font-lock-mode` (Q2 (a)):** off closes what is open, and the editor drops every
+  buffer's highlights, a session's faces among them. On again, a session's faces are laid
+  again from its rows once a window shows it, a reply's as plain, in one change of its
+  highlights, and then its newest whole replies are asked for, before the others, at most 256;
+  a session started while it was off has its faces, and its replies are asked for at once.
+  While it is off, rows drawn are still looked at, so a reply that streams then is highlighted
+  once whole after it is on.
+- **Measured** (release, the author's Mac, with throwaway tests):
+  - 64 KiB of Markdown made of headings, emphasis, links, lists and a Rust fence every 150
+    bytes is highlighted in 30 to 57 ms of the worker's time, in 2 or 3 slices, and gives
+    22770 runs on its row; a 16384-run limit, the plan's, would have left such a reply plain,
+    so it is 65536.
+  - On the UI thread, at 59259 runs, the projection takes 0.31 ms, laying the runs over a
+    10 MiB buffer's highlights 0.39 ms, and the text's copy 0.01 to 0.09 ms: under 1 ms, once
+    a reply.
+  - Laying a session's faces again, for 2000 rows, 1000 of them edits with a 20-line diff,
+    in 631 KB, takes 4.8 ms, once, when a window shows it; laying them for every session at
+    once would cost that for each, which waiting for a window avoids. An event with nothing
+    to do takes 1.4 µs.
 
 ## Questions
 

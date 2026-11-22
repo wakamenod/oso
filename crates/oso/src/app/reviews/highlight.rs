@@ -80,7 +80,7 @@ impl App {
         for index in 0..self.reviews.open.len() {
             let id = self.reviews.open[index].id;
             if on != self.reviews.sides.get(&id).is_some_and(|told| told.on) {
-                let documents = if on { self.side_documents() } else { None };
+                let documents = if on { self.unowned_documents() } else { None };
                 let highlighter = documents.map(|documents| {
                     Box::new(SideHighlighter {
                         documents,

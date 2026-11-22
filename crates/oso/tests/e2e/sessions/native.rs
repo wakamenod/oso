@@ -464,6 +464,7 @@ fn answer_after_quiet(app: &mut App, key: &str) {
 
 mod compose;
 mod interrupt;
+mod markdown;
 mod resume;
 
 /// Whether the selected window is the composer docked under a session.
