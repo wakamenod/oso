@@ -368,7 +368,7 @@ fn an_allowed_worktree_session_starts_and_its_finished_worktree_is_removed() {
     assert!(
         run.args
             .iter()
-            .any(|arg| arg == "Fix the parser in \\@src/lib.rs"),
+            .any(|arg| arg.ends_with("\n\nFix the parser in \\@src/lib.rs")),
         "{:?}",
         run.args
     );

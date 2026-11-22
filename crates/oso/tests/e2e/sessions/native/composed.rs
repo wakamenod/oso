@@ -57,6 +57,19 @@ fn composer_text(app: &mut App) -> String {
     text(&state)
 }
 
+/// Leaves the composer's dock for the transcript, then opens `notes.md` there and waits until
+/// it shows.
+fn open_notes(flow: &Flow, app: &mut App) {
+    app.send_keys("C-c C-o");
+    app.wait_for("the transcript", |state| {
+        state["buffer"]["name"] == "*claude: proj*"
+    });
+    app.open_file(&flow.project.join("notes.md"));
+    app.wait_for("notes.md", |state| {
+        state["buffer"]["name"] == "notes.md" && state["buffer"]["loading"].is_null()
+    });
+}
+
 /// What the echo area says.
 fn echo(state: &serde_json::Value) -> String {
     state["echo"].as_str().unwrap_or_default().to_owned()
@@ -101,7 +114,7 @@ fn a_send_goes_into_the_composer_escaped_and_a_reviews_question_goes_at_once() {
     // A draft, then a note sent from another buffer: it goes in after the draft, escaped, and
     // nothing is sent.
     app.send_keys(&keys("draft"));
-    app.open_file(&flow.project.join("notes.md"));
+    open_notes(&flow, &mut app);
     app.send_keys("C-g C-c a m");
     app.wait_for("the session prompt", |state| {
         asks(state).is_some_and(|prompt| prompt.starts_with("Send to session"))
@@ -135,7 +148,7 @@ fn a_send_goes_into_the_composer_escaped_and_a_reviews_question_goes_at_once() {
     app.send_keys(&keys("kept"));
     fs::write(flow.project.join("notes.md"), "notes\nmore\n").unwrap();
     // From a buffer of the project, whose uncommitted changes the review shows.
-    app.open_file(&flow.project.join("notes.md"));
+    open_notes(&flow, &mut app);
     app.send_keys("C-u C-x v r w");
     app.wait_for("the review", |state| {
         state["buffer"]["name"] == "*review: uncommitted proj*" && text(state).contains("+more")
