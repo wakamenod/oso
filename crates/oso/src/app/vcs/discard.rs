@@ -316,7 +316,7 @@ fn list_text(project: &str, entries: &[Entry], now: u64) -> String {
 }
 
 /// How long ago `then` was at `now`.
-fn ago(then: u64, now: u64) -> String {
+pub(super) fn ago(then: u64, now: u64) -> String {
     let minutes = now.saturating_sub(then) / 60;
     match minutes {
         0 => "just now".to_owned(),

@@ -22,6 +22,9 @@
 //!   prefixes, and a hunk is applied with no whitespace loosening, so that what was shown is
 //!   what goes in, or git refuses it.
 //! - What waits is taken as one batch: each staging in order, then one reading and one text.
+//! - What is at the index's lock is looked at before a staging or a discard; a stop that left
+//!   one, or a failure that names one there, is reported as [`Report::Locked`], so that the
+//!   person can take it away (ADR 0127, "A stale index.lock, as amended").
 //! - Nothing here logs a file's text; a report's `Debug` gives its kind.
 
 use std::collections::HashMap;
@@ -35,6 +38,7 @@ use std::thread;
 
 use super::layout::Built;
 use super::layout::{self, Head, Hunks, Laid, Section, View};
+use super::lock::{self, Lock, Noted, Seen};
 use super::read::{MAX_LIST, args, find, head_commit, hooks_dir, logs, numstat, read_patch, set};
 use super::read::{git_dir, stopped};
 use super::stage::{self, Op, Target};
@@ -100,6 +104,9 @@ pub(crate) enum Report {
     Refused { why: String },
     /// Something failed: why, with no file's text.
     Failed { why: String },
+    /// A staging or a discard was stopped and left the index's lock, or failed on one there:
+    /// what is noted, and what the echo area says.
+    Locked { noted: Noted, said: String },
 }
 
 impl fmt::Debug for Report {
@@ -112,6 +119,7 @@ impl fmt::Debug for Report {
             Self::Ran { said } => f.debug_struct("Ran").field("said", said).finish(),
             Self::Refused { why } => f.debug_struct("Refused").field("why", why).finish(),
             Self::Failed { why } => f.debug_struct("Failed").field("why", why).finish(),
+            Self::Locked { said, .. } => f.debug_struct("Locked").field("said", said).finish(),
         }
     }
 }
@@ -235,6 +243,8 @@ struct State {
     read: bool,
     /// Set to stop the write under way.
     stop: Arc<AtomicBool>,
+    /// Where the index's lock is, once git said.
+    lock: Option<Lock>,
 }
 
 impl State {
@@ -258,9 +268,10 @@ impl State {
                 } => match stage::ops(&built, &targets, stage) {
                     Ok((ops, said)) => {
                         read = true;
+                        let (lock, before) = self.lock_before(trusted);
                         match self.run_all(&ops, trusted) {
                             Ok(()) => out.push(Report::Ran { said }),
-                            Err(why) => out.push(Report::Failed { why }),
+                            Err(why) => out.push(self.failed(why, lock.as_ref(), before)),
                         }
                     }
                     Err(why) => out.push(Report::Refused { why }),
@@ -268,13 +279,14 @@ impl State {
                 Request::Discard { built, targets, .. } => match discard::plan(&built, &targets) {
                     Ok(plan) => {
                         read = true;
+                        let (lock, before) = self.lock_before(trusted);
                         let (state, stop) = (self.state_dir.clone(), Arc::clone(&self.stop));
                         let ran = self.git(trusted.path()).cloned().and_then(|git| {
                             keep::discard(&git, trusted, &plan, state.as_deref(), &stop)
                         });
                         match ran {
                             Ok(()) => out.push(Report::Ran { said: plan.said }),
-                            Err(why) => out.push(Report::Failed { why }),
+                            Err(why) => out.push(self.failed(why, lock.as_ref(), before)),
                         }
                     }
                     Err(why) => out.push(Report::Refused { why }),
@@ -304,6 +316,32 @@ impl State {
             self.git = Some(find(root, &hooks)?);
         }
         self.git.as_ref().ok_or_else(|| "no git".to_owned())
+    }
+
+    /// Where the index's lock is, asked of git once, and what is there now.
+    fn lock_before(&mut self, trusted: &TrustedRoot) -> (Option<Lock>, Option<Seen>) {
+        if self.lock.is_none() {
+            self.lock = self.git(trusted.path()).ok().and_then(Lock::of);
+        }
+        let lock = self.lock.clone();
+        let before = lock.as_ref().and_then(Lock::look);
+        (lock, before)
+    }
+
+    /// The report of a staging or a discard that failed as `why` says, or was stopped, with
+    /// `before` at the index's lock `lock` as it began.
+    fn failed(&self, why: String, lock: Option<&Lock>, before: Option<Seen>) -> Report {
+        let stopped = self.stop.load(Ordering::SeqCst);
+        let named = !stopped && lock::named(&why);
+        let Some(noted) = lock.and_then(|lock| lock.after(before, stopped, named)) else {
+            return Report::Failed { why };
+        };
+        let said = if noted.stopped {
+            format!("Stopped; {}", lock::left(&noted.lock))
+        } else {
+            lock::found(&noted.lock)
+        };
+        Report::Locked { noted, said }
     }
 
     fn read_status(&mut self, trusted: &TrustedRoot) -> Result<(), String> {

@@ -21,6 +21,8 @@
 //!   skip what does not parse.
 //! - What a line names is the table's ([`layout::Built`]), never the text's; [`stage`] turns
 //!   the lines commands name into git commands.
+//! - The index's lock a stopped run left, or a run failed on, is noted and taken away only
+//!   after the person's `y`, still the same file ([`lock`]).
 //! - Files that may hold secrets (ADR 0028) show their name and counts: their hunks are never
 //!   read, and they stage as a whole.
 //! - A commit runs on a thread of its own for the repository, `oso-vcs-run` ([`run`]), with the
@@ -37,6 +39,7 @@ pub(crate) mod graph;
 pub(crate) mod history;
 pub(crate) mod keep;
 pub(crate) mod layout;
+pub(crate) mod lock;
 pub(crate) mod patch;
 pub(crate) mod pr;
 pub(crate) mod read;

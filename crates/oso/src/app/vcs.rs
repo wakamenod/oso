@@ -37,6 +37,7 @@ mod commit;
 mod discard;
 mod draft;
 mod graph;
+mod lock;
 mod pr;
 mod prompt;
 mod remote;
@@ -357,6 +358,7 @@ impl App {
                 let why = one_line(&why, MAX_MESSAGE);
                 self.editor.message(format!("git: {why}"));
             }
+            Report::Locked { noted, said } => self.status_locked(index, noted, &said),
         }
     }
 

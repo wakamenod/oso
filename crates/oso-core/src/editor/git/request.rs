@@ -279,6 +279,10 @@ pub enum GitRequest {
     /// Show what discards kept in the repository of `buffer`: a status, that list, or a
     /// buffer of the project (`M-x git-discarded`, `g` in the list).
     ShowDiscarded { buffer: BufferId },
+    /// Take away the index's lock oso noted in the repository of `buffer`, a status, its log or
+    /// a buffer of the project, after the person's `y` (`confirmed`), if it is still the file
+    /// noted (`M-x git-remove-stale-lock`, ADR 0127, "A stale index.lock, as amended").
+    RemoveLock { buffer: BufferId, confirmed: bool },
     /// Ask the agent session of the repository's worktree for a draft of the commit's message
     /// `buffer`, which it gives back with the session tool `draft_set` (`C-c C-d`, step 6a).
     DraftMessage { buffer: BufferId },

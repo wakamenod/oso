@@ -24,7 +24,13 @@
 //!   uses (`core.hooksPath` respected).
 //! - One request at a time; the UI refuses a second run while one is under way (ADR 0127,
 //!   step 1b, Q8).
+//! - What is at the index's lock is looked at as each request begins; a stop that left a lock,
+//!   or a failure whose output names one that is there, is reported before the run's end, and
+//!   a failure on the lock says so in place of a hook's name (ADR 0127, "A stale
+//!   index.lock, as amended"). The lock is taken away only when asked, and only if it is still
+//!   the file noted.
 
+use std::cell::Cell;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -39,9 +45,10 @@ use super::branch::{BranchRead, BranchRun, Branches, DeletePlan};
 use super::commit;
 use super::discarded::{self, Entry};
 use super::keep;
+use super::lock::{self, Id, Lock, Noted, Seen};
 use super::read::{find, hooks_dir};
 use super::remote::Push;
-use crate::git::{Ender, Git, MAX_SHORT, TrustedRoot, os_path, trim_line};
+use crate::git::{Ender, Git, TrustedRoot};
 
 mod branch;
 mod graph;
@@ -105,6 +112,9 @@ pub(crate) enum RunRequest {
     },
     /// Make or merge a pull request through `gh`, as `run` says (step 5a-2).
     Pr { run: super::pr::create::PrRun },
+    /// Take away the index's lock if it is still the file `id`, as the person said `y`
+    /// ("A stale index.lock, as amended").
+    RemoveLock { id: Id },
 }
 
 /// What a remote's request asks for, with the names `pass` passes on to the hooks of a run.
@@ -165,6 +175,11 @@ pub(crate) enum RunReport {
     Output(String),
     /// Whole seconds since it began.
     Elapsed(u64),
+    /// A stop left the index's lock, or a failure found one, as the run's end follows.
+    Locked(Noted),
+    /// The index's lock was taken away, or why not: what the echo area says, and whether the
+    /// note stays, as the same file is still there.
+    LockRemoved { said: String, kept: bool },
     /// It ended.
     Ended(RunEnd),
 }
@@ -183,6 +198,8 @@ impl std::fmt::Debug for RunReport {
             Self::Began { .. } => f.write_str("Began"),
             Self::Output(text) => write!(f, "Output({} bytes)", text.len()),
             Self::Elapsed(seconds) => write!(f, "Elapsed({seconds})"),
+            Self::Locked(noted) => write!(f, "Locked(stopped: {})", noted.stopped),
+            Self::LockRemoved { kept, .. } => write!(f, "LockRemoved(kept: {kept})"),
             Self::Ended(end) => write!(f, "Ended({end:?})"),
         }
     }
@@ -198,11 +215,13 @@ pub(crate) struct Runner {
 }
 
 /// What a run looks at as it goes: the stop the person asks for, the root's revocation, and
-/// where its ender is put.
+/// where its ender is put; and what it tells back: whether a failure's output named the
+/// index's lock, which [`stream::stream_long`] sets, as every run streams.
 struct Watch<'a> {
     stop: &'a AtomicBool,
     root: &'a TrustedRoot,
     ender: &'a Mutex<Option<Ender>>,
+    named_lock: Cell<bool>,
 }
 
 impl Runner {
@@ -225,6 +244,7 @@ impl Runner {
                     stop: &flag,
                     root: &root,
                     ender: &slot,
+                    named_lock: Cell::new(false),
                 };
                 serve(&queue, send, &watch, state.as_deref());
             })?;
@@ -281,76 +301,114 @@ fn serve(
 ) {
     let root = watch.root;
     let mut git = None;
+    let mut lock = None;
     while let Ok(request) = queue.recv() {
         let found = git_for(root, state, &mut git);
-        let reports = match (found, request) {
-            (Err(why), RunRequest::Message) => vec![RunReport::Message(Err(why))],
-            (found, RunRequest::Subjects) => vec![RunReport::Subjects {
-                subjects: found.map(|git| subjects(&git)).unwrap_or_default(),
-                id: super::agent::request_id(),
-            }],
-            (Err(why), RunRequest::Discarded) => vec![RunReport::Discarded(Err(why))],
-            (Err(why), RunRequest::Restore { .. }) => vec![RunReport::Restored(Err(why))],
-            (Ok(_), RunRequest::Discarded) => vec![RunReport::Discarded(discards(root, state))],
-            (Ok(git), RunRequest::Restore { entry, secret }) => {
-                let done = keep::restore(&git, root, (&entry, secret), state, watch.stop);
-                vec![RunReport::Restored(done)]
-            }
-            (Err(why), RunRequest::Remote(RemoteRun::Plan { .. })) => {
-                vec![RunReport::Planned(Err(why))]
-            }
-            (found, RunRequest::BranchRead(read)) => vec![branch::read(found, read)],
-            // Every other run: it did not start.
-            (Err(why), _) => vec![RunReport::Ended(RunEnd::Refused(why))],
-            (Ok(git), RunRequest::Step { want, pass }) => {
-                let end = sequence::step(&git, &want, &pass, watch, &mut send);
-                vec![ended(watch, end)]
-            }
-            (Ok(git), RunRequest::Stash { run, pass }) => {
-                let end = stash::run(&git, &run, &pass, watch, &mut send);
-                vec![ended(watch, end)]
-            }
-            (Ok(git), RunRequest::Branch { run, pass }) => {
-                let end = branch::run(&git, &run, &pass, watch, &mut send);
-                vec![ended(watch, end)]
-            }
-            (Ok(git), RunRequest::Graph { run, pass }) => {
-                let end = graph::run(&git, &run, &pass, watch, &mut send);
-                vec![ended(watch, end)]
-            }
-            (Ok(git), RunRequest::Pr { run }) => {
-                let end = pr::run(&git, (root, state), &run, watch, &mut send);
-                vec![ended(watch, end)]
-            }
-            (Ok(git), RunRequest::Remote(request)) => {
-                vec![remote(&git, request, watch, &mut send)]
-            }
-            (Ok(git), RunRequest::Message) => vec![RunReport::Message(message(&git))],
-            (
-                Ok(git),
-                RunRequest::Commit {
-                    kind,
-                    switches,
-                    message,
-                    pass,
-                    target,
-                },
-            ) => {
-                let run = Commit {
-                    git: git.with_own_hooks(&pass),
-                    kind,
-                    switches,
-                    message,
-                    target,
-                };
-                let end = run.run(watch, &mut send);
-                vec![ended(watch, end)]
-            }
-        };
+        // Where the lock is, asked of git until it says, as git is found.
+        if lock.is_none() {
+            lock = found.as_ref().ok().and_then(Lock::of);
+        }
+        let lock = found.as_ref().ok().and(lock.as_ref());
+        let before = lock.and_then(Lock::look);
+        watch.named_lock.set(false);
+        let reports = answer(found, request, lock, watch, (state, &mut send));
+        let reports = noted(reports, lock, before, watch);
         for report in reports {
             if !send(report) {
                 return;
             }
+        }
+    }
+}
+
+/// What the thread reports of `request`, with git as `found` and the index's lock at `lock`;
+/// what the run under way writes goes to `send` as it comes.
+fn answer(
+    found: Result<Git, String>,
+    request: RunRequest,
+    lock: Option<&Lock>,
+    watch: &Watch<'_>,
+    (state, mut send): (Option<&Path>, impl FnMut(RunReport) -> bool),
+) -> Vec<RunReport> {
+    let root = watch.root;
+    match (found, request) {
+        (Err(why), RunRequest::Message) => vec![RunReport::Message(Err(why))],
+        (found, RunRequest::Subjects) => vec![RunReport::Subjects {
+            subjects: found.map(|git| subjects(&git)).unwrap_or_default(),
+            id: super::agent::request_id(),
+        }],
+        (Err(why), RunRequest::Discarded) => vec![RunReport::Discarded(Err(why))],
+        (Err(why), RunRequest::Restore { .. }) => vec![RunReport::Restored(Err(why))],
+        (Ok(_), RunRequest::Discarded) => vec![RunReport::Discarded(discards(root, state))],
+        (Ok(git), RunRequest::Restore { entry, secret }) => {
+            let done = keep::restore(&git, root, (&entry, secret), state, watch.stop);
+            vec![RunReport::Restored(done)]
+        }
+        (Err(why), RunRequest::Remote(RemoteRun::Plan { .. })) => {
+            vec![RunReport::Planned(Err(why))]
+        }
+        (found, RunRequest::BranchRead(read)) => vec![branch::read(found, read)],
+        (Err(why), RunRequest::RemoveLock { .. }) => vec![RunReport::LockRemoved {
+            said: format!("git: {why}"),
+            kept: true,
+        }],
+        (Ok(_), RunRequest::RemoveLock { id }) => {
+            let (said, kept) = lock.map_or_else(
+                || {
+                    (
+                        "git does not say where the index's lock is".to_owned(),
+                        true,
+                    )
+                },
+                |lock| lock.remove(id),
+            );
+            vec![RunReport::LockRemoved { said, kept }]
+        }
+        // Every other run: it did not start.
+        (Err(why), _) => vec![RunReport::Ended(RunEnd::Refused(why))],
+        (Ok(git), RunRequest::Step { want, pass }) => {
+            let end = sequence::step(&git, &want, &pass, watch, &mut send);
+            vec![ended(watch, end)]
+        }
+        (Ok(git), RunRequest::Stash { run, pass }) => {
+            let end = stash::run(&git, &run, &pass, watch, &mut send);
+            vec![ended(watch, end)]
+        }
+        (Ok(git), RunRequest::Branch { run, pass }) => {
+            let end = branch::run(&git, &run, &pass, watch, &mut send);
+            vec![ended(watch, end)]
+        }
+        (Ok(git), RunRequest::Graph { run, pass }) => {
+            let end = graph::run(&git, &run, &pass, watch, &mut send);
+            vec![ended(watch, end)]
+        }
+        (Ok(git), RunRequest::Pr { run }) => {
+            let end = pr::run(&git, (root, state), &run, watch, &mut send);
+            vec![ended(watch, end)]
+        }
+        (Ok(git), RunRequest::Remote(request)) => {
+            vec![remote(&git, request, watch, &mut send)]
+        }
+        (Ok(git), RunRequest::Message) => vec![RunReport::Message(message(&git))],
+        (
+            Ok(git),
+            RunRequest::Commit {
+                kind,
+                switches,
+                message,
+                pass,
+                target,
+            },
+        ) => {
+            let run = Commit {
+                git: git.with_own_hooks(&pass),
+                kind,
+                switches,
+                message,
+                target,
+            };
+            let end = run.run(watch, &mut send);
+            vec![ended(watch, end)]
         }
     }
 }
@@ -381,6 +439,38 @@ fn discards(root: &TrustedRoot, state: Option<&Path>) -> Result<Vec<Entry>, Stri
         .ok_or_else(|| "oso has no state directory".to_owned())
         .and_then(|state| discarded::read(state).map_err(|e| e.to_string()))
         .map(|entries| discarded::of_root(entries, root))
+}
+
+/// `reports`, with what a run's end leaves at `lock`, `before` there as it began: a lock a stop
+/// left, or one a failure names, said before the end, and the failure said as the lock's.
+fn noted(
+    mut reports: Vec<RunReport>,
+    lock: Option<&Lock>,
+    before: Option<Seen>,
+    watch: &Watch<'_>,
+) -> Vec<RunReport> {
+    let Some(lock) = lock else {
+        return reports;
+    };
+    let Some(at) = (reports.iter()).position(|report| matches!(report, RunReport::Ended(_))) else {
+        return reports;
+    };
+    let (stopped, failed) = match &reports[at] {
+        RunReport::Ended(RunEnd::Stopped) => (true, false),
+        RunReport::Ended(RunEnd::Failed { .. }) => (false, watch.named_lock.get()),
+        _ => return reports,
+    };
+    let Some(noted) = lock.after(before, stopped, failed) else {
+        return reports;
+    };
+    if failed {
+        reports[at] = RunReport::Ended(RunEnd::Failed {
+            said: lock::found(lock),
+            hooks: Vec::new(),
+        });
+    }
+    reports.insert(at, RunReport::Locked(noted));
+    reports
 }
 
 /// The report of a run that ended as `end`, once its ender is let go.
@@ -472,15 +562,7 @@ impl Commit {
 
 /// The hooks directory git uses for this repository, `core.hooksPath` respected.
 fn hooks_of(git: &Git) -> Option<PathBuf> {
-    let words = ["rev-parse", "--git-path", "hooks"].map(OsStr::new);
-    let out = git.run(&words, &[], MAX_SHORT).ok()?;
-    let path = os_path(trim_line(&out)).ok()?;
-    let path = Path::new(path);
-    Some(if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        git.top().join(path)
-    })
+    super::read::git_path(git, "hooks")
 }
 
 #[cfg(test)]

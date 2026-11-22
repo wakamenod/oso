@@ -1,6 +1,6 @@
 # 0127. Source control and GitHub
 
-- Status: Accepted
+- Status: Accepted; "A stale index.lock, as amended" (2026-11-22)
 - Date: 2026-11-13
 
 ## Context
@@ -1445,6 +1445,57 @@ the fork's code, and their logs are left out like a stranger's comments. It buil
   - the commands;
   - an end-to-end flow: `X` with a log's tail, `C` without a stranger's comment until `C-c C-t`
     puts it above the end, and `C-c C-c` with no session keeping the message.
+
+## A stale index.lock, as amended
+
+Amended on 2026-11-22, with the author's choices through the coordinator. A run oso stopped just
+after it began, a commit within about 20 ms of its start under load, could leave git's
+`<gitdir>/index.lock` behind: 20 of 400 such stops did, 24 with the group's `SIGKILL` at the reap
+turned off, and plain git sent `SIGTERM` outside oso did too. So oso's kill is not the cause; git
+holds the lock for the moments before a plain commit's hook, and a signal there can leave it.
+Every later commit and staging then failed, and the echo area said "commit failed (hook
+pre-commit)", while only the log showed git's `index.lock: File exists`. Step 1b's follow-up had
+said only that `git status` names such a lock.
+
+- **Where the lock is:** git says, once per repository's thread: `rev-parse --git-path index`,
+  with `.lock` after it (`vcs/lock.rs`). A worktree's is in its own git directory; nothing is
+  guessed.
+- **Noted before and after a run (B):** before each request the run thread takes, and before
+  each staging, unstaging or discard of the status's thread (`s`, `u`, `k`, Q2), the lock's path
+  is looked at, no link followed, and the file there is kept by its device, inode and the
+  time its inode last changed, so that a number freed and given to a new file is not taken for
+  the old one. Once a
+  run oso stopped has ended, git reaped and its group killed, a lock that was not there, or
+  another file, is reported (`RunReport::Locked`, `Report::Locked`) and noted for the
+  repository. The echo area then says, for example, "git commit stopped; the stop left
+  .git/index.lock: git writes no index while it is there; M-x git-remove-stale-lock removes it".
+- **A failure on the lock (C):** a run or a staging that failed with a line naming
+  `index.lock'`, as git quotes the path it could not make, not a remote's (`remote:`), while the
+  same file is there as when it began, says "git found .git/index.lock: another git may
+  run, or a stop left it; M-x git-remove-stale-lock removes it", in place of the hooks that may
+  have made it, and notes that lock. The name is matched, not git's words, which `LANG` may
+  translate. A commit that failed so ran no hook: `C-c C-f` asks no session to fix it (Q6).
+- **`M-x git-remove-stale-lock`** (Q1: no key), `Person`, in a status, its log or a buffer of
+  the project. It asks "Remove .git/index.lock, made 3 min ago? Another git may own it" (Q5:
+  the age helps the person judge whether a git still runs). On `y` the run thread looks again
+  and takes the lock away only if it is still the file noted; another file there is left, as a
+  git the person started elsewhere may own it. With no lock noted, the command only says so
+  (Q3): oso removes nothing it did not see left. It is refused while git runs in the repository.
+  Nothing takes a lock away unasked.
+- **Windows** (Q4): the standard library gives no device or inode, so a file is known by its
+  creation time, last write time and length, a weaker stand-in.
+- **Code:** `vcs/lock.rs` finds, looks at and takes away the lock, and `vcs/read.rs`'s
+  `git_path` asks git where it is, as it does the hooks directory; `app/vcs/lock.rs` keeps the
+  note and asks the question. The library item: `GitRequest::RemoveLock` in `oso-core`.
+- **What is left:** other locks git may leave, such as `HEAD.lock` or a ref's, are not looked
+  at; a note lasts until oso ends.
+- **Tests:** naming, what a stop or a failure notes, and removing only the file noted, a link
+  itself and not its target (`vcs/lock/tests.rs`); on the run thread, a stop that leaves a lock
+  (a hook makes one, as a stop in git's window would leave it), the next commit failing on it
+  with no hook named, `y` taking it away and a commit going in after; a lock planted before a
+  commit and another file put in its place, which is left; a worktree's lock in its own git
+  directory; staging that fails on a lock; the command; the question's text; and an end-to-end
+  flow.
 
 ## Sources
 

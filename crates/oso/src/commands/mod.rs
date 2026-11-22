@@ -502,6 +502,7 @@ mod tests {
         "git-discarded-refresh",
         "git-draft-commit-message",
         "git-fix-with-agent",
+        "git-remove-stale-lock",
         "git-restore-discarded",
         "git-show-log",
         "git-stop",

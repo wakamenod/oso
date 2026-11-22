@@ -527,6 +527,7 @@ fn the_thread_runs_nothing_for_a_revoked_root_and_takes_a_batch_as_one() {
 
 mod discard;
 mod guards;
+mod lock;
 
 #[test]
 fn the_commit_sections_show_what_the_upstream_lacks_and_holds() {

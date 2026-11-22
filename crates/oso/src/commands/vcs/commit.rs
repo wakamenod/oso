@@ -1,6 +1,7 @@
 //! Source control's commands for committing (ADR 0127, step 1b): the commit menu's heads, which
 //! read its switches, the keys of a commit's message, and the log of git's runs; and asking the
-//! worktree's agent session for a draft or a fix (step 6a).
+//! worktree's agent session for a draft or a fix (step 6a); and taking away a stale index lock
+//! the person's `y` lets go (ADR 0127, "A stale index.lock, as amended").
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command asks the host, which runs git on
 //! the repository's own thread. Every command here is `Person`: each makes the host run git,
@@ -99,6 +100,11 @@ pub const COMMANDS: &[Command] = &[
         "git-stop",
         "In a git status or its log, stop what git runs in the repository (`k` in the log; `C-g` does it too).\n\ngit and what it started get `SIGTERM`, then `SIGKILL` after 5 s.",
         stop
+    ),
+    command!(
+        "git-remove-stale-lock",
+        "Take away the index's lock, `index.lock`, that a stopped run left in the project's repository, or that a run failed on, after a question.\n\nOnly a lock oso noted, and only if it is still the same file: a git started elsewhere may own a newer one. While it is there, git writes no index.",
+        remove_stale_lock
     ),
 ];
 
@@ -248,6 +254,21 @@ fn stop(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     }
     let buffer = window.buffer();
     ctx.editor.request_git(GitRequest::Stop { buffer });
+    ctx.request_redraw();
+    Ok(())
+}
+
+fn remove_stale_lock(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    super::super::not_in_prompt(ctx)?;
+    // The tiled window's, as `M-x` runs it with the minibuffer selected.
+    let buffer = ctx.editor.tiled().0.buffer();
+    let in_log = (ctx.editor.buffer(buffer)).is_some_and(|shown| shown.mode() == Mode::GitLog);
+    if !in_log && super::status_project(ctx.editor).is_none() {
+        return Err(CommandError::new("Not in a project"));
+    }
+    let confirmed = ctx.confirmed();
+    ctx.editor
+        .request_git(GitRequest::RemoveLock { buffer, confirmed });
     ctx.request_redraw();
     Ok(())
 }
