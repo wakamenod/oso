@@ -119,9 +119,9 @@ pub struct Looked {
     pub ignored: Vec<PathBuf>,
     /// Sessions oso did not start that run in it, by name or process id.
     pub external: Vec<String>,
-    /// Why Claude Code's registry could not be listed in full, if it could not: check 4 cannot
-    /// tell whether a session oso did not start runs in it.
-    pub registry_unread: Option<&'static str>,
+    /// Why Claude Code's registry could not be read in full, or could not place a session, if
+    /// so: check 4 cannot tell whether a session oso did not start runs in it.
+    pub registry_untold: Option<&'static str>,
     /// The hosted sessions in it that were busy when the job looked, by name: the registry's
     /// half of check 4, which only the job reads.
     pub busy: Vec<String>,
@@ -176,7 +176,7 @@ pub fn look(
         merged: None,
         ignored: Vec::new(),
         external: Vec::new(),
-        registry_unread: None,
+        registry_untold: None,
         busy: held.busy.clone(),
         gh_pending: None,
         removing: false,
@@ -201,7 +201,7 @@ pub fn look(
         }
     }
     looked.external = facts.external_in(&looked.listed.path);
-    looked.registry_unread = facts.registry_unread;
+    looked.registry_untold = facts.registry_untold;
     if stop(&looked) {
         return looked;
     }
@@ -269,9 +269,9 @@ pub fn first(looked: &Looked, held: &Held) -> Option<Check> {
     {
         return Some(Check::Dirty(status));
     }
-    // 4 cannot be run on a registry not listed in full. Its refusal comes before a busy
+    // 4 cannot be run on a registry not read in full. Its refusal comes before a busy
     // session's, as an entry not read leaves a settled session busy too.
-    if let Some(why) = looked.registry_unread
+    if let Some(why) = looked.registry_untold
         && held.unsaved == 0
         && !held.unsent
     {
@@ -383,7 +383,7 @@ mod tests {
             merged: None,
             ignored: Vec::new(),
             external: Vec::new(),
-            registry_unread: None,
+            registry_untold: None,
             busy: Vec::new(),
             gh_pending: None,
             removing: false,
@@ -422,7 +422,7 @@ mod tests {
         let mut looked = looked();
         looked.merged = Some(Merged::Ancestor("origin/main".to_owned()));
         assert_eq!(removable(&looked, &Held::default()), Ok(()));
-        looked.registry_unread = Some("not listed");
+        looked.registry_untold = Some("not listed");
         let unknown = Err(Check::Unknown("not listed".to_owned()));
         assert_eq!(removable(&looked, &Held::default()), unknown);
         let busy = Held {

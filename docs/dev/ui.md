@@ -1216,7 +1216,8 @@ a switch made with its command stands until that setting changes in the file
   - no buffer in it is unsaved and no brief for it is unsent;
   - no session in it is busy: one oso hosts is busy unless its state is idle, done or ready for
     review and Claude Code's registry calls it idle, in an entry whose start time matches its
-    process; none oso did not start runs in it, and the registry was listed in full;
+    process; none oso did not start runs in it, the registry was read in full, and each such
+    session there has a directory oso can read;
   - its branch is merged, into a remote's main branch or through a merged pull request that
     `gh` knows of.
 
