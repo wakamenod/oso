@@ -9,9 +9,9 @@ state, configuration and cache (ADR 0142) live, the home directory, and who else
 `file_meta` what decides who may reach a file beyond its mode (ADR 0065), and opening and
 listing a directory relative to itself, with the names of owners and groups and the local time
 zone's offset that a directory listing shows (ADR 0114, ADR 0134). The
-control sockets' transport lives in `control`, in every build, for the dev socket
-and the agent channel (ADR 0085); only the dev tooling and the agent channel
-listen. Passing descriptors over a connection (`control/unix/rights.rs`) and a PTY master
+control sockets' transport lives in `control`, in every build, for the dev socket,
+the agent channel (ADR 0085) and the sessions' socket (ADR 0165, step 2); only the dev
+tooling and the agent channel listen. Passing descriptors over a connection (`control/unix/rights.rs`) and a PTY master
 from a descriptor serve the restart of terminals, `oso dev`'s (ADR 0120, step 11) and
 `oso-restart`'s, whose socket pair `ControlStream::pair` makes and whose new instance takes it
 as descriptor 3 (`ControlStream::inherited`, `process::PassedFd`, ADR 0133; its number is

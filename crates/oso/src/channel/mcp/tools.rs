@@ -92,12 +92,16 @@ pub(super) fn tool(
     })
 }
 
-/// The tools, those that only read first.
-pub(super) fn tools() -> Value {
+/// The tools, those that only read first, and `permission` last if the bridge `asks` for a
+/// native session (ADR 0165, step 2).
+pub(super) fn tools(asks: bool) -> Value {
     let mut tools = reading_tools();
     tools.extend(session_tools::reading());
     tools.extend(acting_tools());
     tools.extend(session_tools::acting());
+    if asks {
+        tools.push(super::permission::listed());
+    }
     Value::Array(tools)
 }
 

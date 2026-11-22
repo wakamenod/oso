@@ -1,5 +1,6 @@
 //! The bridge connections that hold a hosted session (ADR 0121): a claim is answered from
-//! the running `claude`s' process ids as their terminals have them.
+//! the running `claude`s' process ids as their terminals, or native sessions' streams, have
+//! them, on the agent channel and on the sessions' socket (ADR 0165, step 2).
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 
@@ -27,8 +28,16 @@ impl App {
             answer(false);
             return None;
         };
-        // Each running `claude`'s id as its terminal has it now: set once the child started,
-        // cleared before it is reaped.
+        self.refresh_running_children();
+        self.hosting
+            .table
+            .answer_claim(connection, peer, Some(&id), parent_started, answer)
+    }
+
+    /// Each running session's `claude` as its terminal, or a native session's stream, has it
+    /// now: set once the child started, cleared before it is reaped. A bridge's claim, on the
+    /// channel or the sessions' socket, is judged against it (ADR 0121, ADR 0165 step 2).
+    pub(in crate::app) fn refresh_running_children(&mut self) {
         let children: Vec<(SessionKey, Option<u32>)> = self
             .hosting
             .table
@@ -51,9 +60,6 @@ impl App {
                 session.run = Run::Running { child };
             }
         }
-        self.hosting
-            .table
-            .answer_claim(connection, peer, Some(&id), parent_started, answer)
     }
 
     /// The bridge connection `connection` went, or every one did, when it is `None`.

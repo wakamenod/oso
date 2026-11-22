@@ -192,7 +192,9 @@ often, so it must rebuild within 2 s.
   among it, though `carry` ships for `oso-restart`.
 - `src/channel/` is the agent channel and `oso mcp` (ADR 0085), in every
   build. It has no dev method, and runs only commands whose reach is `Look`
-  or `Change`. `src/app/agent.rs` answers it on the UI thread, and
+  or `Change`. Its server also serves the sessions' socket (`Policy::Sessions`, ADR 0165,
+  step 2), which answers only a native session's bridge's `permission`, asked of the person
+  by `src/app/sessions/hosting/native/permissions.rs` over `sessions::native::asks`. `src/app/agent.rs` answers it on the UI thread, and
   `src/dispatch/agent.rs` runs its commands. `channel/diagnostics.rs` reads `oso-lsp`'s
   reports and URI rules, the one module of the channel that does (ADR 0138, step 11).
 - End-to-end flows live in `tests/e2e` and run with `just e2e` (ADR 0049). They

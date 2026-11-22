@@ -1,7 +1,9 @@
 //! Transport for the control sockets: the dev control socket (ADR 0016,
-//! ADR 0032) and the agent channel (ADR 0085). It is in every build, but only
-//! the dev tooling and the agent channel listen, and the agent channel only
-//! once the person turns it on.
+//! ADR 0032), the agent channel (ADR 0085) and the sessions' socket, on which a
+//! native session's bridge asks the person's permission (ADR 0165, step 2). It
+//! is in every build, but only the dev tooling and the agent channel listen:
+//! the agent channel once the person turns it on, the sessions' socket while a
+//! native session runs or starts.
 //!
 //! Must not depend on: `text` or the protocol spoken over the socket; it never
 //! interprets the bytes it moves.
@@ -10,8 +12,8 @@
 //!   that is set, otherwise `oso-<uid>` in the temporary directory (which is
 //!   per user on macOS). It is created with mode `0700`, and refused if it is
 //!   a symlink, is owned by another user or has a looser mode.
-//! - Each instance listens on `<pid>.sock` (dev) or `<pid>-agent.sock` (the
-//!   agent channel) in that directory. Files it writes there are named
+//! - Each instance listens on `<pid>.sock` (dev), `<pid>-agent.sock` (the
+//!   agent channel) or `<pid>-session.sock` (the sessions') in that directory. Files it writes there are named
 //!   `<pid>-<name>`, mode `0600`.
 //! - Both ends check that the peer runs as the same user.
 //! - Sockets that refuse connections are stale; binding removes them along
@@ -43,6 +45,10 @@ pub enum Socket {
     Dev,
     /// The agent channel, `<pid>-agent.sock` (ADR 0085).
     Agent,
+    /// The permission questions of native sessions' bridges, `<pid>-session.sock` (ADR 0165,
+    /// step 2): there while a native session of the instance runs or starts, whether or not
+    /// the agent channel is on.
+    Session,
 }
 
 impl Socket {
@@ -51,6 +57,7 @@ impl Socket {
         match self {
             Self::Dev => format!("{pid}.sock"),
             Self::Agent => format!("{pid}-agent.sock"),
+            Self::Session => format!("{pid}-session.sock"),
         }
     }
 
@@ -59,6 +66,7 @@ impl Socket {
         match self {
             Self::Dev => "oso dev instance",
             Self::Agent => "oso instance with the agent channel on",
+            Self::Session => "oso instance hosting a native session",
         }
     }
 }
@@ -137,10 +145,13 @@ pub(crate) const MAX_PROCESS_NAME: usize = 64;
 /// The process ID and the socket in a socket file name.
 pub(crate) fn socket_of(name: &str) -> Option<(u32, Socket)> {
     let stem = name.strip_suffix(".sock")?;
-    match stem.strip_suffix("-agent") {
-        Some(pid) => Some((parse_pid(pid)?, Socket::Agent)),
-        None => Some((parse_pid(stem)?, Socket::Dev)),
+    if let Some(pid) = stem.strip_suffix("-agent") {
+        return Some((parse_pid(pid)?, Socket::Agent));
     }
+    if let Some(pid) = stem.strip_suffix("-session") {
+        return Some((parse_pid(pid)?, Socket::Session));
+    }
+    Some((parse_pid(stem)?, Socket::Dev))
 }
 
 /// The process ID that owns a file, `<pid>-<name>` or `<pid>.sock`.
@@ -175,6 +186,7 @@ mod tests {
     fn parses_file_names() {
         assert_eq!(socket_of("123.sock"), Some((123, Socket::Dev)));
         assert_eq!(socket_of("123-agent.sock"), Some((123, Socket::Agent)));
+        assert_eq!(socket_of("123-session.sock"), Some((123, Socket::Session)));
         assert_eq!(socket_of("0123.sock"), None);
         assert_eq!(socket_of("abc.sock"), None);
         assert_eq!(socket_of("abc-agent.sock"), None);
@@ -191,7 +203,7 @@ mod tests {
 
     #[test]
     fn socket_file_names_parse_back() {
-        for socket in [Socket::Dev, Socket::Agent] {
+        for socket in [Socket::Dev, Socket::Agent, Socket::Session] {
             assert_eq!(socket_of(&socket.file_name(42)), Some((42, socket)));
         }
     }

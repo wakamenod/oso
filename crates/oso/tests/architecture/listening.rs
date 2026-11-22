@@ -10,13 +10,16 @@
 //!   call, a path or a function pointer. The test harnesses only connect.
 //! - The transport defines them, and only its tests use them.
 //! - Only the app's agent module starts the agent channel, `channel::start`, from the
-//!   person's command, in `app/agent/admit.rs`.
+//!   person's command, in `app/agent/admit.rs`; and only the app's native sessions start the
+//!   sessions' socket, `channel::start_sessions`, while a native session runs or starts, in
+//!   `app/sessions/hosting/native/permissions.rs` (ADR 0165, step 2).
 
 use crate::lexer::{Tok, Token, test_item_lines, tokenize};
 
 /// The places that may listen, clean and write: the dev tooling, behind the `dev` feature,
 /// and the agent channel, which listens only once the person runs its start command
-/// (ADR 0085). Adding one needs an ADR.
+/// (ADR 0085), and on the sessions' socket only while a native session runs or starts, for its
+/// bridge's permission questions (ADR 0165, step 2). Adding one needs an ADR.
 pub const ALLOWED: [&str; 2] = ["crates/oso/src/dev/", "crates/oso/src/channel/"];
 
 /// The places that may also name `ControlDir`, to connect: the end-to-end harness and the
@@ -26,6 +29,21 @@ pub const CLIENTS: [&str; 2] = ["crates/oso/tests/", "crates/oso/examples/"];
 /// The one place that starts the agent channel, from the person's `agent-channel-start`
 /// (ADR 0085).
 pub const STARTS_THE_CHANNEL: &str = "crates/oso/src/app/agent/admit.rs";
+
+/// The one place that starts the sessions' socket, as a native session starts (ADR 0165, step 2).
+pub const STARTS_THE_SESSIONS_SOCKET: &str =
+    "crates/oso/src/app/sessions/hosting/native/permissions.rs";
+
+/// Each start of the channel's module, by the function's name, the one place that may call it,
+/// and what it starts.
+const STARTS: [(&str, &str, &str); 2] = [
+    ("start", STARTS_THE_CHANNEL, "the agent channel (ADR 0085)"),
+    (
+        "start_sessions",
+        STARTS_THE_SESSIONS_SOCKET,
+        "the sessions' socket (ADR 0165)",
+    ),
+];
 
 /// The transport, which defines them and may use them in its tests only.
 pub const TRANSPORT: &str = "crates/oso-platform/src/control/";
@@ -66,32 +84,32 @@ pub fn problems(files: &[(String, String)]) -> Vec<String> {
     if !seen_allowed {
         problems.push(format!("the walk saw no use in {}", ALLOWED.join(", ")));
     }
-    let mut starts = 0;
-    for (at, src) in files {
-        let lines = channel_starts(&tokenize(src));
-        if at == STARTS_THE_CHANNEL {
-            starts += lines.len();
-            continue;
+    for (function, place, what) in STARTS {
+        let mut starts = 0;
+        for (at, src) in files {
+            let lines = channel_starts(&tokenize(src), function);
+            if at == place {
+                starts += lines.len();
+                continue;
+            }
+            for line in lines {
+                problems.push(format!("{at}:{line}: only {place} starts {what}"));
+            }
         }
-        for line in lines {
+        if starts != 1 {
             problems.push(format!(
-                "{at}:{line}: only {STARTS_THE_CHANNEL} starts the agent channel (ADR 0085)"
+                "{place} must start {what} once, not {starts} times"
             ));
         }
-    }
-    if starts != 1 {
-        problems.push(format!(
-            "{STARTS_THE_CHANNEL} must start the agent channel once, not {starts} times"
-        ));
     }
     problems
 }
 
-/// The lines that name `channel::start`.
-pub fn channel_starts(tokens: &[Token]) -> Vec<usize> {
+/// The lines that name `channel::FUNCTION`.
+pub fn channel_starts(tokens: &[Token], function: &str) -> Vec<usize> {
     tokens
         .windows(3)
-        .filter(|w| w[0].is_ident("channel") && w[1].tok == Tok::PathSep && w[2].is_ident("start"))
+        .filter(|w| w[0].is_ident("channel") && w[1].tok == Tok::PathSep && w[2].is_ident(function))
         .map(|w| w[2].line)
         .collect()
 }
@@ -129,17 +147,26 @@ pub fn names(tokens: &[Token]) -> Vec<usize> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ALLOWED, CLIENTS, STARTS_THE_CHANNEL, TRANSPORT, names, problems, uses};
+    use super::{
+        ALLOWED, CLIENTS, STARTS_THE_CHANNEL, STARTS_THE_SESSIONS_SOCKET, TRANSPORT, names,
+        problems, uses,
+    };
     use crate::lexer::tokenize;
 
     const LISTENS: &str = "fn a(dir: &ControlDir) {\n    dir.listen(Socket::Agent);\n}\n";
     const STARTS: &str = "fn start_agent_channel() {\n    channel::start(run, send);\n}\n";
+    const STARTS_SOCKET: &str =
+        "fn start_sessions_socket() {\n    channel::start_sessions(run, send);\n}\n";
 
     /// The allowed place, using one, the one start of the channel, and `others`.
     fn files(others: &[(&str, &str)]) -> Vec<(String, String)> {
         let mut files = vec![
             (format!("{}mod.rs", ALLOWED[0]), LISTENS.to_owned()),
             (STARTS_THE_CHANNEL.to_owned(), STARTS.to_owned()),
+            (
+                STARTS_THE_SESSIONS_SOCKET.to_owned(),
+                STARTS_SOCKET.to_owned(),
+            ),
         ];
         files.extend(
             others
@@ -214,6 +241,19 @@ mod tests {
         let mut doubled = files(&[]);
         doubled[1].1 = twice;
         assert!(problems(&doubled).iter().any(|p| p.contains("not 2 times")));
+    }
+
+    #[test]
+    fn only_the_native_sessions_start_the_sessions_socket_and_only_once() {
+        let elsewhere = problems(&files(&[("crates/oso/src/app/agent.rs", STARTS_SOCKET)]));
+        assert_eq!(elsewhere.len(), 1, "{elsewhere:?}");
+        assert!(
+            elsewhere[0].contains("starts the sessions' socket"),
+            "{elsewhere:?}"
+        );
+        let mut none = files(&[]);
+        none.pop();
+        assert!(problems(&none).iter().any(|p| p.contains("not 0 times")));
     }
 
     #[test]

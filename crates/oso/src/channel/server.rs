@@ -20,6 +20,10 @@
 //! - A reply waits for the UI for [`REPLY_TIMEOUT`], except where its method holds it longer
 //!   (`held`): a worktree job's for as long as the job is given, and a session tool's that
 //!   asks, as the connection's question, until the person answers or the client goes.
+//! - The same loop serves the sessions' socket ([`Policy::Sessions`], ADR 0165, step 2): it
+//!   lets in only a connection whose first request claims a hosted session and that the UI
+//!   finds to be that session's bridge, never asks the person, and answers only `version` and
+//!   `permission`, which the agent channel refuses in turn.
 
 use std::io::{self, BufReader, Write};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
@@ -130,11 +134,33 @@ pub struct Request {
     pub reply: Option<mpsc::Sender<Reply>>,
 }
 
+/// Which socket a server serves.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Policy {
+    /// The agent channel's: the person lets each connection in, and every method but
+    /// `permission` is answered.
+    #[default]
+    Channel,
+    /// The sessions': only a hosted session's bridge, and only `version` and `permission`.
+    Sessions,
+}
+
+/// What the agent channel answers `permission` with.
+const NOT_ON_THE_CHANNEL: &str = "permission is asked on the sessions' socket, not the channel";
+
+/// What the sessions' socket answers anything but its own methods with.
+const ONLY_PERMISSION: &str = "this socket answers only a native session's permission";
+
+/// What the sessions' socket answers a connection that is no hosted session's bridge with.
+const ONLY_BRIDGES: &str = "this socket takes only the bridges of the sessions oso hosts";
+
 /// What the server's threads share.
 #[derive(Debug, Default)]
 pub struct Shared {
     /// The channel stopped: every thread ends.
     pub stop: AtomicBool,
+    /// Which socket this is.
+    policy: Policy,
     /// Which run of the channel this is.
     run: u64,
     next: AtomicU64,
@@ -151,6 +177,15 @@ impl Shared {
             ..Self::default()
         }
     }
+
+    /// The threads' shared state for the sessions' socket's run `run`.
+    pub fn sessions(run: u64) -> Self {
+        Self {
+            run,
+            policy: Policy::Sessions,
+            ..Self::default()
+        }
+    }
 }
 
 /// Starts the accept loop on a background thread. `send` hands a request to the UI thread
@@ -159,8 +194,12 @@ pub fn spawn<S>(listener: ControlListener, shared: Arc<Shared>, send: S) -> io::
 where
     S: Fn(Request) -> bool + Clone + Send + 'static,
 {
+    let name = match shared.policy {
+        Policy::Channel => "oso-agent-accept",
+        Policy::Sessions => "oso-session-accept",
+    };
     thread::Builder::new()
-        .name("oso-agent-accept".into())
+        .name(name.into())
         .spawn(move || accept_loop(&listener, &shared, &send))?;
     Ok(())
 }
@@ -329,28 +368,14 @@ where
         },
         Err(bad) => (bad.id, None),
     };
-    // A hosted session's bridge holds no slot of the two: each session holds one at most.
-    let bridges = claim.is_some_and(|session| claimed(&peer, session, connection, send));
-    let _slot = if bridges {
-        None
-    } else {
-        let Some(slot) = Slot::take(&shared.open, MAX_CLIENTS) else {
-            writeln!(
-                writer,
-                "{}",
-                failure(&first_id, "too many agents are connected")
-            )?;
-            return Ok(());
-        };
-        match ask(&peer, connection, (&lines, &mut writer, shared), send) {
-            Ok(()) => {}
-            Err(Asked::Refused(why)) => {
-                writeln!(writer, "{}", failure(&first_id, &why))?;
-                return Ok(());
-            }
-            Err(Asked::Gone) => return Ok(()),
-        }
-        Some(slot)
+    let admitted = let_in(
+        (&first_id, claim),
+        (&peer, connection),
+        (&lines, &mut writer, shared),
+        send,
+    )?;
+    let Some(_slot) = admitted else {
+        return Ok(());
     };
     closing.admitted = true;
     let mut rate = Rate::new(Instant::now());
@@ -360,7 +385,12 @@ where
             break;
         }
         let response = if rate.take(Instant::now()) {
-            match respond(&text, connection, send, (&lines, &mut writer, shared)) {
+            match respond(
+                &text,
+                (connection, shared.policy),
+                send,
+                (&lines, &mut writer, shared),
+            ) {
                 Some(response) => response,
                 // The client went, or the channel stopped, while the person had not answered.
                 None => break,
@@ -380,6 +410,46 @@ where
         };
     }
     Ok(())
+}
+
+/// Lets the connection of `peer` in after its first request `first_id`, which claims the
+/// hosted session `claim` if it names one: a session's bridge unasked and in no slot, which is
+/// all the sessions' socket lets in; any other once the person agrees, in one of the slots.
+/// `None` once it was told no, or went; else the slot it holds, if any.
+fn let_in<'s, S>(
+    (first_id, claim): (&Value, Option<String>),
+    (peer, connection): (&Peer, Connection),
+    (lines, writer, shared): (&mpsc::Receiver<Line>, &mut ControlStream, &'s Shared),
+    send: &S,
+) -> io::Result<Option<Option<Slot<'s>>>>
+where
+    S: Fn(Request) -> bool,
+{
+    // A hosted session's bridge holds no slot of the two: each session holds one at most.
+    let bridges = claim.is_some_and(|session| claimed(peer, session, connection, send));
+    if bridges {
+        return Ok(Some(None));
+    }
+    if shared.policy == Policy::Sessions {
+        writeln!(writer, "{}", failure(first_id, ONLY_BRIDGES))?;
+        return Ok(None);
+    }
+    let Some(slot) = Slot::take(&shared.open, MAX_CLIENTS) else {
+        writeln!(
+            writer,
+            "{}",
+            failure(first_id, "too many agents are connected")
+        )?;
+        return Ok(None);
+    };
+    match ask(peer, connection, (lines, writer, shared), send) {
+        Ok(()) => Ok(Some(Some(slot))),
+        Err(Asked::Refused(why)) => {
+            writeln!(writer, "{}", failure(first_id, &why))?;
+            Ok(None)
+        }
+        Err(Asked::Gone) => Ok(None),
+    }
 }
 
 /// Ends a connection however `serve` returns: the socket closes for every handle, so its
@@ -429,97 +499,11 @@ fn note_silence<S: Fn(Request) -> bool>(shared: &Shared, send: &S) {
     });
 }
 
-/// Whether the UI thread finds the connection of `peer` to be the bridge of the hosted session
-/// `session` it claims, within [`REPLY_TIMEOUT`]. If so, the UI counts it as let in.
-fn claimed<S>(peer: &Peer, session: String, connection: Connection, send: &S) -> bool
-where
-    S: Fn(Request) -> bool,
-{
-    let (reply, replied) = mpsc::channel();
-    let claims = Request {
-        connection,
-        event: Event::Claims {
-            peer: peer.clone(),
-            session,
-            parent_started: parent_started(peer),
-        },
-        reply: Some(reply),
-    };
-    send(claims)
-        && matches!(
-            replied.recv_timeout(REPLY_TIMEOUT),
-            Ok(Ok(Value::Bool(true)))
-        )
-}
-
-/// When `peer`'s parent started, as the system says, if it does.
-fn parent_started(peer: &Peer) -> Option<std::time::SystemTime> {
-    let parent = peer.parent.as_ref()?;
-    oso_platform::process::start_time(parent.pid())
-        .ok()
-        .flatten()
-}
-
-/// How asking the person ended, when it did not let the connection in.
-enum Asked {
-    Refused(String),
-    Gone,
-}
-
-/// Asks the person, through the UI thread, whether this connection may drive the editor, if
-/// it may take the turn to ask now, and waits as long as they take. However it ends, it gives
-/// the turn back first, holding new connections off only after the person's `n`; then, if the
-/// client went or the channel stopped, it tells the UI, so that the question closes.
-fn ask<S>(
-    peer: &Peer,
-    connection: Connection,
-    (lines, writer, shared): (&mpsc::Receiver<Line>, &mut ControlStream, &Shared),
-    send: &S,
-) -> Result<(), Asked>
-where
-    S: Fn(Request) -> bool,
-{
-    let waiting =
-        Waiting::take(shared, Instant::now()).map_err(|why| Asked::Refused(why.into()))?;
-    let (reply, replied) = mpsc::channel();
-    let asks = Request {
-        connection,
-        event: Event::Asks {
-            peer: peer.clone(),
-            parent_started: parent_started(peer),
-        },
-        reply: Some(reply),
-    };
-    if !send(asks) {
-        waiting.answered(false);
-        return Err(Asked::Refused("the editor is shutting down".into()));
-    }
-    let waited = held::watching(&replied, None, held::PERSON, (lines, writer, shared));
-    // The turn is given back before the UI is told the client went, so that an agent that
-    // connects once the question closed is not told another one waits. Only the person's own
-    // `n` holds others off: a client that goes, or a channel that stops, is no refusal.
-    let refused = matches!(&waited, Waited::Replied(Ok(Err(why))) if why == REFUSED_BY_THE_PERSON);
-    waiting.answered(refused);
-    match waited {
-        Waited::Replied(Ok(Ok(_))) => Ok(()),
-        Waited::Replied(Ok(Err(why))) => Err(Asked::Refused(why)),
-        Waited::Replied(Err(why)) => Err(Asked::Refused(why.into())),
-        Waited::Gone => {
-            send(Request {
-                connection,
-                event: Event::Gone,
-                reply: None,
-            });
-            Err(Asked::Gone)
-        }
-    }
-}
-
 /// The response line for one request line of a connection the person let in, or `None` if
 /// the client went, or the channel stopped, while the request waited for the person.
 fn respond<S>(
     line: &str,
-    connection: Connection,
+    (connection, policy): (Connection, Policy),
     send: &S,
     (lines, writer, shared): (&mpsc::Receiver<Line>, &mut ControlStream, &Shared),
 ) -> Option<String>
@@ -534,10 +518,15 @@ where
         Method::Version { .. } => return Some(success(&request.id, version())),
         Method::Ui(op) => op,
     };
-    let hold = match &op {
-        Op::Session(call) => call.hold(),
-        Op::MoveWait => Hold::Job(protocol::MOVE_WAIT_WITHIN),
-        _ => Hold::Usual,
+    let hold = match (&op, policy) {
+        (Op::Permission(_), Policy::Sessions) => Hold::Person,
+        (Op::Permission(_), Policy::Channel) => {
+            return Some(failure(&request.id, NOT_ON_THE_CHANNEL));
+        }
+        (_, Policy::Sessions) => return Some(failure(&request.id, ONLY_PERMISSION)),
+        (Op::Session(call), Policy::Channel) => call.hold(),
+        (Op::MoveWait, Policy::Channel) => Hold::Job(protocol::MOVE_WAIT_WITHIN),
+        (_, Policy::Channel) => Hold::Usual,
     };
     // Only a file that is there opens: the channel starts no new file (ADR 0085). Looked at
     // here, as the UI thread never waits on the file system.
@@ -572,12 +561,15 @@ fn version() -> Value {
     })
 }
 
+mod admitting;
 mod held;
 mod limits;
 mod opening;
 
+use admitting::{Asked, ask, claimed};
+
 use held::Waited;
-use limits::{Gate, Rate, Slot, Waiting, gate};
+use limits::{Gate, Rate, Slot, gate};
 pub use opening::MAX_OPEN_BYTES;
 use opening::may_open;
 

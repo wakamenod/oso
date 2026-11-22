@@ -522,3 +522,23 @@ fn counts_and_durations_read_as_the_cli_says_them() {
     assert_eq!(seconds(4730), "4.7 s");
     assert_eq!(seconds(125_000), "2 min 5 s");
 }
+
+#[test]
+fn a_waiting_call_is_one_whose_whole_message_came_and_that_has_no_result() {
+    let mut rows = Rows::new(PathBuf::from("/w"));
+    let start = r#"{"type":"stream_event","api_message_id":"m","event":{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"t","name":"Bash","input":{}}}}"#;
+    read(&mut rows, start);
+    // Its input still streams: nothing to show the person yet.
+    assert!(rows.waiting_call("t").is_none());
+    read(
+        &mut rows,
+        &call("m", "t", "Bash", &serde_json::json!({"command": "ls"})),
+    );
+    let tool = rows.waiting_call("t").unwrap();
+    assert_eq!(tool.name.as_str(), "Bash");
+    assert_eq!(tool.input.text.as_deref(), Some("ls"));
+    assert!(rows.waiting_call("other").is_none());
+    let result = r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t","content":"ok"}]}}"#;
+    read(&mut rows, result);
+    assert!(rows.waiting_call("t").is_none());
+}

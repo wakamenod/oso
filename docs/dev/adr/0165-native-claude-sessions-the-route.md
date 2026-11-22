@@ -525,6 +525,65 @@ Resume, fork and a restart, as the author chose on 2026-11-22 (the plan for step
   `session-fork`. A fork follows the mode: native in a new buffer in a trusted project under
   `mode = "native"`, else in a terminal. New starts follow the mode, as now.
 
+## Step 2, as built
+
+Step 2 is built in parts, one pull request each; the author answered its questions on
+2026-11-22, through the space's orchestrator. Each part's choices are recorded here as it
+lands.
+
+Measured on 2026-11-22 for step 2 (CLI 2.1.330, `--model=haiku`, made-up prompts, empty
+directories):
+
+- **The call comes before the question:** the stream's `assistant` line with a call's
+  `tool_use` arrives about 20 ms before the CLI calls its `--permission-prompt-tool` with
+  `{tool_name, input, tool_use_id}`, so the call can be found in the stream by its id.
+- **The prompt tool is not the model's:** it is not in `system/init`'s tools, and the model's
+  own search for it found nothing. `--safe-mode` leaves out `--mcp-config`'s servers, prompt
+  tool included.
+
+### Part 2e-1: the permission route
+
+The author chose (a) on Q4: the sessions' own socket. The reviews' findings were fixed
+before the pull request; the author approved the public API's two additions and the listening
+check's change.
+
+- **`<pid>-session.sock`,** `oso_platform::control::Socket::Session`: an instance's socket in
+  release builds besides `<pid>-agent.sock` (ADR 0085's **Socket:**), which listens without the
+  person's command, from a native session's start until none runs or starts, with the agent
+  channel off or on. It is the agent channel's server with a policy of its own
+  (`server::Policy::Sessions`): only a connection whose first request claims a running native
+  session and that ADR 0121's claim finds to be that session's bridge, one per session, beside
+  the bridge's connection to the channel (`sessions/hosted/claims.rs`, one check for both);
+  never the person's question about a connection; and only `version` and `permission`, held
+  until the person answers or the bridge goes. The agent channel refuses `permission`. The
+  channel's slots, questions and limits are untouched, and stopping the channel stops no
+  question. The architecture check that guards listening names its one start.
+- **The bridge's `permission` tool:** a native session's `--mcp-config` starts `oso mcp --pid
+  PID --permission`, and its line names `--permission-prompt-tool=mcp__oso__permission`. Only a
+  bridge started with `--permission` lists the tool, so a terminal session's model never sees
+  it. The bridge connects to the sessions' socket as MCP's `initialize` comes, before the
+  session's first turn, so that a command the session runs, whose parent is the session's
+  `claude` too, cannot take the slot first; a second claimant is refused, and the person told.
+  The bridge sends the tool's name, the call's id and its input, if that is at most 64 KiB as
+  JSON, and gives the CLI back the input it sent, unchanged, as `updatedInput` on an `allow`.
+  Whatever fails, it answers `deny` with why.
+- **What the person is asked:** the call as the session's own rows have it, found by its id
+  and tool among the calls whose whole message came and that have no result, and only if the
+  request's input reads to the same target. A request whose call does not show within 2 s, or
+  whose call stops waiting before it is asked, is denied unasked, and a call is asked about
+  once (`sessions::native::asks`). One question at a time, the oldest first, never while
+  another agent question's answer is untaken: `Agent: Session NAME asks to run TOOL TARGET:
+  allow it?`, with "(not all of it is shown: ? shows the call)" unless the call only reads, or
+  is a command with nothing but its description and limit; `?` shows the input whole, escaped,
+  in `*Session call*`, withheld from agents. It is the agent channel's kind of question,
+  answered only from the keyboard and only after 500 ms with no key, and its label is withheld
+  from agents' state (`Editor::ask_for_agent_withheld`); `y` allows, `n` or `C-g` denies. While
+  it waits, the session is `needs input` with reason `permission`. The bridge going, the session
+  ending or the socket stopping closes it and denies.
+- **Left for part 2e-2:** the docked card with the call's preview and reason (U1), `N` with a
+  note, `AskUserQuestion` and `ExitPlanMode`; until then they are asked as any call, and a `y`
+  to `AskUserQuestion` answers nothing.
+
 ## Questions
 
 The author chose (a) on each, on 2026-11-21. The options are kept as they were put.

@@ -115,7 +115,7 @@ impl ControlDir {
 
     /// Listens on `socket` for this process. For the dev socket, files left by
     /// an earlier process with the same ID are removed first; for the agent
-    /// channel, only its own socket. Other stale files are left to
+    /// channel and the sessions' socket, only its own socket. Other stale files are left to
     /// [`Self::remove_stale`], which may block.
     pub fn listen(&self, socket: Socket) -> io::Result<ControlListener> {
         let pid = std::process::id();
@@ -127,14 +127,14 @@ impl ControlDir {
                 pid,
                 only: None,
             }),
-            // This process's own channel may be listening there: it is never unlinked.
-            Socket::Agent if UnixStream::connect(&path).is_ok() => {
+            // This process's own listener may be there: it is never unlinked.
+            Socket::Agent | Socket::Session if UnixStream::connect(&path).is_ok() => {
                 return Err(io::Error::new(
                     io::ErrorKind::AlreadyExists,
                     format!("{} is listening already", path.display()),
                 ));
             }
-            Socket::Agent => {
+            Socket::Agent | Socket::Session => {
                 let _ = fs::remove_file(&path);
             }
         }
@@ -144,7 +144,7 @@ impl ControlDir {
         // Only this listener's guard removes this socket: by the file it bound, not its name.
         let only = match socket {
             Socket::Dev => None,
-            Socket::Agent => {
+            Socket::Agent | Socket::Session => {
                 let meta = fs::symlink_metadata(&path)?;
                 Some(Only {
                     name,
@@ -391,11 +391,12 @@ impl Drop for CleanupGuard {
         let Ok(entries) = fs::read_dir(&self.dir) else {
             return;
         };
-        let agent = Socket::Agent.file_name(self.pid);
+        // The agent channel's socket and the sessions' have guards of their own.
+        let kept = [Socket::Agent, Socket::Session].map(|socket| socket.file_name(self.pid));
         for entry in entries.flatten() {
             if let Some(name) = entry.file_name().to_str()
                 && owner_pid(name) == Some(self.pid)
-                && name != agent
+                && !kept.iter().any(|kept| kept == name)
             {
                 let _ = fs::remove_file(entry.path());
             }
@@ -903,6 +904,24 @@ mod tests {
         assert!(agent.socket_path().exists());
         let (pid, _client) = dir.connect(Socket::Agent, None).unwrap();
         assert_eq!(pid, std::process::id());
+    }
+
+    #[test]
+    fn the_sessions_socket_is_kept_as_the_agent_socket_is() {
+        let scratch = Scratch::new();
+        let dir = ControlDir::at(scratch.join("c")).unwrap();
+        let session = dir.listen(Socket::Session).unwrap();
+        let err = dir.listen(Socket::Session).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::AlreadyExists);
+        let dev = dir.listen(Socket::Dev).unwrap();
+        drop(dev.cleanup_guard());
+        assert!(session.socket_path().exists());
+        let (pid, _client) = dir
+            .connect(Socket::Session, Some(std::process::id()))
+            .unwrap();
+        assert_eq!(pid, std::process::id());
+        drop(session.cleanup_guard());
+        assert!(!session.socket_path().exists());
     }
 
     #[test]

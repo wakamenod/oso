@@ -1,6 +1,8 @@
-//! Native sessions (ADR 0165, step 1), with a fake `claude -p`: a shell script that `[sessions]
-//! claude` names, which writes its arguments and the first line of its input to files, prints
-//! stream-json lines the flow wrote, and exits with the status the flow gives it.
+//! Native sessions (ADR 0165, steps 1 and 2), with a fake `claude -p`: a shell script that
+//! `[sessions] claude` names, which writes its arguments and the first line of its input to
+//! files, prints stream-json lines the flow wrote, and exits with the status the flow gives it.
+//! The asking fake also asks the person's permission through `oso mcp --permission`, as its
+//! `--mcp-config` names it, the way `claude` calls its `--permission-prompt-tool`.
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test: the stream's
 //! lines, rows and rendering, the command line and the tracker have their own tests.
@@ -42,6 +44,11 @@ struct Flow {
 
 impl Flow {
     fn new(test: &str) -> Flow {
+        Self::with(test, FAKE, &stream())
+    }
+
+    /// A flow whose fake is `fake` and prints `stream` first.
+    fn with(test: &str, fake: &str, stream: &str) -> Flow {
         let scratch = Scratch::new(test);
         let project = scratch.path().join("proj");
         fs::create_dir(&project).unwrap();
@@ -49,7 +56,7 @@ impl Flow {
         fs::write(project.join("notes.md"), "notes\n").unwrap();
         let fake = scratch.write(
             "fake-claude",
-            FAKE.replace("DIR", &scratch.path().display().to_string())
+            fake.replace("DIR", &scratch.path().display().to_string())
                 .as_bytes(),
         );
         fs::set_permissions(&fake, fs::Permissions::from_mode(0o700)).unwrap();
@@ -58,7 +65,7 @@ impl Flow {
             fake.display()
         );
         let config = scratch.write("config.toml", config.as_bytes());
-        scratch.write("stream.jsonl", stream().as_bytes());
+        scratch.write("stream.jsonl", stream.as_bytes());
         Flow {
             scratch,
             project,
@@ -239,4 +246,200 @@ fn a_native_session_starts_with_its_first_message_and_shows_its_stream() {
     });
     let _ = app.exchange("exit", None);
     app.wait_for_exit();
+}
+
+/// The asking fake: as [`FAKE`], then, once the flow writes `ask`, the bridge its
+/// `--mcp-config` names, as `oso mcp --pid PID --permission`, asked about three calls: the
+/// first two the stream has, and one it has not. The bridge's answers go to `answers`; then it
+/// prints `after.jsonl` and waits for `go`.
+const ASKING_FAKE: &str = r#"#!/bin/sh
+dir='DIR'
+for a in "$@"; do printf 'arg %s\n' "$a"; done > "$dir/run.$$"
+IFS= read -r first
+printf '%s\n' "$first" > "$dir/first.$$"
+cat "$dir/stream.jsonl"
+while [ ! -f "$dir/ask" ]; do sleep 0.1; done
+oso=$(sed -n 's/.*"command":"\([^"]*\)".*/\1/p' "$dir/run.$$" | head -n 1)
+pid=$(sed -n 's/.*"--pid","\([0-9]*\)".*/\1/p' "$dir/run.$$" | head -n 1)
+ask() {
+  printf '{"jsonrpc":"2.0","id":%s,"method":"tools/call","params":{"name":"permission","arguments":{"tool_name":"Bash","input":{"command":"%s"},"tool_use_id":"%s"}}}\n' "$1" "$2" "$3"
+}
+{
+  printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}'
+  ask 2 'rm -rf build' t1
+  ask 3 'make' t2
+  ask 4 'make' t9
+  while [ ! -f "$dir/answers" ]; do sleep 0.1; done
+} | "$oso" mcp --pid "$pid" --permission | {
+  IFS= read -r init
+  : > "$dir/partial"
+  for n in 2 3 4; do IFS= read -r line; printf '%s\n' "$line" >> "$dir/partial"; done
+  mv "$dir/partial" "$dir/answers"
+}
+cat "$dir/after.jsonl"
+while [ ! -f "$dir/go" ]; do sleep 0.1; done
+exit "$(cat "$dir/go")"
+"#;
+
+/// What the asking fake prints first: the person's message replayed and two calls that wait.
+fn asking_stream() -> String {
+    let lines = [
+        json!({"type": "system", "subtype": "init", "cwd": "/w", "session_id": "s", "model": "m"}),
+        json!({"type": "user", "isReplay": true, "message": {"content": MESSAGE}}),
+        json!({"type": "assistant", "message": {"id": "m1", "content": [
+            {"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "rm -rf build"}},
+            {"type": "tool_use", "id": "t2", "name": "Bash", "input": {"command": "make"}},
+        ]}}),
+    ];
+    let lines: Vec<String> = lines.iter().map(Value::to_string).collect();
+    format!("{}\n", lines.join("\n"))
+}
+
+/// What `?` shows of the question open now, once one is: its label is withheld, as the call
+/// is, so the flow reads the call in `*Session call*`.
+fn question(app: &mut App, what: &str) -> String {
+    let state = app.wait_for(what, |state| {
+        state["prompts"].as_array().is_some_and(|p| !p.is_empty())
+    });
+    assert_eq!(
+        state["prompts"][0]["prompt"],
+        Value::Null,
+        "withheld: {state}"
+    );
+    thread::sleep(Duration::from_millis(700));
+    app.send_keys("?");
+    let state = app.wait_for("the call", |state| {
+        state["buffer"]["name"] == "*Session call*"
+    });
+    text(&state)
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+#[expect(
+    clippy::disallowed_macros,
+    reason = "the flow prints how soon each question opened, for the PR"
+)]
+fn a_native_sessions_calls_are_asked_of_the_person_with_the_agent_channel_off() {
+    let flow = Flow::with("native-asks", ASKING_FAKE, &asking_stream());
+    let after = [
+        json!({"type": "user", "message": {"content": [
+            {"type": "tool_result", "tool_use_id": "t1", "content": "removed"},
+            {"type": "tool_result", "tool_use_id": "t2", "is_error": true, "content": "The person denied this call in oso."},
+        ]}}),
+        json!({"type": "result", "subtype": "success", "duration_ms": 900}),
+    ];
+    let after: Vec<String> = after.iter().map(Value::to_string).collect();
+    flow.scratch
+        .write("after.jsonl", format!("{}\n", after.join("\n")).as_bytes());
+    let mut app = flow.start();
+    app.open_file(&flow.project.join("notes.md"));
+    trust_restricted(&mut app, "proj");
+    app.wait_for("the project trusted", |state| {
+        state["modeline"]
+            .as_str()
+            .is_some_and(|modeline| !modeline.contains("restricted"))
+    });
+    app.run_command("claude", None).unwrap();
+    app.wait_for("*Brief*", |state| state["buffer"]["name"] == "*Brief*");
+    app.send_keys(&keys(MESSAGE));
+    app.send_keys("C-c C-c");
+
+    // The prompt tool and the bridge that lists it are on the session's line.
+    let run = flow.wait_for_file("run.");
+    assert!(
+        run.lines()
+            .any(|line| line == "arg --permission-prompt-tool=mcp__oso__permission"),
+        "{run}"
+    );
+    assert!(run.contains(r#""--permission"]"#), "{run}");
+    app.wait_for("the calls", |state| {
+        state["buffer"]["name"] == "*claude: proj*" && text(state).contains("Bash make")
+    });
+
+    // The agent channel goes off; the session still asks.
+    app.run_command("agent-channel-stop", None).unwrap();
+    app.wait_for("the channel off", |state| {
+        state["modeline"]
+            .as_str()
+            .is_some_and(|modeline| !modeline.starts_with("Agent  "))
+    });
+    flow.scratch.write("ask", b"");
+
+    // Each call the stream has is asked in turn, from what the stream says of it.
+    let first = question(&mut app, "the first question");
+    assert!(
+        first.starts_with("Session proj asks to run Bash:"),
+        "{first}"
+    );
+    assert!(first.contains(r#""command": "rm -rf build""#), "{first}");
+    answer_after_quiet(&mut app, "y");
+    let second = question(&mut app, "the second question");
+    assert!(second.contains(r#""command": "make""#), "{second}");
+    answer_after_quiet(&mut app, "n");
+
+    // `y` gives the CLI its own input back; `n` and a call the stream lacks deny.
+    check_answers(&flow);
+    assert_eq!(
+        app.state()["prompts"],
+        json!([]),
+        "the third was never asked"
+    );
+
+    flow.scratch.write("go", b"0");
+    app.wait_for("the session stopped", |state| {
+        state["modeline"]
+            .as_str()
+            .is_some_and(|modeline| modeline.contains("stopped"))
+    });
+    // How soon each question opened after its request, for the PR (ADR 0165, step 2).
+    let log = app.stop_and_read_log();
+    for row in log
+        .lines()
+        .filter(|row| row.contains("permission question opened"))
+    {
+        println!("{row}");
+    }
+}
+
+/// What the bridge told the asking fake: an allow with the call's own input, the person's
+/// denial, and a denial of the call the stream lacks.
+fn check_answers(flow: &Flow) {
+    let answers: Vec<Value> = flow
+        .wait_for_file("answers")
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let said: Vec<Value> = answers
+        .iter()
+        .map(|answer| {
+            let text = answer["result"]["content"][0]["text"].as_str().unwrap();
+            serde_json::from_str(text).unwrap()
+        })
+        .collect();
+    assert_eq!(
+        said[0],
+        json!({"behavior": "allow", "updatedInput": {"command": "rm -rf build"}})
+    );
+    assert_eq!(said[1]["behavior"], "deny");
+    assert_eq!(said[1]["message"], "The person denied this call in oso.");
+    assert_eq!(said[2]["behavior"], "deny");
+    assert!(
+        said[2]["message"]
+            .as_str()
+            .unwrap()
+            .contains("no such call"),
+        "{}",
+        said[2]
+    );
+}
+
+/// Sends `key` once the last key is longer ago than the app's quiet moment: the question
+/// closes, and its `*Session call*` with it.
+fn answer_after_quiet(app: &mut App, key: &str) {
+    thread::sleep(Duration::from_millis(700));
+    app.send_keys(key);
+    app.wait_for("the question answered", |state| {
+        state["buffer"]["name"] != "*Session call*"
+    });
 }

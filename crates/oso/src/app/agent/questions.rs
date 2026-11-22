@@ -140,13 +140,16 @@ impl App {
             .asking
             .as_ref()
             .and_then(|asking| asking.question);
-        // A session tool's question is its own: no connection's follow-up (ADR 0121, step 6).
+        // A session tool's question is its own: no connection's follow-up (ADR 0121, step 6);
+        // so is a native session's permission question (ADR 0165, step 2).
         let tools = self.session_tool_question();
+        let permission = self.permission_question();
         for &(id, from_agent) in &open {
             let known = self.agent.caused.iter().any(|&(caused, _)| caused == id)
                 || self.agent.orphaned.contains(&id)
                 || asked == Some(id)
-                || tools == Some(id);
+                || tools == Some(id)
+                || permission == Some(id);
             if !from_agent || known {
                 continue;
             }

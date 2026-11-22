@@ -413,6 +413,8 @@ impl App {
             | Op::Run { .. }
             | Op::Session(_)
             | Op::MoveWait => Err("not here".into()),
+            // The server refuses it on the channel: only the sessions' socket asks it.
+            Op::Permission(_) => Err("not on the agent channel".into()),
         }
     }
 

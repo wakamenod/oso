@@ -19,7 +19,10 @@
 //! - JSON-RPC as MCP uses it: ids are strings or numbers, params are objects, there are no
 //!   batches, and responses the agent sends are ignored.
 //! - Tools: `state`, `text`, `diagnostics` (ADR 0138, step 11), `commands`, `look`, `change`,
-//!   `open` and `cancel` (ADR 0093).
+//!   `open` and `cancel` (ADR 0093), and with `--permission`, which only a native session's
+//!   MCP configuration gives, `permission` (ADR 0165, step 2): the session's
+//!   `--permission-prompt-tool`, asked on the sessions' socket, where the person is never asked
+//!   about the connection; it connects there as `initialize` comes.
 //!   Looking and changing are
 //!   separate tools, so that the agent's own permission rules can allow one and ask for the
 //!   other.
@@ -29,9 +32,9 @@
 use std::ffi::OsString;
 use std::io::{self, BufRead, BufReader, Write};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use oso_platform::control::{ControlDir, ControlStream, Socket};
+use oso_platform::control::Socket;
 
 mod follows;
 use follows::follower;
@@ -39,7 +42,7 @@ pub use follows::write_follows;
 use serde_json::{Map, Value, json};
 
 use super::protocol::PROTOCOL_VERSION;
-use super::wire::{MAX_ID, MAX_LINE, escape_unsafe, parse_response, read_bounded_line, short};
+use super::wire::{MAX_ID, MAX_LINE, escape_unsafe, short};
 
 /// The protocol versions of MCP this bridge speaks, the newest first. 2025-03-26 is not one:
 /// it requires taking batches, which this bridge does not.
@@ -85,10 +88,37 @@ impl Failed {
 /// How the bridge connects.
 type Connect = Box<dyn FnMut() -> Result<Box<dyn Link>, String>>;
 
-/// The bridge: what it has connected to, and how to connect.
-struct Bridge {
+/// Which of the bridge's connections a call goes on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Which {
+    /// The agent channel's.
+    Channel,
+    /// The sessions' socket's, for `permission` only (ADR 0165, step 2).
+    SessionSocket,
+}
+
+/// How to connect to one socket, and the connection once made.
+struct Line {
     connect: Connect,
     link: Option<Box<dyn Link>>,
+}
+
+impl Line {
+    fn new(connect: Connect) -> Self {
+        Self {
+            connect,
+            link: None,
+        }
+    }
+}
+
+/// The bridge: what it has connected to, and how to connect.
+struct Bridge {
+    /// The agent channel's line.
+    channel: Line,
+    /// The sessions' socket's, once `--permission` gave the bridge its `permission` tool (ADR
+    /// 0165, step 2). A call for it never goes on the channel's.
+    permission: Option<Line>,
     interrupt: Arc<Interrupt>,
     /// The hosted session this bridge says it serves, from `OSO_SESSION`, which oso believes
     /// only if it started this bridge's parent as that session (ADR 0121).
@@ -106,12 +136,18 @@ impl Bridge {
     /// A bridge that connects with `connect` on its first tool call.
     fn new(connect: Connect) -> Self {
         Self {
-            connect,
-            link: None,
+            channel: Line::new(connect),
+            permission: None,
             interrupt: Arc::default(),
             session: None,
             moved: None,
         }
+    }
+
+    /// The bridge has the `permission` tool, which asks on a connection `connect` makes.
+    fn with_permission(mut self, connect: Connect) -> Self {
+        self.permission = Some(Line::new(connect));
+        self
     }
 
     /// The bridge names `session` when it connects.
@@ -170,9 +206,14 @@ impl Bridge {
             Some(_) => return Some(error(&id, -32602, "params are an object")),
         };
         let result = match method {
-            "initialize" => Ok(initialize(params)),
+            "initialize" => {
+                // Before the session's first turn, so that the session's slot is its bridge's
+                // before any command the session runs could claim it (ADR 0165, step 2).
+                self.connect_early(Which::SessionSocket);
+                Ok(initialize(params))
+            }
             "ping" => Ok(json!({})),
-            "tools/list" => Ok(json!({ "tools": tools() })),
+            "tools/list" => Ok(json!({ "tools": tools(self.permission.is_some()) })),
             "tools/call" => match self.call_tool(&id, params) {
                 Ok(None) => return None,
                 Ok(Some(result)) => Ok(result),
@@ -204,8 +245,11 @@ impl Bridge {
             Some(Value::Object(arguments)) => arguments,
             Some(_) => return Err((-32602, "a tool's arguments are an object".into())),
         };
+        if name == permission::TOOL && self.permission.is_some() {
+            return Ok(self.ask_permission(id, arguments));
+        }
         let (method, params) = channel_request(name, arguments).map_err(|why| (-32602, why))?;
-        Ok(match self.call(id, method, params) {
+        Ok(match self.call(id, Which::Channel, method, params) {
             Ok(result) => {
                 if moving::agreed(name, &result) {
                     self.moved = Some(id.clone());
@@ -219,7 +263,13 @@ impl Bridge {
 
     /// Calls the channel for the request `id`, connecting first if there is no connection,
     /// while the stdin thread may close it.
-    fn call(&mut self, id: &Value, method: &str, params: Value) -> Result<Value, Failed> {
+    fn call(
+        &mut self,
+        id: &Value,
+        which: Which,
+        method: &str,
+        params: Value,
+    ) -> Result<Value, Failed> {
         {
             let mut calls = self.interrupt.lock();
             if calls.gone {
@@ -232,55 +282,96 @@ impl Bridge {
             calls.in_flight = Some(id.clone());
             calls.cut = false;
         }
-        let result = self.call_waiting(method, params);
+        let result = self.call_waiting(which, method, params);
         let cut = {
             let mut calls = self.interrupt.lock();
             calls.in_flight = None;
             std::mem::take(&mut calls.cut)
         };
         // A cancel that lands as the call ends may have closed the connection all the same.
-        if cut || matches!(result, Err(Failed::Broken(_))) {
-            self.link = None;
-            self.interrupt.lock().close = None;
+        if (cut || matches!(result, Err(Failed::Broken(_))))
+            && let Some(line) = self.line(which)
+        {
+            line.link = None;
         }
+        self.interrupt.lock().close = None;
         if cut {
             return Err(Failed::Cancelled);
         }
         result
     }
 
-    /// A new connection asks the channel's `version` first, and is dropped if it is not this
-    /// bridge's.
-    fn call_waiting(&mut self, method: &str, params: Value) -> Result<Value, Failed> {
-        if self.link.is_none() {
-            let mut link = (self.connect)().map_err(Failed::Broken)?;
-            {
-                let mut calls = self.interrupt.lock();
-                // The agent may have gone, or cancelled the call, while it connected: nothing
-                // would close a call that started waiting now.
-                if calls.gone || calls.cut {
-                    return Err(Failed::Broken("the call ended while it connected".into()));
-                }
-                calls.close = link.closer();
-            }
-            let params = match &self.session {
-                Some(session) => json!({ "session": session }),
-                None => json!({}),
-            };
-            let version = link.call("version", params)?;
-            if version["protocol"] != PROTOCOL_VERSION {
-                return Err(Failed::Broken(format!(
-                    "this oso speaks the channel's protocol {}, and this oso mcp {PROTOCOL_VERSION}",
-                    version["protocol"]
-                )));
-            }
-            self.link = Some(link);
-        }
-        let link = self
-            .link
-            .as_mut()
+    /// Calls `method` on `which`'s line, connecting first if it has no connection. What closes
+    /// it is the call's, so that a cancel closes the connection the call waits on.
+    fn call_waiting(&mut self, which: Which, method: &str, params: Value) -> Result<Value, Failed> {
+        let interrupt = Arc::clone(&self.interrupt);
+        self.link_up(which, true)?;
+        let link = (self.line(which).and_then(|line| line.link.as_mut()))
             .ok_or_else(|| Failed::Broken("no connection".into()))?;
+        {
+            let mut calls = interrupt.lock();
+            // The agent may have gone, or cancelled the call, while it connected: nothing
+            // would close a call that started waiting now.
+            if calls.gone || calls.cut {
+                return Err(Failed::Broken("the call ended while it connected".into()));
+            }
+            calls.close = link.closer();
+        }
         link.call(method, params)
+    }
+
+    /// Connects `which`'s line now, if it has none, as `initialize` does: what fails is said on
+    /// stderr, and the first call tries again.
+    fn connect_early(&mut self, which: Which) {
+        if self.line(which).is_none() {
+            return;
+        }
+        if let Err(failed) = self.link_up(which, false) {
+            say(&format!("connecting early: {}", failed.message()));
+        }
+    }
+
+    /// Gives `which`'s line a connection, if it has none: a new one asks `version` first, naming
+    /// the bridge's session, and is dropped if it is not this bridge's. `in_call` if a call
+    /// waits on it, which the agent may cancel meanwhile.
+    fn link_up(&mut self, which: Which, in_call: bool) -> Result<(), Failed> {
+        let session = self.session.clone();
+        let interrupt = Arc::clone(&self.interrupt);
+        let line = self
+            .line(which)
+            .ok_or_else(|| Failed::Broken("this bridge asks no permission".into()))?;
+        if line.link.is_some() {
+            return Ok(());
+        }
+        let mut link = (line.connect)().map_err(Failed::Broken)?;
+        if in_call {
+            let mut calls = interrupt.lock();
+            if calls.gone || calls.cut {
+                return Err(Failed::Broken("the call ended while it connected".into()));
+            }
+            calls.close = link.closer();
+        }
+        let params = match &session {
+            Some(session) => json!({ "session": session }),
+            None => json!({}),
+        };
+        let version = link.call("version", params)?;
+        if version["protocol"] != PROTOCOL_VERSION {
+            return Err(Failed::Broken(format!(
+                "this oso speaks the channel's protocol {}, and this oso mcp {PROTOCOL_VERSION}",
+                version["protocol"]
+            )));
+        }
+        line.link = Some(link);
+        Ok(())
+    }
+
+    /// `which`'s line: the sessions' socket's only for a bridge with `permission`.
+    fn line(&mut self, which: Which) -> Option<&mut Line> {
+        match which {
+            Which::Channel => Some(&mut self.channel),
+            Which::SessionSocket => self.permission.as_mut(),
+        }
     }
 }
 
@@ -290,167 +381,6 @@ fn error(id: &Value, code: i64, message: &str) -> String {
         json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": message } })
             .to_string(),
     )
-}
-
-/// The channel of a running oso, over its socket.
-struct SocketLink {
-    writer: ControlStream,
-    reader: BufReader<ControlStream>,
-    next_id: u64,
-}
-
-impl Link for SocketLink {
-    fn call(&mut self, method: &str, params: Value) -> Result<Value, Failed> {
-        let id = self.next_id;
-        self.next_id += 1;
-        let request = json!({ "id": id, "method": method, "params": params });
-        let broken = |e: io::Error| Failed::Broken(format!("the connection to oso broke: {e}"));
-        writeln!(self.writer, "{request}").map_err(broken)?;
-        let mut line = Vec::new();
-        // The person may take as long as they like to let this connection in.
-        if read_bounded_line(&mut self.reader, &mut line).map_err(broken)? == 0 {
-            return Err(Failed::Broken("oso closed the connection".into()));
-        }
-        if line.last() != Some(&b'\n') {
-            return Err(Failed::Broken(
-                "oso sent a line longer than a response may be".into(),
-            ));
-        }
-        match parse_response(&String::from_utf8_lossy(&line)) {
-            Ok(Ok(result)) => Ok(result),
-            Ok(Err(message)) => Err(Failed::Refused(message)),
-            Err(why) => Err(Failed::Broken(format!(
-                "oso sent what is no response: {why}"
-            ))),
-        }
-    }
-
-    fn closer(&self) -> Option<Box<dyn Fn() + Send>> {
-        let stream = self.writer.try_clone().ok()?;
-        Some(Box::new(move || stream.shutdown()))
-    }
-}
-
-/// Which instance the bridge connects to, and when it last looked through them all.
-struct Target {
-    /// The instance `--pid` named, or the one connected to last.
-    pid: Option<u32>,
-    /// Whether `pid` came from `--pid`: the bridge then never looks for another.
-    given: bool,
-    /// When the bridge last looked through every instance's socket and found none to use, and
-    /// what it told the agent.
-    probed: Option<(Instant, String)>,
-}
-
-impl Target {
-    fn new(pid: Option<u32>) -> Self {
-        Self {
-            pid,
-            given: pid.is_some(),
-            probed: None,
-        }
-    }
-
-    /// Connects with `connect` to the instance it knows, or else to the only one whose channel
-    /// is on. It looks for that one at most once each [`PROBE_EVERY`], and in between tells
-    /// the agent what it found last. What goes wrong is said in full on stderr, and to the
-    /// agent in fixed words.
-    ///
-    /// An instance `--pid` named that has gone may have been replaced by a restart (`oso dev`, `oso-restart`):
-    /// `follows` names the one that took over from it, if one did (ADR 0120, step 11), and
-    /// the bridge goes on with that one.
-    fn connect<S>(
-        &mut self,
-        now: Instant,
-        mut connect: impl FnMut(Option<u32>) -> io::Result<(u32, S)>,
-        follows: impl FnOnce(u32) -> Option<u32>,
-    ) -> Result<(u32, S), String> {
-        if let Some(pid) = self.pid {
-            match connect(Some(pid)) {
-                Ok(found) => return Ok(found),
-                Err(e) => {
-                    say(&format!("connecting to pid {pid}: {e}"));
-                    if self.given {
-                        if let Some(next) = follows(pid)
-                            && let Ok(found) = connect(Some(next))
-                        {
-                            say(&format!("pid {pid} has gone; pid {next} took over from it"));
-                            self.pid = Some(next);
-                            return Ok(found);
-                        }
-                        return Err(told(&e, true));
-                    }
-                    // It has gone, as when oso restarts.
-                    self.pid = None;
-                }
-            }
-        }
-        if let Some((at, told)) = &self.probed
-            && now.saturating_duration_since(*at) < PROBE_EVERY
-        {
-            return Err(told.clone());
-        }
-        match connect(None) {
-            Ok((pid, stream)) => {
-                self.pid = Some(pid);
-                self.probed = None;
-                Ok((pid, stream))
-            }
-            Err(e) => {
-                say(&format!("connecting: {e}"));
-                let told = told(&e, false);
-                self.probed = Some((now, told.clone()));
-                Err(told)
-            }
-        }
-    }
-}
-
-/// What the agent is told when connecting fails with `e`; `given` if `--pid` named the
-/// instance. No process IDs or paths.
-fn told(e: &io::Error, given: bool) -> String {
-    if e.kind() == io::ErrorKind::InvalidInput && !given {
-        "several oso instances have the agent channel on; the person starts oso mcp with --pid to choose one".into()
-    } else if given {
-        "the oso instance chosen with --pid does not have the agent channel on; the person turns it on with M-x agent-channel-start".into()
-    } else {
-        "no oso instance has the agent channel on; the person turns it on with M-x agent-channel-start".into()
-    }
-}
-
-/// Connects to the agent channel of the instance `target` says. Only an oso that runs this
-/// program, and is the process that owns the socket, is spoken to: another process of the
-/// same user could listen in its place.
-fn connect(target: &mut Target) -> Result<Box<dyn Link>, String> {
-    let (found, stream) = target.connect(
-        Instant::now(),
-        |pid| ControlDir::open_existing()?.connect(Socket::Agent, pid),
-        follower,
-    )?;
-    let peer = stream.peer();
-    let is_oso = peer.runs_this_program
-        && peer
-            .process
-            .as_ref()
-            .is_some_and(|process| process.pid() == found);
-    if !is_oso {
-        say(&format!(
-            "the agent socket of pid {found} is served by a process that is not this oso"
-        ));
-        if !target.given {
-            target.pid = None;
-        }
-        return Err(
-            "the agent channel's socket is served by something other than oso; ask the person"
-                .into(),
-        );
-    }
-    let reader = BufReader::new(stream.try_clone().map_err(|e| e.to_string())?);
-    Ok(Box::new(SocketLink {
-        writer: stream,
-        reader,
-        next_id: 1,
-    }))
 }
 
 /// Says `what` on stderr: stdout is the protocol's.
@@ -474,6 +404,7 @@ pub fn main_if_requested(core_dumps: Option<String>) -> Option<i32> {
 /// The options, and serving until stdin ends.
 fn run(args: Vec<OsString>) -> i32 {
     let mut pid = None;
+    let mut asks = false;
     #[cfg(feature = "dev")]
     let mut requests: Option<std::path::PathBuf> = None;
     let mut args = args.into_iter();
@@ -483,6 +414,8 @@ fn run(args: Vec<OsString>) -> i32 {
                 Some(n) => pid = Some(n),
                 None => return usage("--pid needs a process ID"),
             },
+            // A native session's bridge, whose `claude` asks the person through it.
+            Some("--permission") => asks = true,
             // The end-to-end flows give requests in a file: a child's stdin is closed.
             #[cfg(feature = "dev")]
             Some("--requests") => match args.next() {
@@ -497,7 +430,16 @@ fn run(args: Vec<OsString>) -> i32 {
     let session = std::env::var(SESSION_VARIABLE)
         .ok()
         .filter(|id| id.len() <= super::protocol::MAX_SESSION);
-    let mut bridge = Bridge::new(Box::new(move || connect(&mut target))).for_session(session);
+    let mut bridge =
+        Bridge::new(Box::new(move || connect(&mut target, Socket::Agent))).for_session(session);
+    // Only the instance `--pid` names hosts the session the bridge asks for.
+    if asks {
+        let Some(pid) = pid else {
+            return usage("--permission needs --pid");
+        };
+        let mut target = Target::new(Some(pid));
+        bridge = bridge.with_permission(Box::new(move || connect(&mut target, Socket::Session)));
+    }
     #[cfg(feature = "dev")]
     if let Some(path) = requests {
         return match std::fs::File::open(&path) {
@@ -519,7 +461,7 @@ fn run(args: Vec<OsString>) -> i32 {
 }
 
 fn usage(why: &str) -> i32 {
-    say(&format!("{why}\nusage: oso mcp [--pid PID]"));
+    say(&format!("{why}\nusage: oso mcp [--pid PID [--permission]]"));
     2
 }
 
@@ -567,7 +509,11 @@ fn serve<W: Write>(
     }
 }
 
+mod connecting;
 mod moving;
+mod permission;
+#[cfg(test)]
+pub(crate) use permission::TOOL as PERMISSION_TOOL;
 mod session_tools;
 mod stdin;
 mod tools;
@@ -575,9 +521,10 @@ mod tools;
 /// The tools `tools/list` gives, for the sessions module's test of their hints (ADR 0121).
 #[cfg(test)]
 pub(crate) fn listed_tools() -> Value {
-    tools::tools()
+    tools::tools(true)
 }
 
+use connecting::{Target, connect};
 use stdin::{Input, Interrupt, QUEUED, is_id, spawn_reader};
 use tools::{channel_request, initialize, tool_result, tools};
 

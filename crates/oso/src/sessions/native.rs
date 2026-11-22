@@ -14,7 +14,10 @@
 //! - `point`: what the buffer's keys find at point: a row's call, the row a move goes to, and
 //!   a call's whole result.
 //! - `turns`: what an event says of the session's state.
+//! - `asks`: the permission requests of the sessions' bridges, from their coming to their
+//!   answer (step 2), at the times the caller gives.
 
+pub mod asks;
 pub mod placed;
 pub mod point;
 pub mod render;

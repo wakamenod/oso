@@ -1,6 +1,6 @@
 //! A native session's tool calls among its rows (ADR 0165): adding a call, to a row of its own
-//! or to the last row it may share, putting the whole call in its place, and changing a call
-//! found by its id.
+//! or to the last row it may share, putting the whole call in its place, changing a call
+//! found by its id, and finding one that waits for the person's permission (step 2).
 //!
 //! Must not depend on: threads, files or the UI; methods of [`Rows`] over its own state.
 
@@ -132,6 +132,18 @@ impl Rows {
         };
         change(tools.get_mut(slot)?);
         Some(RowChange::Changed(row))
+    }
+
+    /// The call `id` of a whole message, which runs and has no result yet: what the person is
+    /// asked about when the CLI asks permission for it (ADR 0165, step 2). `None` while its
+    /// message streams, once it has a result, or if there is none.
+    pub fn waiting_call(&self, id: &str) -> Option<&Tool> {
+        let &(row, slot) = self.calls.get(id)?;
+        let Kind::Tools(tools) = &self.rows.get(row)?.kind else {
+            return None;
+        };
+        let tool = tools.get(slot)?;
+        (tool.state == ToolState::Running && tool.result.is_none()).then_some(tool)
     }
 }
 
