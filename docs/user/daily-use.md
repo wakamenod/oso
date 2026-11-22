@@ -441,6 +441,8 @@ In a review buffer:
 | `v` | Mark it viewed, or clear the mark |
 | `u` | Undo the last decision |
 | `\|` | Two panes, the old side and the new side lined up, or one stream again |
+| `M-n`, `M-p` | In a pull request's review: its next and previous commit, each reviewed alone |
+| `l` | In a pull request's review: its commit list, above the review |
 | `g` | Read the files again now |
 | `C-c C-c` | Gather your comments not sent yet into a message to the session, or to the space's orchestrator |
 | `Q` | Ask the space's orchestrator about the hunk or line at point, or the region's lines |
@@ -457,6 +459,17 @@ A review shown reads its files again by itself when they change: when the agent 
 turn, or edits from a shell, and when you save. Your cursor stays on its line. A hunk new since
 the last reading, or of a file new to the review, says `· changed` until your cursor has been
 in it. `g` reads now.
+
+A pull request reads a commit at a time too. `M-n` in its review shows its first commit alone,
+with the commit's message above its files, and `M-n` and `M-p` go on to the next and the
+previous commit, and from the first back to the whole pull request. Merges and commits that
+change no file are stepped over. Each commit's review keeps its own comments and viewed marks;
+`C-c C-c` in any of them gathers the comments of the whole pull request and of each commit into
+one message, a group each, and tells the agent that a commit's lines are as that commit left
+them. `l` shows the commit list above the review: the whole pull request first, then a row a
+commit, `▶` on the one shown, `✓` once every hunk of it is viewed (`◐` for some), `●N` for its
+comments not sent, and `↑` for a commit not pushed yet. `RET` there shows a row's review, `SPC`
+shows it and stays in the list, and `l` or `q` closes the list.
 
 A comment opens as a draft at the top: `RET` breaks a line, `C-c C-c` keeps it, and `C-g` drops
 it into the kill ring. `C-x k` closes the review, and in the review layout puts back the windows

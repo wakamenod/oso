@@ -117,9 +117,11 @@ pub(super) fn review_here(ctx: &Ctx<'_>) -> Result<ReviewId, CommandError> {
         .ok_or_else(|| CommandError::new("Not in a review"))
 }
 
-/// The review `buffer` shows, or whose files pane it is.
+/// The review `buffer` shows, or whose files pane or commit list (ADR 0167) it is.
 pub(crate) fn review_shown(editor: &Editor, buffer: BufferId) -> Option<ReviewId> {
-    (editor.review_of(buffer)).or_else(|| files_review(editor, buffer))
+    (editor.review_of(buffer))
+        .or_else(|| files_review(editor, buffer))
+        .or_else(|| super::commits::commits_review(editor, buffer))
 }
 
 /// The review whose files pane the current buffer is, refused elsewhere.

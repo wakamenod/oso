@@ -77,6 +77,7 @@ impl Language {
             | Mode::Worktrees
             | Mode::Review
             | Mode::ReviewFiles
+            | Mode::ReviewCommits
             | Mode::Terminal
             | Mode::Directory
             | Mode::GitStatus

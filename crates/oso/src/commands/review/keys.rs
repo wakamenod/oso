@@ -8,8 +8,8 @@ use oso_core::buffer::Mode;
 use oso_core::command::{Args, CommandError, Ctx};
 
 use super::{
-    COMMANDS, COMMENT_COMMANDS, DECISION_COMMANDS, FILES_COMMANDS, KEYS, SEND_COMMANDS,
-    VISIT_COMMANDS,
+    COMMANDS, COMMENT_COMMANDS, COMMITS_COMMANDS, CONTEXT_COMMANDS, DECISION_COMMANDS,
+    FILES_COMMANDS, KEYS, SEND_COMMANDS, VISIT_COMMANDS,
 };
 
 /// What the buffer `review-keys` shows is named.
@@ -54,6 +54,8 @@ pub(super) fn keys_text(title: &str, keys: &[(&str, &str)], footer: &str) -> Str
             .chain(SEND_COMMANDS)
             .chain(FILES_COMMANDS)
             .chain(VISIT_COMMANDS)
+            .chain(CONTEXT_COMMANDS)
+            .chain(COMMITS_COMMANDS)
             .find(|command| command.name == *name)
             .and_then(|command| command.doc.lines().next())
             .unwrap_or_default();

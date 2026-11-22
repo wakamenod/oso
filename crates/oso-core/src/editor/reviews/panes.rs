@@ -420,7 +420,7 @@ impl Editor {
             }
         }
         self.skip_review_fillers();
-        // And the files panes (step 6b).
+        // And the files panes (step 6b), and the commit lists with them (ADR 0167).
         self.sync_review_files();
     }
 

@@ -100,6 +100,25 @@ pub enum ReviewRequest {
     /// A step of starting a review in a space whose orchestrator is recorded, from the space's
     /// repositories (ADR 0163): the host finds the project and opens the next step's menu.
     Start(ReviewStart),
+    /// Show another review of the pull request `review` is, or is a commit of (ADR 0167): the
+    /// host opens a commit's review, or shows the one open, in the review layout, and selects
+    /// it, unless the selected window shows the pull request's commit list, which stays
+    /// selected, a step from it going from the review it shows last.
+    Step { review: ReviewId, to: Step },
+}
+
+/// Where a step through a pull request's commits goes (ADR 0167).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Step {
+    /// The next commit that changes something: from the whole pull request, its first.
+    Next,
+    /// The commit before that changes something: from its first, the whole pull request; from
+    /// the whole, its last.
+    Previous,
+    /// The whole pull request.
+    Whole,
+    /// Its commit of this index, oldest first, as its commit list shows it.
+    Commit(usize),
 }
 
 /// A step of starting a review in a space (ADR 0163), as `review-repository`,

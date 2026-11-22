@@ -58,6 +58,8 @@ pub(super) struct Reader {
     /// The last listing, which a look compares with; and how many looks were made.
     listed: Option<Arc<[Entry]>>,
     looks: u64,
+    /// The commit whose message was last reported, for a review of one commit (ADR 0167).
+    message_of: Option<Id>,
 }
 
 type Out<'a> = dyn FnMut(Report) -> bool + 'a;
@@ -86,6 +88,7 @@ impl Reader {
             pr_sides: None,
             listed: None,
             looks: 0,
+            message_of: None,
         }
     }
 
@@ -330,7 +333,13 @@ impl Reader {
         out: &mut Out<'_>,
     ) -> Result<scope::Sides, ScopeError> {
         let Scope::PullRequest { number } = scope else {
-            return scope::resolve(git, scope, stop);
+            let sides = scope::resolve(git, scope, stop)?;
+            if matches!(scope, Scope::Commit { .. })
+                && !super::commits::report_message(git, &sides, &mut self.message_of, out)
+            {
+                return Err(ScopeError::Stopped);
+            }
+            return Ok(sides);
         };
         if !person && let Some(sides) = self.pulled(*number) {
             return Ok(sides);
@@ -353,9 +362,13 @@ impl Reader {
         let asking = &mut self.asking;
         let (sides, found) = pr::resolve(git, &state, *number, asking, &mut waits)?;
         self.pr_sides = Some((*number, sides.clone()));
+        let head = found.head.clone();
+        let checked_out = found.head_checked_out;
         if !out(Report::PrFound(found)) {
             return Err(ScopeError::Stopped);
         }
+        // Its commits, read from this clone now that it holds them (ADR 0167).
+        super::commits::report_listing(git, &sides, &head, checked_out, stop, out)?;
         Ok(sides)
     }
 
@@ -560,6 +573,11 @@ fn path_of(bytes: &[u8]) -> Result<PathBuf, ScopeError> {
 }
 
 /// What a person reads for `error`, with no file's text.
+/// What a log or the person is told of `error`, a scope that could not be read.
+pub(super) fn said(error: &ScopeError) -> String {
+    message(error)
+}
+
 fn message(error: &ScopeError) -> String {
     match error {
         ScopeError::Git(e) => e.to_string(),

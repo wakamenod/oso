@@ -48,7 +48,7 @@ impl State {
             };
         }
         let mut sections: Vec<Arc<section::Rendered>> = Vec::with_capacity(self.order.len() + 2);
-        sections.push(Arc::new(section::title(&self.title, &self.said_now())));
+        sections.push(Arc::new(self.title_section()));
         let mut size = sections[0].held();
         let folded = self.folded;
         let mut paths: Vec<Option<&Box<[u8]>>> = vec![None];
@@ -159,6 +159,12 @@ impl State {
         } else {
             None
         }
+    }
+
+    /// The review's own section: its title, the message of the commit it reviews, and what is
+    /// said under it.
+    pub(super) fn title_section(&self) -> section::Rendered {
+        section::title(&self.title, self.message.as_deref(), &self.said_now())
     }
 
     /// What the title says under it: what was said, and what the listing left out.

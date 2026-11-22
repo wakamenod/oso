@@ -111,7 +111,10 @@ often, so it must rebuild within 2 s.
   `app/reviews/start.rs` starts a review in such a space from its repositories, their projects
   found by the detector's `find_root`, and a pull request's head worktree by
   `review/pr.rs`'s `head_worktree` on `oso-review-head`. `review/pr.rs` resolves a pull
-  request's sides through `gh` and a fetch of objects alone (step 12b). `review/saved.rs` is a
+  request's sides through `gh` and a fetch of objects alone (step 12b); `review/commits.rs`
+  lists its commits and reads a commit's message, `app/reviews/walk.rs` steps through them,
+  each an ordinary review of one commit, and `commands/review/commits.rs` drives `M-n`, `M-p`
+  and the commit list (ADR 0167). `review/saved.rs` is a
   saved review's file format (step 6), which `app/reviews/store.rs` reads and writes on
   `oso-review-store`, under the state directory, and `app/reviews/keep.rs` saves and brings
   back; `carry/reviews.rs` names the reviews a restart opens again (`app/reviews/handed.rs`). A

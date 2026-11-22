@@ -474,7 +474,7 @@ fn point_about<'a>(
                 hunk(comment.anchor(), path)
             }
         }
-        RowKind::File | RowKind::Note => Ok((path, About::File)),
+        RowKind::File | RowKind::Note | RowKind::Message => Ok((path, About::File)),
         RowKind::Gap { .. } => Err("Ask on a line: = shows the lines here".to_owned()),
         RowKind::Filler => Err("Nothing to ask about here".to_owned()),
     }

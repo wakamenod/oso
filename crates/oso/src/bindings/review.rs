@@ -14,3 +14,6 @@ pub const MESSAGE: &[(&str, &str)] = crate::commands::review::MESSAGE_KEYS;
 
 /// Key sequences and the commands they run, in a review's files pane only (ADR 0122, step 6b).
 pub const FILES: &[(&str, &str)] = crate::commands::review::FILES_KEYS;
+
+/// Key sequences and the commands they run, in a pull request's commit list only (ADR 0167).
+pub const COMMITS: &[(&str, &str)] = crate::commands::review::COMMITS_KEYS;

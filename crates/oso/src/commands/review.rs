@@ -36,6 +36,9 @@ pub const KEYS: &[(&str, &str)] = &[
     ("[", "review-context-up"),
     ("]", "review-context-down"),
     ("=", "review-context-gap"),
+    ("M-n", "review-next-commit"),
+    ("M-p", "review-previous-commit"),
+    ("l", "review-commits"),
     ("c", "review-comment"),
     ("e", "review-edit-comment"),
     ("k", "review-remove-comment"),
@@ -89,6 +92,7 @@ macro_rules! person_command {
 }
 
 mod comments;
+mod commits;
 mod context;
 mod decide;
 mod files;
@@ -100,6 +104,7 @@ mod start;
 mod visit;
 
 pub use comments::COMMANDS as COMMENT_COMMANDS;
+pub use commits::{COMMANDS as COMMITS_COMMANDS, COMMITS_KEYS};
 pub use context::COMMANDS as CONTEXT_COMMANDS;
 pub use decide::COMMANDS as DECISION_COMMANDS;
 pub(crate) use decide::{open_buffer_of, place_of};

@@ -63,6 +63,7 @@ fn side_by_side(pair: &Sides) -> String {
     let name = |kind: RowKind| match kind {
         RowKind::File => "file",
         RowKind::Note => "note",
+        RowKind::Message => "message",
         RowKind::Hunk { .. } => "hunk",
         RowKind::Lines { .. } => "line",
         RowKind::Context { .. } => "ctx",

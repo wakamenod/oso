@@ -226,7 +226,7 @@ mod tests {
     #[test]
     fn a_section_with_no_card_fits_any_room_but_none() {
         let kept = Kept {
-            rendered: Arc::new(section::title("t", &[])),
+            rendered: Arc::new(section::title("t", None, &[])),
             room: 1000,
         };
         assert!(kept.fits(1).is_some());

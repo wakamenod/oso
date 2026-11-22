@@ -9,7 +9,7 @@ use std::sync::Arc;
 use oso_core::review::{Anchor, Author, Base, CommentId, Hunk, Review, Shape, Side};
 use proptest::prelude::*;
 
-use super::{CUT_TO, HEAD, Item, MAX_LINE_CHARS, compose};
+use super::{CUT_TO, Group, HEAD, Item, MAX_LINE_CHARS, compose, compose_groups, groups_note};
 
 const PATH: &[u8] = b"src/a.rs";
 
@@ -368,4 +368,58 @@ proptest! {
         prop_assert_eq!(body.len(), lines.len() + 1);
         prop_assert!(body[1..].iter().all(|line| line.starts_with('+')));
     }
+}
+
+/// A review whose reading of `path` adds one line, with the person's comment on it.
+fn commented(path: &[u8], text: &str) -> (Review, CommentId) {
+    let mut review = Review::new();
+    read(&mut review, path, vec![hunk(1, 1, &[], &["x"])]);
+    let id = add(&mut review, Author::Person, path, line(Side::New, 1), text);
+    (review, id)
+}
+
+fn item_of(review: &Review, id: CommentId) -> Item<'_> {
+    let comment = review.comment(id).unwrap();
+    Item {
+        comment,
+        parent: None,
+        shape: review.file(comment.path()).map(|shape| &**shape),
+    }
+}
+
+#[test]
+fn a_pull_requests_groups_go_each_under_its_heading_after_the_note() {
+    let (whole, a) = commented(b"a.rs", "On the whole.");
+    let (commit, b) = commented(b"b.rs", "On the commit.");
+    let groups = [
+        Group {
+            heading: "The whole of #12".into(),
+            items: vec![item_of(&whole, a)],
+        },
+        Group {
+            heading: "Commit 1/3 abc1234: Nothing here".into(),
+            items: Vec::new(),
+        },
+        Group {
+            heading: "Commit 2/3 def5678: Add \u{1b}[31mb".into(),
+            items: vec![item_of(&commit, b)],
+        },
+    ];
+    let scope = "pull request #12, in p";
+    let composed = compose_groups(HEAD, scope, 12, &groups, 1 << 20, |_| false);
+    assert_eq!(composed.taken, 2);
+    let text = &composed.text;
+    let start = format!("{HEAD}\nScope: {scope}.\n{}", groups_note(12));
+    assert!(text.starts_with(&start), "{text}");
+    let whole_at = text.find("\n\n# The whole of #12\n\n## a.rs").unwrap();
+    let commit_at = (text.find("\n\n# Commit 2/3 def5678: Add \\u{1b}[31mb\n\n## b.rs")).unwrap();
+    assert!(whole_at < commit_at, "{text}");
+    assert!(
+        !text.contains("Commit 1/3"),
+        "a group with nothing is left out"
+    );
+    // Past the limit, the rest wait, and a group's heading never goes alone.
+    let cut = compose_groups(HEAD, scope, 12, &groups, text.len() - 10, |_| false);
+    assert_eq!(cut.taken, 1);
+    assert!(!cut.text.contains("# Commit 2/3"), "{}", cut.text);
 }

@@ -979,6 +979,12 @@ The UI thread never blocks on I/O or parsing:
   makes, follows and drops it (`oso_core::editor` `reviews/files.rs`). The view is told the
   review's filter and lays out only the files it matches (`review/view/filter.rs`; ADR 0122,
   step 6).
+- A pull request's review lists its commits on its own thread once its sides resolve
+  (`review/commits.rs`), and the app keeps them as a walk (`app/reviews/walk.rs`): each step
+  opens or shows an ordinary review of one commit, linked to the pull request's, at most eight
+  kept open, and the marks of the commit list are counted from them. The editor lays the list
+  out above the review from the commits handed in (`oso_core::editor` `reviews/commits.rs`), and
+  a commit's review shows its message under its title as `RowKind::Message` rows (ADR 0167).
 
 ### Configuration
 

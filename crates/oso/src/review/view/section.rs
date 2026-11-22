@@ -27,6 +27,7 @@ use oso_core::syntax::Highlight;
 
 use super::cards::{self, Cards, Placing, Plan};
 use super::context::{self, Around};
+pub(crate) use super::title::title;
 use crate::review::list::Status;
 use crate::review::refine::Refined;
 use crate::review::{Content, Entry, Reading, hunk_header};
@@ -565,19 +566,6 @@ fn short(id: &str) -> &str {
     } else {
         id.get(..12).unwrap_or(id)
     }
-}
-
-/// The review's own section, first in its buffer: its title and what was said of it, each a
-/// note.
-pub(crate) fn title(title: &str, said: &[String]) -> Rendered {
-    let mut writer = Writer::new(b"");
-    let title = title.replace(['\n', '\r'], " ");
-    let highlight = Some(Highlight::DiffFileHeader);
-    writer.line(RowKind::Note, &[(title.as_bytes(), highlight)]);
-    for line in said {
-        writer.note(line);
-    }
-    writer.done()
 }
 
 #[cfg(test)]

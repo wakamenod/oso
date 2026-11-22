@@ -513,6 +513,13 @@ project and how long ago the baseline was taken. Only a trusted project runs git
   the layout's left, the files pane the review's left. The windows are found by name, so a slot
   deleted by hand comes back with the next jump; each space keeps its own layout, and a zoom
   nests inside it. A restart keeps the layout but not the windows from before it.
+- **A pull request a commit at a time** ([ADR 0167](adr/0167-reviewing-a-pull-request-a-commit-at-a-time.md)):
+  `M-n` and `M-p` in a pull request's review step through its commits, each reviewed alone in
+  the layout's left with its message under the title; merges and commits that change nothing
+  are stepped over. `l` shows the commit list above the review: the whole pull request, then a
+  row a commit with `▶` for the one shown, `✓`/`◐` for its hunks viewed, `●N` for its comments
+  not sent and `↑` for one not pushed; `RET` shows a row's review, `SPC` shows it and stays.
+  `C-c C-c` in any of them sends the comments of the whole and of each commit, a group each.
 - In a restricted project the commands and the menu's heads say "Reviewing runs git, which this
   project is not trusted to run: M-x trust-project".
 

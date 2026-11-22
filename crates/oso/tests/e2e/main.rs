@@ -49,6 +49,7 @@ mod reload;
 mod replace;
 mod review;
 mod review_ask;
+mod review_commits;
 mod review_pr;
 mod review_send;
 mod review_start;

@@ -133,6 +133,7 @@ fn a_pull_request_s_comments_go_where_its_head_is_checked_out_first() {
         head_branch: "feature".into(),
         worktree: worktree.map(PathBuf::from),
         head_checked_out: false,
+        head: crate::git::Id::parse(&[b'a'; 40]).unwrap(),
     };
     let looked = |found: Option<&PrFound>| -> Vec<PathBuf> {
         places(found, root).map(Path::to_path_buf).collect()

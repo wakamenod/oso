@@ -44,6 +44,7 @@ fn header() -> Header {
         opened: 1_700_000_000_000,
         comments: 3,
         unsent: 1,
+        pull: None,
     }
 }
 
@@ -322,6 +323,35 @@ fn a_header_says_what_the_review_is_from_its_first_line_alone() {
     )
     .unwrap();
     assert_eq!(super::header(&bytes), Some(session));
+    // A commit's review stepped to from a pull request names it (ADR 0167); one of none, as
+    // every file before, writes no such field.
+    let stepped = Header {
+        scope: Scope::Commit {
+            revision: "a".repeat(40),
+        },
+        pull: Some(12),
+        ..header()
+    };
+    let bytes = encode(
+        &stepped,
+        &Saved::default(),
+        &SavedView::default(),
+        &withheld,
+        MAX_BYTES,
+    )
+    .unwrap();
+    assert_eq!(super::header(&bytes), Some(stepped));
+    let plain = encode(
+        &header(),
+        &Saved::default(),
+        &SavedView::default(),
+        &withheld,
+        MAX_BYTES,
+    )
+    .unwrap();
+    assert!(!String::from_utf8_lossy(&plain).contains("\"pull\""));
+    let forged = String::from_utf8_lossy(&bytes).replace("\"pull\":12", "\"pull\":0");
+    assert_eq!(super::header(forged.as_bytes()).map(|h| h.pull), Some(None));
 }
 
 #[test]

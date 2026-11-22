@@ -15,10 +15,13 @@
 //! - After a command, the pane's cursor follows the file of the review's cursor, when the
 //!   selected window shows the review, never from the pane, and never while the review or the
 //!   pane may hold secrets (ADR 0044).
+//! - A pull request's commit list (ADR 0167, `commits`) shares what an aside window needs: the
+//!   windows left beneath a prompt, closing them, a window's cursor line, and the sync after a
+//!   command, which syncs the commit lists as well.
 
 use crate::buffer::{BufferId, Mode};
 use crate::editor::{Editor, NoPair, ReviewId, ReviewLeftover};
-use crate::frame::TooSmall;
+use crate::frame::{TooSmall, Way};
 use crate::load::{Change, Reloaded};
 use crate::review::{Filter, Rows};
 use crate::syntax::Highlights;
@@ -42,7 +45,7 @@ pub(in crate::editor) struct Files {
 #[derive(Debug, Default)]
 pub(in crate::editor) struct Shared {
     /// Windows left beneath a prompt as their review closed, closed once no prompt is open.
-    stray: Vec<WindowId>,
+    pub(in crate::editor) stray: Vec<WindowId>,
     /// Whether the panes are being synced, which laying out again does not start anew.
     syncing: bool,
 }
@@ -169,7 +172,7 @@ impl Editor {
         self.set_split_gutter();
         let mut splits = self.splits.clone();
         splits
-            .split_left(window, new, COLUMNS, &self.frame)
+            .split_aside(window, new, Way::Across, COLUMNS, &self.frame)
             .map_err(|TooSmall| NoPair::TooSmall)?;
         self.isearch_exit();
         self.splits = splits;
@@ -208,14 +211,18 @@ impl Editor {
             .map(|window| window.id())
             .collect();
         let review = self.review_buffer(id);
-        self.close_files_windows(&shown, review);
+        self.close_aside_windows(&shown, review);
         self.drop_review_files(id);
         true
     }
 
     /// Takes each of `windows` out of the tree, its columns going to the area at its right, or
     /// shows `review` in it as the frame's only window; lays out once.
-    fn close_files_windows(&mut self, windows: &[WindowId], review: Option<BufferId>) {
+    pub(in crate::editor) fn close_aside_windows(
+        &mut self,
+        windows: &[WindowId],
+        review: Option<BufferId>,
+    ) {
         if windows.is_empty() {
             return;
         }
@@ -290,7 +297,7 @@ impl Editor {
     }
 
     /// The line the primary cursor of the window at `index` is on.
-    fn window_line(&self, index: usize) -> usize {
+    pub(in crate::editor) fn window_line(&self, index: usize) -> usize {
         let window = &self.windows[index];
         self.buffer(window.buffer()).map_or(0, |buffer| {
             buffer
@@ -301,7 +308,7 @@ impl Editor {
     }
 
     /// Puts the primary cursor of the window at `index` alone at the start of `line`.
-    fn put_cursor_on_line(&mut self, index: usize, line: usize) {
+    pub(in crate::editor) fn put_cursor_on_line(&mut self, index: usize, line: usize) {
         let (window, buffer) = self.window_mut(index);
         let text = buffer.text();
         let offset = text.line_start(line.min(text.line_count().saturating_sub(1)));
@@ -341,6 +348,8 @@ impl Editor {
         }
         let selected = self.windows[self.selected].id();
         self.follow_review_file(selected);
+        // The commit lists (ADR 0167), which hiding lays out for as well.
+        self.sync_review_commits();
         self.reviews.files.syncing = false;
     }
 
@@ -353,7 +362,7 @@ impl Editor {
         let tiled: Vec<WindowId> = (stray.into_iter())
             .filter(|window| self.tiled_window_index(*window).is_some())
             .collect();
-        self.close_files_windows(&tiled, None);
+        self.close_aside_windows(&tiled, None);
     }
 
     /// Puts the cursor of each window showing the files pane of the review `window` shows on

@@ -64,6 +64,13 @@ pub(super) struct Running {
     pub(super) sides: Vec<oso_core::buffer::BufferId>,
     /// The files of the open buffers that may hold secrets its view was last told of (step 13).
     pub(super) held: Arc<std::collections::HashSet<std::path::PathBuf>>,
+    /// A pull request's commits, as its thread listed them (ADR 0167).
+    pub(super) walk: Option<super::walk::Walk>,
+    /// The pull request review this one reviews a commit of, and that commit's index.
+    pub(super) pull: Option<(ReviewId, usize)>,
+    /// The pull request its saved file names, to link it to once that pull request's commits
+    /// are listed.
+    pub(super) pull_wanted: Option<u64>,
 }
 
 /// What opening a review that is open already does.
@@ -110,6 +117,9 @@ impl Running {
             jumping: None,
             sides: Vec::new(),
             held: Arc::default(),
+            walk: None,
+            pull: None,
+            pull_wanted: None,
         }
     }
 
