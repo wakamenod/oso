@@ -21,8 +21,10 @@ use super::{Flow, in_composer, text};
 /// `tier` says 2, and refuses it otherwise. A `set_permission_mode` it notes in `asked.N`,
 /// answers at once, and says the new mode in a `system/status` only once `say.MODE` is there.
 /// Each message `M` it writes to `sent.N.M`, starts a turn whose `system/init` says the mode,
-/// and, unless it starts with `long`, answers `reply N.M` and ends the turn. `SIGINT` ends the
-/// turn and the process, as the CLI's does, noting `signalled.N`.
+/// and, unless it starts with `long`, answers `reply N.M` and ends the turn. It names no model,
+/// so that the mode is the note's first part, which the transcript's narrow modeline beside
+/// `*Spaces*` keeps (part 3a). `SIGINT` ends the turn and the process, as the CLI's does,
+/// noting `signalled.N`.
 const MODES_FAKE: &str = r#"#!/bin/sh
 dir='DIR'
 n=$(ls "$dir" | grep -c '^run\.')
@@ -60,7 +62,7 @@ while IFS= read -r line; do
   m=$((m+1))
   said=$(printf '%s\n' "$line" | sed 's/.*"content":"\([^"]*\)".*/\1/')
   printf '%s\n' "$said" > "$dir/sent.$n.$m"
-  printf '{"type":"system","subtype":"init","cwd":"/w","session_id":"s","model":"m","permissionMode":"%s","capabilities":[]}\n' "$mode"
+  printf '{"type":"system","subtype":"init","cwd":"/w","session_id":"s","permissionMode":"%s","capabilities":[]}\n' "$mode"
   printf '{"type":"user","isReplay":true,"message":{"content":"%s"}}\n' "$said"
   case "$said" in
     long*) ;;
