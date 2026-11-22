@@ -18,7 +18,7 @@ use proptest::prelude::*;
 use super::highlight_tests::highlighted;
 use super::properties::{Drawn, SEEDS, batches, splices_of};
 use super::tests::{LONG, apply, cases};
-use super::{Document, Failure, Highlighted};
+use super::{Document, Failure, Highlighted, wall};
 use crate::queries::Queries;
 
 type Runs = Vec<(Range<usize>, Option<Highlight>)>;
@@ -67,7 +67,7 @@ proptest! {
         let mut queries = Queries::new();
         for drawn in batches {
             text = edit(&mut document, &text, &drawn);
-            prop_assert_eq!(document.highlight(&mut queries, &[], LONG), Highlighted::Done);
+            prop_assert_eq!(document.highlight(&mut queries, &[], LONG, wall), Highlighted::Done);
             let fresh = highlighted(language, &text.to_string());
             if clean(&document) && clean(&fresh) {
                 prop_assert_eq!(all_runs(&document), all_runs(&fresh));
@@ -89,7 +89,7 @@ proptest! {
         let mut whole = Document::new(language, text.clone());
         let mut queries = Queries::new();
         for (drawn, micros) in batches.iter().zip(slices) {
-            let paused = sliced.highlight(&mut queries, &[], Duration::from_micros(micros));
+            let paused = sliced.highlight(&mut queries, &[], Duration::from_micros(micros), wall);
             // A slice too short for the least piece fails it as too slow, and it stays plain.
             let fine = matches!(
                 paused,
@@ -97,14 +97,14 @@ proptest! {
             );
             prop_assert!(fine, "{paused:?}");
             prop_assert_eq!(sliced.highlights().len(), text.len());
-            prop_assert_eq!(whole.highlight(&mut queries, &[], LONG), Highlighted::Done);
+            prop_assert_eq!(whole.highlight(&mut queries, &[], LONG, wall), Highlighted::Done);
             let after = edit(&mut sliced, &text, drawn);
             edit(&mut whole, &text, drawn);
             text = after;
             prop_assert_eq!(sliced.highlights().len(), text.len());
         }
-        prop_assert_eq!(whole.highlight(&mut queries, &[], LONG), Highlighted::Done);
-        let done = sliced.highlight(&mut queries, &[], LONG);
+        prop_assert_eq!(whole.highlight(&mut queries, &[], LONG, wall), Highlighted::Done);
+        let done = sliced.highlight(&mut queries, &[], LONG, wall);
         line_breaks_plain(&sliced, &text)?;
         if done == Highlighted::Done {
             // Edits that wait for a stopped parse join, so the two parse different histories,

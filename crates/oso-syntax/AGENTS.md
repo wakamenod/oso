@@ -13,7 +13,9 @@ highlighting loop (ADR 0012, ADR 0111). See `docs/dev/display-model.md`.
   tree-sitter, nor makes, edits or frees a document: those happen in `Checkout::run` and on the
   list a thread frees after it unlocks.
 - Every parse and every query is bounded: a time slice, the time limits and the size limit
-  of ADR 0111. A callback given to tree-sitter must never panic, as it runs under C.
+  of ADR 0111. The limits count the worker thread's CPU time, from the clock the tip crate
+  passes (`oso_platform::thread_time::now`), at most the wall clock's; a slice ends on the wall
+  clock (ADR 0172). A callback given to tree-sitter must never panic, as it runs under C.
 - Walk a tree with a `TreeCursor`, never by recursion, so a deep tree cannot overflow a stack.
 - No buffer text in a log line or an error.
 - Grammar versions are exact. Before a bump, read its `build.rs` and its external scanner's

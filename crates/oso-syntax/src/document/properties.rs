@@ -15,7 +15,7 @@ use proptest::prelude::*;
 use tree_sitter::{Parser, Tree};
 
 use super::tests::{LONG, apply, cases, nodes, parsed};
-use super::{Document, Parsed};
+use super::{Document, Parsed, wall};
 use crate::edit::input_edits;
 use crate::language::Language;
 
@@ -244,7 +244,7 @@ proptest! {
             let splices: Vec<Splice> = batch.iter().map(|(splice, _)| *splice).collect();
             document.edit(&splices, &after);
             contiguous.follow(&text, &after, &splices);
-            prop_assert_eq!(document.parse(LONG), Parsed::Done);
+            prop_assert_eq!(document.parse(LONG, wall), Parsed::Done);
             prop_assert_eq!(nodes(document.tree().unwrap()), nodes(&contiguous.tree));
             text = after;
         }
@@ -266,7 +266,7 @@ proptest! {
             if stop {
                 // 5 µs stops a parse of these texts part way (50 times in 50 when measured);
                 // finishing early changes nothing here.
-                let stopped = document.parse(Duration::from_micros(5));
+                let stopped = document.parse(Duration::from_micros(5), wall);
                 prop_assert!(matches!(stopped, Parsed::Paused | Parsed::Done), "{stopped:?}");
             }
             let batch = splices_of(&text.to_string(), drawn);
@@ -275,7 +275,7 @@ proptest! {
             document.edit(&splices, &after);
             text = after;
         }
-        prop_assert_eq!(document.parse(LONG), Parsed::Done);
+        prop_assert_eq!(document.parse(LONG, wall), Parsed::Done);
         let tree = document.tree().unwrap();
         // A tree ends where the text does, but YAML's may end before it at an error (ADR 0157).
         let (end, root) = (tree.root_node().end_byte(), tree.root_node());
