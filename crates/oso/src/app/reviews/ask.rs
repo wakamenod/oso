@@ -38,7 +38,7 @@ use super::super::App;
 use super::super::sessions::Orchestrator;
 use crate::commands::agent_sessions::MAX_SEND_BYTES;
 use crate::review::ask::{About, Where, compose, region_rows, row_text};
-use crate::sessions::send::{InputBox, input_box};
+use crate::sessions::send::{InputBox, NoBox, input_box};
 use crate::sessions::spaces::SpaceId;
 use crate::sessions::worker::SessionKey;
 
@@ -149,13 +149,13 @@ impl App {
             }
         };
         let boxed = self.input_box_of(buffer);
-        if boxed == InputBox::Other {
+        if let InputBox::Other(why) = boxed {
             if beside {
                 self.show_in_review_slot(buffer, false);
             }
             return self.editor.message(format!(
-                "{name} shows no input box now (a dialog, a picker or another mode): nothing was \
-                 sent; M-p in the question's prompt brings it back"
+                "{}: nothing was sent; M-p in the question's prompt brings it back",
+                why.said(&name)
             ));
         }
         if let Err(why) = self.paste_into_session(key, question.text) {
@@ -188,7 +188,7 @@ impl App {
     /// What Claude Code's input box in the terminal `buffer` holds, as the screen the UI has
     /// shows it.
     fn input_box_of(&self, buffer: BufferId) -> InputBox {
-        (self.terminals.map.get(buffer)).map_or(InputBox::Other, |hosted| {
+        (self.terminals.map.get(buffer)).map_or(InputBox::Other(NoBox::NoRules), |hosted| {
             input_box(&hosted.grid.row_texts())
         })
     }
@@ -292,7 +292,7 @@ impl App {
         }
         let ready = self
             .paste_target(key)
-            .is_ok_and(|buffer| self.input_box_of(buffer) != InputBox::Other);
+            .is_ok_and(|buffer| !matches!(self.input_box_of(buffer), InputBox::Other(_)));
         if ready {
             let Some(held) = self.reviews.asking.held.take() else {
                 return;

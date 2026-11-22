@@ -7,7 +7,9 @@ use std::path::{Path, PathBuf};
 
 use oso_core::editor::{SendExcerpt, SendPart};
 
-use super::{InputBox, MAX_BYTES, Standing, TooLarge, compose, fence, input_box, place, refusal};
+use super::{
+    InputBox, MAX_BYTES, NoBox, Standing, TooLarge, compose, fence, input_box, place, refusal,
+};
 use crate::sessions::state::{Reason, State};
 
 const DIRECTORY: &str = "/work/repo";
@@ -306,7 +308,10 @@ fn a_draft_is_typed_and_a_dialog_or_a_picker_is_no_box() {
         include_str!("../screens/slash-menu.txt"),
         "",
     ] {
-        assert_eq!(input_box(&screen(text)), InputBox::Other, "{text}");
+        assert!(
+            matches!(input_box(&screen(text)), InputBox::Other(_)),
+            "{text}"
+        );
     }
 }
 
@@ -335,6 +340,106 @@ fn only_a_folded_paste_reads_as_pasted() {
         "❯ 12. Keep planning",
         "❯ /help",
     ] {
-        assert_eq!(input_box(&boxed(other)), InputBox::Other, "{other}");
+        assert!(
+            matches!(input_box(&boxed(other)), InputBox::Other(_)),
+            "{other}"
+        );
+    }
+}
+
+/// The bottom of a screen Claude Code 2.1.330 drew for a session started with
+/// `--name=exchange-refund-5774`, `columns` wide, its box holding `input` after the sign and
+/// its no-break space, as captured from a pty: the name is in the box's top rule.
+fn named(columns: usize, input: &str, footer: &str) -> Vec<String> {
+    let label = " exchange-refund-5774 ─";
+    let lead = "─".repeat(columns - label.chars().count());
+    vec![
+        "●\u{a0}Hello.".to_owned(),
+        String::new(),
+        format!("{lead}{label}"),
+        format!("❯\u{a0}{input}"),
+        "─".repeat(columns),
+        footer.to_owned(),
+    ]
+}
+
+#[test]
+fn a_named_session_s_box_reads_with_its_name_in_the_top_rule() {
+    let auto = "  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents       ◐ medium · /effort";
+    let empty = named(80, "Try \"refactor <filepath>\"", auto);
+    assert_eq!(input_box(&empty), InputBox::Empty);
+    let pasted = named(40, "[Pasted text #1 +5 lines]", "  paste again to expand");
+    assert_eq!(input_box(&pasted), InputBox::Pasted);
+    // The narrowest the name leaves three `─` of the rule at its left.
+    let narrow = named(26, "Try \"refactor <filepa…", "  ⏵⏵ auto mode on");
+    assert_eq!(input_box(&narrow), InputBox::Empty, "a cut hint");
+    let typed = named(60, "what does this do?", auto);
+    assert_eq!(input_box(&typed), InputBox::Typed);
+}
+
+#[test]
+fn an_unnamed_session_s_box_reads_as_captured() {
+    // Claude Code 2.1.330, 100 and 60 columns wide; 2.1.326 and the fullscreen TUI draw the
+    // same rows.
+    let rule = |columns| "─".repeat(columns);
+    let rows = |columns, input: &str| {
+        vec![
+            rule(columns),
+            format!("❯\u{a0}{input}"),
+            rule(columns),
+            "  ⏵⏵ auto mode on (shift+tab to cycle)".to_owned(),
+            format!("{:>width$}", "/rc", width = columns - 5),
+        ]
+    };
+    let hint = "Try \"edit <filepath> to…\"";
+    assert_eq!(input_box(&rows(100, hint)), InputBox::Empty);
+    assert_eq!(input_box(&rows(60, hint)), InputBox::Empty);
+    let pasted = rows(60, "[Pasted text #2 +5 lines]");
+    assert_eq!(input_box(&pasted), InputBox::Pasted);
+}
+
+#[test]
+fn a_folded_paste_the_width_wrapped_still_reads_as_pasted() {
+    // 28 columns: the TUI wraps the folded paste at a space.
+    let rule = "─".repeat(28);
+    let wrapped = screen(&format!(
+        "{rule}\n❯\u{a0}[Pasted text #5 +5\n  lines]\n{rule}\n  paste again to expand"
+    ));
+    assert_eq!(input_box(&wrapped), InputBox::Pasted);
+    let cut = screen(&format!(
+        "{rule}\n❯ [Pasted text #5 +5 li\n  nes]\n{rule}\n  paste again to expand"
+    ));
+    assert_eq!(input_box(&cut), InputBox::Pasted, "wrapped within a word");
+    for draft in [
+        "❯ line 0 of a short question\n  line 1 of a short question",
+        "❯ [Pasted text #5 +5 lines]\n  and more",
+        "❯ [Pasted\n  text #5\n  +5\n  lines]",
+    ] {
+        let rows = screen(&format!("{rule}\n{draft}\n{rule}\n  footer"));
+        assert_eq!(input_box(&rows), InputBox::Other(NoBox::Rows), "{draft}");
+    }
+}
+
+#[test]
+fn no_box_says_why() {
+    let rule = "─".repeat(40);
+    let boxed = |row: &str| screen(&format!("talk\n{rule}\n{row}\n{rule}\n  ? for shortcuts"));
+    assert_eq!(input_box(&screen("talk")), InputBox::Other(NoBox::NoRules));
+    assert_eq!(
+        input_box(&screen(&format!("{rule}\n{rule}"))),
+        InputBox::Other(NoBox::NoRules),
+        "nothing between the rules"
+    );
+    assert_eq!(input_box(&boxed("! ls")), InputBox::Other(NoBox::NoSign));
+    assert_eq!(input_box(&boxed("❯ 1. Yes")), InputBox::Other(NoBox::Menu));
+    assert_eq!(input_box(&boxed("> ")), InputBox::Other(NoBox::NoSign));
+    let options = screen(&format!("{rule}\n❯ 1. Yes\n  2. No\n{rule}"));
+    assert_eq!(
+        input_box(&options),
+        InputBox::Other(NoBox::Menu),
+        "options on rows"
+    );
+    for why in [NoBox::NoRules, NoBox::NoSign, NoBox::Menu, NoBox::Rows] {
+        assert!(why.said("api-fix").contains("api-fix"), "{why:?}");
     }
 }

@@ -85,10 +85,13 @@ space.
   A paste that waited for Enter would make the person go into the slot to press it, leaving the
   diff. An Enter must reach only the input box, never a dialog, a draft or another mode, so oso
   reads Claude Code's input box on the screen the UI holds (`sessions::send::input_box`, a pure
-  function tested on the captured screens): the one row between the last two rules of `─`,
-  starting with `❯`.
-  - **Empty** (`❯` alone or its `Try "…"` hint): the question is pasted, and Enter goes as a key
-    of its own once the box shows Claude Code's folded paste alone (`[Pasted text #N +M lines]`),
+  function tested on the captured screens): the rows between the last two rules, the first
+  starting with `❯`. The rules are found as the state rules find them: a run of `─`, or one with
+  the session's name at its right end, `──── api-fix ─`, as Claude Code draws the top rule of a
+  session started with `--name`, as oso starts them.
+  - **Empty** (`❯` alone or its `Try "…"` hint, whole or cut): the question is pasted, and Enter
+    goes as a key of its own once the box shows Claude Code's folded paste alone
+    (`[Pasted text #N +M lines]`, on one row or wrapped to at most three in a narrow terminal),
     looked for from 150 ms after the paste every 100 ms for 2 s, and only while the session still
     takes a paste. Else it stays unsubmitted in the box, and the echo area says so. A paste that
     never reached the program, or that the terminal refused, never shows, so nothing is
@@ -96,7 +99,7 @@ space.
   - **Typed** (one row of other text): pasted, not submitted, for the person's Enter, so that a
     draft never goes out with it.
   - **No box** (a dialog, a picker, an option row `❯ 1.`, a slash command's menu, bash or memory
-    mode, a draft of several rows): nothing is pasted.
+    mode, a draft of several rows): nothing is pasted, and the echo area says which it saw.
 
   Claude Code queues a message submitted while it works.
 - **Where it goes:**

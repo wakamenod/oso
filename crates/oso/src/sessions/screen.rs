@@ -146,16 +146,18 @@ impl Evidence {
 
     /// Where the last two rules are among the rows: the one before the last, and the last.
     fn last_two_rules(&self) -> (Option<usize>, Option<usize>) {
-        let mut rules = self
-            .rows
-            .iter()
-            .enumerate()
-            .rev()
-            .filter(|(_, row)| is_rule(row))
-            .map(|(at, _)| at);
-        let last = rules.next();
-        (rules.next(), last)
+        last_two_rules(&self.rows)
     }
+}
+
+/// Where the last two rules are among `rows`: the one before the last, and the last. The prompt
+/// box is between them, for the state rules' regions and for `send::input_box` alike.
+pub(super) fn last_two_rules(rows: &[String]) -> (Option<usize>, Option<usize>) {
+    let mut rules = (rows.iter().enumerate().rev())
+        .filter(|(_, row)| is_rule(row))
+        .map(|(at, _)| at);
+    let last = rules.next();
+    (rules.next(), last)
 }
 
 /// Whether `row` is a rule: at least [`MIN_RULE_CHARS`] of `─`, then nothing, or a label and
@@ -181,9 +183,9 @@ fn is_label(rest: &str) -> bool {
     let label = rest[..rest.len() - tail * '─'.len_utf8()].strip_suffix(' ');
     (1..=3).contains(&tail)
         && label.is_some_and(|label| {
-            !label.trim().is_empty()
+            label.chars().nth(MAX_LABEL_CHARS).is_none()
+                && !label.trim().is_empty()
                 && !label.contains('─')
-                && label.chars().nth(MAX_LABEL_CHARS).is_none()
         })
 }
 

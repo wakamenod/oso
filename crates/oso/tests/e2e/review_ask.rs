@@ -50,12 +50,17 @@ const NARROW: &str = "\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u
                       \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\
                       \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}";
 
-/// A screen with Claude Code's input box holding `input`, its rules narrow enough for any
-/// window the flows show it in: the captured screens' rules are 100 columns, which wrap in a
-/// narrower terminal, and oso reads a wrapped box as none.
+/// The top rule of [`boxed_screen`]'s input box, 30 columns, with the session's name at its
+/// right end, as Claude Code draws it for a session started with `--name`, as oso starts them.
+const NAMED: &str = "\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\
+                     \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\
+                     \u{2500} worker \u{2500}";
+
+/// A screen with Claude Code's input box holding `input` after its sign and no-break space,
+/// its rules narrow enough for any window the flows show it in: the captured screens' rules
+/// are 100 columns, which wrap in a narrower terminal, and oso reads a wrapped box as none.
 fn boxed_screen(input: &str) -> String {
-    let rule = NARROW;
-    format!("talk\n{rule}\n\u{276f} {input}\n{rule}\n  ? for shortcuts\n")
+    format!("talk\n{NAMED}\n\u{276f}\u{a0}{input}\n{NARROW}\n  ? for shortcuts\n")
 }
 
 /// Shows an empty input box in the fake's terminal, and waits until oso has it on screen.
@@ -97,7 +102,7 @@ fn fold_paste(app: &mut App, flow: &Flow, pastes_before: usize, terminal_name: &
         "screen",
         boxed_screen("[Pasted text #1 +12 lines]").as_bytes(),
     );
-    let folded = "\u{276f} [Pasted text #1 +12 lines]";
+    let folded = "\u{276f}\u{a0}[Pasted text #1 +12 lines]";
     wait_saying(app, "the folded paste on screen", |state| {
         terminal(state, terminal_name).is_some_and(|terminal| {
             (terminal["rows"].as_array())

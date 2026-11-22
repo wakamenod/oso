@@ -221,49 +221,110 @@ pub fn refusal(name: &str, standing: Standing) -> Option<String> {
 /// (`review-ask`, ADR 0163).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InputBox {
-    /// Nothing typed: the prompt sign alone, or its `Try "…"` hint.
+    /// Nothing typed: the prompt sign alone, or its `Try "…"` hint, whole or cut.
     Empty,
-    /// Only a paste the TUI folded, `[Pasted text #N +M lines]`.
+    /// Only a paste the TUI folded, `[Pasted text #N +M lines]`, on one row or wrapped.
     Pasted,
     /// One row of other text at the prompt sign: the person's draft, or an earlier paste.
     Typed,
-    /// Another mode than the prompt's (`!`, `#`), a draft of several rows, a dialog or a
-    /// picker in its place, or no box found.
-    Other,
+    /// No input box oso pastes into, and why.
+    Other(NoBox),
 }
 
-/// The input box `rows` show, read from the bottom: one row between the last two rules of
-/// `─`, starting with the prompt sign `❯`. A dialog, a picker, a draft of several lines and a
-/// mode with another sign all read as [`InputBox::Other`], so that oso pastes nothing there.
-pub fn input_box(rows: &[String]) -> InputBox {
-    let rule = |row: &String| {
-        let row = row.trim_end();
-        row.chars().count() >= 20 && row.chars().all(|c| c == '─')
-    };
-    let mut rules = rows.iter().enumerate().rev().filter(|(_, row)| rule(row));
-    let (Some((below, _)), Some((above, _))) = (rules.next(), rules.next()) else {
-        return InputBox::Other;
-    };
-    if below != above + 2 {
-        return InputBox::Other;
+/// Why the screen shows no input box oso pastes into.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NoBox {
+    /// No two rules with rows between them, as a full-screen view or a screen not drawn yet
+    /// shows, or a TUI that draws its box another way.
+    NoRules,
+    /// The box's first row does not start with the prompt sign: another mode (`!`, `#`), a
+    /// dialog or a picker in its place.
+    NoSign,
+    /// A dialog's option at the sign, `❯ 1. Yes`, or a slash command's menu, `❯ /…`.
+    Menu,
+    /// A draft of several rows, or a long one the terminal's width wrapped.
+    Rows,
+}
+
+impl NoBox {
+    /// What the echo area says the session `name` shows, after "nothing was sent" is added.
+    pub fn said(self, name: &str) -> String {
+        match self {
+            Self::NoRules => format!(
+                "{name} shows no input box now: no prompt box between two rules on its screen"
+            ),
+            Self::NoSign => format!(
+                "{name} shows no input box now: no prompt sign in its box (a dialog, a picker or \
+                 another mode)"
+            ),
+            Self::Menu => {
+                format!("{name} shows a dialog's options or a command menu at its prompt")
+            }
+            Self::Rows => format!("{name}'s input box holds a draft of several rows"),
+        }
     }
-    let Some(rest) = rows[above + 1].strip_prefix('❯') else {
-        return InputBox::Other;
+}
+
+/// The most rows a folded paste wraps to in a narrow terminal: more is a draft.
+const MAX_WRAPPED_PASTE_ROWS: usize = 3;
+
+/// The input box `rows` show, read from the bottom: the rows between the last two rules, the
+/// first starting with the prompt sign `❯`. The rules are found as the state rules find them
+/// (`screen::last_two_rules`): a run of `─`, or one with the session's name at its right end,
+/// as the TUI draws the top rule of a session started with `--name`. A dialog, a picker, a
+/// draft of several rows and a mode with another sign all read as [`InputBox::Other`], so that
+/// oso pastes nothing there; a folded paste the terminal's width wrapped still reads as one.
+pub fn input_box(rows: &[String]) -> InputBox {
+    let (Some(above), Some(below)) = super::screen::last_two_rules(rows) else {
+        return InputBox::Other(NoBox::NoRules);
     };
+    let inside = &rows[above + 1..below];
+    let Some(first) = inside.first() else {
+        return InputBox::Other(NoBox::NoRules);
+    };
+    let Some(rest) = first.strip_prefix('❯') else {
+        return InputBox::Other(NoBox::NoSign);
+    };
+    // The sign is followed by a no-break space (U+00A0), which `trim` drops too.
     let rest = rest.trim();
-    if rest.is_empty() || (rest.starts_with("Try \"") && rest.ends_with('"')) {
+    // A dialog's option at the sign, `❯ 1. Yes`, is no draft, and a slash command's menu
+    // shows under `❯ /…`.
+    let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+    if (digits > 0 && rest[digits..].starts_with(". ")) || rest.starts_with('/') {
+        return InputBox::Other(NoBox::Menu);
+    }
+    if inside.len() > 1 {
+        return match wrapped_paste(rest, &inside[1..]) {
+            true => InputBox::Pasted,
+            false => InputBox::Other(NoBox::Rows),
+        };
+    }
+    if rest.is_empty() || hint(rest) {
         return InputBox::Empty;
     }
     if folded_paste(rest) {
         return InputBox::Pasted;
     }
-    // A dialog's option at the sign, `❯ 1. Yes`, is no draft, and a slash command's menu
-    // shows under `❯ /…`.
-    let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
-    if (digits > 0 && rest[digits..].starts_with(". ")) || rest.starts_with('/') {
-        return InputBox::Other;
-    }
     InputBox::Typed
+}
+
+/// Whether `text` at an empty prompt is its hint, `Try "…"`, whole or cut with `…` in a
+/// narrow terminal.
+fn hint(text: &str) -> bool {
+    text.strip_prefix("Try \"")
+        .is_some_and(|hinted| hinted.ends_with('"') || hinted.ends_with('…'))
+}
+
+/// Whether `first`, the text at the sign, and the box's rows `more` under it are one folded
+/// paste the terminal's width wrapped, at a space or within a word.
+fn wrapped_paste(first: &str, more: &[String]) -> bool {
+    let ends = more.last().is_some_and(|row| row.trim_end().ends_with(']'));
+    if more.len() + 1 > MAX_WRAPPED_PASTE_ROWS || !first.starts_with("[Pasted") || !ends {
+        return false;
+    }
+    let pieces = || std::iter::once(first).chain(more.iter().map(|row| row.trim()));
+    folded_paste(&pieces().collect::<Vec<_>>().join(" "))
+        || folded_paste(&pieces().collect::<String>())
 }
 
 /// Whether `text` is all one paste the TUI folded: `[Pasted text #N]` or
