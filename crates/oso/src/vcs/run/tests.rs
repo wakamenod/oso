@@ -2,7 +2,8 @@
 //! output, a hook that fails and the name the failure gives, `--no-verify`, the message an
 //! amend starts from, a stop that ends a hook and leaves no lock, and a root it refuses; with a
 //! remote (`remote`), over what is stopped (`sequence`, step 3a), and over stashes (`stash`)
-//! and branches (`branch`, step 3b), and a graph's runs (`graph`, step 4b).
+//! and branches (`branch`, step 3b), and a graph's runs (`graph`, step 4b), and the index's
+//! lock a stop leaves or a failure finds (`lock`).
 //!
 //! Must not depend on: `app`, `dispatch` or winit.
 
@@ -17,6 +18,7 @@ use crate::review::tests::Repo;
 
 mod branch;
 mod graph;
+mod lock;
 mod pr;
 mod remote;
 mod sequence;
@@ -66,7 +68,9 @@ pub(super) fn until_end(got: &mpsc::Receiver<RunReport>) -> (RunEnd, String, boo
             | RunReport::Message(_)
             | RunReport::Subjects { .. }
             | RunReport::Discarded(_)
-            | RunReport::Restored(_) => {}
+            | RunReport::Restored(_)
+            | RunReport::Locked(_)
+            | RunReport::LockRemoved { .. } => {}
             RunReport::Ended(end) => return (end, output, began),
         }
     }

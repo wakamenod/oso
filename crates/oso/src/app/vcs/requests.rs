@@ -11,7 +11,8 @@ use oso_core::editor::GitRequest;
 pub(super) enum Concern {
     /// The status buffer: reading, folding, staging, visiting.
     Status,
-    /// Committing, its log, discarding and the worktree's agent session.
+    /// Committing, its log, discarding, the index's stale lock and the worktree's agent
+    /// session.
     Commit,
     /// Pushing, pulling and fetching (step 2).
     Remote,
@@ -48,6 +49,7 @@ pub(super) fn concern(request: &GitRequest) -> Concern {
         | GitRequest::Discard { .. }
         | GitRequest::RestoreDiscarded { .. }
         | GitRequest::ShowDiscarded { .. }
+        | GitRequest::RemoveLock { .. }
         | GitRequest::DraftMessage { .. }
         | GitRequest::FixWithAgent { .. } => Concern::Commit,
         GitRequest::Push { .. } | GitRequest::Pull { .. } | GitRequest::Fetch { .. } => {

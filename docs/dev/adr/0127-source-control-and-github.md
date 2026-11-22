@@ -1,6 +1,6 @@
 # 0127. Source control and GitHub
 
-- Status: Accepted
+- Status: Accepted, amended by 0168
 - Date: 2026-11-13
 
 ## Context

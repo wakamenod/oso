@@ -77,6 +77,9 @@ pub(super) struct Repo {
     pub(super) stashes: super::stash::Stashes,
     /// A branch head's list, plan, prompt and question waiting (step 3b).
     pub(super) branches: super::branch::Branching,
+    /// The index's lock a stop left or a run failed on, and the one the open question asks
+    /// about (ADR 0168).
+    pub(super) locks: super::lock::Locks,
 }
 
 /// A commit that failed, as a fix request names it.
@@ -114,6 +117,8 @@ pub(super) struct Running {
     pub(super) output: String,
     /// What follows it once it ended, as a pull request does its branch's push (step 5a-2).
     pub(super) then: Option<super::pr::AfterRun>,
+    /// Whether its end left the index's lock, or failed on one (ADR 0168).
+    pub(super) locked: bool,
 }
 
 /// A commit asked for that waits for the message it starts from.
@@ -161,6 +166,7 @@ impl App {
             draft,
             output: String::new(),
             then: None,
+            locked: false,
         });
         self.request_redraw();
     }
@@ -256,6 +262,13 @@ impl App {
             RunReport::Ended(end) => self.run_ended(index, end),
             RunReport::Discarded(read) => self.discarded_read(index, read),
             RunReport::Restored(done) => self.restored(index, done),
+            RunReport::Locked(noted) => {
+                if let Some(run) = self.gits.commits.repos[index].run.as_mut() {
+                    run.locked = true;
+                }
+                self.lock_noted(index, noted);
+            }
+            RunReport::LockRemoved { said, kept } => self.lock_removed(index, &said, kept),
         }
         self.request_redraw();
     }
@@ -305,11 +318,12 @@ impl App {
         let (said, ended) = match end {
             RunEnd::Done if run.kind.is_none() => ("done", run.done.clone()),
             RunEnd::Done => ("done", self.commit_done(&run)),
-            RunEnd::Failed { said, .. } if run.kind.is_none() => ("failed", said),
+            // A run that failed on the index's lock ran no hook: no fix is asked of a session.
+            RunEnd::Failed { said, .. } if run.kind.is_none() || run.locked => ("failed", said),
             RunEnd::Failed { said, hooks } => {
                 ("failed", self.commit_failed(index, run, said, hooks))
             }
-            RunEnd::Stopped => ("stopped", format!("{} stopped", run.title)),
+            RunEnd::Stopped => ("stopped", self.stopped_said(index, &run)),
             RunEnd::Refused(why) => ("not run", format!("git: {why}")),
         };
         self.editor
@@ -433,6 +447,7 @@ impl App {
             draft: None,
             output: String::new(),
             then: None,
+            locked: false,
         });
         self.request_redraw();
     }
@@ -462,6 +477,7 @@ impl App {
             sequence_asked: None,
             stashes: super::stash::Stashes::default(),
             branches: super::branch::Branching::default(),
+            locks: super::lock::Locks::default(),
         });
         self.gits.commits.repos.len() - 1
     }

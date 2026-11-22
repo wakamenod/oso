@@ -86,6 +86,7 @@ impl App {
                 confirmed,
             } => self.restore_discarded(buffer, line, confirmed),
             GitRequest::ShowDiscarded { buffer } => self.show_discarded(buffer),
+            GitRequest::RemoveLock { buffer, confirmed } => self.remove_lock(buffer, confirmed),
             GitRequest::DraftMessage { buffer } => self.draft_message(buffer),
             GitRequest::FixWithAgent { buffer } => self.fix_with_agent(buffer),
             // The others are not a commit's (`requests::concern`).

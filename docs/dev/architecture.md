@@ -682,7 +682,10 @@ The UI thread never blocks on I/O or parsing:
   run's group gets `SIGKILL` once git has ended, before git is reaped (`Child::exited`), so a
   hook that ignores `SIGTERM` goes too. Quitting sends each run's group `SIGTERM`, then `SIGKILL`,
   and waits for nothing
-  ([ADR 0127](adr/0127-source-control-and-github.md), step 1b).
+  ([ADR 0127](adr/0127-source-control-and-github.md), step 1b). Both threads look at git's
+  `index.lock` before a run or a staging (`vcs/lock.rs`); a lock a stop left, or one a failure
+  names, is noted, and `M-x git-remove-stale-lock` takes it away after `y`, only if it is still
+  the same file (`app/vcs/lock.rs`; ADR 0168).
 - Pushes, pulls and fetches run on the same thread (`vcs/run/remotes.rs`, glue in
   `app/vcs/remote.rs`): a push is planned there first from `for-each-ref`, and with no target
   the host gives the remotes to a prompt it opens as its keys would

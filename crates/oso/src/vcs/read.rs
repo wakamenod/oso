@@ -118,6 +118,24 @@ pub(super) fn git_dir(git: &Git) -> Option<PathBuf> {
     Some(PathBuf::from(path))
 }
 
+/// Where git keeps `name` for the work tree (`rev-parse --git-path`), joined to its top when git
+/// gives it relative, as a worktree's own git directory and `core.hooksPath` are respected;
+/// `None` if git cannot say.
+pub(super) fn git_path(git: &Git, name: &str) -> Option<PathBuf> {
+    let out = git
+        .run(&args(&["rev-parse", "--git-path", name]), &set(), MAX_SHORT)
+        .ok()?;
+    let path = Path::new(os_path(crate::git::trim_line(&out)).ok()?);
+    if path.as_os_str().is_empty() {
+        return None;
+    }
+    Some(if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        git.top().join(path)
+    })
+}
+
 /// What is stopped in the work tree whose own directory is `dir`, judged from its files alone;
 /// `None` if nothing is. A directory or a mark that is a link is as missing.
 pub(super) fn judged(dir: &Path) -> Option<Stop> {

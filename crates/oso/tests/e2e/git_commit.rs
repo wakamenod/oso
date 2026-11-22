@@ -2,7 +2,8 @@
 //! `*commit: NAME*`, an empty message is refused, `C-c C-c` commits with the repository's hooks
 //! and the head shows the new subject, `$` shows the run in `*git log: NAME*`; a failing
 //! pre-commit hook keeps the message and is named, `C-c C-k` keeps it for `M-p`, and the menu's
-//! `- n` commits past the hook.
+//! `- n` commits past the hook; a stop that leaves the index's lock says so, and
+//! `M-x git-remove-stale-lock` takes it away after `y`.
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test. The arguments,
 //! the message's text and the runs have their own tests.
@@ -130,4 +131,73 @@ fn a_failing_hook_keeps_the_message_and_no_verify_commits_past_it() {
     rows_until(&mut app, |rows| {
         rows.first().is_some_and(|head| head.ends_with(" Fix"))
     });
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_stop_that_leaves_the_index_lock_says_so_and_y_takes_it_away() {
+    use std::os::unix::fs::PermissionsExt;
+    let scratch = Scratch::new("git-commit-lock");
+    let file = project(&scratch);
+    let root = scratch.path().join("proj-git");
+    identity(&root);
+    // The hook makes the lock that a stop in git's own moments before it would leave, marks
+    // that it did, then waits for the stop.
+    let hook = root.join(".git/hooks/pre-commit");
+    let made = scratch.path().join("lock-made");
+    let script = format!(
+        "#!/bin/sh\n: > .git/index.lock\n: > '{}'\nexec sleep 60\n",
+        made.display()
+    );
+    std::fs::write(&hook, script).unwrap();
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let lock = root.join(".git/index.lock");
+    let mut app = trusted_status(&scratch, &file);
+    rows_until(&mut app, |rows| has(rows, "M  a.txt  +2 -2"));
+    // No lock noted yet: the command only says so.
+    app.send_keys(&format!("M-x {} RET", typing("git-remove-stale-lock")));
+    wait_echo(
+        &mut app,
+        "nothing noted",
+        "oso noted no stale index.lock in this repository: it removes only one a stop left or \
+         a run failed on",
+    );
+    stage_all(&mut app);
+    app.send_keys("c c");
+    wait_buffer(&mut app, "*commit: proj-git*");
+    app.send_keys(&typing("Fix"));
+    app.send_keys("C-c C-c");
+    for _ in 0..1200 {
+        if made.exists() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    assert!(made.exists() && lock.exists(), "the hook makes the lock");
+    // Back to the status, the buffer shown before.
+    app.send_keys("C-x b RET");
+    wait_buffer(&mut app, "*git: proj-git*");
+    app.send_keys("C-g");
+    wait_echo(
+        &mut app,
+        "the stop",
+        "git commit stopped; the stop left .git/index.lock: git writes no index while it is \
+         there; M-x git-remove-stale-lock removes it",
+    );
+    assert!(lock.exists());
+    std::fs::remove_file(&hook).unwrap();
+    // The person's `y` takes it away, still the same file.
+    app.send_keys(&format!("M-x {} RET", typing("git-remove-stale-lock")));
+    app.wait_for("the question", |state| {
+        state.to_string().contains("Remove .git/index.lock, made ")
+    });
+    app.send_keys("y");
+    wait_echo(&mut app, "the removal", "Removed .git/index.lock");
+    assert!(!lock.exists());
+    // A commit goes in again, with the message kept.
+    app.send_keys("c c");
+    wait_buffer(&mut app, "*commit: proj-git*");
+    app.send_keys("M-p");
+    app.send_keys("C-c C-c");
+    wait_echo(&mut app, "the commit", "Committed: Fix");
 }
