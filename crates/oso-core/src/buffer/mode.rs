@@ -102,6 +102,10 @@ pub enum Mode {
     /// A native agent session's conversation, `*claude: NAME*`, which oso writes from the
     /// session's stream (ADR 0165).
     NativeSession,
+    /// A native session's permission card, `*card: NAME*`, docked under its transcript: what a
+    /// call that waits for the person asks, which oso writes, with keys of its own to answer it
+    /// (ADR 0165, step 2e-2; ADR 0170).
+    Card,
 }
 
 impl Mode {
@@ -192,6 +196,7 @@ impl Mode {
             Self::RenamePreview => "Rename",
             Self::SessionMove => "Session Move",
             Self::NativeSession => "Session",
+            Self::Card => "Card",
         }
     }
 
@@ -245,7 +250,8 @@ impl Mode {
             | Self::Conversation
             | Self::RenamePreview
             | Self::SessionMove
-            | Self::NativeSession => None,
+            | Self::NativeSession
+            | Self::Card => None,
         };
         given.unwrap_or_default()
     }
@@ -304,6 +310,7 @@ impl Mode {
             | Self::RenamePreview
             | Self::SessionMove
             | Self::NativeSession
+            | Self::Card
             | Self::GitDiscarded
             | Self::Sessions => None,
         }

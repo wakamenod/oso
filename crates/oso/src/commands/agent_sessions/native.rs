@@ -67,11 +67,12 @@ pub const COMMANDS: &[Command] = &[
 ];
 
 /// Asks the host to `action` at point's line of the native session's buffer in front, or of
-/// its composer (step 2), which the host carries out for the session it is docked under.
+/// its composer (step 2) or its permission card (step 2e-2), which the host carries out for
+/// the session it is docked under.
 pub(super) fn at_point(ctx: &mut Ctx<'_>, action: NativeAction) -> Result<(), CommandError> {
     super::super::not_in_prompt(ctx)?;
     let (window, buffer) = ctx.editor.current();
-    if !buffer.is_native_session() && buffer.mode() != Mode::Composer {
+    if !buffer.is_native_session() && !matches!(buffer.mode(), Mode::Composer | Mode::Card) {
         return Err(CommandError::new("This buffer is no native session"));
     }
     let id = window.buffer();

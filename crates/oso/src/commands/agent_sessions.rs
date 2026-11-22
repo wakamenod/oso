@@ -15,6 +15,7 @@
 //! `session-switch` and `session-explain` are `Look`: the first completes over a list the agent
 //! channel cannot answer, and the second shows only a buffer withheld from agents.
 
+mod card;
 mod composer;
 mod list;
 mod mode;
@@ -23,6 +24,7 @@ mod search;
 mod send;
 mod spaces;
 
+pub use card::{CARD_NOTE, CARD_OWN, COMMANDS as CARD_COMMANDS};
 pub use composer::COMMANDS as COMPOSER_COMMANDS;
 pub use list::COMMANDS as LIST_COMMANDS;
 pub use list::{FOLDS, GUIDES, ROW_MARKS, SESSION_RENAME_TO, row_mark};

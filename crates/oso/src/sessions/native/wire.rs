@@ -16,6 +16,7 @@
 //! - `messages` reads the messages' bodies, `tools` a tool call's input and `control` the
 //!   control protocol's lines: with this file, the only places that touch JSON.
 
+pub mod card;
 pub mod control;
 mod messages;
 pub mod tools;

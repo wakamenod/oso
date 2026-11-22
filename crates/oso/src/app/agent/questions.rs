@@ -58,6 +58,20 @@ impl App {
     /// wait again. `C-g` always goes through.
     pub(in crate::app) fn note_key_for_agent(&mut self, key: KeyPress) -> bool {
         self.agent.person_typed = Some(Instant::now());
+        // A native session's permission card takes its keys as a question does (ADR 0165,
+        // step 2e-2): only once it was quiet a moment.
+        if self.editor.prompt().is_none()
+            && self.editor.current().1.mode() == oso_core::buffer::Mode::Card
+        {
+            let since = self.agent.card_quiet_since.map(|at| at.elapsed());
+            self.agent.card_quiet_since = Some(Instant::now());
+            if !holds(since, key) {
+                return false;
+            }
+            self.editor.message("Wait a moment, then answer the card");
+            self.request_redraw();
+            return true;
+        }
         if !self
             .editor
             .prompt()
@@ -87,15 +101,29 @@ impl App {
         Some(since.is_none_or(|since| since >= QUIET))
     }
 
+    /// Whether the selected permission card, if one is, takes an answer now: its quiet moment
+    /// has passed since the last key or point's coming (ADR 0165, step 2e-2). For end-to-end
+    /// flows.
+    #[cfg(feature = "dev")]
+    pub(in crate::app) fn card_takes_answer(&self) -> Option<bool> {
+        let card = self.editor.prompt().is_none()
+            && self.editor.current().1.mode() == oso_core::buffer::Mode::Card;
+        card.then(|| (self.agent.card_quiet_since).is_none_or(|since| since.elapsed() >= QUIET))
+    }
+
     /// Why keys from the dev socket, which stand in for the person's, must not reach a
-    /// question the agent caused, if they must not: they come one at a time, so that each one
-    /// restarts its wait, and each one waits as a key from the window does.
+    /// question the agent caused or a permission card, if they must not: they come one at a
+    /// time, so that each one restarts its wait, and each one waits as a key from the window
+    /// does.
     #[cfg(feature = "dev")]
     pub(in crate::app) fn agent_holds_keys(&mut self, keys: &[KeyPress]) -> Option<&'static str> {
-        let agents = self
-            .editor
-            .prompt()
-            .is_some_and(|prompt| prompt.from_agent());
+        let card = self.editor.prompt().is_none()
+            && self.editor.current().1.mode() == oso_core::buffer::Mode::Card;
+        let agents = card
+            || self
+                .editor
+                .prompt()
+                .is_some_and(|prompt| prompt.from_agent());
         if agents && keys.len() > 1 {
             return Some("send keys one at a time to a question the agent caused");
         }
@@ -103,6 +131,16 @@ impl App {
             .first()
             .is_some_and(|&key| self.note_key_for_agent(key));
         held.then_some("a question the agent caused takes no answer yet")
+    }
+
+    /// When the person last typed in the window, if they did.
+    pub(in crate::app) fn agent_person_typed(&self) -> Option<Instant> {
+        self.agent.person_typed
+    }
+
+    /// Point came to a native session's permission card: its keys wait a quiet moment again.
+    pub(in crate::app) fn card_focused(&mut self) {
+        self.agent.card_quiet_since = Some(Instant::now());
     }
 
     /// Text or a composition came from the window: the person is typing, and a question
@@ -150,16 +188,13 @@ impl App {
             .asking
             .as_ref()
             .and_then(|asking| asking.question);
-        // A session tool's question is its own: no connection's follow-up (ADR 0121, step 6);
-        // so is a native session's permission question (ADR 0165, step 2).
+        // A session tool's question is its own: no connection's follow-up (ADR 0121, step 6).
         let tools = self.session_tool_question();
-        let permission = self.permission_question();
         for &(id, from_agent) in &open {
             let known = self.agent.caused.iter().any(|&(caused, _)| caused == id)
                 || self.agent.orphaned.contains(&id)
                 || asked == Some(id)
-                || tools == Some(id)
-                || permission == Some(id);
+                || tools == Some(id);
             if !from_agent || known {
                 continue;
             }

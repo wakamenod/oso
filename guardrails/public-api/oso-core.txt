@@ -54,6 +54,7 @@ impl core::marker::Copy for oso_core::buffer::EditError
 impl core::marker::StructuralPartialEq for oso_core::buffer::EditError
 pub enum oso_core::buffer::Mode
 pub oso_core::buffer::Mode::Brief
+pub oso_core::buffer::Mode::Card
 pub oso_core::buffer::Mode::Composer
 pub oso_core::buffer::Mode::Conversation
 pub oso_core::buffer::Mode::CopyList
@@ -1922,13 +1923,18 @@ pub fn oso_core::editor::MergeMethod::fmt(&self, &mut core::fmt::Formatter<'_>) 
 impl core::marker::Copy for oso_core::editor::MergeMethod
 impl core::marker::StructuralPartialEq for oso_core::editor::MergeMethod
 pub enum oso_core::editor::NativeAction
+pub oso_core::editor::NativeAction::Allow
 pub oso_core::editor::NativeAction::Cancel
+pub oso_core::editor::NativeAction::Choose(u8)
 pub oso_core::editor::NativeAction::Compose
+pub oso_core::editor::NativeAction::Deny
 pub oso_core::editor::NativeAction::DropQueued
 pub oso_core::editor::NativeAction::EditQueued
 pub oso_core::editor::NativeAction::History(isize)
 pub oso_core::editor::NativeAction::MoveQueued(isize)
+pub oso_core::editor::NativeAction::Note
 pub oso_core::editor::NativeAction::Open
+pub oso_core::editor::NativeAction::Other
 pub oso_core::editor::NativeAction::Prompt(isize)
 pub oso_core::editor::NativeAction::Queue
 pub oso_core::editor::NativeAction::Send
@@ -2368,6 +2374,7 @@ pub enum oso_core::editor::SessionRequest
 pub oso_core::editor::SessionRequest::Adopt(alloc::string::String)
 pub oso_core::editor::SessionRequest::AgentStarts(bool)
 pub oso_core::editor::SessionRequest::CancelBrief(oso_core::buffer::BufferId)
+pub oso_core::editor::SessionRequest::CardText(alloc::string::String)
 pub oso_core::editor::SessionRequest::CycleFolds
 pub oso_core::editor::SessionRequest::Explain(oso_core::buffer::BufferId)
 pub oso_core::editor::SessionRequest::ExplainFile(std::path::PathBuf)

@@ -8,48 +8,37 @@
 //!
 //! - What the person is asked about is the call as the stream has it, by its id and tool, and
 //!   only if the request's input says the same of it: nothing a request says is drawn unless
-//!   the stream says it too. The question names the session, the tool and its target, says
-//!   when that is not all the call does, and `?` shows the input that runs whole, in a buffer
-//!   withheld from agents. The question is the agent channel's kind, answered only from the
-//!   window after a quiet moment, and its label is withheld from agents' state.
-//! - Asked one at a time, the oldest first, and never while another agent question's answer is
-//!   not taken yet; while one waits, its session is `needs input` with reason `permission`.
-//! - The bridge going, the session ending, the socket stopping or the person's `C-g` denies:
-//!   nothing runs unless the person said `y`. A second process that claims a session's slot,
+//!   the stream says it too, but an `ExitPlanMode`'s plan, which only the request carries. It
+//!   is asked on the session's card (step 2e-2, `card`), withheld from agents, answered only
+//!   from the window after a quiet moment; `RET` shows the input that runs whole, in a buffer
+//!   withheld from agents.
+//! - Each session's call has its card, as each session holds one connection; while one waits,
+//!   its session is `needs input` with reason `permission`, `question` or `plan`.
+//! - The bridge going, the session ending or the socket stopping denies: nothing runs unless
+//!   the person said `y`, or answered the questions. A second process that claims a session's slot,
 //!   as a command the session runs can, is told no, and the person is told.
 
 use std::sync::mpsc::Sender;
 use std::time::Instant;
 
-use oso_core::buffer::{Buffer, Mode};
+mod card;
+
+pub(super) use card::Writing;
 use oso_platform::control::Peer;
 use serde_json::Value;
 
 use crate::app::{App, UserEvent};
 use crate::channel::protocol::Op;
-use crate::channel::protocol::permission::{self, Call, MAX_INPUT};
+use crate::channel::protocol::permission::{self, Call};
 use crate::channel::{self, Connection, Event, Reply};
-use crate::git::printable;
 use crate::sessions::hosted::PermissionClaim;
 use crate::sessions::identity::SessionId;
-use crate::sessions::native::asks::{Ask, Asks, Denied, Look, Outcome, Question, Refused};
-use crate::sessions::native::render;
-use crate::sessions::native::rows::Tool;
-use crate::sessions::native::wire::tools::{decode, only_keys, pretty};
-use crate::sessions::state::{Reason, Target};
+use crate::sessions::native::asks::{Ask, Asks, Denied, Look, Outcome, Refused};
+use crate::sessions::state::Target;
 use crate::sessions::worker::SessionKey;
 
 /// What the CLI is told when the person says no.
 const DENIED: &str = "The person denied this call in oso.";
-
-/// The buffer `?` shows a call's whole input in.
-const DETAILS: &str = "*Session call*";
-
-/// The most characters a question's label holds.
-const MAX_LABEL: usize = 400;
-
-/// The most bytes of a call's input `?` shows.
-const MAX_SHOWN: usize = 4 * MAX_INPUT;
 
 /// The sessions' socket and the questions asked on it.
 #[derive(Debug, Default)]
@@ -62,10 +51,10 @@ pub(in crate::app) struct Permissions {
     asks: Asks<Sender<Reply>>,
     /// When the loop is woken next to deny a request whose call has not shown.
     wake_at: Option<Instant>,
-    /// The buffer `?` shows the call in, made the first time and kept.
-    details: Option<oso_core::buffer::BufferId>,
-    /// What the window `?` showed it in showed before, while it shows it.
-    before_details: Option<oso_core::buffer::BufferId>,
+    /// The sessions whose card point goes to once the person is quiet (step 2e-2).
+    focus_pending: Vec<SessionKey>,
+    /// What the person writes in the minibuffer for a card, once `N` or `o` asked.
+    writing: Option<Writing>,
 }
 
 impl App {
@@ -235,7 +224,7 @@ impl App {
             call,
             came: Instant::now(),
             question: None,
-            asked: None,
+            shown: None,
             reply,
         });
         self.sync_permissions();
@@ -263,9 +252,8 @@ impl App {
     /// Denies `ask`, whose session, bridge or socket went: its question closes, and its
     /// session no longer waits on it.
     fn drop_ask(&mut self, ask: Ask<Sender<Reply>>) {
-        if let Some(id) = ask.asked {
-            self.orphan_agent_question(id);
-            self.hide_permission_details();
+        if ask.shown.is_some() {
+            self.close_card(ask.key);
         }
         if ask.question.is_some() {
             self.tell_tracker(ask.key, Target::Working);
@@ -283,33 +271,9 @@ impl App {
         if self.hosting.natives.permissions.asks.is_empty() {
             return;
         }
-        self.take_permission_answer();
         self.look_for_calls();
-        self.ask_next_permission();
+        self.show_cards();
         self.wake_for_permissions();
-    }
-
-    /// The asked request whose question closed, answered as the person said.
-    fn take_permission_answer(&mut self) {
-        let prompts = self.editor.prompts();
-        let open = |id| prompts.iter().any(|prompt| prompt.id() == id);
-        let Some(ask) = self.hosting.natives.permissions.asks.take_closed(open) else {
-            return;
-        };
-        self.hide_permission_details();
-        let allowed = self.editor.take_agent_allowed();
-        let said = if allowed { "allowed" } else { "denied" };
-        self.agent_log(&format!(
-            "a native session's {}: {said}",
-            ask.call.tool_name
-        ));
-        self.tell_tracker(ask.key, Target::Working);
-        let reply = if allowed {
-            permission::allow()
-        } else {
-            permission::deny(DENIED)
-        };
-        let _ = ask.reply.send(Ok(reply));
     }
 
     /// Finds each request's call in its session's rows, and denies those that cannot be asked.
@@ -330,14 +294,14 @@ impl App {
             if ask.question.is_some() {
                 return Look::Waits;
             }
-            if !says_the_same(tool, ask.call.input.as_ref()) {
+            if !card::says_the_same(tool, ask.call.input.as_ref()) {
                 return Look::Differs;
             }
             let Some(session) = table.get(ask.key) else {
                 return Look::Gone;
             };
             let directory = native.rows.directory();
-            Look::Found(question(
+            Look::Found(card::question(
                 &session.name,
                 tool,
                 directory,
@@ -348,58 +312,17 @@ impl App {
         for outcome in outcomes {
             match outcome {
                 Outcome::Found(key) => {
-                    self.tell_tracker(key, Target::NeedsInput(Reason::Permission))
+                    let tool = (self.hosting.natives.permissions.asks.unshown())
+                        .find(|ask| ask.key == key)
+                        .map(|ask| ask.call.tool_name.clone())
+                        .unwrap_or_default();
+                    self.tell_tracker(key, card::waits_for(&tool));
                 }
                 Outcome::Denied(ask, why, found) => {
                     if found {
                         self.tell_tracker(ask.key, Target::Working);
                     }
                     let _ = ask.reply.send(Ok(permission::deny(denial(why))));
-                }
-            }
-        }
-    }
-
-    /// Asks the oldest found request, once the person is free and no other agent question's
-    /// answer waits to be taken: opening one forgets the last `y`.
-    fn ask_next_permission(&mut self) {
-        let free = self.agent_question_may_open() && self.session_tool_question().is_none();
-        let Some(next) = self
-            .hosting
-            .natives
-            .permissions
-            .asks
-            .next()
-            .filter(|_| free)
-        else {
-            return;
-        };
-        let label = next
-            .question
-            .as_ref()
-            .map(|q| q.label.clone())
-            .unwrap_or_default();
-        let came = next.came;
-        match self.editor.ask_for_agent_withheld(
-            label,
-            "agent-channel-allow",
-            crate::app::agent::AGENT_VERBS,
-        ) {
-            Ok(id) => {
-                if let Some(next) = self.hosting.natives.permissions.asks.next() {
-                    next.asked = Some(id);
-                }
-                log::debug!(
-                    "native sessions: a permission question opened {} ms after its request",
-                    came.elapsed().as_millis()
-                );
-                self.note_agent_question_opened();
-                self.request_redraw();
-            }
-            Err(e) => {
-                log::warn!("native sessions: cannot ask about a call: {e}");
-                if let Some(ask) = self.hosting.natives.permissions.asks.take_next() {
-                    self.drop_ask(ask);
                 }
             }
         }
@@ -421,133 +344,6 @@ impl App {
         }
         permissions.wake_at = Some(deadline);
         self.wake_after(deadline.saturating_duration_since(now));
-    }
-
-    /// The open permission question, if one is: a question of its own, which no connection's
-    /// follow-up takes.
-    pub(in crate::app) fn permission_question(&self) -> Option<oso_core::minibuffer::PromptId> {
-        self.hosting
-            .natives
-            .permissions
-            .asks
-            .open()
-            .and_then(|ask| ask.asked)
-    }
-
-    /// `?` in an open permission question: `*Session call*` shows the call's whole input,
-    /// withheld from agents as the session's buffer is. Whether one was open.
-    pub(in crate::app) fn show_permission_details(&mut self) -> bool {
-        let Some(details) = (self.hosting.natives.permissions.asks.open())
-            .and_then(|ask| ask.question.as_ref())
-            .map(|question| question.details.clone())
-        else {
-            return false;
-        };
-        let kept = self.hosting.natives.permissions.details;
-        let id = match kept.filter(|&id| self.editor.buffer(id).is_some_and(Buffer::is_internal)) {
-            Some(id) => id,
-            None => self.editor.add_internal_buffer(DETAILS, Mode::Fundamental),
-        };
-        self.hosting.natives.permissions.details = Some(id);
-        if let Some(buffer) = self.editor.buffer_mut(id) {
-            buffer.withhold_from_agents();
-        }
-        self.editor.set_internal_text(id, &details);
-        let before: Vec<_> = (self.editor.windows())
-            .map(|w| (w.id(), w.buffer()))
-            .collect();
-        self.editor.show(id);
-        // The window it went to shows what it showed again once the question closes.
-        let shown_in = (self.editor.windows())
-            .find(|window| window.buffer() == id)
-            .and_then(|window| before.iter().find(|(was, _)| *was == window.id()))
-            .map(|&(_, buffer)| buffer)
-            .filter(|&buffer| buffer != id);
-        if shown_in.is_some() {
-            self.hosting.natives.permissions.before_details = shown_in;
-        }
-        self.request_redraw();
-        true
-    }
-
-    /// The question closed: the window `?` showed the call in shows what it showed before,
-    /// and the call's text goes. The buffer is kept for the next `?`.
-    fn hide_permission_details(&mut self) {
-        let permissions = &mut self.hosting.natives.permissions;
-        let (Some(id), before) = (permissions.details, permissions.before_details.take()) else {
-            return;
-        };
-        self.editor.set_internal_text(id, "");
-        if self.editor.current().0.buffer() == id
-            && let Some(before) = before.filter(|&before| self.editor.buffer(before).is_some())
-        {
-            self.editor.show(before);
-        }
-    }
-}
-
-/// Whether the request's `input` says of the call what the stream's `tool` does: the same
-/// target, as both are read the same way. A request with no input, as its input was too large
-/// to send, says the same only of a call whose input the stream found too large too.
-fn says_the_same(tool: &Tool, input: Option<&Value>) -> bool {
-    let Some(input) = input else {
-        return tool.input.cut;
-    };
-    let sent = decode(&tool.name, Some(input));
-    let kept = &tool.input;
-    (sent.path == kept.path && sent.text == kept.text)
-        && (sent.kind == kept.kind && sent.items == kept.items)
-}
-
-/// The question about the call `tool` of session `name`, which runs in `directory`, with the
-/// request's `input`: its label, and what `?` shows.
-fn question(
-    name: &str,
-    tool: &Tool,
-    directory: &std::path::Path,
-    input: Option<&Value>,
-) -> Question {
-    let target = render::target(tool, directory);
-    let all = !target.ends_with('…') && input.is_some_and(|input| shows_all(&tool.name, input));
-    let run = if target.is_empty() {
-        format!("Session {name} asks to run {}", tool.name)
-    } else {
-        format!("Session {name} asks to run {} {target}", tool.name)
-    };
-    let more = if all {
-        ""
-    } else {
-        " (not all of it is shown: ? shows the call)"
-    };
-    let label = printable(&format!("{run}: allow it?{more}"), MAX_LABEL);
-    let body = input.map_or_else(
-        || {
-            format!(
-                "Its input is over {} KiB as JSON and is not shown here.",
-                MAX_INPUT >> 10
-            )
-        },
-        |input| pretty(input, MAX_SHOWN),
-    );
-    let shown: Vec<String> = body
-        .lines()
-        .map(|line| printable(line, MAX_SHOWN))
-        .collect();
-    let details = format!(
-        "Session {name} asks to run {}:\n\n{}\n\ny allows it, n or C-g denies it.\n",
-        tool.name,
-        shown.join("\n")
-    );
-    Question { label, details }
-}
-
-/// Whether what a question shows of a call of `name`, its target, is all its `input` does:
-/// only for the calls that read, and a command with nothing but its description and limit.
-fn shows_all(name: &str, input: &Value) -> bool {
-    match name {
-        "Read" | "Glob" | "Grep" | "WebSearch" | "WebFetch" => true,
-        "Bash" => only_keys(input, &["command", "description", "timeout"]),
-        _ => false,
     }
 }
 

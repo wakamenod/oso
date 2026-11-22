@@ -159,6 +159,9 @@ pub enum SessionRequest {
         line: usize,
         action: NativeAction,
     },
+    /// The text the person wrote for the permission card the host asked about last: a
+    /// denial's note, or a question's own answer (ADR 0165, step 2e-2).
+    CardText(String),
     /// Give the session whose rename the host asked about last this name (`session-rename-to`,
     /// the answer to `session-rename`'s prompt, ADR 0155).
     RenameTo(String),
@@ -338,6 +341,17 @@ pub enum NativeAction {
     DropQueued,
     /// On a queued message's row: move it this many places, up if negative.
     MoveQueued(isize),
+    /// From a permission card (step 2e-2): allow the call, or approve the plan.
+    Allow,
+    /// From a permission card: deny the call, decline the questions, or keep planning.
+    Deny,
+    /// From a permission card: deny, with a note the host reads in the minibuffer.
+    Note,
+    /// From a question's card: choose its option of this number, from 1, or in a question
+    /// that takes several, choose or unchoose it.
+    Choose(u8),
+    /// From a question's card: answer it in the person's own words, read in the minibuffer.
+    Other,
 }
 
 impl Editor {

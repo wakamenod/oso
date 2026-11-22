@@ -139,6 +139,7 @@ impl Offer {
             | Mode::RenamePreview
             | Mode::SessionMove
             | Mode::NativeSession
+            | Mode::Card
             | Mode::GitDiscarded
             | Mode::Sessions => None,
             Mode::CopyList => {

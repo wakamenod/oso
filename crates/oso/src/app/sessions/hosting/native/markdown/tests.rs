@@ -82,6 +82,7 @@ fn native(buffer: BufferId) -> Native {
         calls: HashMap::new(),
         composing: Composing::starting(false),
         state: NativeState::Running,
+        card: None,
         control: None,
         interrupt: Interrupt::new(SIGNALS),
         markdown: Marks::default(),

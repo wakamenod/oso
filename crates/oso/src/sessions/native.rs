@@ -14,6 +14,7 @@
 //! - `point`: what the buffer's keys find at point: a row's call, the row a move goes to, and
 //!   a call's whole result.
 //! - `turns`: what an event says of the session's state.
+//! - `card`: a permission card's text and an `AskUserQuestion`'s answers (step 2e-2).
 //! - `asks`: the permission requests of the sessions' bridges, from their coming to their
 //!   answer (step 2), at the times the caller gives.
 //! - `queue`: the messages the person sent while a turn ran, held until the session is idle
@@ -25,6 +26,7 @@
 //!   (step 2, part 2g).
 
 pub mod asks;
+pub mod card;
 pub mod control;
 pub mod interrupt;
 pub mod markdown;

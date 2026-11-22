@@ -62,6 +62,28 @@ pub const COMPOSER: &[(&str, &str)] = &[
     ("C-c C-q", "native-session-queue"),
 ];
 
+/// The keys of a native session's permission card (ADR 0165, step 2e-2), above the global
+/// ones in it: a digit chooses a question's option.
+pub const CARD: &[(&str, &str)] = &[
+    ("y", "native-card-allow"),
+    ("n", "native-card-deny"),
+    ("N", "native-card-note"),
+    ("o", "native-card-other"),
+    ("1", "native-card-choose"),
+    ("2", "native-card-choose"),
+    ("3", "native-card-choose"),
+    ("4", "native-card-choose"),
+    ("5", "native-card-choose"),
+    ("6", "native-card-choose"),
+    ("7", "native-card-choose"),
+    ("8", "native-card-choose"),
+    ("9", "native-card-choose"),
+    // The whole call or plan, or a question's chosen options given.
+    ("RET", "native-session-result"),
+    ("i", "native-session-compose"),
+    ("C-c C-o", "native-composer-transcript"),
+];
+
 /// Session mode's commands a native session's buffer does not bind: an agent's reads of a
 /// terminal are let in and taken back on its screen, which a native session has none of.
 pub const NOT_NATIVE: [&str; 2] = ["terminal-allow-agent-read", "terminal-deny-agent-read"];

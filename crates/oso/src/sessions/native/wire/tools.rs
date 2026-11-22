@@ -1,6 +1,7 @@
 //! A tool call's input, read into what a native session shows of it (ADR 0165): the path, the
 //! command or the pattern the call works on, by the tool's name; for a tool not known here,
-//! its input as JSON, cut. Nothing past this file reads a tool's input as JSON.
+//! its input as JSON, cut. Nothing past this file and `card`, which reads what a permission
+//! card shows of it, reads a tool's input as JSON.
 //!
 //! Must not depend on: `rows` or `render`; plain functions over a parsed value.
 //!

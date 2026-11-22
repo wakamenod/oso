@@ -675,12 +675,16 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     and only if the request's input says the same of it; a request whose call does not wait in
     the stream within 2 s, or that stops waiting before it is asked, is denied unasked, and a
     call is asked about once. So a process that passes the claim can raise no question of its
-    own text. The question says when its one line does not show all the call does, and `?`
-    shows the input that runs whole, escaped, in a buffer withheld from agents.
-  - The question is the channel's kind: `Agent:`, answered only from the keyboard, after 500 ms
-    with no key, never while another agent question's answer is untaken. Its label is withheld
-    from agents' state, as the session's buffer is. Whatever goes wrong, the bridge denies: a
-    call runs only on the person's `y`, and an `allow` gives the CLI back the input it sent.
+    own text, but an `ExitPlanMode`'s plan, which only the request carries and its card marks
+    as the request's (step 2e-2).
+  - It is asked on the session's permission card (step 2e-2), withheld from agents: oso's title
+    and keys around Claude's text, fenced row by row after `│ ` in a face of its own, so that
+    no text of Claude's stands as a key row or passes for oso's words; the title says when it
+    does not show all the call does, and `RET` shows the input that runs whole in the card.
+    Its keys are `Person`, answered only from the keyboard, after 500 ms with no key, each key
+    and point's coming starting that wait again. Whatever goes wrong, the bridge denies: a call
+    runs only on the person's `y` or answers, an `allow` gives the CLI back the input it sent,
+    and only an `AskUserQuestion`'s takes the person's answers.
 - Its MCP tools reach oso only through the `oso mcp` stdio bridge and the agent channel, a Unix
   socket with a peer user check (and a native session's permission questions through the
   sessions' socket, above); no TCP port is opened. There is no code-execution tool, and

@@ -582,7 +582,66 @@ check's change.
   ending or the socket stopping closes it and denies.
 - **Left for part 2e-2:** the docked card with the call's preview and reason (U1), `N` with a
   note, `AskUserQuestion` and `ExitPlanMode`; until then they are asked as any call, and a `y`
-  to `AskUserQuestion` answers nothing.
+  to `AskUserQuestion` answers nothing. Part 2e-2 replaced the question with the card: see
+  there.
+
+### Part 2e-2: the permission card, questions and plans
+
+The author's (a) on each of Q1 to Q4 of 2026-11-22, and on the earlier Q3 (point moves to the
+card).
+
+Measured on 2026-11-22 (CLI 2.1.330, `--model=haiku`, a stub prompt tool, made-up prompts):
+
+- **`ExitPlanMode` goes through the prompt tool.** The stream's `tool_use` has an empty input;
+  the request carries `{plan, planFilePath}`, the CLI having written the plan's file itself,
+  unasked. Allowed, `system/status` says `permissionMode: default` and the result "User has
+  approved your plan"; denied with a message, the result is that message, and the mode stays
+  `plan`.
+- **`AskUserQuestion`:** the request's input is the stream's. `updatedInput.answers` takes
+  `{QUESTION: LABEL}`, and several labels joined by `, ` for a question that takes several
+  ("Your questions have been answered: …").
+
+As built:
+
+- **The card** (`sessions::native::card` for its text, `app/sessions/hosting/native/permissions/card.rs`
+  for the rest): `*card: NAME*`, an internal buffer in `Mode::Card`, read-only and withheld
+  from agents, docked in `DockSlot::Card` between the session's transcript and its composer
+  while a call of that session waits, and gone once answered. It is the only place the call
+  is asked (Q1 (a)): part 2e-1's question in the echo area is gone, and elsewhere the session's
+  `needs input` (`permission`, `question` or `plan`) leads there, as a terminal's dialog does.
+  Each session's call has its card, as each holds one connection.
+- **Claude's text, fenced:** the card's first row is oso's title and its last oso's keys;
+  what Claude wrote (a command, a diff, a reason, a question and its options, a plan) is between
+  them, each of its lines one row after `│ ` in a face of its own, a line break or tab in it
+  shown as a space, at most 10 rows, what is left out saying so (ADR 0170's rule). What the
+  card shows is what the stream says of the call, the request saying the same; a title says
+  when that is not all the call does (`(not all of it is shown: RET shows it)`), as part 2e-1's
+  label did. `RET` shows the whole call, or the whole plan, in the card itself, fenced the same
+  way, and back.
+- **What it says (Q4 (a)):** a command after `$ `; an `Edit`'s, `MultiEdit`'s or `Write`'s
+  change as `-` and `+` lines in ADR 0122's faces, at most 200 of 256 bytes each; the reason
+  (Bash's `description`) after `Why:`.
+- **Focus:** point moves to the card after 500 ms with no key, while the person is in that
+  session's transcript or composer; in it, a key answers only after 500 ms with no key, each
+  key and point's coming starting that wait again, as the agent channel's question has it.
+  Answered, the card goes and point goes to the composer.
+- **Keys:** `y` allows once (or approves a plan), `n` denies (declines the questions, or keeps
+  planning), `N` denies with a note read in the minibuffer, which the CLI is told; the call's
+  row then says ` · denied: NOTE`. `C-c C-o` and `i` leave the card, the call still waiting.
+  The approved public items: `Mode::Card`, `NativeAction::{Allow, Deny, Note, Choose(u8),
+  Other}` and `SessionRequest::CardText(String)`, which carries a note or an own answer from
+  its prompt's command (`native-card-note-text`, `native-card-own-text`) to the host, as
+  `session-rename-to` does.
+- **`AskUserQuestion` (Q3 (a)):** one question at a time, its options numbered; a digit answers
+  a question that takes one and moves on, and in one that takes several chooses or unchooses
+  it, `RET` giving those chosen; `o` answers in the person's own words, and `n` declines. oso
+  answers with `{"behavior": "allow", "answers": {…}}`, which the bridge puts in the call's
+  `updatedInput`; answers for any other tool change nothing. At most 4 questions of 9 options,
+  each text cut.
+- **`ExitPlanMode` (Q2 (a)):** the plan is shown as the request gives it, marked so, as only
+  the request carries it: the request is the session's own `claude`'s, by ADR 0121's claim of
+  its bridge, and the call is still found by its id and tool in the stream. `y` approves.
+
 
 ### Part 2a: the composer and the queue
 

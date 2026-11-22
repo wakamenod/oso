@@ -8,7 +8,8 @@
 //! - The CLI calls it with `{tool_name, input, tool_use_id}`, all of which go to oso, the input
 //!   only when it is at most [`permission::MAX_INPUT`] bytes as JSON. oso asks the person about
 //!   the call as the session's own stream has it, if the input says the same; an `allow` gives
-//!   the CLI back the input it sent, unchanged, as `updatedInput`.
+//!   the CLI back the input it sent, unchanged, as `updatedInput`, but for an
+//!   `AskUserQuestion`'s, which takes the person's `answers` (step 2e-2).
 //! - Whatever goes wrong, the CLI is told `deny` with why: a call never runs unless the person
 //!   said `y`.
 
@@ -77,6 +78,7 @@ impl Bridge {
             tool_use_id,
             ..
         } = call;
+        let tool_name_kept = tool_name.clone();
         // A larger input is not sent: oso then says it does not show it.
         let mut params = json!({ "tool_name": tool_name, "tool_use_id": tool_use_id });
         if permission::within(&input, permission::MAX_INPUT) {
@@ -84,13 +86,27 @@ impl Bridge {
         }
         let answer = self.call(id, Which::SessionSocket, "permission", params)?;
         Ok(match answer.get("behavior").and_then(Value::as_str) {
-            Some("allow") => json!({ "behavior": "allow", "updatedInput": input }),
+            Some("allow") => {
+                json!({ "behavior": "allow", "updatedInput": answered(input, &tool_name_kept, &answer) })
+            }
             Some("deny") => {
                 permission::deny(answer.get("message").and_then(Value::as_str).unwrap_or(""))
             }
             _ => permission::deny(&format!("{NOT_ASKED}: oso's answer was unreadable")),
         })
     }
+}
+
+/// The input an `allow` gives back: the call's own, with the person's answers put in an
+/// `AskUserQuestion`'s (step 2e-2). Answers for any other tool change nothing.
+fn answered(mut input: Value, tool_name: &str, answer: &Value) -> Value {
+    if tool_name == "AskUserQuestion"
+        && let Some(answers) = permission::answers(answer)
+        && let Some(object) = input.as_object_mut()
+    {
+        object.insert("answers".to_owned(), Value::Object(answers));
+    }
+    input
 }
 
 #[cfg(test)]
@@ -217,6 +233,42 @@ mod tests {
         assert!(
             channel.borrow().calls.is_empty(),
             "the channel is never asked"
+        );
+    }
+
+    #[test]
+    fn an_allow_with_answers_puts_them_in_a_questions_input_only() {
+        let (channel, socket) = (
+            Rc::<RefCell<Asked>>::default(),
+            Rc::<RefCell<Asked>>::default(),
+        );
+        let answering = json!({ "behavior": "allow", "answers": { "Which size?": "Small" } });
+        socket.borrow_mut().answer = Some(Ok(answering.clone()));
+        let mut bridge = bridge(&channel, &socket, true);
+        let question = json!({
+            "tool_name": "AskUserQuestion",
+            "tool_use_id": "toolu_2",
+            "input": { "questions": [{ "question": "Which size?" }] },
+        });
+        let answer = asked(&mut bridge, &question);
+        assert_eq!(
+            answer["updatedInput"],
+            json!({
+                "questions": [{ "question": "Which size?" }],
+                "answers": { "Which size?": "Small" },
+            })
+        );
+        // Another tool's input stays as it was, and answers that are not text are none.
+        socket.borrow_mut().answer = Some(Ok(answering));
+        assert_eq!(asked(&mut bridge, &bash())["updatedInput"], bash()["input"]);
+        socket.borrow_mut().answer = Some(Ok(
+            json!({ "behavior": "allow", "answers": { "Which size?": 1 } }),
+        ));
+        let mut again = question;
+        again["tool_use_id"] = json!("toolu_3");
+        assert_eq!(
+            asked(&mut bridge, &again)["updatedInput"],
+            json!({ "questions": [{ "question": "Which size?" }] })
         );
     }
 

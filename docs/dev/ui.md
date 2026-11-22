@@ -1337,7 +1337,13 @@ a switch made with its command stands until that setting changes in the file
   a project an open buffer says is trusted now (else it says why: a file of the project to
   open, or `session-fork`, which continues it in a terminal); `session-fork` forks a session
   natively there under `mode = "native"`, and in a terminal elsewhere. An agent's start with
-  no brief, and a restricted project, keep the terminal.
+  no brief, and a restricted project, keep the terminal. A call that asks the person's
+  permission is asked on the session's card (step 2e-2), `*card: NAME*`, docked between the
+  transcript and the composer and withheld from agents: oso's title and keys around Claude's
+  text, each row of it after `│ `; point moves to it after 500 ms with no key while the person
+  is in that session, and a key answers only after a quiet moment. `y` allows, `n` denies, `N`
+  denies with a note, `RET` shows the whole call in the card; an `AskUserQuestion` takes a
+  digit, `RET` for several, or `o` for the person's words; an `ExitPlanMode` shows its plan.
 
   `claude` is started as the login shell would start it, so its `PATH`, version managers and
   proxies apply; set `claude` when the shell is not `sh`, `bash`, `zsh`, `dash` or `ksh`. `env`

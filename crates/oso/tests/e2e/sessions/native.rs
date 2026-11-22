@@ -303,22 +303,29 @@ fn asking_stream() -> String {
     format!("{}\n", lines.join("\n"))
 }
 
-/// What `?` shows of the question open now, once one is: its label is withheld, as the call
-/// is, so the flow reads the call in `*Session call*`.
-fn question(app: &mut App, what: &str) -> String {
-    let state = app.wait_for(what, |state| {
-        state["prompts"].as_array().is_some_and(|p| !p.is_empty())
+/// `flow`'s app, started in its trusted project, with a native session sent [`MESSAGE`] and
+/// its transcript selected.
+fn sent(flow: &Flow) -> App {
+    let mut app = flow.start();
+    app.open_file(&flow.project.join("notes.md"));
+    trust_restricted(&mut app, "proj");
+    app.wait_for("the project trusted", |state| {
+        state["modeline"]
+            .as_str()
+            .is_some_and(|modeline| !modeline.contains("restricted"))
     });
-    assert_eq!(
-        state["prompts"][0]["prompt"],
-        Value::Null,
-        "withheld: {state}"
-    );
-    wait_for_answers(app);
-    app.send_keys("?");
-    let state = app.wait_for("the call", |state| {
-        state["buffer"]["name"] == "*Session call*"
-    });
+    app.run_command("claude", None).unwrap();
+    app.wait_for("the composer", in_composer);
+    app.send_keys(&keys(MESSAGE));
+    app.send_keys("C-c C-c");
+    // Back to the transcript, whose rows the flow reads.
+    app.send_keys("C-c C-o");
+    app
+}
+
+/// The card that asks about a call, once point came to it after a quiet moment: its text.
+fn card(app: &mut App, what: &str) -> String {
+    let state = app.wait_for(what, |state| state["buffer"]["name"] == "*card: proj*");
     text(&state)
 }
 
@@ -340,20 +347,7 @@ fn a_native_sessions_calls_are_asked_of_the_person_with_the_agent_channel_off() 
     let after: Vec<String> = after.iter().map(Value::to_string).collect();
     flow.scratch
         .write("after.jsonl", format!("{}\n", after.join("\n")).as_bytes());
-    let mut app = flow.start();
-    app.open_file(&flow.project.join("notes.md"));
-    trust_restricted(&mut app, "proj");
-    app.wait_for("the project trusted", |state| {
-        state["modeline"]
-            .as_str()
-            .is_some_and(|modeline| !modeline.contains("restricted"))
-    });
-    app.run_command("claude", None).unwrap();
-    app.wait_for("the composer", in_composer);
-    app.send_keys(&keys(MESSAGE));
-    app.send_keys("C-c C-c");
-    // Back to the transcript, whose rows the flow reads.
-    app.send_keys("C-c C-o");
+    let mut app = sent(&flow);
 
     // The prompt tool and the bridge that lists it are on the session's line.
     let run = flow.wait_for_file("run.");
@@ -376,16 +370,25 @@ fn a_native_sessions_calls_are_asked_of_the_person_with_the_agent_channel_off() 
     });
     flow.scratch.write("ask", b"");
 
-    // Each call the stream has is asked in turn, from what the stream says of it.
-    let first = question(&mut app, "the first question");
+    // Each call the stream has is asked in turn, on the session's card, from what the stream
+    // says of it; point goes there after a quiet moment.
+    let first = card(&mut app, "the first card");
     assert!(
-        first.starts_with("Session proj asks to run Bash:"),
+        first.starts_with("Bash wants to run, in session proj"),
         "{first}"
     );
-    assert!(first.contains(r#""command": "rm -rf build""#), "{first}");
+    assert!(first.contains("│ $ rm -rf build"), "{first}");
+    assert!(first.contains("[y] allow once"), "{first}");
     answer_after_quiet(&mut app, "y");
-    let second = question(&mut app, "the second question");
-    assert!(second.contains(r#""command": "make""#), "{second}");
+    // Answered, the card goes, and point with it, to the composer.
+    app.wait_for("the first card answered", in_composer);
+    let second = card(&mut app, "the second card");
+    assert!(second.contains("│ $ make"), "{second}");
+    // `RET` shows the whole call in the card, and goes back.
+    answer_after_quiet(&mut app, "RET");
+    app.wait_for("the whole call", |state| {
+        text(state).contains(r#""command": "make""#)
+    });
     answer_after_quiet(&mut app, "n");
 
     // `y` gives the CLI its own input back; `n` and a call the stream lacks deny.
@@ -395,6 +398,12 @@ fn a_native_sessions_calls_are_asked_of_the_person_with_the_agent_channel_off() 
         json!([]),
         "the third was never asked"
     );
+    assert!(
+        !app.state()["windows"]
+            .as_array()
+            .is_some_and(|windows| windows.iter().any(|w| w["docked"]["slot"] == "card")),
+        "no card is docked once answered"
+    );
 
     flow.scratch.write("go", b"0");
     app.wait_for("the session stopped", |state| {
@@ -402,11 +411,11 @@ fn a_native_sessions_calls_are_asked_of_the_person_with_the_agent_channel_off() 
             .as_str()
             .is_some_and(|modeline| modeline.contains("stopped"))
     });
-    // How soon each question opened after its request, for the PR (ADR 0165, step 2).
+    // How soon each card showed after its request, for the PR (ADR 0165, step 2e-2).
     let log = app.stop_and_read_log();
     for row in log
         .lines()
-        .filter(|row| row.contains("permission question opened"))
+        .filter(|row| row.contains("permission card shown"))
     {
         println!("{row}");
     }
@@ -444,24 +453,21 @@ fn check_answers(flow: &Flow) {
     );
 }
 
-/// Waits until the open question takes an answer: the app's quiet moment has passed since the
-/// last key, or anything else that started it again, such as the input method ending as
-/// `*Session call*` is shown.
+/// Waits until the selected card takes an answer: the app's quiet moment has passed since the
+/// last key, or point's coming to it.
 fn wait_for_answers(app: &mut App) {
-    app.wait_for("the question to take an answer", |state| {
-        state["agent_question"]["takes_answer"] == true
+    app.wait_for("the card to take an answer", |state| {
+        state["card"]["takes_answer"] == true
     });
 }
 
-/// Sends `key` once the question takes an answer: it closes, and its `*Session call*` with it.
+/// Sends `key` once the card takes an answer.
 fn answer_after_quiet(app: &mut App, key: &str) {
     wait_for_answers(app);
     app.send_keys(key);
-    app.wait_for("the question answered", |state| {
-        state["buffer"]["name"] != "*Session call*"
-    });
 }
 
+mod cards;
 mod compose;
 mod interrupt;
 mod markdown;
