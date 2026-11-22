@@ -1,7 +1,9 @@
 //! The reviews a restart opens again (ADR 0122, step 6, Q-H): each review a window showed, by
 //! its project's root and its scope, with the windows that showed it, by their place among the
-//! state's windows, and the review layout's slot while the frame is its layout (ADR 0160). What a review held is not in the state: the new instance reads it from
-//! the saved review the old one wrote before it went.
+//! state's windows, and the review layout's slot while the frame is its layout (ADR 0160), with
+//! the window below it that `review-ask` showed a session in (ADR 0169). What a review held is
+//! not in the state: the new instance reads it from the saved review the old one wrote before
+//! it went.
 //!
 //! Must not depend on: `app`; the state's writer finds which windows show each review.
 //!
@@ -32,6 +34,8 @@ pub struct Shown {
     pub review: ReviewId,
     /// The review layout's slot, while the frame is the layout of this review.
     pub slot: Option<WindowId>,
+    /// The window below the slot that shows `review-ask`'s session (ADR 0169).
+    pub ask: Option<WindowId>,
 }
 
 /// The entries of `shown` that `tiled`, the state's windows in its order, show, at most
@@ -57,14 +61,19 @@ pub(super) fn entries(editor: &Editor, tiled: &[&Window], shown: &[Shown]) -> Ve
             if !windows.first().is_some_and(|at| shows(at, false)) {
                 return None;
             }
-            let slot = (review.slot)
-                .and_then(|slot| tiled.iter().position(|window| window.id() == slot))
-                .filter(|at| !windows.contains(at));
+            let at = |id: Option<WindowId>| {
+                id.and_then(|id| tiled.iter().position(|window| window.id() == id))
+                    .filter(|at| !windows.contains(at))
+            };
+            let slot = at(review.slot);
+            // Only with the slot, and never the slot itself.
+            let ask = slot.and(at(review.ask)).filter(|ask| Some(*ask) != slot);
             Some(ReviewEntry {
                 root: review.root.clone(),
                 scope: review.scope.clone(),
                 windows,
                 slot,
+                ask,
             })
         })
         .take(MAX_REVIEWS)
@@ -81,6 +90,9 @@ pub struct ReviewEntry {
     /// The review layout's slot among the state's windows, a reader before ADR 0160 leaving it
     /// out.
     pub slot: Option<usize>,
+    /// The window below the slot that showed `review-ask`'s session, among the state's
+    /// windows, with a slot only; a reader before ADR 0169 leaves it out.
+    pub ask: Option<usize>,
 }
 
 /// `entries` as the state keeps them.
@@ -96,6 +108,9 @@ pub fn state(entries: &[ReviewEntry]) -> Value {
                 });
                 if let (Some(slot), Some(map)) = (entry.slot, value.as_object_mut()) {
                     map.insert("slot".into(), json!(slot));
+                    if let Some(ask) = entry.ask {
+                        map.insert("ask".into(), json!(ask));
+                    }
                 }
                 Some(value)
             })
@@ -122,14 +137,20 @@ pub(super) fn parse(state: &Map<String, Value>, windows: usize) -> Vec<ReviewEnt
                 })
                 .collect::<Option<_>>()?;
             // A slot that names no window, or one of the review's, is left out.
-            let slot = (entry.get("slot").and_then(Value::as_u64))
-                .and_then(|at| usize::try_from(at).ok())
-                .filter(|at| *at < windows && !shown.contains(at));
+            let at = |key: &str| {
+                (entry.get(key).and_then(Value::as_u64))
+                    .and_then(|at| usize::try_from(at).ok())
+                    .filter(|at| *at < windows && !shown.contains(at))
+            };
+            let slot = at("slot");
+            // The window below the slot, only with a slot, and never the slot itself.
+            let ask = slot.and(at("ask")).filter(|ask| Some(*ask) != slot);
             (root.is_absolute() && !shown.is_empty()).then_some(ReviewEntry {
                 root,
                 scope: scope_from_value(entry.get("scope")?)?,
                 windows: shown,
                 slot,
+                ask,
             })
         })
         .collect()
@@ -159,15 +180,21 @@ mod tests {
             },
             windows: vec![0, 2],
             slot: Some(1),
+            ask: Some(3),
         };
         let state = json!({ "reviews": state(std::slice::from_ref(&entry)) });
         assert_eq!(
-            parse(state.as_object().unwrap(), 3),
+            parse(state.as_object().unwrap(), 4),
             std::slice::from_ref(&entry)
         );
         assert!(
             parse(state.as_object().unwrap(), 2).is_empty(),
             "no window 2"
+        );
+        assert_eq!(
+            parse(state.as_object().unwrap(), 3)[0].ask,
+            None,
+            "no window 3, the rest kept"
         );
         let odd = json!({ "reviews": [
             { "root": "relative", "scope": { "kind": "staged" }, "windows": [0] },
@@ -187,6 +214,58 @@ mod tests {
         let parsed = parse(slots.as_object().unwrap(), 3);
         assert_eq!(parsed.len(), 4);
         assert!(parsed.iter().all(|entry| entry.slot.is_none()));
+        // The window below the slot: none without a slot, as the slot, or one of the review's;
+        // a state without it, as before ADR 0169, has none.
+        let asks = json!({ "reviews": [
+            { "root": root(), "scope": { "kind": "staged" }, "windows": [0], "ask": 2 },
+            { "root": root(), "scope": { "kind": "staged" }, "windows": [0], "slot": 1, "ask": 1 },
+            { "root": root(), "scope": { "kind": "staged" }, "windows": [0], "slot": 1, "ask": 0 },
+            { "root": root(), "scope": { "kind": "staged" }, "windows": [0], "slot": 1 },
+            { "root": root(), "scope": { "kind": "staged" }, "windows": [0], "slot": 1, "ask": 2 },
+        ] });
+        let asks: Vec<_> = (parse(asks.as_object().unwrap(), 3).iter())
+            .map(|entry| entry.ask)
+            .collect();
+        assert_eq!(asks, [None, None, None, None, Some(2)]);
         assert!(parse(json!({}).as_object().unwrap(), 3).is_empty());
+    }
+
+    #[test]
+    fn the_layout_s_slot_and_the_window_below_it_are_named_by_their_place() {
+        use oso_core::frame::Way;
+        let mut editor = Editor::with_buffer(oso_core::buffer::Buffer::from_text("a.rs", "a"));
+        editor.set_frame_size(oso_core::frame::FrameSize {
+            rows: 40,
+            columns: 120,
+        });
+        let project = editor.add_project(oso_core::project::Found {
+            root: oso_core::project::RootIdentity {
+                path: root(),
+                identity: None,
+            },
+            worktree_of: None,
+            checked_main: None,
+        });
+        let (review, buffer) = editor.add_review(project, "*review: uncommitted oso*".into());
+        let left = editor.window().id();
+        let slot = editor.split_window(Way::Across, true).unwrap();
+        let below = editor.split_window(Way::Down, false).unwrap();
+        editor.show_in(left, buffer);
+        let tiled = super::super::tiled_windows(&editor);
+        let shown = |slot, ask| Shown {
+            root: root(),
+            scope: Scope::Staged,
+            review,
+            slot,
+            ask,
+        };
+        let entry = |slot, ask| entries(&editor, &tiled, &[shown(slot, ask)])[0].clone();
+        let at = |id: WindowId| tiled.iter().position(|window| window.id() == id);
+        let named = entry(Some(slot), Some(below));
+        assert_eq!((named.slot, named.ask), (at(slot), at(below)));
+        // No window below without a slot, and never the slot or the review's own window.
+        assert_eq!(entry(None, Some(below)).ask, None);
+        assert_eq!(entry(Some(slot), Some(slot)).ask, None);
+        assert_eq!(entry(Some(slot), Some(left)).ask, None);
     }
 }

@@ -1,7 +1,8 @@
 //! The review layout (ADR 0160): entered and restored exactly, the slot each jump replaces,
 //! found again after the person rearranged the windows, the key's choices, a zoom inside it,
 //! a layout a restart carried, and a property that whatever is done inside it, restoring gives
-//! back the tree from before.
+//! back the tree from before. The session `review-ask` shows below what the slot shows (ADR
+//! 0169) is tested in `ask`.
 //!
 //! Must not depend on: the app's threads, git or files; these work on an editor made here.
 
@@ -13,7 +14,8 @@ use oso_core::window::WindowId;
 use proptest::prelude::*;
 
 use super::{
-    Key, back, carried, enter, in_slot, jump_slot, press, restore, show_in_slot, show_laid,
+    Key, back, carried, enter, in_slot, jump_slot, press, restore, show_asked, show_in_slot,
+    show_laid,
 };
 use crate::sessions::spaces::kept::{self, Kept};
 
@@ -65,6 +67,19 @@ fn columns(editor: &Editor, id: WindowId) -> usize {
         .find(|(window, _)| *window == id)
         .unwrap();
     regions.modeline.columns + regions.divider.map_or(0, |divider| divider.columns)
+}
+
+/// The rows window `id` takes, its modeline's too.
+fn rows(editor: &Editor, id: WindowId) -> usize {
+    let (_, regions) = (editor.frame().windows().iter())
+        .find(|(window, _)| *window == id)
+        .unwrap();
+    regions.text.rows + regions.modeline.rows
+}
+
+/// A buffer standing for a session's terminal.
+fn terminal(editor: &mut Editor, name: &str) -> BufferId {
+    editor.add_buffer(Buffer::from_text(name, "> "))
 }
 
 /// Two windows side by side, the second showing `other` at its line 30, the first selected.
@@ -255,7 +270,7 @@ fn a_layout_a_restart_carried_restores_to_the_review_s_window_burying_the_review
     let slot = editor.split_window(Way::Across, false).unwrap();
     editor.show_in(slot, file);
     let mut kept = Vec::new();
-    carried(&editor, &mut kept, review, left, slot);
+    carried(&editor, &mut kept, review, left, slot, None, None);
     assert!(kept::review_in_frame(&kept));
     jump_window(&mut editor, &mut kept, review).unwrap();
     assert_eq!(editor.window().id(), slot);
@@ -267,7 +282,7 @@ fn a_layout_a_restart_carried_restores_to_the_review_s_window_burying_the_review
     assert_eq!(shown[0].1, file, "what it showed behind the review");
     // A second carried layout is not taken over the first.
     let mut held = Vec::new();
-    carried(&editor, &mut held, review, left, slot);
+    carried(&editor, &mut held, review, left, slot, None, None);
     assert!(held.is_empty(), "the slot is gone");
 }
 
@@ -282,6 +297,7 @@ enum Act {
     Back,
     Resize(i8),
     Zoom,
+    Ask,
 }
 
 fn act() -> impl Strategy<Value = Act> {
@@ -295,6 +311,7 @@ fn act() -> impl Strategy<Value = Act> {
         Just(Act::Back),
         (-8i8..8).prop_map(Act::Resize),
         Just(Act::Zoom),
+        Just(Act::Ask),
     ]
 }
 
@@ -314,6 +331,7 @@ proptest! {
         let mut kept = Vec::new();
         prop_assert!(enter(&mut editor, &mut kept, review));
         let buffer = editor.review_buffer(review).unwrap();
+        let session = terminal(&mut editor, "*claude: repo*");
         for act in acts {
             match act {
                 Act::Split(way) => {
@@ -339,6 +357,9 @@ proptest! {
                 }
                 Act::Zoom => {
                     let _ = kept::zoom(&mut editor, &mut kept);
+                }
+                Act::Ask => {
+                    show_asked(&mut editor, &mut kept, session);
                 }
             }
         }
@@ -368,3 +389,6 @@ fn the_slot_never_brings_back_a_buffer_that_may_hold_secrets() {
     jump_window(&mut editor, &mut kept, review).unwrap();
     assert_ne!(editor.window().buffer(), env);
 }
+
+#[path = "slot_ask_tests.rs"]
+mod ask;

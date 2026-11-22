@@ -4,8 +4,10 @@
 //! the windows it is made of, so that the two nest: a zoom inside the layout zooms back out to
 //! the layout, and the layout's restore drops a zoom made inside it.
 //!
-//! Must not depend on: `app`, `dispatch` or `config`; this holds trees and window names only.
+//! Must not depend on: `app`, `dispatch` or `config`; this holds trees, window names and the
+//! name of the buffer `review-ask` showed only.
 
+use oso_core::buffer::BufferId;
 use oso_core::editor::{Editor, ReviewId, WindowTree};
 use oso_core::window::WindowId;
 
@@ -21,7 +23,8 @@ pub enum Kept {
 }
 
 /// What the review layout keeps (ADR 0160): the tree it restores and the windows it is made
-/// of, by name, never by place, so that a window moved by hand is still found.
+/// of, by name, never by place, so that a window moved by hand is still found, and the session
+/// `review-ask` showed last (ADR 0169).
 #[derive(Debug)]
 pub struct ReviewKept {
     /// The tree from before the layout, or none when a restart carried the layout: a restart
@@ -35,6 +38,12 @@ pub struct ReviewKept {
     pub slot: Option<WindowId>,
     /// The review's window a jump was asked in last, which the way back selects.
     pub from: Option<WindowId>,
+    /// The window below the slot that `review-ask` shows a session in while the slot shows
+    /// something else, while it is in the tree (ADR 0169).
+    pub ask: Option<WindowId>,
+    /// The session's buffer `review-ask` showed last, its terminal or native buffer, so that a
+    /// jump while it fills the slot keeps it below.
+    pub asked: Option<BufferId>,
 }
 
 /// The review layout's entry of `kept`, if it holds one.
