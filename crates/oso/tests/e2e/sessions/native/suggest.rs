@@ -7,7 +7,7 @@
 
 use std::fs;
 
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use super::super::super::harness::App;
 use super::super::super::spaces::trust_restricted;
@@ -118,6 +118,10 @@ fn a_suggestion_shows_goes_into_the_composer_escaped_and_a_turn_ended_unseen_is_
             .as_str()
             .is_some_and(|modeline| modeline.contains("● 1"))
     });
+    // A display with no window manager, as Xvfb on CI, may say the window lost the keyboard
+    // and never give it back, and no session is in front of the person then: the window
+    // takes it, as a click on it would.
+    app.call("focus", Some(json!({ "focused": true })));
     app.send_keys("C-x b");
     app.send_keys(&keys("*claude: proj*"));
     app.send_keys("RET");
