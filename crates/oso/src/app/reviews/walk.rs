@@ -19,14 +19,20 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use oso_core::editor::{CommitEntry, Commits, ReviewId, Step};
+use oso_core::editor::{CommitEntry, Commits, ReviewId, Since, Step};
 use oso_core::review::{Author, Review};
 
 use super::state::Running;
 use crate::app::App;
 use crate::commands::review::one_line;
+use crate::git::Id;
 use crate::review::Scope;
 use crate::review::commits::Listed;
+pub(super) use since::Spot;
+
+mod saved;
+
+mod since;
 
 /// The most reviews of a pull request's commits kept open.
 pub(super) const MAX_OPEN: usize = 8;
@@ -45,12 +51,23 @@ pub(super) struct Walk {
     pub(super) open: Vec<(usize, ReviewId)>,
     /// Each open commit review's model revision when its marks were last counted.
     counted: HashMap<ReviewId, u64>,
-    /// The commit shown last, or `None` for the whole pull request.
-    shown: Option<usize>,
+    /// What the walk showed last: the whole pull request, what changed since, or a commit.
+    shown: Spot,
     /// The review the selected window showed when last looked at, followed only once it changed.
     selected: Option<ReviewId>,
     /// Whether the editor's commits are not these yet.
     dirty: bool,
+    /// Where the head left the base, and the head listed: what a checkpoint records (step 2).
+    pub(super) base: Option<Id>,
+    pub(super) tip: Option<Id>,
+    /// What changed since the last review, once found, its review while open, and whether that
+    /// review is the one shown last (step 2).
+    since: Option<Since>,
+    since_review: Option<ReviewId>,
+    /// The ask of what changed since that `since` answers.
+    answered: Option<crate::review::commits::SinceAsk>,
+    /// Whether to ask it again, as a newer request stopped it.
+    again: bool,
 }
 
 impl Walk {
@@ -74,6 +91,7 @@ impl Walk {
                 viewed: 0,
                 hunks: 0,
                 unsent: 0,
+                new: false,
             });
         }
         Walk {
@@ -83,9 +101,15 @@ impl Walk {
             more: listed.more,
             open: Vec::new(),
             counted: HashMap::new(),
-            shown: None,
+            shown: Spot::Whole,
             selected: None,
             dirty: true,
+            base: listed.base,
+            tip: listed.tip,
+            since: None,
+            since_review: None,
+            answered: None,
+            again: false,
         }
     }
 
@@ -95,8 +119,16 @@ impl Walk {
             number: self.number,
             entries: Arc::clone(&self.entries),
             more: self.more,
-            shown: self.shown,
+            shown: match self.shown {
+                Spot::Commit(at) => Some(at),
+                Spot::Whole | Spot::Since | Spot::Range(..) => None,
+            },
             open: self.open.clone(),
+            since: (self.since).map(|since| Since {
+                shown: self.shown == Spot::Since,
+                review: self.since_review,
+                ..since
+            }),
         }
     }
 
@@ -105,44 +137,8 @@ impl Walk {
         self.ids.iter().position(|listed| listed == id)
     }
 
-    /// Where a step `to` from `here`, a commit's index or `None` for the whole, goes: a commit,
-    /// the whole as `Ok(None)`, or why it stays.
-    fn target(&self, here: Option<usize>, to: Step) -> Result<Option<usize>, String> {
-        let number = self.number;
-        let on = |index: &usize| !self.entries[*index].merge && !self.entries[*index].empty;
-        match to {
-            Step::Whole => Ok(None),
-            Step::Commit(index) if index >= self.entries.len() => {
-                Err(format!("#{number} has no such commit"))
-            }
-            // A merge shows against its first parent, as `c` shows one.
-            Step::Commit(index) => Ok(Some(index)),
-            Step::Next => {
-                let from = here.map_or(0, |at| at + 1);
-                match (from..self.entries.len()).find(on) {
-                    Some(index) => Ok(Some(index)),
-                    None if here.is_none() => {
-                        Err(format!("#{number} has no commit to review alone"))
-                    }
-                    None => Err(format!(
-                        "{} is the last commit of #{number}",
-                        here.map_or("", |at| &self.entries[at].short)
-                    )),
-                }
-            }
-            Step::Previous => match here {
-                None => (0..self.entries.len())
-                    .rev()
-                    .find(on)
-                    .map(Some)
-                    .ok_or_else(|| format!("#{number} has no commit to review alone")),
-                Some(at) => Ok((0..at).rev().find(on)),
-            },
-        }
-    }
-
     /// Marks the commit review `review` used now, the last of those open.
-    fn used(&mut self, index: usize, review: ReviewId) {
+    pub(super) fn used(&mut self, index: usize, review: ReviewId) {
         self.open.retain(|(_, open)| *open != review);
         self.open.push((index, review));
     }
@@ -187,7 +183,25 @@ impl App {
         let mut walk = Walk::of(number, listed);
         let before = self.reviews.open[index].walk.take();
         if let Some(before) = &before {
-            walk.shown = before.shown.and_then(|at| walk.index_of(&before.ids[at]));
+            walk.shown = match before.shown {
+                Spot::Commit(at) => {
+                    (walk.index_of(&before.ids[at])).map_or(Spot::Whole, Spot::Commit)
+                }
+                Spot::Since => Spot::Since,
+                Spot::Whole | Spot::Range(..) => Spot::Whole,
+            };
+            walk.carry_since(before);
+            // The review of what changed since stays while it reviews up to this head.
+            match before.since_review {
+                Some(review) if self.since_reviews_to(review, walk.tip.as_ref()) => {
+                    walk.since_review = Some(review);
+                }
+                Some(review) => self.unlink(review),
+                None => {}
+            }
+            if walk.shown == Spot::Since && walk.since_review.is_none() {
+                walk.shown = Spot::Whole;
+            }
             for (_, review) in &before.open {
                 let entry = (self.reviews.index(*review))
                     .and_then(|at| commit_id(&self.reviews.open[at]))
@@ -211,17 +225,19 @@ impl App {
             walk.open.push((at, review));
         }
         for (at, review) in walk.open.clone() {
-            self.link(review, pull, at);
+            self.link(review, pull, Spot::Commit(at));
         }
         walk.dirty = true;
         self.freer.free(before);
         self.reviews.open[index].walk = Some(walk);
+        // What changed since the last review, found on the review's thread (step 2).
+        self.ask_since(index);
         self.sync_review_walks();
     }
 
-    /// Links the commit review `review` to the pull request review `pull`, as its commit `at`;
-    /// the editor links them with the walk's next commits, which name it open.
-    fn link(&mut self, review: ReviewId, pull: ReviewId, at: usize) {
+    /// Links the review `review` to the pull request review `pull`, as its commit or what
+    /// changed since, `at`; the editor links them with the walk's next commits, which name it.
+    pub(super) fn link(&mut self, review: ReviewId, pull: ReviewId, at: Spot) {
         if let Some(index) = self.reviews.index(review) {
             self.reviews.open[index].pull = Some((pull, at));
             self.reviews.open[index].pull_wanted = None;
@@ -245,9 +261,21 @@ impl App {
         {
             walk.open.retain(|(_, open)| *open != id);
             walk.counted.remove(&id);
+            if walk.since_review == Some(id) {
+                walk.since_review = None;
+                if walk.shown == Spot::Since {
+                    walk.shown = Spot::Whole;
+                }
+                walk.dirty = true;
+            }
         }
         if let Some(walk) = self.reviews.open[index].walk.take() {
-            for (_, review) in &walk.open {
+            for review in walk
+                .open
+                .iter()
+                .map(|(_, review)| review)
+                .chain(&walk.since_review)
+            {
                 self.unlink(*review);
                 // Still its pull request's, for its saved file and a link once it opens again.
                 if let Some(at) = self.reviews.index(*review) {
@@ -270,9 +298,9 @@ impl App {
         let running = &self.reviews.open[index];
         let (pull, here) = match (&running.walk, running.pull) {
             // From the commit list, from the review it shows last.
-            (Some(walk), _) if stay => (review, walk.shown),
-            (Some(_), _) => (review, None),
-            (None, Some((pull, at))) => (pull, Some(at)),
+            (Some(walk), _) if stay => (review, walk.spot()),
+            (Some(_), _) => (review, Spot::Whole),
+            (None, Some((pull, at))) => (pull, at),
             (None, None) if matches!(running.scope, Scope::PullRequest { .. }) => {
                 return self
                     .editor
@@ -291,36 +319,31 @@ impl App {
         let Some(walk) = self.reviews.open[pull_index].walk.as_ref() else {
             return;
         };
-        let target = match walk.target(here, to) {
+        let target = match walk.spot_to(here, to) {
             Ok(target) => target,
             Err(why) => return self.editor.message(why),
         };
         let selected = self.editor.window().id();
         // The review stepped from: from the list, the one it shows.
         let from = match (stay, here) {
-            (true, Some(at)) => walk
-                .open
-                .iter()
-                .find(|(open, _)| *open == at)
-                .map(|(_, id)| *id),
+            (true, spot) => walk.review_at(spot, pull),
             _ => Some(review),
         };
         let files = from.is_some_and(|from| self.editor.review_files(from).is_some());
         let shown = match target {
-            None => Some(pull),
-            Some(at) => self.open_commit(pull_index, at),
+            Spot::Whole => Some(pull),
+            Spot::Since => self.open_since(pull_index),
+            Spot::Commit(at) => self.open_commit(pull_index, at),
+            Spot::Range(first, last) => self.open_range(pull_index, first, last),
         };
         let Some(shown) = shown else {
             return;
         };
         let selected_review = self.editor.review_of(self.editor.tiled().0.buffer());
         if let Some(walk) = self.reviews.open[pull_index].walk.as_mut() {
-            walk.shown = target;
+            walk.put(target, shown);
             walk.selected = selected_review;
             walk.dirty = true;
-            if let Some(at) = target {
-                walk.used(at, shown);
-            }
         }
         // The editor links the review before it shows, so that the list stays above it.
         self.sync_review_walks();
@@ -351,7 +374,7 @@ impl App {
         }
         let revision = walk.ids[at].clone();
         let review = self.open_scope(project, Scope::Commit { revision }, super::Show::Hidden)?;
-        self.link(review, pull, at);
+        self.link(review, pull, Spot::Commit(at));
         if let Some(walk) = self.reviews.open[pull_index].walk.as_mut() {
             walk.used(at, review);
         }
@@ -413,19 +436,31 @@ impl App {
         }
     }
 
-    /// Says where a step went: the whole pull request, or which of its commits.
-    fn say_step(&mut self, pull_index: usize, target: Option<usize>) {
+    /// Says where a step went: the whole pull request, what changed since its last review, a
+    /// range of its commits, or which of its commits.
+    fn say_step(&mut self, pull_index: usize, target: Spot) {
         let Some(walk) = self.reviews.open[pull_index].walk.as_ref() else {
             return;
         };
         let total = walk.entries.len();
         let said = match target {
-            None => format!(
+            Spot::Whole => format!(
                 "Reviewing #{} whole, its {total} {}: M-n steps to its first",
                 walk.number,
                 if total == 1 { "commit" } else { "commits" }
             ),
-            Some(at) => {
+            Spot::Since => format!(
+                "Reviewing what changed in #{} since your last review: M-n steps to its first \
+                 new commit",
+                walk.number
+            ),
+            Spot::Range(first, last) => format!(
+                "Reviewing #{}'s commits {} to {} of {total}",
+                walk.number,
+                first + 1,
+                last + 1
+            ),
+            Spot::Commit(at) => {
                 let entry = &walk.entries[at];
                 format!(
                     "Reviewing #{}, commit {}/{total} {} \u{b7} {}",
@@ -456,19 +491,20 @@ impl App {
                 }
             }
             let here = match selected {
-                Some(id) if id == pull => Some(None),
+                Some(id) if id == pull => Some(Spot::Whole),
+                Some(id) if walk.since_review == Some(id) => Some(Spot::Since),
                 Some(id) => walk
                     .open
                     .iter()
                     .find(|(_, open)| *open == id)
-                    .map(|(at, _)| Some(*at)),
+                    .map(|(at, _)| Spot::Commit(*at)),
                 None => None,
             };
             if let Some(here) = here
                 && walk.selected != selected
-                && here != walk.shown
+                && here != walk.spot()
             {
-                walk.shown = here;
+                walk.show(here);
                 walk.dirty = true;
             }
             walk.selected = selected;
@@ -488,6 +524,10 @@ impl App {
             return vec![(running.id, None)];
         };
         let mut members = vec![(running.id, Some(format!("The whole of #{}", walk.number)))];
+        if let Some(review) = walk.since_review {
+            let heading = format!("What changed in #{} since the last review", walk.number);
+            members.push((review, Some(heading)));
+        }
         let mut open = walk.open.clone();
         open.sort_unstable();
         let total = walk.entries.len();
@@ -499,46 +539,6 @@ impl App {
             members.push((review, Some(heading)));
         }
         members
-    }
-
-    /// The pull request number the review `running` was stepped to from, linked or brought
-    /// back to be linked, for its saved file.
-    pub(super) fn pull_number(&self, running: &Running) -> Option<u64> {
-        let linked = (running.pull)
-            .and_then(|(pull, _)| self.reviews.index(pull))
-            .and_then(|at| self.reviews.open[at].walk.as_ref())
-            .map(|walk| walk.number);
-        linked.or(running.pull_wanted)
-    }
-
-    /// The review at `index`, of one commit, was saved as stepped to from pull request
-    /// `number`: it is linked once that pull request's commits are listed, now if they are.
-    /// No review of the pull request is opened for it: that asks `gh`, which only the person's
-    /// own open of the pull request or `g` does (ADR 0122, step 12b).
-    pub(super) fn want_pull(&mut self, index: usize, number: Option<u64>) {
-        let Some(number) = number else {
-            return;
-        };
-        let running = &mut self.reviews.open[index];
-        let (review, project) = (running.id, running.project);
-        running.pull_wanted = Some(number);
-        let scope = Scope::PullRequest { number };
-        let Some(pull_index) = (self.reviews.open.iter())
-            .position(|other| other.project == project && other.scope == scope)
-        else {
-            return;
-        };
-        let at = (self.reviews.open[pull_index].walk.as_ref())
-            .zip(commit_id(&self.reviews.open[index]))
-            .and_then(|(walk, id)| walk.index_of(id));
-        if let Some(at) = at {
-            let pull = self.reviews.open[pull_index].id;
-            if let Some(walk) = self.reviews.open[pull_index].walk.as_mut() {
-                walk.used(at, review);
-                walk.dirty = true;
-            }
-            self.link(review, pull, at);
-        }
     }
 
     /// The pull request walk the review at `index` is, or is a commit of, by the walk's index.
@@ -555,7 +555,7 @@ impl App {
 }
 
 /// The full id a review of one commit, opened by a step, reviews.
-fn commit_id(running: &Running) -> Option<&str> {
+pub(super) fn commit_id(running: &Running) -> Option<&str> {
     match &running.scope {
         Scope::Commit { revision } => Some(revision),
         _ => None,

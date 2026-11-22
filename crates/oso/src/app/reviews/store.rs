@@ -106,6 +106,8 @@ pub(crate) struct Found {
     pub(super) left_out: usize,
     /// The pull request a review of one commit was stepped to from (ADR 0167).
     pub(super) pull: Option<u64>,
+    /// A pull request's review's last review by the person (step 2).
+    pub(super) checkpoint: Option<crate::review::commits::Checkpoint>,
 }
 
 /// What the store found or did, for the UI thread.
@@ -469,6 +471,7 @@ fn read(directory: &Path, name: &str, asked: &Header) -> Result<Option<Found>, S
         view: read.view,
         left_out: read.left_out,
         pull: read.header.pull,
+        checkpoint: read.header.checkpoint,
     }))
 }
 

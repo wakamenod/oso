@@ -23,6 +23,9 @@ use super::pr;
 use super::read::{self, Context, Kept};
 use super::scope::{self, Scope, ScopeError};
 use super::{Aside, Asked, Entry, Report, Request, jump};
+pub(super) use said::said;
+
+mod said;
 use crate::git::Id;
 use crate::git::trim_line;
 use crate::git::{Git, GitError, MAX_SHORT};
@@ -116,6 +119,7 @@ impl Reader {
             Request::Carry(carry) => self.carry(carry, out),
             Request::Stage(stage) => self.stage(stage, out),
             Request::Look => self.look(stop, out),
+            Request::Since(ask) => self.since(ask, stop, out),
             Request::Jump(jump) => {
                 out(self.jump(jump));
                 Ok(())
@@ -128,7 +132,7 @@ impl Reader {
                 ScopeError::BaselineGone => Report::BaselineGone,
                 e => Report::Failed {
                     asked,
-                    why: message(&e),
+                    why: said(&e),
                 },
             });
         }
@@ -372,6 +376,27 @@ impl Reader {
         Ok(sides)
     }
 
+    /// Answers what changed in a pull request since its last review (ADR 0167, step 2).
+    fn since(
+        &mut self,
+        ask: super::commits::SinceAsk,
+        stop: &dyn Fn() -> bool,
+        out: &mut Out<'_>,
+    ) -> Result<(), ScopeError> {
+        let git = self.repository()?.git.clone();
+        let found = match super::commits::since(&git, ask.clone(), stop) {
+            Ok(found) => found,
+            // Said, so that the host asks again once the newer request has read.
+            Err(ScopeError::Stopped) => super::commits::SinceFound {
+                stopped: true,
+                ..super::commits::SinceFound::none(ask)
+            },
+            Err(e) => return Err(e),
+        };
+        out(Report::Since(Box::new(found)));
+        Ok(())
+    }
+
     /// Reviews pull request `number` as if `gh` had given `sides`, for tests that ask no `gh`.
     #[cfg(test)]
     pub(super) fn pulled_for_tests(&mut self, number: u64, sides: scope::Sides) {
@@ -438,7 +463,7 @@ impl Reader {
                 let git = repository.git.clone();
                 super::stage::run(&git, &mut self.batch, stage)
             }
-            Err(e) => Err(message(&e)),
+            Err(e) => Err(said(&e)),
         };
         out(Report::Staged { ticket, staged });
         Ok(())
@@ -570,32 +595,6 @@ fn path_of(bytes: &[u8]) -> Result<PathBuf, ScopeError> {
         return Err(GitError::Unexpected("an empty path").into());
     }
     Ok(PathBuf::from(text))
-}
-
-/// What a person reads for `error`, with no file's text.
-/// What a log or the person is told of `error`, a scope that could not be read.
-pub(super) fn said(error: &ScopeError) -> String {
-    message(error)
-}
-
-fn message(error: &ScopeError) -> String {
-    match error {
-        ScopeError::Git(e) => e.to_string(),
-        ScopeError::NoSuchRevision(revision) => format!("no commit is named {revision:?}"),
-        ScopeError::BaselineGone => "the session's baseline is gone".into(),
-        ScopeError::NoParent => "its parent is not in this clone".into(),
-        ScopeError::Elsewhere => {
-            "git found a repository whose top is not the project's root".into()
-        }
-        ScopeError::NoScratch => {
-            "there is no private place for the review's copies of the index and its empty \
-             directory for git's hooks"
-                .into()
-        }
-        ScopeError::Copy(e) => format!("cannot copy the index: {e}"),
-        ScopeError::Stopped => "stopped".into(),
-        ScopeError::Refused(said) => said.clone(),
-    }
 }
 
 #[cfg(test)]

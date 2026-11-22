@@ -471,6 +471,12 @@ commit, `▶` on the one shown, `✓` once every hunk of it is viewed (`◐` for
 comments not sent, and `↑` for a commit not pushed yet. `RET` there shows a row's review, `SPC`
 shows it and stays in the list, and `l` or `q` closes the list.
 
+Pasting a pull request's comments records its head as your last review of it, and so does
+`M-x review-checkpoint`. Once the head moves on, after a push or a rebase, the commit list's
+second row is `Since last review`: `RET` there reviews only what changed since, its new commits
+marked `new`, and `M-n` steps to the first of them. Set the mark on one commit's row and go to
+another's, and `RET` reviews that range of commits.
+
 A comment opens as a draft at the top: `RET` breaks a line, `C-c C-c` keeps it, and `C-g` drops
 it into the kill ring. `C-x k` closes the review, and in the review layout puts back the windows
 from before it.

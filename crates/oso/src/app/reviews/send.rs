@@ -56,6 +56,9 @@ pub(in crate::app) struct Waiting {
     /// still this one (ADR 0163).
     head: String,
     worktree: Option<PathBuf>,
+    /// Of a pull request's message, the head it was made from, which its paste records as the
+    /// person's last review of it (ADR 0167, step 2).
+    checkpoint: Option<crate::review::commits::Checkpoint>,
 }
 
 /// What a message was made from: a review's comments, or a pull request's checks or review
@@ -136,12 +139,14 @@ impl App {
         }
         let count = taken.len();
         let hidden = self.hidden_comments(&taken, withheld);
+        let checkpoint = self.walk_checkpoint(index);
         self.reviews.sending.message = Some(Waiting {
             buffer,
             origin: Origin::Review(review),
             taken,
             head,
             worktree: Some(worktree),
+            checkpoint,
         });
         let to = match self.message_session(&Origin::Review(review)) {
             Some(key) => format!("to {}", self.review_session_name(key)),
@@ -302,10 +307,29 @@ impl App {
             0 => String::new(),
             n => format!("; {} changed meanwhile stay unsent", comments(n)),
         };
+        let recorded = self.paste_recorded(review, message.checkpoint.clone());
         self.editor.message(format!(
-            "Pasted into {name}: press Enter there. {} marked sent{changed}",
+            "Pasted into {name}: press Enter there. {} marked sent{changed}{recorded}",
             comments(marked)
         ));
+    }
+
+    /// A paste of `review`'s comments, of a pull request's, is the person's last review of it
+    /// (ADR 0167, step 2): the head the message was made from, `made_at`, is recorded, and the
+    /// echo area says so.
+    fn paste_recorded(
+        &mut self,
+        review: ReviewId,
+        made_at: Option<crate::review::commits::Checkpoint>,
+    ) -> String {
+        let pull = (self.reviews.index(review)).and_then(|index| self.walk_of(index));
+        let (Some(pull), Some(made_at)) = (pull, made_at) else {
+            return String::new();
+        };
+        match self.set_checkpoint(pull, Some(made_at)) {
+            Some(short) => format!("; {short} recorded as your last review"),
+            None => String::new(),
+        }
     }
 
     /// The text of the message `buffer` holds, if it may be sent; else why not is said.

@@ -7,7 +7,7 @@
 use oso_core::editor::Step;
 use oso_core::review::{Anchor, Author, Base, Hunk, Review, Shape, Side};
 
-use super::Walk;
+use super::{Spot, Walk};
 use crate::git::Id;
 use crate::review::commits::{Listed, Listing};
 
@@ -24,6 +24,16 @@ fn listing(n: u8, merge: bool, empty: bool) -> Listing {
     }
 }
 
+/// A listing of `commits`.
+fn listed(commits: Vec<Listing>) -> Listed {
+    Listed {
+        commits,
+        more: false,
+        base: None,
+        tip: None,
+    }
+}
+
 /// Five commits: the third a merge, the fifth changing nothing.
 fn walk() -> Walk {
     let commits = vec![
@@ -33,28 +43,25 @@ fn walk() -> Walk {
         listing(4, false, false),
         listing(5, false, true),
     ];
-    Walk::of(
-        12,
-        Listed {
-            commits,
-            more: false,
-        },
-    )
+    Walk::of(12, listed(commits))
 }
 
 #[test]
 fn next_goes_from_the_whole_to_the_first_and_steps_over_merges() {
     let walk = walk();
-    assert_eq!(walk.target(None, Step::Next), Ok(Some(0)));
-    assert_eq!(walk.target(Some(0), Step::Next), Ok(Some(1)));
+    assert_eq!(walk.spot_to(Spot::Whole, Step::Next), Ok(Spot::Commit(0)));
     assert_eq!(
-        walk.target(Some(1), Step::Next),
-        Ok(Some(3)),
+        walk.spot_to(Spot::Commit(0), Step::Next),
+        Ok(Spot::Commit(1))
+    );
+    assert_eq!(
+        walk.spot_to(Spot::Commit(1), Step::Next),
+        Ok(Spot::Commit(3)),
         "the merge stepped over"
     );
     // The last that changes something is the end.
     assert_eq!(
-        walk.target(Some(3), Step::Next),
+        walk.spot_to(Spot::Commit(3), Step::Next),
         Err("4444444 is the last commit of #12".into())
     );
 }
@@ -62,37 +69,107 @@ fn next_goes_from_the_whole_to_the_first_and_steps_over_merges() {
 #[test]
 fn previous_goes_from_the_first_to_the_whole_and_from_the_whole_to_the_last() {
     let walk = walk();
-    assert_eq!(walk.target(Some(3), Step::Previous), Ok(Some(1)));
-    assert_eq!(walk.target(Some(0), Step::Previous), Ok(None));
-    assert_eq!(walk.target(None, Step::Previous), Ok(Some(3)));
+    assert_eq!(
+        walk.spot_to(Spot::Commit(3), Step::Previous),
+        Ok(Spot::Commit(1))
+    );
+    assert_eq!(
+        walk.spot_to(Spot::Commit(0), Step::Previous),
+        Ok(Spot::Whole)
+    );
+    assert_eq!(
+        walk.spot_to(Spot::Whole, Step::Previous),
+        Ok(Spot::Commit(3))
+    );
 }
 
 #[test]
 fn a_commit_is_gone_to_by_its_index_unless_it_is_stepped_over() {
     let walk = walk();
-    assert_eq!(walk.target(Some(0), Step::Commit(3)), Ok(Some(3)));
-    assert_eq!(walk.target(Some(0), Step::Whole), Ok(None));
+    assert_eq!(
+        walk.spot_to(Spot::Commit(0), Step::Commit(3)),
+        Ok(Spot::Commit(3))
+    );
+    assert_eq!(walk.spot_to(Spot::Commit(0), Step::Whole), Ok(Spot::Whole));
     // A merge and a commit that changes nothing show when asked for by their row.
-    assert_eq!(walk.target(None, Step::Commit(2)), Ok(Some(2)));
-    assert_eq!(walk.target(None, Step::Commit(4)), Ok(Some(4)));
-    assert!(walk.target(None, Step::Commit(9)).is_err());
+    assert_eq!(
+        walk.spot_to(Spot::Whole, Step::Commit(2)),
+        Ok(Spot::Commit(2))
+    );
+    assert_eq!(
+        walk.spot_to(Spot::Whole, Step::Commit(4)),
+        Ok(Spot::Commit(4))
+    );
+    assert!(walk.spot_to(Spot::Whole, Step::Commit(9)).is_err());
     assert_eq!(walk.index_of(&"4".repeat(40)), Some(3));
 }
 
 #[test]
 fn a_pull_request_of_merges_alone_has_nothing_to_step_to() {
-    let walk = Walk::of(
-        7,
-        Listed {
-            commits: vec![listing(1, true, false)],
-            more: false,
-        },
-    );
+    let walk = Walk::of(7, listed(vec![listing(1, true, false)]));
     assert_eq!(
-        walk.target(None, Step::Next),
+        walk.spot_to(Spot::Whole, Step::Next),
         Err("#7 has no commit to review alone".into())
     );
-    assert!(walk.target(None, Step::Previous).is_err());
+    assert!(walk.spot_to(Spot::Whole, Step::Previous).is_err());
+}
+
+#[test]
+fn a_range_goes_from_its_lower_to_its_higher_and_steps_on_from_its_ends() {
+    let walk = walk();
+    assert_eq!(
+        walk.spot_to(Spot::Whole, Step::Range(3, 1)),
+        Ok(Spot::Range(1, 3))
+    );
+    assert_eq!(
+        walk.spot_to(Spot::Whole, Step::Range(1, 1)),
+        Ok(Spot::Commit(1))
+    );
+    assert!(walk.spot_to(Spot::Whole, Step::Range(1, 9)).is_err());
+    assert_eq!(
+        walk.spot_to(Spot::Range(0, 1), Step::Next),
+        Ok(Spot::Commit(3))
+    );
+    assert_eq!(
+        walk.spot_to(Spot::Range(1, 3), Step::Previous),
+        Ok(Spot::Commit(0))
+    );
+}
+
+#[test]
+fn since_the_last_review_steps_to_the_first_new_commit_and_back_to_the_whole() {
+    let mut walk = walk();
+    assert!(
+        walk.spot_to(Spot::Whole, Step::Since).is_err(),
+        "nothing recorded"
+    );
+    let mut entries = walk.entries.to_vec();
+    entries[2].new = true;
+    entries[3].new = true;
+    walk.entries = std::sync::Arc::from(entries);
+    walk.since = Some(oso_core::editor::Since {
+        new: 2,
+        rebased: false,
+        gone: false,
+        shown: false,
+        review: None,
+    });
+    assert_eq!(walk.spot_to(Spot::Whole, Step::Since), Ok(Spot::Since));
+    // The merge is new but stepped over: the first new commit to review is the fourth.
+    assert_eq!(walk.spot_to(Spot::Since, Step::Next), Ok(Spot::Commit(3)));
+    assert_eq!(walk.spot_to(Spot::Since, Step::Previous), Ok(Spot::Whole));
+    walk.since = walk.since.map(|since| oso_core::editor::Since {
+        gone: true,
+        ..since
+    });
+    assert!(walk.spot_to(Spot::Whole, Step::Since).is_err(), "gone");
+    // Shown last: the walk knows its spot.
+    walk.show(Spot::Since);
+    assert_eq!(walk.spot(), Spot::Since);
+    assert!(walk.commits().since.is_some_and(|since| since.shown));
+    walk.none_new();
+    assert!(walk.commits().since.is_none());
+    assert!(walk.entries.iter().all(|entry| !entry.new));
 }
 
 #[test]

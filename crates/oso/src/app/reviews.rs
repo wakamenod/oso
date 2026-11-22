@@ -170,6 +170,7 @@ impl App {
                 old_side,
             } => self.visit_review_line(review, &path, (side, number), old_side),
             ReviewRequest::Step { review, to } => self.step_review(review, to),
+            ReviewRequest::Checkpoint { review } => self.review_checkpoint(review),
             decision => self.decision_request(decision),
         }
     }
@@ -348,6 +349,8 @@ impl App {
             Report::Read { stopped, .. } => {
                 self.refresh_ended(index);
                 self.reviews.open[index].read_once |= !stopped;
+                // What changed since, if a newer request stopped its ask (ADR 0167, step 2).
+                self.ask_since_again(index);
                 Tell::Read
             }
             Report::Stale => return self.mark_review_stale(index),
@@ -357,6 +360,16 @@ impl App {
                 asked: Asked::Look,
                 why,
             } => return log::debug!("a review's look failed: {}", one_line(&why, MAX_MESSAGE)),
+            // What changed since the last review is only not shown (ADR 0167, step 2).
+            Report::Failed {
+                asked: Asked::Since,
+                why,
+            } => {
+                return log::debug!(
+                    "a pull request's changes since its last review could not be found: {}",
+                    one_line(&why, MAX_MESSAGE)
+                );
+            }
             Report::Failed { asked, why } => {
                 if matches!(asked, Asked::Open | Asked::Refresh) {
                     self.refresh_ended(index);
@@ -388,6 +401,7 @@ impl App {
             Report::Jumped(jumped) => return self.review_jumped(index, jumped),
             Report::Commits(listed) => return self.review_commits_listed(index, *listed),
             Report::Message(message) => Tell::Message(message),
+            Report::Since(found) => return self.review_since_found(index, *found),
         };
         self.reviews.open[index].view.tell(tell);
     }
