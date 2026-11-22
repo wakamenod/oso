@@ -2,7 +2,8 @@
 # 3.5 times slower than Linux's. Every paced key loop of the harness takes about 120 ms
 # on GitHub's macOS runner for a 25 to 41 ms sleep, so this measures what a 25 ms
 # thread::sleep really takes there, and the QoS and latency tier the steps run with,
-# plainly and under `taskpolicy -l 0 -t 0`. It builds and runs no repository code.
+# plainly, under `taskpolicy -l 0 -t 0`, at user-interactive QoS,
+# against a spinning wait and beside a spinning thread. It builds and runs no repository code.
 name: Sleep probe
 
 on:
@@ -57,19 +58,40 @@ jobs:
               let qos = unsafe { qos_class_self() };
               // SAFETY: reads this process's background state; takes no pointers.
               let darwin_bg = unsafe { getpriority(PRIO_DARWIN_PROCESS, 0) };
+              let args: Vec<String> = std::env::args().collect();
+              let ms = args
+                  .iter()
+                  .position(|a| a == "--ms")
+                  .and_then(|i| args.get(i + 1)?.parse().ok())
+                  .unwrap_or(25u64);
+              let spin = args.iter().any(|a| a == "--spin");
+              if args.iter().any(|a| a == "--busy-neighbour") {
+                  // Keeps one more CPU awake the whole time.
+                  thread::spawn(|| loop {
+                      std::hint::spin_loop();
+                  });
+              }
+              let pace = Duration::from_millis(ms);
               let mut samples = Vec::new();
               for _ in 0..200 {
                   let started = Instant::now();
-                  thread::sleep(Duration::from_millis(25));
+                  if spin {
+                      while started.elapsed() < pace {
+                          std::hint::spin_loop();
+                      }
+                  } else {
+                      thread::sleep(pace);
+                  }
                   samples.push(started.elapsed().as_secs_f64() * 1000.0);
               }
               let total: f64 = samples.iter().sum();
               samples.sort_by(f64::total_cmp);
               let at = |p: f64| samples[((samples.len() - 1) as f64 * p) as usize];
               println!(
-                  "{label}: qos {} ({qos:#x}), darwin bg {darwin_bg}; 200 x sleep(25 ms): \
+                  "{label}: qos {} ({qos:#x}), darwin bg {darwin_bg}; 200 x {} {ms} ms: \
                    min {:.1}, p50 {:.1}, p90 {:.1}, p99 {:.1}, max {:.1}, mean {:.1} ms",
                   qos_name(qos),
+                  if spin { "spin" } else { "sleep" },
                   at(0.0),
                   at(0.5),
                   at(0.9),
@@ -104,3 +126,10 @@ jobs:
         run: |
           "$RUNNER_TEMP/probe/probe" interactive --interactive
           taskpolicy -l 0 -t 0 "$RUNNER_TEMP/probe/probe" both --interactive
+      - name: Short sleeps, spinning, and a busy neighbour
+        run: |
+          "$RUNNER_TEMP/probe/probe" sleep-1ms --ms 1
+          "$RUNNER_TEMP/probe/probe" sleep-5ms --ms 5
+          "$RUNNER_TEMP/probe/probe" spin --spin
+          "$RUNNER_TEMP/probe/probe" busy-neighbour --busy-neighbour
+          sysctl hw.ncpu kern.timer.coalescing_enabled kern.timer_coalesce_bg_ns_max kern.timer_coalesce_tier3_ns_max || true
