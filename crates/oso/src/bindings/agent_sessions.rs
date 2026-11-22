@@ -1,6 +1,7 @@
 //! Default key bindings of the agent session commands (ADR 0143): the Agents menu on `C-c a`
 //! everywhere, which `bindings/menus.rs` defines, the keys of `*Spaces*`, and session mode's
-//! `C-c C-<letter>` in a session's terminal (ADR 0132, ADR 0143).
+//! `C-c C-<letter>` in a session's terminal (ADR 0132, ADR 0143), which a native session's
+//! buffer has too, with its own (ADR 0165).
 //!
 //! Must not depend on: `dispatch`, `app` or winit; bindings are data.
 
@@ -29,6 +30,21 @@ pub const SESSION: &[(&str, &str)] = &[
     ("C-c C-u", "universal-argument"),
     ("C-c C-y", "session-yank-image"),
 ];
+
+/// A native session's buffer's own keys (ADR 0165, ADR 0130's design), with session mode's
+/// [`SESSION`] keys beside them but [`NOT_NATIVE`]'s: its rows are read, not typed into.
+pub const NATIVE: &[(&str, &str)] = &[
+    ("TAB", "native-session-toggle"),
+    ("RET", "native-session-result"),
+    ("n", "native-session-next-prompt"),
+    ("p", "native-session-previous-prompt"),
+    ("]", "native-session-next-tool"),
+    ("[", "native-session-previous-tool"),
+];
+
+/// Session mode's commands a native session's buffer does not bind: an agent's reads of a
+/// terminal are let in and taken back on its screen, which a native session has none of.
+pub const NOT_NATIVE: [&str; 2] = ["terminal-allow-agent-read", "terminal-deny-agent-read"];
 
 /// The keys of `*Spaces*`, above the global ones in it.
 pub const LIST: &[(&str, &str)] = &[

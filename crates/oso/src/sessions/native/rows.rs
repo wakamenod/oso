@@ -152,12 +152,39 @@ impl RowChange {
     }
 
     /// Of two changes to one row, which says more: an addition, then a change, then growth.
-    fn rank(self) -> u8 {
+    pub fn rank(self) -> u8 {
         match self {
             Self::Added(_) => 0,
             Self::Changed(_) => 1,
             Self::Grew { .. } => 2,
         }
+    }
+}
+
+/// Changes gathered over several events, one a row, in their rows' order: what says more of
+/// a row wins, and of two growths the first, which the later ones grew on.
+#[derive(Debug, Default)]
+pub struct Changes(std::collections::BTreeMap<usize, RowChange>);
+
+impl Changes {
+    pub fn add(&mut self, change: RowChange) {
+        let kept = self.0.entry(change.row()).or_insert(change);
+        if change.rank() < kept.rank() {
+            *kept = change;
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+impl IntoIterator for Changes {
+    type Item = RowChange;
+    type IntoIter = std::collections::btree_map::IntoValues<usize, RowChange>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_values()
     }
 }
 
@@ -174,6 +201,8 @@ pub struct Rows {
     calls: HashMap<String, (usize, usize)>,
     /// The texts oso sent that the CLI has not replayed yet, oldest first.
     sent: VecDeque<String>,
+    /// The calls of the turn under way, which its end closes.
+    turn: Vec<String>,
 }
 
 /// A block that started: its message's id, its index, its row and its place in the row; for
@@ -197,6 +226,7 @@ impl Rows {
             open: Vec::new(),
             calls: HashMap::new(),
             sent: VecDeque::new(),
+            turn: Vec::new(),
         }
     }
 
@@ -524,7 +554,10 @@ impl Rows {
                 changes.push(RowChange::Changed(open.row));
             }
         }
-        for &(row, slot) in self.calls.values() {
+        for id in std::mem::take(&mut self.turn) {
+            let Some(&(row, slot)) = self.calls.get(&id) else {
+                continue;
+            };
             if let Kind::Tools(tools) = &mut self.rows[row].kind
                 && let Some(tool) = tools.get_mut(slot)
                 && matches!(tool.state, ToolState::Streaming | ToolState::Running)

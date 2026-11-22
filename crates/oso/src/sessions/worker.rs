@@ -53,6 +53,10 @@ pub enum Job {
     Rules(Arc<RuleSet>),
     /// A session started or was resumed.
     Start(SessionKey),
+    /// A native session started or was resumed (ADR 0165): its state comes from its stream.
+    StartStream(SessionKey),
+    /// What a native session's stream says of its state.
+    Stream(SessionKey, crate::sessions::state::Target),
     /// A session's screen, title or progress changed. The app gives screens with
     /// [`Worker::send_screen`], which keeps one a session.
     Screen(SessionKey, Evidence),

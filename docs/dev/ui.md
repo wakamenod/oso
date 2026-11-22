@@ -1216,7 +1216,8 @@ a switch made with its command stands until that setting changes in the file
   - no buffer in it is unsaved and no brief for it is unsent;
   - no session in it is busy: one oso hosts is busy unless its state is idle, done or ready for
     review and Claude Code's registry calls it idle, in an entry whose start time matches its
-    process; none oso did not start runs in it, and the registry was listed in full;
+    process; none oso did not start runs in it, the registry was read in full, and each such
+    session there has a directory oso can read;
   - its branch is merged, into a remote's main branch or through a merged pull request that
     `gh` knows of.
 
@@ -1280,7 +1281,23 @@ a switch made with its command stands until that setting changes in the file
   env = ["HTTPS_PROXY", "NODE_EXTRA_CA_CERTS"]
   steer_worktrees = true             # sessions oso starts are steered to C-c a w
   pane_width = 44                    # *Spaces*' pane, 24 to 80 columns
+  mode = "native"                    # new sessions in trusted projects run claude -p (ADR 0165)
   ```
+
+  With `mode = "native"` (ADR 0165, step 1), a new session in a trusted project runs `claude -p`
+  and shows its conversation in `*claude: NAME*` as oso's own rows instead of a terminal: the
+  person's messages after `› `, replies after `● `, thinking as `∴ Thought for N s`, each tool
+  call as one line with what came of it, an edit as a diff, and each turn's time and cost. A
+  start with no brief opens `*Brief*` for its first message: `C-c C-c` starts the session,
+  `C-c C-k` drops it. Its state comes from its stream. In its buffer, `TAB` folds or unfolds
+  the row at point (a call of an open row of several on its own), `RET` shows a call's whole
+  result read-only in `*result: NAME*`, withheld from agents, `n`/`p` move between the person's
+  messages and `]`/`[` between tool rows; session mode's `C-c` keys work there too, but
+  `C-c +` and `C-c -`, as it has no screen for an agent to read. In this step
+  it takes no message after
+  its first, and a send, a paste, `session-explain` or a resume to it says so (`session-fork`
+  continues it in a terminal); elsewhere, an agent's
+  start with no brief, and a restricted project, keep the terminal.
 
   `claude` is started as the login shell would start it, so its `PATH`, version managers and
   proxies apply; set `claude` when the shell is not `sh`, `bash`, `zsh`, `dash` or `ksh`. `env`

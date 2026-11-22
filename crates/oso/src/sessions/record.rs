@@ -61,6 +61,8 @@ pub struct Remembered {
     pub pinned: bool,
     /// Archived: not brought back at start.
     pub archived: bool,
+    /// A native session (ADR 0165): it comes back, and resumes, as one. Absent: a TUI's.
+    pub native: bool,
     /// When it last changed state, in milliseconds since the epoch.
     pub changed: u64,
     /// Its baseline for a review (ADR 0122): a git tree's id, 40 or 64 lower-case hex digits.
@@ -207,6 +209,7 @@ fn parse_line(line: &[u8]) -> Option<Remembered> {
         origin,
         pinned: flag("pinned")?,
         archived: flag("archived")?,
+        native: flag("native")?,
         changed: object.get("changed")?.as_u64()?,
         baseline,
         space,
@@ -238,6 +241,9 @@ fn line(session: &Remembered) -> Option<String> {
     object.insert("origin".into(), json!(session.origin.name()));
     object.insert("pinned".into(), json!(session.pinned));
     object.insert("archived".into(), json!(session.archived));
+    if session.native {
+        object.insert("native".into(), json!(true));
+    }
     object.insert("changed".into(), json!(session.changed));
     if let Some(baseline) = &session.baseline {
         object.insert("baseline".into(), json!(baseline));
@@ -432,6 +438,7 @@ mod tests {
 
     fn session(n: u8) -> Remembered {
         Remembered {
+            native: false,
             id: id(n),
             name: format!("oso-{n}"),
             directory: PathBuf::from("/work/oso"),
@@ -531,6 +538,8 @@ mod tests {
         full.origin = Origin::Unasked;
         full.pinned = true;
         full.archived = true;
+        // A native session (ADR 0165); a record without the key is a TUI's.
+        full.native = true;
         full.baseline = Some("a".repeat(40));
         full.space = Some(crate::sessions::spaces::SpaceId::from_random([7; 16]));
         full.reads = vec![
