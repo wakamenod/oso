@@ -1,7 +1,7 @@
-//! Which buffer a window shows: going to one and back to where the window was in it, walking
-//! the buffers with `M-,` and `M-/`, killing one, and the names that tell files with one name
-//! apart (ADR 0088). Also what a prompt's preview shows and where a buffer's preview starts
-//! (ADR 0088, ADR 0114), and the home directory a path is shown from.
+//! Which buffer a window shows: going to one and back to where the window was in it, killing
+//! one, and the names that tell files with one name apart (ADR 0088). Also what a prompt's
+//! preview shows and where a buffer's preview starts (ADR 0088, ADR 0114), and the home
+//! directory a path is shown from. Walking the buffers and `q` are in `walk`.
 //!
 //! Must not depend on: the host's window, threads or I/O; the host frees killed buffers
 //! and stops their loads.
@@ -11,7 +11,7 @@ use super::follow::clip_selections;
 use crate::buffer::{self, Buffer, BufferId, Mode};
 use crate::display_map::DisplaySnapshot;
 use crate::selection::{MarkActive, SelectionSet};
-use crate::window::{Place, Walk, Window, WindowId};
+use crate::window::{Place, Window, WindowId};
 
 use super::SCRATCH;
 
@@ -85,6 +85,15 @@ impl Editor {
     /// window shows comes through here, so that what was around a buffer that may hold secrets,
     /// before or after it, is marked so.
     pub(super) fn window_shows(&mut self, index: usize, buffer: BufferId) {
+        // As Emacs's `select-window` records it in `buffer-list` (ADR 0171).
+        self.raise_shown(index, buffer);
+        self.window_shows_unrecorded(index, buffer);
+    }
+
+    /// Makes the window at `index` show `buffer` as [`Editor::window_shows`] does, but leaves
+    /// the order of the buffers as it is, as Emacs's `switch-to-prev-buffer` does for a step of
+    /// `M-,` or `M-/` and for what `q` or a kill puts back in a window (ADR 0171).
+    pub(super) fn window_shows_unrecorded(&mut self, index: usize, buffer: BufferId) {
         // A pair holds while each window shows what it was paired with (ADR 0122).
         self.leave_pair(index, buffer);
         // A search keeps to the buffer it began in (ADR 0082).
@@ -165,98 +174,6 @@ impl Editor {
         self.follow_window(index);
     }
 
-    /// Shows the buffer `count` before the one shown in the tiled window's order, the most
-    /// recent first and then those it never showed, skipping internal buffers: `M-,`. A
-    /// negative count goes the other way, as `M-/` does. Repeating it walks on through every
-    /// buffer, as long as nothing else showed one. From the side window, the tree's window
-    /// selected last walks, and is selected (ADR 0121).
-    ///
-    /// # Errors
-    ///
-    /// With no other buffer to show.
-    pub fn walk_buffers(&mut self, count: isize) -> Result<(), &'static str> {
-        let index = self.tree_index();
-        let walk = match self.windows[index].walk() {
-            Some(walk) => walk.clone(),
-            None => {
-                let ring = self.walk_order(index);
-                // From an internal buffer, which the walk leaves out, as if from just before
-                // the most recent of the user's: `M-,` goes there.
-                let on_internal = ring.first() != Some(&self.windows[index].buffer());
-                let at = if on_internal && count > 0 {
-                    ring.len().saturating_sub(1)
-                } else {
-                    0
-                };
-                if ring.is_empty() {
-                    return Err("No other buffer");
-                }
-                Walk { ring, at }
-            }
-        };
-        let len = walk.ring.len();
-        let step = count.rem_euclid(isize::try_from(len).unwrap_or(isize::MAX));
-        let step = usize::try_from(step).unwrap_or(0);
-        let at = (walk.at + step) % len;
-        let next = walk.ring[at];
-        if next == self.windows[index].buffer() {
-            return Err("No other buffer");
-        }
-        self.window_moves_on();
-        self.leave_side();
-        self.window_shows(index, next);
-        self.windows[index].places_mut().set_walk(Walk {
-            ring: walk.ring,
-            at,
-        });
-        Ok(())
-    }
-
-    /// The buffers a walk goes through from the window at `index`: the one it shows, those it
-    /// showed before, the most recent first, then the others in the order they opened. Internal
-    /// buffers are left out.
-    fn walk_order(&self, index: usize) -> Vec<BufferId> {
-        let window = &self.windows[index];
-        let mut ring = Vec::new();
-        let shown = std::iter::once(window.buffer());
-        let shown_before = shown.chain(window.places().map(|(id, _)| id));
-        let rest = self.buffers().map(|(id, _)| id);
-        // A walk the agent channel runs never reaches a terminal, where the person's next keys
-        // would go to its program (ADR 0120).
-        let agent = self.runs_for_agent();
-        for id in shown_before.chain(rest) {
-            let kept = self.buffer(id).is_some_and(|buffer| {
-                let users = !buffer.is_internal() || kept_as_users(buffer);
-                users && !(agent && buffer.is_terminal())
-            });
-            if kept && !ring.contains(&id) {
-                ring.push(id);
-            }
-        }
-        ring
-    }
-
-    /// The buffers a person goes between, the one the tiled window shows first, then those it
-    /// showed before, the most recent first, then the rest in the order they opened: every
-    /// buffer of the user's, `*Messages*`, and the list of emergency copies and `*Agent*` once
-    /// made. A prompt's buffer and a copy being looked at are left out (ADR 0088).
-    pub fn buffers_by_recency(&self) -> Vec<BufferId> {
-        let window = &self.windows[self.tiled_index()];
-        let listed = |id: BufferId| {
-            self.buffer(id)
-                .is_some_and(|buffer| self.listed(id, buffer))
-        };
-        let mut order = Vec::new();
-        let shown = std::iter::once(window.buffer()).chain(window.places().map(|(id, _)| id));
-        let all = self.buffers.iter().map(|(id, _)| *id);
-        for id in shown.chain(all) {
-            if listed(id) && !order.contains(&id) {
-                order.push(id);
-            }
-        }
-        order
-    }
-
     /// The buffer a person may go to that is named `name`, as [`Editor::buffers_by_recency`]
     /// lists them.
     pub fn buffer_named(&self, name: &str) -> Option<BufferId> {
@@ -270,7 +187,7 @@ impl Editor {
     /// Whether a person goes to `buffer`: one of the user's, or the internal buffers a person
     /// reads, `*Messages*`, the list of emergency copies, `*Agent*` (ADR 0088) and `*LSP*`
     /// (ADR 0138).
-    fn listed(&self, id: BufferId, buffer: &Buffer) -> bool {
+    pub(super) fn listed(&self, id: BufferId, buffer: &Buffer) -> bool {
         !buffer.is_internal()
             || kept_as_users(buffer)
             || id == self.messages_buffer
@@ -443,7 +360,8 @@ impl Editor {
     }
 
     /// Removes a buffer. Each window that showed it shows the buffer it showed before it, or
-    /// `*scratch*`, which is created again if needed. An internal buffer stays. What it held is
+    /// the most recent other one it may fall back to (ADR 0171), or `*scratch*`, which is
+    /// created again if needed. An internal buffer stays. What it held is
     /// kept for [`Editor::take_freed`], so that the host frees it off the UI thread.
     pub fn kill_buffer(&mut self, id: BufferId) {
         if self
@@ -495,19 +413,11 @@ impl Editor {
             if self.windows[index].buffer() != id {
                 continue;
             }
-            // One of the user's: an internal buffer is reached by its own key.
-            let back = self.windows[index]
-                .places()
-                .map(|(other, _)| other)
-                .find(|other| {
-                    self.buffer(*other)
-                        .is_some_and(|buffer| !buffer.is_internal())
-                });
-            let back = match back {
+            let back = match self.kill_fallback(index, id) {
                 Some(back) => back,
                 None => self.scratch_other_than(id),
             };
-            self.window_shows(index, back);
+            self.window_shows_unrecorded(index, back);
         }
         for window in &mut self.windows {
             window.places_mut().forget(id);
@@ -516,6 +426,7 @@ impl Editor {
         if self.kill_asked == Some(id) {
             self.kill_asked = None;
         }
+        self.buffer_order.forget(id);
         if let Some(position) = self.buffers.iter().position(|(other, _)| *other == id) {
             let (_, buffer) = self.buffers.remove(position);
             let name = buffer
@@ -586,7 +497,7 @@ impl Editor {
 /// directory's listing (ADR 0134), a git status, log, graph or pull request (ADR 0127), as
 /// Emacs's dired and magit buffers are, a rename's preview (ADR 0138), what a session's move
 /// waits for, whose kill cancels it (ADR 0151), or a native session's (ADR 0165).
-fn kept_as_users(buffer: &Buffer) -> bool {
+pub(super) fn kept_as_users(buffer: &Buffer) -> bool {
     let kept = [Mode::GitDiscarded, Mode::RenamePreview, Mode::SessionMove];
     super::listings::is_listing(buffer)
         || super::git::is_git_status(buffer)

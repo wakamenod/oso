@@ -60,6 +60,8 @@ pub struct State {
     /// The length of each item, in bytes.
     pub items: Vec<usize>,
     pub buffers: Vec<BufferEntry>,
+    /// The places in `buffers` of those it orders, the most recently used first (ADR 0171).
+    pub order: Vec<usize>,
     /// The tiled windows in the tree's order, the layout and which is selected (ADR 0112).
     pub windows: Windows,
     pub pending_keys: Vec<KeyPress>,
@@ -247,11 +249,13 @@ pub fn parse(state: &Value) -> Result<State, String> {
         }
     }
     let windows = parse_windows(state, entries, version)?;
+    let order = super::order::parse(state, entries)?;
     let reviews = super::reviews::parse(state, windows.windows.len());
     Ok(State {
         export,
         items: items.lengths,
         buffers,
+        order,
         windows,
         pending_keys: parse_keys(state)?,
         frame: parse_frame(state)?,

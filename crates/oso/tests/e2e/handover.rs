@@ -176,3 +176,41 @@ fn an_unsaved_secret_file_holds_the_restart_by_name_and_what_oso_dev_says_is_sho
         "the log quotes the text"
     );
 }
+
+/// The names of the files `state`'s order lists, the most recent first: buffers with no file
+/// are left out.
+fn ordered_files(state: &Value) -> Vec<String> {
+    let buffers = state["buffers"].as_array().expect("buffers");
+    let order = state["order"].as_array().expect("an order");
+    order
+        .iter()
+        .filter_map(|id| buffers.iter().find(|entry| entry["id"] == *id))
+        .filter_map(|entry| entry["path"].as_str())
+        .filter_map(|path| Some(std::path::Path::new(path).file_name()?.to_str()?.to_owned()))
+        .collect()
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn the_order_of_the_buffers_moves_to_a_new_instance() {
+    let scratch = Scratch::new("carry-order");
+    let [a, b, c] = ["a.txt", "b.txt", "c.txt"].map(|name| scratch.write(name, b"x\n"));
+    let mut old = App::start(Some(&a), scratch.path());
+    old.wait_until_ready();
+    for file in [&b, &c, &a] {
+        old.open_file(file);
+    }
+    old.wait_until_ready();
+    let mut new = App::start(None, scratch.path());
+    new.wait_until_ready();
+    let (state, _) = hand_over(&mut old, &mut new);
+    assert_eq!(ordered_files(&state), ["a.txt", "c.txt", "b.txt"]);
+    new.wait_until_ready();
+    let again = new.call("export-state", None);
+    assert_eq!(
+        ordered_files(&again),
+        ["a.txt", "c.txt", "b.txt"],
+        "the new instance took the order, not the order the files opened in"
+    );
+    let _ = new.stop_and_read_log();
+}

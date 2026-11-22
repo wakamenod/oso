@@ -1,28 +1,34 @@
 //! What `C-x b` and `C-x k` complete over: the buffers, most recent first, each with what
-//! marginalia says of a buffer (ADR 0088). `C-x b` lists after them the recent files no buffer
+//! marginalia says of a buffer (ADR 0088, ADR 0171). `C-x b` lists after them the recent files no buffer
 //! visits, as consult-buffer does, and `C-x C-r` lists the recent files (ADR 0148).
 //!
 //! Must not depend on: `app` or winit; key sequences stay testable without a window.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use oso_core::buffer::Buffer;
+use oso_core::buffer::{Buffer, BufferId};
 use oso_core::command::BufferPurpose;
 use oso_core::complete::Candidate;
 use oso_core::editor::Editor;
+use oso_core::window::Window;
 
-/// The buffers a prompt read for `purpose` lists, in its order: for showing, the current buffer
-/// last, so that `RET` goes back to the one before; for killing, the current first.
+/// The buffers a prompt read for `purpose` lists, in its order: for showing, as consult-buffer
+/// has them (ADR 0171), those no window shows, the most recent first, then those other windows
+/// show, then the current buffer, so that `RET` goes back to the one before; for killing, the
+/// current first, then those the window showed before, the most recent first, then the rest.
 pub(super) fn candidates(editor: &Editor, purpose: BufferPurpose) -> Arc<[Candidate]> {
-    let mut order = editor.buffers_by_recency();
-    if purpose == BufferPurpose::Switch && !order.is_empty() {
-        order.rotate_left(1);
-    }
+    let order = match purpose {
+        BufferPurpose::Switch => by_visibility(editor),
+        BufferPurpose::Kill => by_window(editor),
+    };
+    // The user's by id, so that a thousand buffers are not each looked for through the list;
+    // the few internal ones listed are looked for so.
+    let users: HashMap<BufferId, &Buffer> = editor.buffers().collect();
     let buffers = order
         .into_iter()
-        .filter_map(|id| editor.buffer(id))
+        .filter_map(|id| users.get(&id).copied().or_else(|| editor.buffer(id)))
         .map(|buffer| Candidate::new(buffer.name(), "", annotation(buffer, editor.home())));
     if purpose == BufferPurpose::Kill {
         return buffers.collect();
@@ -32,6 +38,35 @@ pub(super) fn candidates(editor: &Editor, purpose: BufferPurpose) -> Arc<[Candid
         .filter(|path| !visited.contains(path.as_path()))
         .map(|path| Candidate::new(editor.recent_file_row(path), "", FILE));
     buffers.chain(files).collect()
+}
+
+/// The buffers by recency, as `consult--buffer-sort-visibility` sorts `buffer-list`: those no
+/// window shows, then those another window shows, then the current one (ADR 0171).
+fn by_visibility(editor: &Editor) -> Vec<BufferId> {
+    let current = editor.tiled().0.buffer();
+    let shown: HashSet<BufferId> = editor.windows().map(Window::buffer).collect();
+    let order = editor.buffers_by_recency();
+    let has_current = order.contains(&current);
+    let (visible, mut hidden): (Vec<BufferId>, Vec<BufferId>) = order
+        .into_iter()
+        .filter(|id| *id != current)
+        .partition(|id| shown.contains(id));
+    hidden.extend(visible);
+    hidden.extend(has_current.then_some(current));
+    hidden
+}
+
+/// The buffers `C-x k` lists: the current one, those its window showed before, the most recent
+/// first, then the rest by recency (ADR 0088).
+fn by_window(editor: &Editor) -> Vec<BufferId> {
+    let window = editor.tiled().0;
+    let listed = editor.buffers_by_recency();
+    let mut unseen: HashSet<BufferId> = listed.iter().copied().collect();
+    let shown = std::iter::once(window.buffer()).chain(window.places().map(|(id, _)| id));
+    shown
+        .chain(listed.iter().copied())
+        .filter(|id| unseen.remove(id))
+        .collect()
 }
 
 /// What a recent file's row in `C-x b` says, in the annotation's face (ADR 0148).
@@ -157,6 +192,33 @@ mod tests {
         assert_eq!(
             names(BufferPurpose::Kill),
             ["other", "*scratch*", "*Messages*"]
+        );
+    }
+
+    #[test]
+    fn showing_lists_the_hidden_first_then_those_other_windows_show_and_killing_the_window_s() {
+        let mut editor = Editor::default();
+        let [a, b, _] = ["a", "b", "c"].map(|name| editor.add_buffer(Buffer::from_text(name, "x")));
+        editor.show(a);
+        editor.show(b);
+        let other = editor
+            .split_window(oso_core::frame::Way::Down, false)
+            .unwrap();
+        editor.show_in(other, a);
+        let names = |purpose| -> Vec<String> {
+            candidates(&editor, purpose)
+                .iter()
+                .map(|candidate| candidate.text().to_owned())
+                .collect()
+        };
+        // The order is b, a, `*scratch*`, `*Messages*`, c; a shows below, and b is current.
+        assert_eq!(
+            names(BufferPurpose::Switch),
+            ["*scratch*", "*Messages*", "c", "a", "b"]
+        );
+        assert_eq!(
+            names(BufferPurpose::Kill),
+            ["b", "a", "*scratch*", "*Messages*", "c"]
         );
     }
 }
