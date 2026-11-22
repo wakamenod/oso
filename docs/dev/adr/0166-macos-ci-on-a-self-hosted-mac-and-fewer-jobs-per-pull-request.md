@@ -1,6 +1,6 @@
 # 0166. macOS CI on a self-hosted Mac, and fewer jobs per pull request
 
-- Status: Accepted; "Two runners on one Mac, as amended" (2026-11-22)
+- Status: Accepted; "Two runners on one Mac, as amended" and "Timer coalescing off on GitHub's macOS runner, as amended" (2026-11-22)
 - Date: 2026-11-21
 
 ## Context
@@ -241,3 +241,31 @@ Alternatives considered:
   `fake-lsp-server` of a `just ci` on `oso-mac-2`.
 - **A second macOS user for `oso-mac-2`:** processes, homes and caches apart, but it needs a
   login session of its own for its service and a second rustup with its toolchains.
+
+## Timer coalescing off on GitHub's macOS runner, as amended
+
+Amended on 2026-11-22, with the author's choice through the orchestrator. The
+`benchmarks (macos-latest)` job had run past its 45-minute timeout on every push to `main`
+since 2026-11-12. It was not hung: every section took 3.4 to 3.6 times as long as on Linux,
+and had since the benchmark began, so each new benchmark brought it closer to the limit.
+The app's own numbers were small. What took the time was the harness's pacing: on that
+runner a step's processes run at utility QoS, and the kernel's timer coalescing made a
+25 ms `thread::sleep` take 67 to 87 ms on average and about 100 ms at p90.
+
+- **`perf.yml` runs `sudo sysctl -w kern.timer.coalescing_enabled=0` on macOS before the
+  benchmarks.** With it, the same sleep took 28 ms on average, and a 1 ms sleep 1.5 ms, as
+  on Linux. The VM is thrown away after the job, so nothing is put back.
+- The app's own timers run without coalescing too. A person's foreground app runs at
+  user-interactive QoS, whose coalescing is capped at 1 ms, so this brings the runner closer
+  to a real Mac, not further. The macOS results move once against the baseline, and that run
+  becomes the new one, as any push's result does.
+
+Rejected:
+
+- **`taskpolicy -l 0 -t 0`, or user-interactive QoS for the harness:** measured, neither
+  shortened the sleeps.
+- **Capping only tier 3's coalescing** (`kern.timer_coalesce_tier3_ns_max`): it worked as
+  well, but it depends on which tier the runner puts a step in.
+- **A spinning wait in the harness:** a change to the benchmark, and the app's own timers
+  would still be coalesced.
+- **A longer timeout:** the job would hold a runner for about 100 minutes.
