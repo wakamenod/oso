@@ -57,6 +57,7 @@ fn language_id(mode: Mode, path: &std::path::Path) -> &'static str {
         | Mode::CopyView
         | Mode::Sessions
         | Mode::Brief
+        | Mode::Composer
         | Mode::Worktrees
         | Mode::Review
         | Mode::ReviewFiles

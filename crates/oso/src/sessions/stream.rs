@@ -14,14 +14,16 @@
 //!   most [`MAX_BATCH`] at a time; a full queue holds the reader back, and so the process.
 //! - `oso-native-err` keeps the last [`MAX_ERR`] bytes of standard error; nothing of it is
 //!   logged, as it may quote the conversation.
-//! - The first message is written once the readers run, so that a process that writes before
-//!   it reads never waits on oso. If anything fails once the process runs, its group is killed
-//!   and it is reaped.
+//! - `oso-native-write` writes the person's messages on standard input, in order, from a
+//!   queue of at most [`MAX_WAITING`] lines: [`Stream::send`] never waits, so a process that
+//!   does not read holds back no one but itself, and a full queue refuses the message (ADR
+//!   0165, step 2). The first message goes the same way, once the readers run, so that a
+//!   process that writes before it reads never waits on oso. If anything fails once the
+//!   process runs, its group is killed and it is reaped.
 //! - A stop closes standard input and sends the group `SIGTERM` at once, and `SIGKILL` after
 //!   [`STOP_WAIT`] if it has not ended. oso's exit kills the group at once.
 
 use std::io::{BufRead, BufReader, Write};
-use std::process::ChildStdin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -46,6 +48,17 @@ const GROUP_WAIT: Duration = Duration::from_millis(200);
 const QUEUE: usize = 1024;
 /// How often a process that closed its output is looked at until it ends.
 const EXIT_POLL: Duration = Duration::from_millis(20);
+/// The most lines waiting for the writer.
+pub const MAX_WAITING: usize = 16;
+
+/// Why a message was not taken.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NotSent {
+    /// [`MAX_WAITING`] lines wait already: the process does not read.
+    Full,
+    /// Its input is closed: the process stops, or could not be written to.
+    Closed,
+}
 
 /// What the threads hand on.
 #[derive(Debug)]
@@ -63,7 +76,8 @@ pub type Deliver = Box<dyn FnMut(Out) + Send>;
 #[derive(Debug)]
 pub struct Stream {
     child: Arc<Mutex<Child>>,
-    stdin: Mutex<Option<ChildStdin>>,
+    /// The writer's queue, until standard input closes.
+    input: Mutex<Option<SyncSender<String>>>,
     /// The process was reaped: its id may be another's now.
     reaped: Arc<AtomicBool>,
     pid: u32,
@@ -85,9 +99,10 @@ impl Stream {
         let pid = child.id();
         let child = Arc::new(Mutex::new(child));
         let reaped = Arc::new(AtomicBool::new(false));
+        let (input, lines) = mpsc::sync_channel(MAX_WAITING);
         let stream = Self {
             child: Arc::clone(&child),
-            stdin: Mutex::new(Some(stdin)),
+            input: Mutex::new(Some(input)),
             reaped: Arc::clone(&reaped),
             pid,
         };
@@ -103,7 +118,13 @@ impl Stream {
                     read(stdout, &queue, &child, &reaped, &err);
                 })
             })
-            .and_then(|()| stream.write_first(first));
+            .and_then(|()| named("oso-native-write", move || write(stdin, &lines)))
+            .and_then(|()| match first {
+                Some(first) => {
+                    (stream.send(first)).map_err(|_| std::io::ErrorKind::BrokenPipe.into())
+                }
+                None => Ok(()),
+            });
         if let Err(e) = started {
             stream.kill();
             return Err(e);
@@ -111,14 +132,24 @@ impl Stream {
         Ok(stream)
     }
 
-    fn write_first(&self, first: Option<&str>) -> std::io::Result<()> {
-        let Some(first) = first else {
-            return Ok(());
-        };
-        let mut stdin = self.stdin.lock().unwrap_or_else(PoisonError::into_inner);
-        let stdin = stdin.as_mut().ok_or(std::io::ErrorKind::BrokenPipe)?;
-        stdin.write_all(wire::user_message(first).as_bytes())?;
-        stdin.flush()
+    /// Hands `text` to the writer as the person's message, never waiting: refused if the
+    /// writer's queue is full or the input closed.
+    pub fn send(&self, text: &str) -> Result<(), NotSent> {
+        let input = self.input.lock().unwrap_or_else(PoisonError::into_inner);
+        offer(
+            input.as_ref().ok_or(NotSent::Closed)?,
+            wire::user_message(text),
+        )
+    }
+
+    /// Closes standard input once the writer has written what waits: the writer's queue goes.
+    fn close_input(&self) {
+        drop(
+            self.input
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .take(),
+        );
     }
 
     /// The process's id, until it is reaped.
@@ -130,12 +161,7 @@ impl Stream {
     /// `SIGTERM` at once, then `SIGKILL` after [`STOP_WAIT`] if it has not ended, on a thread of
     /// its own.
     pub fn stop(&self) {
-        drop(
-            self.stdin
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .take(),
-        );
+        self.close_input();
         let _ = lock(&self.child).signal_group(Signal::Terminate);
         let child = Arc::clone(&self.child);
         let stopping = named("oso-native-stop", move || {
@@ -150,12 +176,7 @@ impl Stream {
 
     /// Kills the process's group at once, as oso exits.
     pub fn kill(&self) {
-        drop(
-            self.stdin
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .take(),
-        );
+        self.close_input();
         let mut child = lock(&self.child);
         let _ = child.signal_group(Signal::Kill);
         let _ = child.kill();
@@ -191,6 +212,28 @@ fn ended_within(child: &Mutex<Child>, wait: Duration) -> bool {
             return false;
         }
         thread::sleep(EXIT_POLL);
+    }
+}
+
+/// Puts `line` on the writer's queue `input`, never waiting.
+fn offer(input: &SyncSender<String>, line: String) -> Result<(), NotSent> {
+    input.try_send(line).map_err(|e| match e {
+        mpsc::TrySendError::Full(_) => NotSent::Full,
+        mpsc::TrySendError::Disconnected(_) => NotSent::Closed,
+    })
+}
+
+/// Writes each line of `lines` on `stdin` until the queue goes, as the input closes, or a
+/// write fails, as when the process has ended; then `stdin` closes.
+fn write(mut stdin: impl Write, lines: &Receiver<String>) {
+    while let Ok(line) = lines.recv() {
+        if stdin
+            .write_all(line.as_bytes())
+            .and_then(|()| stdin.flush())
+            .is_err()
+        {
+            return;
+        }
     }
 }
 

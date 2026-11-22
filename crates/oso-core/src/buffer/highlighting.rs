@@ -259,6 +259,7 @@ impl Buffer {
             | Mode::CopyList
             | Mode::CopyView
             | Mode::Brief
+            | Mode::Composer
             | Mode::Worktrees
             | Mode::Review
             | Mode::ReviewFiles

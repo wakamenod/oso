@@ -118,6 +118,7 @@ impl Offer {
             | Mode::Latex
             | Mode::Swift
             | Mode::Brief
+            | Mode::Composer
             | Mode::Worktrees
             | Mode::Review
             | Mode::ReviewFiles

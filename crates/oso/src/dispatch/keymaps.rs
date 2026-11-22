@@ -104,6 +104,8 @@ pub(super) struct Keymaps {
     pub(super) session: Keymap,
     /// A native session's buffer's own keys and session mode's (ADR 0165).
     pub(super) native: Keymap,
+    /// A native session's composer's keys (ADR 0165, step 2).
+    pub(super) composer: Keymap,
     /// The user's keys from `[keys.session]`, above `session` in a session's terminal
     /// (ADR 0132, step 2). Empty without any, and then not a layer.
     pub(super) user_session: Keymap,
@@ -163,6 +165,7 @@ impl Keymaps {
             review_commits: bindings::review_commits_keymap(registry),
             terminal: bindings::terminal_keymap(registry),
             native: bindings::native_session_keymap(registry),
+            composer: bindings::composer_keymap(registry),
             session_help: SessionHelp::new(&session, registry),
             session,
             user_session: Keymap::new(),
@@ -176,7 +179,7 @@ impl Keymaps {
         clippy::too_many_lines,
         reason = "one line for each keymap, named twice so that none is left out"
     )]
-    pub(super) fn all(&self) -> [&Keymap; 42] {
+    pub(super) fn all(&self) -> [&Keymap; 43] {
         let Self {
             global,
             user,
@@ -218,6 +221,7 @@ impl Keymaps {
             terminal,
             session,
             native,
+            composer,
             user_session,
             lsp,
             session_help: _,
@@ -263,6 +267,7 @@ impl Keymaps {
             terminal,
             session,
             native,
+            composer,
             user_session,
             lsp,
         ]
@@ -399,6 +404,7 @@ impl Keymaps {
             | Mode::Swift
             | Mode::SessionMove => None,
             Mode::NativeSession => Some(&self.native),
+            Mode::Composer => Some(&self.composer),
             Mode::Review => Some(&self.review),
             Mode::Directory => Some(&self.dired),
             Mode::RenamePreview => Some(&self.rename_preview),

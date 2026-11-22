@@ -16,10 +16,13 @@
 //! - `turns`: what an event says of the session's state.
 //! - `asks`: the permission requests of the sessions' bridges, from their coming to their
 //!   answer (step 2), at the times the caller gives.
+//! - `queue`: the messages the person sent while a turn ran, held until the session is idle
+//!   (step 2).
 
 pub mod asks;
 pub mod placed;
 pub mod point;
+pub mod queue;
 pub mod render;
 pub mod rows;
 pub mod turns;

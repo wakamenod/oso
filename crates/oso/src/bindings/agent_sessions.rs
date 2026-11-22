@@ -40,6 +40,23 @@ pub const NATIVE: &[(&str, &str)] = &[
     ("p", "native-session-previous-prompt"),
     ("]", "native-session-next-tool"),
     ("[", "native-session-previous-tool"),
+    // The composer and the queue (ADR 0165, step 2): `RET` on a queued row takes it back.
+    ("i", "native-session-compose"),
+    ("C-c C-q", "native-session-queue"),
+    ("e", "native-queued-edit"),
+    ("d", "native-queued-drop"),
+    ("M-<up>", "native-queued-up"),
+    ("M-<down>", "native-queued-down"),
+];
+
+/// The keys of a native session's composer (ADR 0165, step 2), above the global ones in it.
+pub const COMPOSER: &[(&str, &str)] = &[
+    ("C-c C-c", "native-composer-send"),
+    ("C-c C-k", "native-composer-give-up"),
+    ("M-p", "native-composer-previous"),
+    ("M-n", "native-composer-next"),
+    ("C-c C-o", "native-composer-transcript"),
+    ("C-c C-q", "native-session-queue"),
 ];
 
 /// Session mode's commands a native session's buffer does not bind: an agent's reads of a

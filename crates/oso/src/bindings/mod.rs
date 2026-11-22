@@ -363,6 +363,12 @@ pub fn terminal_keymap(registry: &Registry) -> Keymap {
     keymap
 }
 
+/// The keymap of a native session's composer (ADR 0165, step 2). Empty for a registry without
+/// its commands, as in tests that bring their own.
+pub fn composer_keymap(registry: &Registry) -> Keymap {
+    Keymap::from_table(registry, agent_sessions::COMPOSER).unwrap_or_default()
+}
+
 /// The keymap of a native session's buffer (ADR 0165): its own keys and session mode's, which
 /// share no key. Empty for a registry without their commands, as in tests that bring their
 /// own.

@@ -315,6 +315,27 @@ pub enum NativeAction {
     Prompt(isize),
     /// Move to the start of the tool row this many after, before if negative.
     Tool(isize),
+    /// From the composer (ADR 0165, step 2): send its text, or queue it while a turn runs;
+    /// while a queued message is edited there, put it back in its place.
+    Send,
+    /// From the composer: interrupt the turn, then send its text ahead of the queue.
+    SendNow,
+    /// From the composer: give up the edit of a queued message, or interrupt the turn.
+    GiveUp,
+    /// From the composer: the session's message sent this many before, after if negative.
+    History(isize),
+    /// From the composer: back to the transcript.
+    Transcript,
+    /// From the transcript: to the composer.
+    Compose,
+    /// To the first queued message's row.
+    Queue,
+    /// On a queued message's row: edit it in the composer, in its place.
+    EditQueued,
+    /// On a queued message's row: drop it.
+    DropQueued,
+    /// On a queued message's row: move it this many places, up if negative.
+    MoveQueued(isize),
 }
 
 impl Editor {

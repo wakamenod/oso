@@ -19,6 +19,7 @@
 //!   terminal's does, when the session list stops it, and killed as oso exits. A stopped
 //!   native session comes back at oso's next start as a native buffer with no process.
 
+mod composer;
 mod keys;
 mod permissions;
 
@@ -80,6 +81,8 @@ struct Native {
     result_of: Option<String>,
     /// Where each call of each open row of several is in the row, as drawn last.
     calls: HashMap<usize, Vec<(usize, Range<usize>)>>,
+    /// Its composer, its queue and its history (step 2).
+    composing: composer::Composing,
 }
 
 impl NativeSessions {
@@ -253,8 +256,12 @@ impl App {
             result: None,
             result_of: None,
             calls: HashMap::new(),
+            // Its first message's turn is under way once it runs.
+            composing: composer::Composing::starting(first.is_some()),
         };
         self.hosting.natives.map.insert(key, native);
+        // Its composer, docked under it (ADR 0170).
+        self.dock_composer(key, buffer, name);
         buffer
     }
 
@@ -339,6 +346,9 @@ impl App {
         self.hosting.starting.remove(&key);
         if let Some(native) = self.hosting.natives.map.remove(&key) {
             self.editor.kill_buffer(native.buffer);
+            if let Some(composer) = native.composing.buffer {
+                self.editor.kill_buffer(composer);
+            }
         }
     }
 
@@ -363,6 +373,8 @@ impl App {
         let mut targets = Vec::new();
         for event in events {
             if let Some(target) = turns::target(&event) {
+                // A turn under way, oso's or one it did not start, holds what is sent back.
+                native.composing.busy = matches!(target, Target::Working);
                 targets.push(target);
             }
             for change in native.rows.apply(event) {
@@ -372,8 +384,20 @@ impl App {
         let buffer = native.buffer;
         let changed = !changes.is_empty();
         draw(&mut self.editor, native, changes);
+        let idle = targets
+            .iter()
+            .any(|target| matches!(target, Target::Idle { .. }));
         for target in targets {
             self.tell_tracker(key, target);
+        }
+        let busy = self
+            .hosting
+            .natives
+            .map
+            .get(&key)
+            .is_some_and(|n| n.composing.busy);
+        if idle && !busy {
+            self.send_queued(key);
         }
         if changed
             && self
@@ -438,6 +462,8 @@ impl App {
         }
         self.remember_sessions();
         self.replaced_orchestrator_ended(key, status.is_some());
+        // No turn runs any more, and what is queued waits for the person.
+        self.composer_ended(key);
     }
 
     /// After each event: a native session whose buffer was killed is stopped and archived, as
@@ -465,6 +491,9 @@ impl App {
                     stream.stop();
                 }
                 buffers.push(native.buffer);
+                if let Some(composer) = native.composing.buffer {
+                    self.editor.kill_buffer(composer);
+                }
             }
         }
         self.archive_killed_sessions(&buffers);
@@ -538,7 +567,7 @@ fn draw(
         native.placed.put(at, range, rendered.text.len());
         debug_assert_eq!(
             editor.buffer(native.buffer).map(|b| b.text().len()),
-            Some(native.placed.end())
+            Some(native.placed.end() + native.composing.queue_len)
         );
     }
 }

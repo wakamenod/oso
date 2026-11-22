@@ -31,6 +31,11 @@ impl App {
         line: usize,
         action: NativeAction,
     ) {
+        // From the composer, the session it is docked under (step 2).
+        if let Some(key) = self.composer_session(buffer) {
+            self.composer_key(key, None, action);
+            return;
+        }
         let key = self.hosting.table().by_buffer(buffer).map(|s| s.key);
         let Some(key) = key.filter(|key| self.hosting.natives.has(*key)) else {
             return self.editor.message("This buffer holds no native session");
@@ -42,11 +47,16 @@ impl App {
         else {
             return;
         };
+        if self.composer_key(key, Some(offset), action) {
+            return;
+        }
         match action {
             NativeAction::Toggle => self.native_toggle(key, offset),
             NativeAction::Open => self.native_result(key, offset),
             NativeAction::Prompt(count) => self.native_move(key, offset, count, Wanted::Prompt),
             NativeAction::Tool(count) => self.native_move(key, offset, count, Wanted::Tools),
+            // The composer's and the queue's, carried out above.
+            _ => {}
         }
     }
 

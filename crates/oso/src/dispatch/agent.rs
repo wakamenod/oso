@@ -109,7 +109,7 @@ impl Dispatcher {
             match mode {
                 Mode::GitCommit | Mode::GitPrMessage => return refused(MESSAGE_REFUSED.into()),
                 Mode::ReviewMessage => return refused(REVIEW_MESSAGE_REFUSED.into()),
-                Mode::Brief => return refused(BRIEF_REFUSED.into()),
+                Mode::Brief | Mode::Composer => return refused(BRIEF_REFUSED.into()),
                 _ => {}
             }
         }
@@ -352,6 +352,7 @@ fn has_own_keys(mode: Mode) -> bool {
         Mode::CopyList
         | Mode::CopyView
         | Mode::Brief
+        | Mode::Composer
         | Mode::Worktrees
         | Mode::Review
         | Mode::ReviewFiles
