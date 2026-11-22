@@ -165,7 +165,8 @@ fn spinning(app: &mut App, scratch: &Path) -> Result<Vec<f64>, String> {
             break;
         }
         if Instant::now() > deadline {
-            return Err(format!("{working} of {SESSIONS} sessions worked"));
+            let why = not_working(app, &state)?;
+            return Err(format!("{working} of {SESSIONS} sessions worked; {why}"));
         }
         thread::sleep(Duration::from_millis(50));
     }
@@ -183,6 +184,49 @@ fn spinning(app: &mut App, scratch: &Path) -> Result<Vec<f64>, String> {
         return Err("no frame was drawn while the marks spun".into());
     }
     Ok(frames)
+}
+
+/// What the sessions that are not working show, from `state`, for the error: each one's state
+/// and its buffer's size, an empty one being a screen that never came. Then the first is shown,
+/// and after a moment its state and last rows are read again, which tells a screen that waited
+/// for a frame from one that never came at all.
+fn not_working(app: &mut App, state: &serde_json::Value) -> Result<String, String> {
+    let none = Vec::new();
+    let buffers = state["buffers"].as_array().unwrap_or(&none);
+    let sessions = state["sessions"]["sessions"].as_array().unwrap_or(&none);
+    let mut parts = Vec::new();
+    let mut first = None;
+    for session in sessions.iter().filter(|s| s["state"] != "working") {
+        let name = session["name"].as_str().unwrap_or_default();
+        let buffer_name = format!("*claude: {name}*");
+        let buffer = buffers.iter().find(|b| b["name"] == buffer_name.as_str());
+        let id = buffer.and_then(|b| b["id"].as_u64());
+        first = first.or(id.map(|id| (id, name.to_owned())));
+        parts.push(format!(
+            "{name:?} {} (recap {}), buffer {:?} of {} bytes, {} lines",
+            session["state"],
+            session["recap"],
+            id,
+            buffer.map_or(&serde_json::Value::Null, |b| &b["bytes"]),
+            buffer.map_or(&serde_json::Value::Null, |b| &b["lines"]),
+        ));
+    }
+    let mut why = format!("not working: {}", parts.join("; "));
+    if let Some((id, name)) = first {
+        app.call("show-buffer", Some(serde_json::json!({ "buffer": id })))?;
+        thread::sleep(Duration::from_secs(1));
+        let shown = app.call("get-state", None)?;
+        let listed = shown["sessions"]["sessions"].as_array().unwrap_or(&none);
+        let session = listed.iter().find(|s| s["name"] == name.as_str());
+        let now = session.map_or(serde_json::Value::Null, |s| s["state"].clone());
+        let text = shown["text"].as_str().unwrap_or_default();
+        let rows: Vec<&str> = text.lines().filter(|row| !row.trim().is_empty()).collect();
+        let last = &rows[rows.len().saturating_sub(4)..];
+        why.push_str(&format!(
+            "; shown for 1 s, {name:?} is {now}, its last rows {last:?}"
+        ));
+    }
+    Ok(why)
 }
 
 /// Waits until the dev state lists `count` hosted sessions.

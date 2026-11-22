@@ -94,9 +94,12 @@ jobs:
         with:
           persist-credentials: false
       - run: rustup toolchain install
+      # Saved after a failed run too: a benchmark that fails, as macOS's did for weeks, would
+      # otherwise leave every later run to build from nothing, about 13 minutes of its 45.
       - uses: Swatinem/rust-cache@v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-on-failure: true
       # just from the cache or its release through the API, checked (.github/actions).
       - uses: $/.github/actions/install-just
       # Zig and libghostty-vt's tarballs for oso-term's build script (ADR 0120).
@@ -181,9 +184,11 @@ jobs:
         with:
           persist-credentials: false
       - run: rustup toolchain install
+      # Saved after a failed run too, as for the benchmarks.
       - uses: Swatinem/rust-cache@v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-on-failure: true
       # just from the cache or its release through the API, checked (.github/actions).
       - uses: $/.github/actions/install-just
       # Zig and libghostty-vt's tarballs for oso-term's build script (ADR 0120); Windows
