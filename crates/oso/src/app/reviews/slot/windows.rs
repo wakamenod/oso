@@ -2,7 +2,7 @@
 //! name, the slot made again at the review's right when the person deleted it and fitted to two
 //! fifths of its row, and what a restart carried of them. While the slot shows something other
 //! than the session `review-ask` shows, the session goes to a window below it, the slot's lower
-//! half (ADR 0169).
+//! half, which is lent the terminal's size while no window showing it owns that (ADR 0169).
 //!
 //! Must not depend on: key presses or how a frame is drawn; this reads and changes the editor's
 //! windows alone.
@@ -135,6 +135,24 @@ pub(super) fn ask_window(editor: &Editor, kept: &[Kept]) -> Option<WindowId> {
     (laid.ask).filter(|ask| {
         Some(*ask) != laid.slot && in_tree(editor, *ask) && !shows_review(editor, *ask)
     })
+}
+
+/// The ask window and the terminal it shows, while the frame is the layout and no window
+/// showing that terminal owns its size, which `owned` says (None for a buffer that is no
+/// terminal): the ask window is lent the size then, so that the session draws to the half it
+/// has (ADR 0169, amending ADR 0120's rule that the window that selected a terminal last owns
+/// its size).
+pub(super) fn ask_takes_size(
+    editor: &Editor,
+    kept: &[Kept],
+    owned: impl Fn(BufferId) -> Option<bool>,
+) -> Option<(BufferId, WindowId)> {
+    if !kept::review_in_frame(kept) {
+        return None;
+    }
+    let ask = ask_window(editor, kept)?;
+    let buffer = editor.window_by_id(ask)?.buffer();
+    (!owned(buffer)?).then_some((buffer, ask))
 }
 
 /// Splits `window` into two stacked halves, the new one below, showing what it shows, leaving

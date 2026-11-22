@@ -1,7 +1,8 @@
 //! The review layout (ADR 0160): the review at the left of the frame and one window at its
 //! right, the slot, which shows one thing at a time: the source a jump goes to, a side shown
 //! read-only, the message of comments to send, or the session `review-ask` asked. While it
-//! shows something else, the session goes below it, the slot's lower half (ADR 0169). One
+//! shows something else, the session goes below it, the slot's lower half, which is lent the
+//! session's terminal size while no window showing it owns that (ADR 0169). One
 //! key, `review-layout`, shows it, goes back from the slot to the review where it was, and
 //! restores the windows from before it, as `q` in the review does.
 //!
@@ -31,8 +32,8 @@ use crate::sessions::spaces::kept::{self, Kept, ReviewKept};
 mod windows;
 
 use windows::{
-    carried, fit_slot, in_slot, in_tree, jump_slot, layout_window, show_asked, show_in_slot,
-    shows_review, slot_of,
+    ask_takes_size, carried, fit_slot, in_slot, in_tree, jump_slot, layout_window, show_asked,
+    show_in_slot, shows_review, slot_of,
 };
 
 /// The slot's share of the row it is in, in fifths: the review keeps three (ADR 0160, Q4).
@@ -193,6 +194,22 @@ impl App {
         review: ReviewId,
     ) -> Option<(WindowId, Option<WindowId>)> {
         slot_of(&self.editor, self.watch.spaces().kept(), review)
+    }
+
+    /// Before the terminals are sized (ADR 0169): a terminal lent to the window below the slot
+    /// goes back to the window that owned it before once that one shows it and the lent one no
+    /// longer does, as when the layout ends; and the window below the slot is lent the size of
+    /// the terminal it shows while no window showing that terminal owns it. A lending is no
+    /// selection: the terminal selected last stays the one it was (ADR 0144).
+    pub(in crate::app) fn lend_review_ask_size(&mut self) {
+        let editor = &self.editor;
+        let shows = |window, buffer| super::super::terminals::window_shows(editor, window, buffer);
+        self.terminals.map.give_back(shows);
+        let map = &self.terminals.map;
+        let owned = |buffer| map.get(buffer).map(|hosted| shows(hosted.owner, buffer));
+        if let Some((buffer, ask)) = ask_takes_size(editor, self.watch.spaces().kept(), owned) {
+            self.terminals.map.lend(buffer, ask);
+        }
     }
 
     /// Whether `buffer` is a session's: a terminal, or a hosted session's buffer.

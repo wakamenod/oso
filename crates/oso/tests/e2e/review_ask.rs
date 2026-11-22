@@ -189,6 +189,30 @@ fn split_slot(app: &mut App, top: &str, below: &str) -> Value {
     })
 }
 
+/// Waits until the window below the slot showing `session` owns its terminal's size, and the
+/// PTY fits in it (ADR 0169, amending ADR 0120): the review stays selected meanwhile.
+fn sized_below(app: &mut App, session: &str) {
+    wait_saying(app, "the session sized to the window below", |state| {
+        let buffers = state["buffers"].as_array().cloned().unwrap_or_default();
+        let id = (buffers.iter()).find(|buffer| buffer["name"] == session);
+        let windows = state["windows"].as_array().cloned().unwrap_or_default();
+        let below = id.and_then(|id| (windows.iter()).find(|window| window["buffer"] == id["id"]));
+        let (Some(below), Some(terminal)) = (below, terminal(state, session)) else {
+            return false;
+        };
+        // The text's rows exactly; the columns at most the area's, which holds the gutter.
+        let rows = terminal["size"]["rows"].as_u64();
+        let columns = (terminal["size"]["columns"].as_u64())
+            .zip(below["area"]["columns"].as_u64())
+            .is_some_and(|(size, area)| size > 0 && size <= area);
+        terminal["owner"] == below["id"]
+            && rows.is_some()
+            && rows == below["rows"].as_u64()
+            && columns
+            && state["buffer"]["name"] == REVIEW
+    });
+}
+
 /// Asks `question` with `Q` on the review's first added line.
 fn ask(app: &mut App, question: &str) {
     app.send_keys("M-< n C-n Q");
@@ -239,8 +263,10 @@ fn a_question_goes_to_the_review_s_session_submitted_and_shows_beside_the_review
         windows.iter().any(|name| name == "*claude: repo*"),
         "{windows:?}"
     );
-    // The slot showed .gitignore: it stays on top, the session below it (ADR 0169).
+    // The slot showed .gitignore: it stays on top, the session below it (ADR 0169), sized to
+    // the window below, as the window the session started in shows .gitignore now.
     split_slot(&mut app, ".gitignore", "*claude: repo*");
+    sized_below(&mut app, "*claude: repo*");
 
     // `RET` to the source changes the top alone, selected there.
     app.send_keys("M-< n C-n RET");
@@ -286,6 +312,7 @@ fn a_restart_keeps_the_split_slot_and_a_question_after_it_reuses_the_window_belo
     });
     let state = split_slot(&mut new, "README.md", "*claude: repo*");
     assert_eq!(state["buffer"]["name"], REVIEW, "{state}");
+    sized_below(&mut new, "*claude: repo*");
 
     empty_box(&mut new, &flow, "*claude: repo*");
     ask(&mut new, "And");

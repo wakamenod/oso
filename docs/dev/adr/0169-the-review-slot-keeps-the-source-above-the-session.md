@@ -47,6 +47,29 @@ The slot's column keeps its two fifths of the row. The split takes its height in
 top half the slot's, as `C-x 2` splits; `C-x ^` and the other resize keys change it as any
 window's.
 
+### The terminal's size (amending ADR 0120)
+
+The ask window is never selected, so under ADR 0120's rule ("the PTY takes the size of the window
+that last selected the terminal") a session's terminal kept the size of a window that no longer
+showed it, often a larger one in the tree kept behind the layout, and the bottom of its screen,
+its input box, could fall outside the half it now has. The author chose on 2026-11-22, a fifth
+question asked once the split was built (Q5 (a)):
+
+- **While no window showing the terminal owns its size,** the ask window is lent it: its owner
+  is gone (a window of the tree kept behind the layout counts as gone), shows another buffer, or
+  there was none, as for a terminal started behind (ADR 0144). The PTY then takes the ask
+  window's size, as after any resize.
+- **A window showing the terminal that owns its size keeps it,** so selecting the terminal
+  elsewhere works as ADR 0120 has it.
+- **A lending is not a selection:** the terminal selected last stays the one it was (ADR 0144),
+  and the ask window stays unselected. Selecting the ask window later is a selection, as any.
+- **The size goes back:** the owner from before the lending is kept, and gets the size back once
+  the ask window no longer shows the terminal and that window does: when the layout ends and the
+  windows from before come back, the window that showed the session takes its size again.
+- The check runs after each event, before the terminals are sized, and only while the frame is
+  the layout with an ask window showing a terminal. A session filling the whole slot keeps ADR
+  0120's rule.
+
 ### The windows by name
 
 The ask window is known by its name (`WindowId`), never by its place, as the layout's other
@@ -80,9 +103,19 @@ None in a library crate. In the tip crate: `ReviewKept` gains `ask`, the ask win
 `asked`, the session's buffer `review-ask` showed last, so that a jump while it fills the slot
 keeps it below; `carry::reviews::{Shown, ReviewEntry}` gain `ask`. `App::show_in_review_slot`
 keeps its signature: a buffer shown there not selected, which only `review-ask` asks for, goes
-through the split; one shown selected, the message, goes to the slot as before.
+through the split; one shown selected, the message, goes to the slot as before. The terminals'
+table gains `Terminals::lend` and `Terminals::give_back` beside `selected` and `behind`, and
+`Hosted` the owner from before a lending, `lent_from`.
 
 ## Changes to accepted ADRs
+
+- [ADR 0120](0120-the-terminal.md), "In split windows, the PTY takes the size of the window that
+  last selected the terminal", and the same rule in its 4b notes: except that the review
+  layout's ask window is lent the size of the terminal it shows while no window showing that
+  terminal owns it, and gives it back as above.
+- [ADR 0144](0144-agent-starts-with-no-limit-and-in-the-background.md), "Size (amends ADR 0120)":
+  "No window owns its size until a window is selected on it": or until the review layout's ask
+  window shows it, as above; that lending does not make it the terminal selected last.
 
 - [ADR 0160](0160-the-review-layout.md):
   - "The slot shows one thing at a time (Q7)": the slot shows one thing at a time, except that
@@ -102,9 +135,9 @@ through the split; one shown selected, the message, goes to the slot as before.
 - The slot's source has half the rows it had while a session shows below it. On the end-to-end
   window the slot is about 40 columns wide; the halves are about a third of a laptop screen's
   height each.
-- The ask window is shorter than the whole slot, but its program keeps the size of the window
-  that selected its terminal last until the person selects the ask window, as with an unselected
-  slot before (a terminal is sized by the window that owns it).
+- The session's program sees the ask window's size whenever nothing else showing it owns the
+  size, so its input box stays on screen; a session filling the whole slot unselected still keeps
+  the size of the window that selected it last, as before.
 - After `C-x 1` in the review, the next `RET` makes the slot again, and the next `Q` splits it.
 - Both halves can show the session for a while: when the message on top is sent or dropped, the
   top shows what it showed before it, the session, as any window does when its buffer goes; and
@@ -123,8 +156,10 @@ through the split; one shown selected, the message, goes to the slot as before.
 - **Source two fifths, session three; or source three, session two** (Q4 (b), (c)): an answer is
   often longer than a hunk, but either is a resize away, and halves are what `C-x 2` gives.
 - **"As amended" sections in ADR 0160 and 0163** (README's narrow amendment): the change touches
-  two rules of ADR 0160 (the slot and the restart's entry) and one of ADR 0163, so it is a new
-  ADR.
+  two rules of ADR 0160 (the slot and the restart's entry), one of ADR 0163 and one of ADR 0120,
+  so it is a new ADR.
+- **Leave the terminal's size to ADR 0120's rule** (Q5 (b)): the person would select the ask window
+  to resize the session, leaving the diff, which the split was made to avoid.
 - **An explicit argument to `App::show_in_review_slot` saying "a question's session"**: clearer at
   the call sites, but it would change `review-ask`'s delivery code while it was being changed
   elsewhere; "not selected" is `review-ask`'s alone today and can become an argument later.
