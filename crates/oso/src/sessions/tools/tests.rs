@@ -585,14 +585,14 @@ fn the_reply_says_what_reads_the_added_repository() {
     assert_eq!(add_dir(true, false, false, false), AddDir::NotOffered);
     let native = add_dir(true, false, false, true);
     assert_eq!(native, AddDir::NextResume);
-    let note = AddDir::Offered.note("/r/web");
+    let note = AddDir::Offered.note("/r/web", false);
     assert!(
         note.contains("/add-dir /r/web") && note.contains("ask them"),
         "{note}"
     );
     assert!(
         AddDir::WaitsForTrust
-            .note("/r/web")
+            .note("/r/web", false)
             .contains("trust-project")
     );
     assert_eq!(AddDir::NotOffered.word(), "not offered");

@@ -6,6 +6,7 @@
 //! Must not depend on: key presses or how a frame is drawn.
 
 use crate::app::App;
+use crate::sessions::hosted::Run;
 use crate::sessions::native::status::SEPARATOR;
 use crate::sessions::worker::SessionKey;
 
@@ -33,6 +34,21 @@ impl NativeState {
 }
 
 impl App {
+    /// Where native session `key`'s process is, as the session table names it, for what
+    /// waits for it to run, as a review's question does (ADR 0176, part O-2): `None` for a
+    /// session that is not a native one.
+    pub(in crate::app) fn native_run(&self, key: SessionKey) -> Option<Run> {
+        let native = self.hosting.natives.map.get(&key)?;
+        Some(match (&native.stream, native.state) {
+            (Some(stream), _) => Run::Running {
+                child: stream.pid(),
+            },
+            (None, NativeState::Starting) => Run::Starting,
+            (None, NativeState::Failed) => Run::Failed,
+            (None, _) => Run::Stopped,
+        })
+    }
+
     /// Sets native session `key`'s run state, and its modeline's note.
     pub(super) fn set_native_state(&mut self, key: SessionKey, state: NativeState) {
         if let Some(native) = self.hosting.natives.map.get_mut(&key) {

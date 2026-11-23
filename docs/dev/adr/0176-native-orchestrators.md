@@ -86,14 +86,19 @@ its own.
   orchestrator is given its space's trusted repositories with `--add-dir`, as every resume is.
   For a repository added or trusted while it runs, oso asks the person "Resume orchestrator
   NAME with REPO added, once its turn ends? (y or n)", in place of the paste, from the recorded
-  path only while that is one plain line, as the paste's. At `y`, the offer still holding, it
-  is stopped once idle and resumed with `--resume` and the new `--add-dir`, as a mode change's
+  path only while that is one plain line, as the paste's, and never over another question the
+  person may be answering, as its `y` stops a process. At `y`, the offer still holding, it is
+  stopped once idle and resumed with `--resume` and the new `--add-dir`, as a mode change's
   respawn is (ADR 0165, part 3b), before its queue goes on; its rows say "Resuming with REPO
-  added: …", then "Resumed with REPO added." While a turn, an interrupt or a switch runs, or a
-  resume could not start (a stop asked, a quit or restart, a replacement), it waits; once the
-  session is no longer the space's running orchestrator or the repository no longer a trusted
-  member, it is given up, and the echo area says so. `space_add_repo` answers
-  `add_dir: "resume offered"` when oso asked, and `"next resume"` when it could not ask now.
+  added: …", then, once the start thread reports, "Resumed with REPO added." for the
+  repositories that start passed (else "Resumed."). While a turn, an interrupt or a switch
+  runs, or a resume could not start (a stop asked, a quit or restart, a replacement), it waits,
+  several `y`s gathering into one resume; once it could go, each repository is judged again,
+  and one no longer a trusted member, or a session no longer the space's running orchestrator,
+  is given up, the echo area saying so. A resume that comes otherwise meanwhile, as an
+  interrupt's, gives the repositories too; a switch to the TUI does, by the TUI's resume.
+  `space_add_repo` answers `add_dir: "resume offered"` when oso asked, and `"next resume"`
+  when it could not ask now; its restricted note promises the resume, not a paste.
 - **A review's question (O-2, Q-O5 (a)):** to a running native orchestrator it is sent at once
   (`send_confirmed`, ADR 0165 part 2f). To a stopped one oso offers the resume a terminal's
   gets, "Orchestrator NAME is stopped: resume it and ask it then?", and the question is held,
@@ -143,7 +148,7 @@ its own.
   write, as the session tools' roles already do (ADR 0136, step 4a): a forged orchestrator,
   earlier orchestrator or native session of the person's there passes it. The directory's
   checks and identity, and `--setting-sources=user`, still bound where and how it runs.
-- Follow-ups: O-2 (the flows above) and O-3 (the default, with the docs `ui.md`,
+- Follow-up: O-3 (the default, with the docs `ui.md`,
   `daily-use.md` and `native-sessions-ux.md`).
 
 ## Alternatives considered

@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use super::SpaceStart;
 
-/// What an orchestrator's command line takes beyond any session's.
+/// What an orchestrator's or a worker's command line takes beyond any session's.
 #[derive(Debug, Default)]
 pub(super) struct Extra {
     pub(super) add_dirs: Vec<PathBuf>,

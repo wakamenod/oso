@@ -87,8 +87,9 @@ impl AddDir {
         }
     }
 
-    /// What the reply tells the agent of the repository at `path`.
-    pub fn note(self, path: &str) -> String {
+    /// What the reply tells the agent of the repository at `path`, a `native` orchestrator's
+    /// trust offering a resume rather than a paste (ADR 0176, part O-2).
+    pub fn note(self, path: &str, native: bool) -> String {
         match self {
             Self::Offered => format!(
                 "oso asks the person whether to paste /add-dir {path} into your input, not \
@@ -96,6 +97,11 @@ impl AddDir {
                  Workers you start with this repo can use it now."
             ),
             Self::Given => "your claude was given it with --add-dir already.".to_owned(),
+            Self::WaitsForTrust if native => format!(
+                "oso does not trust it: it is restricted, with no worktrees, workers or \
+                 --add-dir, until the person trusts it with trust-project in oso; oso then \
+                 offers them to resume you with {path} given with --add-dir."
+            ),
             Self::WaitsForTrust => format!(
                 "oso does not trust it: it is restricted, with no worktrees, workers or \
                  --add-dir, until the person trusts it with trust-project in oso; oso then \

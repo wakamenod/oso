@@ -286,7 +286,7 @@ impl App {
         let name = (self.watch.spaces().member_names(at).into_iter())
             .find(|(_, member)| same(member, &root))
             .map(|(name, _)| name);
-        let note = add_dir.note(&path);
+        let note = add_dir.note(&path, native);
         let note = if pending.unasked {
             format!("{note} Added without asking, as the person's config.toml allows.")
         } else {

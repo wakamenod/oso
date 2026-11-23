@@ -45,7 +45,7 @@ use super::super::App;
 use super::super::sessions::{Orchestrator, Outgoing, Shown};
 use crate::commands::agent_sessions::MAX_SEND_BYTES;
 use crate::review::ask::{About, Where, compose, region_rows, row_text};
-use crate::sessions::native::queue::Run;
+use crate::sessions::hosted::Run;
 use crate::sessions::send::{InputBox, NoBox, input_box};
 use crate::sessions::spaces::SpaceId;
 use crate::sessions::worker::SessionKey;
@@ -332,9 +332,9 @@ impl App {
                 .message("The orchestrator is gone: the question was not sent");
         }
         let ready = match self.native_run(key) {
-            Some(Run::Running) => true,
+            Some(Run::Running { .. }) => true,
             Some(Run::Starting) => false,
-            Some(Run::Ended) => {
+            Some(Run::Stopped | Run::Failed) => {
                 self.reviews.asking.held = None;
                 let name = self.review_session_name(key);
                 return self.editor.message(format!(

@@ -10,7 +10,8 @@
 //! - A row is drawn where it is, at the cost of what changed: a reply that grows from its
 //!   last line only (ADR 0165, "Step 1, as built"). A frame is asked for only when a shown
 //!   session's rows changed, or a session ended.
-//! - A native session runs only in a trusted project (Q5): elsewhere a session is a terminal.
+//! - A native session runs only in a trusted project (Q5), or in an issue space's own
+//!   directory under its gate (ADR 0176): elsewhere a session is a terminal.
 //! - Its buffer's keys, `TAB`, `RET`, `n`/`p` and `]`/`[`, are carried out in `keys`, which
 //!   routes the composer's and the queue's to `composer` (step 2).
 //! - Its buffer, made for a start, a resume or a fork, or brought back with no process, is
@@ -241,6 +242,7 @@ impl App {
             buffer,
             started: Started::Native(stream),
             directory,
+            added,
             ..
         } = ready
         else {
@@ -265,6 +267,7 @@ impl App {
         session.tui_process = None;
         let name = session.name.clone();
         self.set_native_state(key, NativeState::Running);
+        self.dirs_added_row(key, &added);
         self.editor.note_unlogged(format!(
             "Started native session {name} in {}",
             directory.display()

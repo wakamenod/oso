@@ -403,3 +403,21 @@ fn a_session_an_oso_restart_resumes_starts_in_the_mode_carried_and_keeps_it() {
     assert!(none.said("auto"));
     assert_eq!(none.carried(), None);
 }
+
+/// A process is stopped to resume only idle, given a message and free to resume, whatever the
+/// respawn is for.
+#[test]
+fn a_respawn_waits_for_an_idle_spoken_free_process() {
+    assert_eq!(IDLE.respawn_refusal(), None);
+    assert_eq!(BUSY.respawn_refusal(), Some(Refusal::Busy));
+    let unspoken = Process {
+        spoke: false,
+        ..IDLE
+    };
+    assert_eq!(unspoken.respawn_refusal(), Some(Refusal::Unspoken));
+    let held = Process {
+        resumable: false,
+        ..IDLE
+    };
+    assert_eq!(held.respawn_refusal(), Some(Refusal::Held));
+}

@@ -17,7 +17,7 @@
 //!   parts 4a and 4e) is judged here by its root's path and identity, before the root's other
 //!   checks. One in an issue space's own directory runs under the space's gate instead, taken
 //!   once the space's checks passed (`space_gate`, ADR 0176), with the person's own settings
-//!   alone.
+//!   alone. What an orchestrator's or a worker's line takes beyond that is `extra`'s.
 //! - For a new or adopted session in a trusted project, the baseline is taken first (ADR 0122), waiting at most
 //!   [`BASELINE_WAIT`]; past that, the session starts and the baseline follows (`baseline`).
 //! - The shell is found as ADR 0120 has it, and `claude` on `PATH` when the shell is not one
@@ -237,6 +237,9 @@ pub struct Ready {
     pub baseline: Option<String>,
     /// What the echo area says of the start beside it: an orchestrator's repository left out.
     pub notes: Vec<String>,
+    /// The directories it was given with `--add-dir`, for the row of a native orchestrator
+    /// resumed with a repository added (ADR 0176, part O-2).
+    pub added: Vec<PathBuf>,
     /// A terminal's child's process id and when it started, as the system said just after
     /// the spawn, for a later native resume's wait (ADR 0165, part 4d-2).
     pub child_started: Option<(u32, std::time::SystemTime)>,
@@ -362,6 +365,7 @@ fn prepare(mut order: Order, send: &(dyn Fn(Report) + Sync)) {
         project,
         baseline: in_time.flatten(),
         notes,
+        added: extra.add_dirs,
     })));
     if let Some(Some(tree)) = late.and_then(|b| b.wait(BASELINE_GIVE_UP)) {
         send(Report::Baseline { token, tree });

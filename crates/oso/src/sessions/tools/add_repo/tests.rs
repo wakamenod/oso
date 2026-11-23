@@ -13,7 +13,9 @@ fn a_native_orchestrator_is_offered_a_resume_with_the_repository() {
     assert_eq!(add_dir(true, true, true, true), AddDir::Given);
     assert_eq!(add_dir(false, false, true, true), AddDir::WaitsForTrust);
     assert_eq!(AddDir::ResumeOffered.word(), "resume offered");
-    let note = AddDir::ResumeOffered.note("/r/web");
-    assert!(note.contains("resume you with /r/web"), "{note}");
-    assert!(!note.contains("paste"), "{note}");
+    for native in [AddDir::ResumeOffered, AddDir::WaitsForTrust] {
+        let note = native.note("/r/web", true);
+        assert!(note.contains("resume you with /r/web"), "{note}");
+        assert!(!note.contains("paste"), "{note}");
+    }
 }
