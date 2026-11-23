@@ -72,6 +72,7 @@ use std::ops::Range;
 use oso_core::buffer::{Buffer, BufferId};
 use oso_core::project::ProjectId;
 
+pub(in crate::app) use self::composer::Placeholder;
 use self::note::NativeState;
 use super::Begin;
 use crate::app::App;
@@ -120,7 +121,7 @@ pub(in crate::app) struct NativeSessions {
     /// part O-2).
     adding: HashMap<SessionKey, adding::Adding>,
     /// What an empty composer's placeholder says (ADR 0170), until the user's keys change.
-    placeholder: Option<[String; 3]>,
+    placeholder: Option<Placeholder>,
 }
 
 /// A native session's buffer, rows and process.
@@ -418,9 +419,6 @@ impl App {
         }
         let noted = noted || was_interrupting != interrupting(native);
         draw(&mut self.editor, native, changes);
-        if suggested {
-            self.draw_queue(key);
-        }
         // A turn that ended lets the queue's first go, after the event (`send_waiting_queues`).
         for target in targets {
             self.tell_tracker(key, target);

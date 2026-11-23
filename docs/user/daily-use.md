@@ -742,9 +742,11 @@ A note in the transcript says so if a claude says that it is available all the s
 
 You write the next messages in the composer under the conversation, which agents cannot read.
 While it is empty it says in grey what it is and its keys. `i` goes there and `C-c C-o` back, `C-c C-c` sends, and `M-p` and `M-n` bring back what you
-sent. After a turn, Claude's guess at your next message shows dim at the end of the
-conversation as `Suggested: …`; `M-n` in an empty composer puts it in for you to edit or send,
-with a leading `/` or an `@` escaped as below. When you come back to a session that finished
+sent. After a turn, Claude's guess at your next message shows there in grey instead, with
+`(C-c C-s takes it)` after it. `C-c C-s`, in the composer or the conversation, puts it at the
+end of what you have written there, for you to edit or send, with a leading `/` or an `@`
+escaped as below; after a command (`/`, `!` or `#` first), or an `@"` not closed, it puts nothing. `M-n` in an empty
+composer puts it in too. When you come back to a session that finished
 while you were elsewhere, the echo area says the first sentence of its last reply, as `NAME (last reply): …`. A message you send while Claude is working waits in a queue, grey at the end of the
 conversation, and goes when the turn ends. On a queued message, `RET` takes it back into the
 composer, `e` edits it where it is (`C-c C-c` puts it back, `C-c C-k` leaves it as it was), `d`

@@ -483,6 +483,7 @@ mod tests {
         "native-session-compose",
         "native-session-interrupt",
         "native-session-queue",
+        "native-session-take-suggestion",
         // Sending to a session is the person's typing into its terminal (ADR 0120, Q15).
         "session-follow-message",
         "session-mention",

@@ -12,11 +12,9 @@ use oso_core::window::WindowId;
 use crate::app::App;
 use crate::sessions::native::queue::Move;
 use crate::sessions::native::render::{Face, queue_rows};
-use crate::sessions::native::suggest::suggestion_row;
 use crate::sessions::worker::SessionKey;
 
-/// The windows whose point is on a row of those from `start`, the queue's and the suggestion's,
-/// in `buffer`, with the row's number: below the heading and before the end, which stays the
+/// The windows whose point is on a row of the queue's, from `start` in `buffer`, with the row's number: below the heading and before the end, which stays the
 /// end.
 fn windows_on_rows(editor: &Editor, buffer: BufferId, start: usize) -> Vec<(WindowId, usize)> {
     let Some(text) = editor.buffer(buffer).map(Buffer::text) else {
@@ -58,17 +56,13 @@ fn stay_on_row(
 }
 
 impl App {
-    /// Draws native session `key`'s queue as grey rows at its transcript's end, and its
-    /// prompt suggestion's after them (part 3f), when they changed, and says how many wait in
-    /// its modeline.
+    /// Draws native session `key`'s queue as grey rows at its transcript's end, when they
+    /// changed, and says how many wait in its modeline.
     pub(in crate::app::sessions::hosting::native) fn draw_queue(&mut self, key: SessionKey) {
         let Some(native) = self.hosting.natives.map.get_mut(&key) else {
             return;
         };
-        let mut rows = queue_rows(&native.composing.queue);
-        if let Some(text) = &native.composing.suggestion {
-            rows.push_str(&suggestion_row(text));
-        }
+        let rows = queue_rows(&native.composing.queue);
         if rows != native.composing.rows {
             let start = native.placed.end();
             let range = start..start + native.composing.rows.len();
@@ -95,7 +89,7 @@ impl App {
     }
 
     /// The queued message whose row is at `offset` of native session `key`'s transcript; the
-    /// queue's heading names the first, and a row after the queue's is the suggestion's.
+    /// queue's heading names the first.
     pub(super) fn queued_at(&self, key: SessionKey, offset: usize) -> Option<u64> {
         let native = self.hosting.natives.map.get(&key)?;
         let start = native.placed.end();

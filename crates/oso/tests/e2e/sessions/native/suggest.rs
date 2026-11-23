@@ -2,10 +2,11 @@
 //! that ends each turn with a reply, its result and a `prompt_suggestion`, as the CLI does with
 //! `--prompt-suggestions` after a conversation's first turn.
 //!
-//! Must not depend on: the app's internals; the suggestion's row, the first sentence and the
-//! escapes have their own tests.
+//! Must not depend on: the app's internals; the placeholder that shows the suggestion, which
+//! nothing over the socket reads, the first sentence and the escapes have their own tests.
 
 use std::fs;
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
@@ -34,12 +35,38 @@ while IFS= read -r line; do
 done
 "#;
 
-/// The rows the transcript shows, read from it, whatever window is selected.
-fn transcript(app: &mut App) -> Value {
-    app.send_keys("C-c C-o");
-    app.wait_for("the transcript", |state| {
-        state["buffer"]["name"] == "*claude: proj*"
-    })
+/// Waits until the composer holds `wanted`, with its text and the echo area if it never does.
+fn holds(app: &mut App, wanted: &str) -> Value {
+    let end = Instant::now() + Duration::from_secs(20);
+    loop {
+        let state = app.state();
+        if in_composer(&state) && text(&state) == wanted {
+            return state;
+        }
+        let (name, echo) = (&state["buffer"]["name"], &state["echo"]);
+        let held = text(&state);
+        assert!(
+            Instant::now() < end,
+            "{name} holds {held:?}, not {wanted:?}; {echo}"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// Presses `C-c C-s` until the suggestion, which comes after the turn's end, is taken and the
+/// composer holds `wanted`. Until then the key puts nothing in.
+fn take(app: &mut App, wanted: &str) -> Value {
+    let end = Instant::now() + Duration::from_secs(20);
+    loop {
+        app.send_keys("C-c C-s");
+        let state = app.state();
+        // Taken once: another press would put it in again.
+        if in_composer(&state) && !text(&state).is_empty() {
+            return holds(app, wanted);
+        }
+        assert!(Instant::now() < end, "not taken: {state}");
+        std::thread::sleep(Duration::from_millis(100));
+    }
 }
 
 /// `flow`'s app, with a native session sent [`MESSAGE`], its first turn ended.
@@ -72,38 +99,63 @@ fn first_turn(flow: &Flow) -> App {
 
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
-fn a_suggestion_shows_goes_into_the_composer_escaped_and_a_turn_ended_unseen_is_recapped() {
+fn a_suggestion_goes_into_the_composer_escaped_and_a_turn_ended_unseen_is_recapped() {
     let flow = Flow::new("native-suggest");
     let mut app = first_turn(&flow);
 
-    // The suggestion, dim at the transcript's end, after the turn's rows.
-    let state = app.wait_for("the suggestion", |state| {
-        text(state).contains("Suggested: /review @notes.md")
+    // `C-c C-s` in the transcript puts it into the composer, escaped, not sent, point there
+    // after it.
+    app.wait_for("the transcript", |state| {
+        state["buffer"]["name"] == "*claude: proj*" && text(state).contains("Done 1.")
     });
-    assert!(
-        text(&state)
-            .trim_end()
-            .ends_with("Suggested: /review @notes.md"),
-        "{state}"
-    );
+    take(&mut app, r" /review \@notes.md");
+    // No row of the transcript, and nothing else the socket reads, holds it.
+    app.send_keys("C-c C-o");
+    let state = app.wait_for("the transcript", |state| {
+        state["buffer"]["name"] == "*claude: proj*"
+    });
+    assert!(!state.to_string().contains("/review"), "{state}");
 
-    // `M-n` past the newest message, in the empty composer, puts it in escaped, not sent.
+    // Cleared, `M-n` past the newest message puts it in too; with a draft, `C-c C-s` puts it at
+    // the draft's end.
     app.send_keys("i");
     app.wait_for("the composer", in_composer);
+    app.send_keys("C-x h C-w");
+    holds(&mut app, "");
     app.send_keys("M-n");
-    app.wait_for("the suggestion in the composer", |state| {
-        in_composer(state) && text(state) == r" /review \@notes.md"
+    holds(&mut app, r" /review \@notes.md");
+    app.send_keys("C-x h C-w");
+    // Apart: keys sent together run before the host puts it in, as no keys of a person's do but
+    // a macro's and those held while a command waits (ADR 0165, part 3f).
+    app.send_keys("s e e C-a C-c C-s");
+    app.send_keys("x");
+    holds(&mut app, r"see /review \@notes.mdx");
+    // Nothing goes after a command.
+    app.send_keys("C-x h C-w");
+    app.send_keys("! l C-c C-s");
+    app.wait_for("the draft left as it is", |state| {
+        in_composer(state)
+            && text(state) == "!l"
+            && state["echo"]
+                .as_str()
+                .is_some_and(|echo| echo.contains("command"))
     });
+    app.send_keys("C-x h C-w");
+    take(&mut app, r" /review \@notes.md");
     assert!(!flow.scratch.path().join("sent.2").exists(), "not sent");
 
-    // Sent, it goes from the transcript.
+    // Sent, it is gone.
     app.send_keys("C-c C-c");
     assert_eq!(
         flow.wait_for_file("sent.2").trim_end(),
         r" /review \\@notes.md"
     );
-    let shown = text(&transcript(&mut app));
-    assert!(!shown.contains("Suggested:"), "{shown}");
+    app.send_keys("C-c C-s");
+    app.wait_for("no suggestion", |state| {
+        in_composer(state)
+            && text(state).is_empty()
+            && (state["echo"].as_str()).is_some_and(|echo| echo.contains("No suggestion"))
+    });
 
     // The turn ends while the person is elsewhere; back in the session, the recap is said in
     // the echo area, withheld from what the socket reads, so its modeline is too.
@@ -132,8 +184,8 @@ fn a_suggestion_shows_goes_into_the_composer_escaped_and_a_turn_ended_unseen_is_
     // The next key ends it; the new suggestion is there.
     app.send_keys("C-l");
     let state = app.wait_for("the recap gone", |state| state["modeline"].is_string());
-    assert!(text(&state).contains("Suggested: run the tests"), "{state}");
     assert!(text(&state).contains("Done 2. More text."), "{state}");
+    take(&mut app, "run the tests");
     let _ = app.exchange("exit", None);
     app.wait_for_exit();
 }

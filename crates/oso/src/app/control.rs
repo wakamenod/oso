@@ -412,7 +412,7 @@ impl App {
                 &self.editor,
                 &self.terminals.map,
                 self.watch.pane_bands(),
-                self.hosting.natives.placeholder(),
+                Some(&self.hosting.natives),
             ),
             open_menu.as_ref(),
             &statuses,

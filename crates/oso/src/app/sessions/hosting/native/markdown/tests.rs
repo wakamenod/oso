@@ -70,7 +70,8 @@ struct Setup {
 
 const SESSION: u64 = 7;
 
-/// A running native session over `buffer` with no rows yet; `suggesting`'s tests take it too.
+/// A running native session over `buffer` with no rows yet; `suggesting`'s and the
+/// placeholder's tests take it too.
 pub(in crate::app::sessions::hosting::native) fn native(buffer: BufferId) -> Native {
     Native {
         buffer,
