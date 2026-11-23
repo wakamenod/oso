@@ -99,7 +99,10 @@ pub use copies::RecoveryAction;
 pub use crossing::Crossing;
 pub use cursors::{CursorError, Toward};
 pub use diagnostics::DiagnosticCells;
-pub use dictation::{DictationMark, DictationRequest};
+pub use dictation::{
+    DictationContext, DictationMark, DictationPlaced, DictationRequest, DictationSpan,
+    DictationTarget,
+};
 pub use file_preview::{Excerpt, FilePreviewRead, FilePreviewRequest, PreviewAt};
 pub use files::Looked;
 pub use git::*;
@@ -575,7 +578,7 @@ impl Editor {
             .find_map(|(index, set)| (*index == self.selected).then(|| set.clone()));
         let views = self.moved_views(id, &staged.display(), staged.steps(), staged.rewrap());
         // Nothing past this point can panic part way.
-        self.answers_follow(id, staged.steps());
+        self.marks_follow(id, staged.steps());
         if let Some(buffer) = self.buffer_mut(id) {
             buffer.commit_edit(staged, opening, after);
         }

@@ -14,18 +14,13 @@
 //!   used: it reads no OAuth login or keychain.
 
 use std::ffi::OsString;
-use std::io::Write as _;
-use std::path::{Path, PathBuf};
-use std::process::ChildStdout;
-use std::sync::{Arc, Mutex, mpsc};
-use std::thread;
-use std::time::{Duration, Instant};
+use std::path::PathBuf;
+use std::time::Duration;
 
-use oso_platform::process::{Child, Signal, Sink, Source, Spawn, spawn};
 use serde_json::Value;
 
 use super::stored::{MAX_NAME, clean_display, slug};
-use crate::sessions::launch;
+use crate::sessions::oneshot::{self, Oneshot, Running, Unread};
 
 /// How long the answer may take: the run is killed past it.
 pub const LIMIT: Duration = Duration::from_secs(20);
@@ -33,8 +28,6 @@ pub const LIMIT: Duration = Duration::from_secs(20);
 pub const MAX_ANSWER: usize = 64 * 1024;
 /// The directory in oso's state directory each run starts in a new, empty directory of.
 pub const DIRECTORY: &str = "space-naming";
-/// How often the run looks whether `claude` ended.
-const POLL: Duration = Duration::from_millis(20);
 
 /// The model asked: a small one, as two names need no more.
 const MODEL: &str = "haiku";
@@ -58,10 +51,6 @@ pub struct Named {
     /// A slug as [`slug`] leaves one, with a letter.
     pub slug: Option<String>,
 }
-
-/// The run's `claude` while it runs, shared with whoever may stop it: an exit or a restart
-/// stops it with [`stop`], as nothing else would before its limit.
-pub type Running = Arc<Mutex<Option<Child>>>;
 
 /// What the naming run is given. Its `Debug` leaves the description out.
 #[derive(Clone)]
@@ -93,27 +82,14 @@ impl std::fmt::Debug for Ask {
     }
 }
 
-/// `claude`'s arguments: the options alone, each as `--flag=value` so that no value is taken
-/// for an option. The description is not among them.
+/// `claude`'s arguments: [`oneshot::arguments`]' and the naming's own, options alone, each as
+/// `--flag=value` so that no value is taken for an option. The description is not among them.
 pub fn arguments() -> Vec<OsString> {
-    [
-        "--print",
-        "--safe-mode",
-        "--tools=",
-        "--strict-mcp-config",
-        "--setting-sources=user",
-        "--disable-slash-commands",
-        "--no-session-persistence",
-        "--output-format=json",
-    ]
-    .into_iter()
-    .map(OsString::from)
-    .chain([
+    oneshot::arguments([
         format!("--model={MODEL}").into(),
         format!("--json-schema={SCHEMA}").into(),
         format!("--system-prompt={SYSTEM}").into(),
     ])
-    .collect()
 }
 
 /// What `claude` reads on its standard input: the description, between the lines the system
@@ -131,22 +107,14 @@ pub fn input(description: &str) -> Vec<u8> {
 ///
 /// Why no name can be read from it, for the echo area.
 pub fn answer(bytes: &[u8]) -> Result<Named, String> {
-    let value: Value =
-        serde_json::from_slice(bytes).map_err(|_| "its answer was not JSON".to_owned())?;
-    if value.get("is_error").and_then(Value::as_bool) == Some(true) {
-        return Err("it said it failed".to_owned());
-    }
-    let parsed;
-    let names = match value.get("structured_output") {
-        Some(names @ Value::Object(_)) => names,
-        _ => {
-            let result = value.get("result").and_then(Value::as_str);
-            let result = result.ok_or_else(|| "its answer held no names".to_owned())?;
-            parsed = serde_json::from_str::<Value>(result)
-                .map_err(|_| "its answer held no names".to_owned())?;
-            &parsed
+    let names = oneshot::structured(bytes).map_err(|unread| {
+        match unread {
+            Unread::NotJson => "its answer was not JSON",
+            Unread::Failed => "it said it failed",
+            Unread::Empty => "its answer held no names",
         }
-    };
+        .to_owned()
+    })?;
     let text = |key: &str| names.get(key).and_then(Value::as_str);
     let named = Named {
         display: text("display_name").and_then(display_of),
@@ -185,127 +153,21 @@ pub fn run(ask: &Ask) -> Result<Named, String> {
 
 /// [`run`], killing `claude` past `limit`.
 fn run_within(ask: &Ask, limit: Duration) -> Result<Named, String> {
-    let directory = fresh_directory(&ask.state, &ask.space)?;
-    let named = run_in(ask, &directory, limit);
-    // Left as it was made, empty, unless the run wrote there: then it stays, and says so.
-    if std::fs::remove_dir(&directory).is_err() {
-        log::warn!("a space's naming left its directory in oso's state directory");
-    }
-    named
-}
-
-/// The run of `ask`'s `claude` in `directory`.
-fn run_in(ask: &Ask, directory: &Path, limit: Duration) -> Result<Named, String> {
-    let shell = crate::terminal::hosted::find_shell(&ask.terminal)
-        .map_err(|_| "no shell is found".to_owned())?;
-    let claude = launch::configured(ask.claude.as_deref())?;
-    let launch = launch::launch(&shell.executable, claude.as_ref(), arguments(), None)
-        .map_err(|e| e.to_string())?;
-    // No agent's socket nor oso's: the run has no tool and no MCP server.
-    let names = launch::claude_inherit(&ask.terminal.env, &ask.session_env);
-    let inherit: Vec<&str> = (names.iter().map(String::as_str))
-        .filter(|&name| name != "SSH_AUTH_SOCK")
-        .collect();
-    let mut child = spawn(&Spawn {
-        executable: &launch.program,
-        args: &launch.args,
-        cwd: Some(directory),
-        project: Some(directory),
-        inherit: &inherit,
-        stdin: Source::Piped,
-        stdout: Sink::Piped,
-        stderr: Sink::Null,
-        own_process_group: false,
-        own_session: true,
-        set: &[],
-        terminal: None,
-        pass_fd: None,
-        args_logged: false,
-    })
-    .map_err(|e| format!("claude did not start: {e}"))?;
-    // The input is short: it fits in the pipe, so this does not wait for `claude` to read.
-    if let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(&input(&ask.description));
-    }
-    let stdout = child.stdout.take();
-    *lock(&ask.running) = Some(child);
-    let answered = stdout
-        .ok_or_else(|| "it could not be read".to_owned())
-        .and_then(|stdout| wait(&ask.running, stdout, limit));
-    // Stopped already, or ended: nothing of it is left to stop.
-    stop(&ask.running);
-    answer(&answered?)
-}
-
-/// Waits up to `limit` for the `claude` in `running` to end and for at most [`MAX_ANSWER`]
-/// bytes of its output, `stdout`. Past the limit its whole session is killed, so that nothing
-/// it started outlives it and holds its output open.
-fn wait(running: &Running, stdout: ChildStdout, limit: Duration) -> Result<Vec<u8>, String> {
-    let deadline = Instant::now() + limit;
-    let late = || format!("no answer in {} s", limit.as_secs());
-    let (sent, got) = mpsc::channel();
-    let reader = thread::Builder::new()
-        .name("oso-space-naming-read".into())
-        .spawn(move || {
-            let _ = sent.send(crate::git::read_at_most(stdout, MAX_ANSWER));
-        });
-    if reader.is_err() {
-        return Err("it could not be read".to_owned());
-    }
-    let status = loop {
-        let looked = lock(running).as_mut().map(Child::try_wait);
-        match looked {
-            Some(Ok(Some(status))) => break status,
-            Some(Ok(None)) if Instant::now() < deadline => thread::sleep(POLL),
-            // Stopped by an exit, or past its limit.
-            None => return Err("oso stopped it".to_owned()),
-            _ => return Err(late()),
-        }
-    };
-    let left = deadline.saturating_duration_since(Instant::now()).max(POLL);
-    let (bytes, cut) = match got.recv_timeout(left) {
-        Ok(Ok(read)) => read,
-        // What it started holds its output open past the limit.
-        _ => return Err(late()),
-    };
-    if cut {
-        return Err("its answer was too long".to_owned());
-    }
-    if !status.success() {
-        return Err("claude did not answer".to_owned());
-    }
-    Ok(bytes)
-}
-
-/// Stops the `claude` in `running`, if one is there: its whole session is killed, then it,
-/// and it is reaped. An exit and a restart do this, and a run past its limit.
-pub fn stop(running: &Running) {
-    if let Some(mut child) = lock(running).take() {
-        let _ = child.signal_group(Signal::Kill);
-        let _ = child.kill();
-        let _ = child.wait();
-    }
-}
-
-/// `running`'s lock, whether or not a holder panicked: the child is all it holds.
-fn lock(running: &Running) -> std::sync::MutexGuard<'_, Option<Child>> {
-    running
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-}
-
-/// A new directory for one run, `space` under [`DIRECTORY`] in `state`, both made private: a
-/// directory already there, which a file in could be a setting `claude` reads, is not used.
-fn fresh_directory(state: &Path, space: &str) -> Result<PathBuf, String> {
-    let refused = || "its directory may not be used".to_owned();
-    let parent =
-        oso_platform::privacy::PrivateDir::open(state.join(DIRECTORY)).map_err(|_| refused())?;
-    let path = parent.path().join(space);
-    if std::fs::symlink_metadata(&path).is_ok() {
-        return Err("its directory is there already".to_owned());
-    }
-    let private = oso_platform::privacy::PrivateDir::open(&path).map_err(|_| refused())?;
-    Ok(private.path().to_path_buf())
+    let input = input(&ask.description);
+    let answered = oneshot::run(&Oneshot {
+        terminal: &ask.terminal,
+        claude: ask.claude.as_deref(),
+        session_env: &ask.session_env,
+        state: &ask.state,
+        directory: DIRECTORY,
+        name: &ask.space,
+        arguments: arguments(),
+        input: &input,
+        limit,
+        max_answer: MAX_ANSWER,
+        running: &ask.running,
+    })?;
+    answer(&answered)
 }
 
 #[cfg(test)]

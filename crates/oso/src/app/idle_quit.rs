@@ -76,6 +76,8 @@ impl App {
         let idle = !self.sessions_starting()
             && self.editor.busy_terminals().next().is_none()
             && self.editor.busy_native_sessions().next().is_none()
+            // A composer's send that waits for a dictation's fix goes first (ADR 0175).
+            && !self.sends_held()
             && self.editor.git_runs().next().is_none();
         if !self.idle_quit.due(idle, Instant::now()) {
             return;

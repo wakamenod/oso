@@ -148,11 +148,18 @@ started, not for its answer. Nothing of a dictation is carried across a restart.
   answered within 200 ms. No text or image is read then. Whether that look shows macOS's notice
   about reading another app's clipboard is not known yet; the author checks it by hand.
 
+- [ADR 0165](0165-native-claude-sessions-the-route.md), part 2a ("Sending") and part 2c
+  (`C-c C-k`): a composer's `C-c C-c` and `C-u C-c C-c`, an empty one too, wait while a
+  dictation's fix runs, as "Step 2, as built" says, and `C-c C-k` drops that wait before it
+  gives up an edit or interrupts. A send that waits holds an exit or a restart that waits for
+  the sessions (part 4b).
+
 ### Layers and tests
 
-- The `oso` crate's `dictation` module, `dictation::{api, discovery, state, target}`, on the
+- The `oso` crate's `dictation` module, `dictation::{api, discovery, state, fix}`, on the
   lowest line of `guardrails/layers.txt`: it uses nothing of the crate. `app::dictation` carries
-  it out; `dispatch::paste_guard` holds the key; `config::dictation` reads `[dictation]`.
+  it out; `dispatch::paste_guard` holds the key; `config::dictation` reads `[dictation]`. Where
+  the text goes, and its provisional spans, are oso-core's (`editor::dictation`, step 2).
 - **`fake-typewhisper`**, a dev-only binary beside `fake-lsp-server`: a loopback HTTP server,
   the one file with an `#[expect]` for `TcpListener`, which writes a discovery file, answers
   from a script and records requests. `just release-safety` checks that release builds leave it
@@ -205,3 +212,78 @@ started, not for its answer. Nothing of a dictation is carried across a restart.
 - The reviews moved the guard's opening to oso's stop, bounded it, capped the text across the
   cursors, kept the thread until a composition's wait ends, and kept TypeWhisper's words out of
   the log. `fake-typewhisper` ends after 60 s with no request.
+
+## Step 2, as built (2026-11-23)
+
+- **`s-d` always fixes.** The text goes in as before, as a **provisional span**: a range at
+  each cursor, kept by the editor, drawn on a faint fill of its own
+  (`Face::DictationProvisional`), while the modeline says `fix`. `C-u` on either press types
+  it plain, with no fix. The face goes when the fix lands, fails, is skipped or cancelled, or
+  oso exits.
+- **Where the text goes moved into oso-core**, as the author chose: step 1's `target` is
+  `oso_core::editor`'s `DictationTarget` and `DictationPlaced`, with `Editor`'s
+  `dictation_target`, `dictation_waits`, `place_dictation` and `keep_dictation`. The spans are
+  `DictationSpan` and `DictationContext`, with `dictation_context`, `fix_dictation`,
+  `end_dictation_span` and `dictation_span_cells`, and `DictationMark::Fixing`; approved by the
+  author on 2026-11-23.
+- **Spans** follow every edit, the person's and an undo's, as markers whose start goes after
+  text typed at it and whose end stays before, so that typing at either end is not the
+  dictation's. They go with a reload or the buffer, and are not saved, undone, copied, carried
+  across a restart or told to agents. An undo in a buffer that keeps no log of its edits, a
+  reload and a copy put back end a span, as where its text is then is not known. At most 4
+  live at once, each at most 32 cursors, and at most 4 fixes run; a dictation past them is
+  typed plain.
+- **No fix** in the minibuffer, whose prompts take paths, commands and searches (the author's
+  choice), nor in a buffer that may hold secrets, at the start or when the answer comes.
+- **The fix's run**, on a thread of its own: TypeWhisper's terms and corrections, each read
+  with a 3 s limit and capped at 200 entries or 16 KiB a list, then the person's `claude -p`
+  (`[sessions] claude`) through `sessions::oneshot`, which the space naming of
+  [ADR 0159](0159-space-new-starts-the-orchestrator-and-display-names.md) now shares, with
+  the options that keep it to itself and the reading of its answer's envelope: `--safe-mode
+  --tools= --strict-mcp-config --setting-sources=user --disable-slash-commands
+  --no-session-persistence --output-format=json`, then the fix's JSON schema, system prompt,
+  `--model` and `--effort`, each as one `--flag=value`. It runs in a new private directory under
+  `dictation-fix` in oso's state directory, killed with its session at 30 s, reading at most
+  64 KiB, and left out of the registry's sessions as a naming run is. A stop that comes before
+  `claude` starts holds, for the naming run too: none starts.
+- **The input is one JSON object** on its standard input: the mode's name (never the path),
+  the dictionary, up to `fix_context_lines` lines before and after the text (at most 4 KiB a
+  side), and the text. The author chose JSON over the elisp's tags, so that no dictated text
+  can close one and forge another; the system prompt, ported from `typewhisper-fix.el`, says
+  all of it is data, never instructions.
+- **The answer** is at most 32 fixes, each `wrong` and `right` at most 200 characters, a
+  `right` with no control, invisible or bidi character and no noncharacter, at most twice its
+  `wrong`'s characters and 8 more, and `high`, `medium` or `low`. It is read and turned into
+  edits on the fix's thread. Fixes at or above
+  `fix_min_confidence` replace each place their `wrong` is found inside the text sent, apart
+  from an earlier fix's, up to 256 edits; the rest are shown in the echo area only. The edits
+  are made at every range of the span in one `apply_edits`, one undo step, and only while
+  each range still holds exactly the text sent, and at most 1024 replacements across the
+  ranges: otherwise "Dictation fix skipped". The report quotes the person's words and Claude's,
+  so it is shown in the echo area alone, withheld from the dev socket and agents, and never in
+  `*Messages*` or the log; "Dictation: no fix", which quotes nothing, is a message as any.
+- **An answer that comes while another dictation is under way waits** for that one's text to
+  be placed: a fix changes the buffer, and the next text would go to the kill ring, as the
+  buffer changed while the person spoke.
+- **Settings**: `[dictation] fix_model` (a model's name, `sonnet` unless set), `fix_effort`
+  (`low`), `fix_context_lines` (0 to 20, 3) and `fix_min_confidence` (`medium`).
+- **A native composer's send** (`C-c C-c`, or `C-u C-c C-c`) while the modeline says `fix`,
+  whichever buffer the fix is in, waits for the fixes running then to end, and then sends the
+  composer's text as the fix left it: the author's choice on 2026-11-23. Each fix ends within
+  its limits (two 3 s reads and 30 s), but its answer also waits while another dictation is
+  under way, and the send with it.
+  - The wait keeps its composer and its revision, which only the fix's own edit moves on: a
+    composer the person edited, replaced or lost meanwhile drops the wait, and says so, so
+    that nothing goes but what the person sent.
+  - A send now goes as a plain send, as the turn it meant to interrupt may have ended.
+  - `C-c C-k` there drops the wait, and does nothing more; `dictation-cancel` drops it too, as
+    the text would go unfixed. An exit or a restart drops it, and one that waits for the
+    sessions waits for it. The send then goes through the composer's checks and the queue's
+    rules, as any.
+  - While a dictation records or waits for its text, a send goes at once, as before.
+- **The author's choices on 2026-11-23:** the fix runs in projects that are not trusted too, as
+  it reads nothing of the project and runs no tool, though the text it sends is the
+  project's; and there is no setting that turns the fix off: `C-u s-d` types plain, each time.
+- `M-x dictation-cancel` with no dictation under way stops the fixes running, and the text
+  stays as typed; so do an exit and a restart's start. The UI thread only kills `claude`: the
+  fix's thread reaps it. The dev socket's state says `dictation.fixes`.

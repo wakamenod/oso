@@ -62,8 +62,8 @@ pub(super) fn pane_id(window: WindowId, part: Part) -> PaneId {
 /// none of it is allocated again: the regions' (ADR 0071), isearch's matches' (ADR 0082), the
 /// current line's band and trailing whitespace (ADR 0097), the other cursors' boxes
 /// (ADR 0091), its rows in view (ADR 0104), its gutter's numbers (ADR 0097), a jump's
-/// matches and labels (ADR 0116), a review's bands (ADR 0122), and a server's diagnostics and
-/// the gutter's signs (ADR 0138).
+/// matches and labels (ADR 0116), a review's bands (ADR 0122), a server's diagnostics and
+/// the gutter's signs (ADR 0138), and dictation's provisional spans (ADR 0175).
 #[derive(Default)]
 pub(super) struct WindowCells {
     region: Vec<CellRect>,
@@ -72,6 +72,7 @@ pub(super) struct WindowCells {
     jump: JumpCells,
     band: Vec<CellRect>,
     trailing: Vec<CellRect>,
+    provisional: Vec<CellRect>,
     review: ReviewCells,
     /// `*Spaces*`' bands, in the side window (ADR 0140).
     pane: SpacesFills,
@@ -93,6 +94,7 @@ impl WindowCells {
         editor.replace_cells(id, screen, &mut self.matches);
         editor.jump_cells(id, screen, &mut self.jump);
         editor.trailing_cells(id, screen, &mut self.trailing);
+        editor.dictation_span_cells(id, screen, &mut self.provisional);
         editor.review_cells(id, screen, &mut self.review);
         editor.gutter_into(id, screen, &mut self.gutter);
         editor.diagnostic_cells(id, screen, &mut self.diagnostics);
@@ -160,7 +162,7 @@ pub(super) struct Behind<'a> {
 /// blink, in the side window only (ADR 0140), the current line's band, a review's bands
 /// (added and removed lines, a pane's filler rows, their refined words, file headers and
 /// comment cards), trailing
-/// whitespace, then the current match first, so that it always has room, a jump's matches as
+/// whitespace, a dictation's text while Claude fixes it (ADR 0175), then the current match first, so that it always has room, a jump's matches as
 /// isearch's others (ADR 0116), and the regions over the matches.
 fn fills_of(cells: &WindowCells) -> [(Face, &[CellRect]); FILLS] {
     [
@@ -180,6 +182,7 @@ fn fills_of(cells: &WindowCells) -> [(Face, &[CellRect]); FILLS] {
         (Face::DiffFileHeader, &cells.review.headers[..]),
         (Face::ReviewCommentPerson, &cells.review.cards[..]),
         (Face::TrailingWhitespace, &cells.trailing[..]),
+        (Face::DictationProvisional, &cells.provisional[..]),
         (Face::SearchCurrent, &cells.matches.current[..]),
         (Face::SearchMatch, &cells.matches.others[..]),
         (Face::SearchMatch, &cells.jump.matches[..]),
@@ -188,7 +191,7 @@ fn fills_of(cells: &WindowCells) -> [(Face, &[CellRect]); FILLS] {
 }
 
 /// How many lists of cells a window fills behind its text.
-const FILLS: usize = 18;
+const FILLS: usize = 19;
 
 /// A jump's labels in a window over its text: each label's first key in [`Face::JumpLabel`],
 /// and the keys after it in [`Face::JumpLabelNext`], in the order the editor gives them, by

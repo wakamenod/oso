@@ -8,8 +8,8 @@
 //! - `discovery` reads TypeWhisper's discovery file: its port and its token, checked.
 //! - `api` is the calls, the curl configuration that makes them, and what an answer means.
 //! - `state` is a dictation's thread, from the start to the text.
-//! - `target` is where the text goes: captured at the start, typed there at the end, or kept in
-//!   the kill ring when that place is gone.
+//! - `fix` is what `claude -p` is asked to fix the text with, and how its answer becomes edits
+//!   (step 2). The editor keeps where the text went (`oso_core::editor`'s dictation).
 //!
 //! TypeWhisper also types the text itself, by putting it on the clipboard marked with
 //! [`MARKER`] and posting Command-V, which reaches oso as `M-v`. The dispatcher holds an `M-v`
@@ -18,8 +18,8 @@
 
 pub mod api;
 pub mod discovery;
+pub mod fix;
 pub mod state;
-pub mod target;
 
 /// The type TypeWhisper puts beside the text it pastes on the clipboard, which tells its
 /// synthetic Command-V from the person's.

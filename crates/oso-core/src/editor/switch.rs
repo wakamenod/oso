@@ -402,6 +402,7 @@ impl Editor {
         self.forget_docks_of(id);
         self.forget_listing(id);
         self.forget_git_status(id);
+        self.forget_dictation_spans(id);
         let shown = self.windows.iter().any(|window| window.buffer() == id);
         if shown {
             self.isearch_abandon();

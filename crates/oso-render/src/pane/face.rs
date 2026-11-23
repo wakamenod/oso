@@ -148,6 +148,9 @@ pub enum Face {
     SessionAlert,
     /// The modeline's `● REC` while a dictation records (ADR 0175), in the alert's red.
     Dictation,
+    /// The fill behind a dictation's text while Claude fixes it (ADR 0175, step 2): a faint
+    /// tint of its own, behind the text, which keeps its colour.
+    DictationProvisional,
     /// A waiting session's mark and name on the lit beat of its blink (ADR 0140, as amended):
     /// in the text's background colour, on a fill in the alert's red, as inverse video.
     SessionAlertLit,

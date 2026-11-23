@@ -37,6 +37,7 @@
 //! - `images`: the clipboard's images kept for a session, and the `@path` pasted for one.
 //! - `native`: a native session's stream read into rows and states (ADR 0165), and `stream`:
 //!   its process's output read on threads of its own and handed on in batches.
+//! - `oneshot`: a one-shot `claude -p`, for a space's names and a dictation's fix.
 //! - `past`: a native session's earlier turns read from its transcript at its start (ADR
 //!   0165, step 5).
 
@@ -55,6 +56,7 @@ pub mod list;
 pub mod messages;
 pub mod moving;
 pub mod native;
+pub mod oneshot;
 pub mod past;
 pub mod recap;
 pub mod record;

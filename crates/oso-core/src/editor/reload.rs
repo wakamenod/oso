@@ -183,7 +183,7 @@ impl Editor {
     /// Then each window showing it follows its cursor.
     fn follow_reload(&mut self, id: BufferId, old: &Rope, change: Change) {
         if let Some(new) = self.buffer(id).map(|buffer| buffer.text().clone()) {
-            self.answers_reloaded(id, |offset| through_reload(offset, old, &new, change));
+            self.marks_reloaded(id, |offset| through_reload(offset, old, &new, change));
         }
         let shown: Vec<usize> = (0..self.windows.len())
             .filter(|index| self.windows[*index].buffer() == id)

@@ -13,8 +13,10 @@
 //! - The queue goes from one place, [`App::send_waiting_queues`], after each event.
 //! - What oso sends a native session is put into the composer, or a review's confirmed
 //!   question sent, by `composed` (part 2f).
+//! - A send while a dictation's fix runs waits for it, in `held` (ADR 0175, step 2).
 
 mod composed;
+mod held;
 mod queued;
 
 use std::collections::VecDeque;
@@ -52,6 +54,8 @@ pub(super) struct Composing {
     at: Option<usize>,
     /// A turn is under way: what is sent now is queued.
     pub(super) busy: bool,
+    /// A send that waits for a dictation's fix (ADR 0175, step 2).
+    held: Option<held::Held>,
 }
 
 impl Composing {
@@ -123,10 +127,15 @@ impl App {
         action: NativeAction,
     ) -> bool {
         match action {
+            // While a dictation's fix runs, the send waits for it to end, and then sends the
+            // fixed text (ADR 0175, step 2).
+            NativeAction::Send | NativeAction::SendNow if self.hold_send_for_fix(key) => {}
             NativeAction::Send => self.composer_send(key, false),
             NativeAction::SendNow => self.composer_send(key, true),
             // From the transcript, an interrupt alone (step 2c).
             NativeAction::Cancel if offset.is_some() => self.person_interrupts(key),
+            // A send that waits for a fix is dropped, and nothing more.
+            NativeAction::Cancel if self.drop_held_send(key) => {}
             NativeAction::Cancel => self.composer_cancel(key),
             NativeAction::History(count) => self.composer_history(key, count),
             NativeAction::Transcript => self.composer_go(key, false),
@@ -183,7 +192,7 @@ impl App {
     /// `C-c C-c`: sends the composer's text now, queues it, or puts an edited queued message
     /// back in its place, as the queue's rules say. `now`, `C-u C-c C-c`: puts it ahead of
     /// the queue and interrupts the turn under way (step 2c).
-    fn composer_send(&mut self, key: SessionKey, now: bool) {
+    pub(in crate::app) fn composer_send(&mut self, key: SessionKey, now: bool) {
         let Some(id) = self.composer(key) else {
             return;
         };

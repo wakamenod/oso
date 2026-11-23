@@ -87,6 +87,7 @@ impl Transport for Fake {
             Call::Start { .. } => ("start", &self.starts),
             Call::Stop => ("stop", &self.stops),
             Call::Transcription(_) => ("poll", &self.polls),
+            Call::Terms | Call::Corrections => panic!("a dictation reads no dictionary"),
         };
         self.calls.lock().unwrap().push(name.to_owned());
         next(list)

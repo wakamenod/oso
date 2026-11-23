@@ -771,6 +771,16 @@ records and recognises your speech on your Mac. Turn on its API server in TypeWh
   composer. The modeline says `● REC` while it records. `s-d` again stops it; the modeline says
   `…` until the text comes, and the text goes in where you started, at each cursor, in one
   undo step.
+- Then Claude fixes what TypeWhisper misheard, such as a technical term written in kana. The
+  text shows on a tinted band and the modeline says `fix` until the fix lands, as one more
+  undo step: `C-z` once brings back what TypeWhisper heard. Fixes Claude is less sure of are
+  only shown in the echo area. If you edit the dictated text meanwhile, the fix is skipped.
+  `C-u s-d` types the text plain, with no fix. In a session's composer, `C-c C-c` while the
+  modeline says `fix` waits for the fix and then sends the fixed text; `C-c C-k` drops the
+  wait, and so does editing the message meanwhile.
+- The fix runs your own `claude` (`[sessions] claude`), which sends the dictated text, a few
+  lines around it and TypeWhisper's dictionary to Anthropic. It never runs for the minibuffer
+  or a buffer that may hold secrets. `M-x dictation-cancel` stops a fix under way.
 - If you changed that buffer's text meanwhile, or the place is gone, the text goes to the kill
   ring instead, and `C-y` yanks it. While an input method composes there, the text waits.
 - `M-x dictation-cancel` drops a dictation and its text.
@@ -793,6 +803,13 @@ curl = "/usr/bin/curl"
 # workflow = "0F3C2B1A-1234-4ABC-9DEF-0123456789AB"
 # The longest a dictation records, in seconds: 5 to 1800, 120 unless set.
 max_seconds = 300
+# The fix's model and effort, `sonnet` and `low` unless set.
+fix_model = "sonnet"
+fix_effort = "low"
+# The lines on each side of the text the fix sees: 0 to 20, 3 unless set.
+fix_context_lines = 3
+# The least confidence a fix is made with: low, medium or high, medium unless set.
+fix_min_confidence = "low"
 ```
 
 ## Developing beside it
