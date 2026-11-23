@@ -126,6 +126,9 @@ impl App {
         self.keep_space_scope(false);
         self.notice_trust();
         self.forget_unanswered_offer();
+        // After the requests, so that a yes begins the start it was asked about first, and
+        // after the other questions' sweeps, so that what it asks is judged by none of them.
+        self.ask_next_shared();
         self.sync_seen();
         // What the person asked shows at once; the worker's changes wait for the loop, so
         // that many make the views once.
