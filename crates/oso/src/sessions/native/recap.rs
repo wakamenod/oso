@@ -97,6 +97,7 @@ mod tests {
             kind,
             depth,
             folded: false,
+            gap: false,
         }
     }
 

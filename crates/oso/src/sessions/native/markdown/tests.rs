@@ -19,6 +19,7 @@ fn reply(text: &str, depth: u8) -> Row {
         },
         depth,
         folded: false,
+        gap: false,
     }
 }
 
@@ -54,9 +55,7 @@ fn check(row: &Row, highlights: &Highlights, runs: &[(usize, Option<Highlight>)]
     let lines: Vec<&str> = text.lines().collect();
     for (index, line) in drawn.text.split_inclusive('\n').enumerate() {
         let Some(shown) = lines.get(index) else {
-            assert!(text.is_empty() && index == 0, "one line for an empty reply");
-            assert_eq!(on_row.at(at), marks.at(at));
-            break;
+            panic!("a line the reply has not: {line:?}");
         };
         let mark = line.len() - shown.len() - 1;
         assert_eq!(&line[mark..line.len() - 1], *shown);
@@ -89,7 +88,7 @@ fn each_line_s_runs_go_past_its_mark() {
 }
 
 #[test]
-fn an_empty_reply_is_its_mark_alone() {
+fn an_empty_reply_draws_nothing() {
     let row = reply("", 0);
     let runs = project(&row, &Highlights::new(0)).expect("projected");
     check(&row, &Highlights::new(0), &runs);
@@ -107,8 +106,8 @@ fn a_blank_line_has_no_mark_and_no_row_ends_in_a_space() {
         check(&row, &highlights, &runs);
         assert!(runs.iter().all(|(len, _)| *len > 0), "no empty run");
     }
-    assert_eq!(tail(&reply(text, 1), 0, 0).text, "  ● # A\n\n\n    b\n");
-    assert_eq!(tail(&reply("", 1), 0, 0).text, "  ●\n");
+    assert_eq!(tail(&reply(text, 1), 0, 0).text, "│   # A\n│\n│\n│   b\n");
+    assert_eq!(tail(&reply("", 1), 0, 0).text, "");
 }
 
 #[test]
@@ -121,6 +120,7 @@ fn only_a_whole_reply_within_the_limit_is_highlighted() {
         },
         depth: 0,
         folded: false,
+        gap: false,
     };
     assert_eq!(highlightable(&streaming), None);
     let cut = Row {
@@ -169,7 +169,10 @@ fn highlights_of_another_text_or_too_many_runs_leave_it_plain() {
 fn plain_is_what_the_row_draws() {
     for text in ["one\ntwo", "", "a\r\n\nb\n", "x\r"] {
         for depth in 0..2 {
-            let row = reply(text, depth);
+            let row = Row {
+                gap: depth == 1,
+                ..reply(text, depth)
+            };
             let drawn = tail(&row, 0, 0);
             let runs = plain(&row).expect("a reply");
             let total: usize = runs.iter().map(|(len, _)| len).sum();
@@ -185,6 +188,7 @@ fn plain_is_what_the_row_draws() {
         kind: Kind::Note("a".into()),
         depth: 0,
         folded: false,
+        gap: false,
     };
     assert_eq!(plain(&note), None);
 }

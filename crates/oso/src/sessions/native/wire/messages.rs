@@ -285,9 +285,14 @@ fn patch(result: Option<&Value>) -> Vec<Hunk> {
             // One line each: a newline in a line would start a row of its own.
             lines.push(line.replace(['\n', '\r'], " "));
         }
-        // An empty hunk counts as a line, so that no number of them is kept.
+        // An empty hunk shows nothing: it is not kept, and counts as a line, so that no number
+        // of them is walked.
         if lines.is_empty() {
             left = left.saturating_sub(1);
+            if left == 0 {
+                break;
+            }
+            continue;
         }
         patch.push(Hunk {
             old_start: number("oldStart"),

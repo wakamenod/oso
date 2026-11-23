@@ -9,6 +9,7 @@ use std::fmt::Write as _;
 use std::ops::Range;
 use std::path::Path;
 
+use super::placed::Placed;
 use super::render::{one_line, target};
 use super::rows::{Kind, Row, Tool};
 use super::wire::MAX_TEXT;
@@ -36,6 +37,30 @@ impl Wanted {
 pub enum Point {
     In { row: usize, first_line: bool },
     End,
+}
+
+/// Where row `row`'s first line that shows something starts: past its gap.
+pub fn first_line(rows: &[Row], placed: &Placed, row: usize) -> usize {
+    placed.start(row) + usize::from(rows.get(row).is_some_and(|row| row.gap))
+}
+
+/// Where byte `offset` is, where a line starts. The blank line before a row is the row
+/// before's, so that the row comes next.
+pub fn point(rows: &[Row], placed: &Placed, offset: usize) -> Point {
+    let Some(row) = placed.row_at(offset) else {
+        return Point::End;
+    };
+    let first = first_line(rows, placed, row);
+    match row.checked_sub(1).filter(|_| offset < first) {
+        Some(row) => Point::In {
+            row,
+            first_line: false,
+        },
+        None => Point::In {
+            row,
+            first_line: offset == first,
+        },
+    }
 }
 
 /// The row `count` rows of `wanted` after point, before it if negative; `None` if there are
@@ -130,9 +155,10 @@ pub fn whole(tool: &Tool, directory: &Path) -> Option<String> {
 mod tests {
     use std::path::Path;
 
+    use super::super::placed::Placed;
     use super::super::rows::{Kind, Row, Tool, ToolState};
     use super::super::wire::{Hunk, ToolInput, ToolResult, TurnResult};
-    use super::{Point, Wanted, call, slot, step, whole};
+    use super::{Point, Wanted, call, first_line, point, slot, step, whole};
     use crate::sessions::native::render::render;
 
     fn row(kind: Kind) -> Row {
@@ -140,6 +166,7 @@ mod tests {
             kind,
             depth: 0,
             folded: false,
+            gap: false,
         }
     }
 
@@ -163,6 +190,7 @@ mod tests {
             progress: None,
             folded: true,
             apart: false,
+            waiting: false,
         }
     }
 
@@ -193,6 +221,40 @@ mod tests {
     }
 
     #[test]
+    fn a_blank_line_before_a_row_is_the_row_before_s() {
+        let mut rows = rows();
+        for at in [1, 3] {
+            rows[at].gap = true;
+        }
+        let mut placed = Placed::default();
+        let mut at = 0;
+        for (row, shown) in rows.iter().enumerate() {
+            let length = render(shown, Path::new("/w"), 80).text.len();
+            placed.put(row, at..at, length);
+            at += length;
+        }
+        let inside = |row| Point::In {
+            row,
+            first_line: false,
+        };
+        let on = |row| Point::In {
+            row,
+            first_line: true,
+        };
+        let blank = placed.start(3);
+        assert_eq!(first_line(&rows, &placed, 3), blank + 1);
+        assert_eq!(first_line(&rows, &placed, 2), placed.start(2));
+        assert_eq!(point(&rows, &placed, blank), inside(2));
+        assert_eq!(point(&rows, &placed, blank + 1), on(3));
+        assert_eq!(point(&rows, &placed, 0), on(0));
+        assert_eq!(point(&rows, &placed, at), Point::End);
+        // From the blank line, the message under it is the next, and the one above the last.
+        assert_eq!(step(&rows, inside(2), 1, Wanted::Prompt), Some(3));
+        assert_eq!(step(&rows, inside(2), -1, Wanted::Prompt), Some(0));
+        assert_eq!(step(&rows, inside(2), -1, Wanted::Tools), Some(2));
+    }
+
+    #[test]
     fn brackets_go_from_tool_row_to_tool_row() {
         let rows = rows();
         let at = |row| Point::In {
@@ -208,7 +270,7 @@ mod tests {
     #[test]
     fn a_line_of_an_open_row_names_its_call() {
         let rows = rows();
-        let rendered = render(&rows[4], Path::new("/w"));
+        let rendered = render(&rows[4], Path::new("/w"), 80);
         let first = rendered.text.find('\n').unwrap();
         assert_eq!(slot(&rendered.calls, 0), None);
         assert_eq!(slot(&rendered.calls, first + 1), Some(0));

@@ -10,11 +10,13 @@
 //!   message's id and its order, a tool call by its id, so a block has one row whether or not
 //!   its parts came. A reply that grows says from which line ([`RowChange::Grew`]), so that
 //!   only its last lines are drawn again; a folded row that shows nothing new says nothing.
+//! - A blank line sets a row apart from the one before (`Row::gap`), as it is added. A row whose
+//!   change came is open.
 //! - A tool call is found again by its id for the session's life: its result, a denial and a
 //!   task's progress land on it, also after its turn ended. A subagent's own messages are
 //!   rows one level deeper.
 //! - Calls of one tool that reads or searches, one after another at one depth, share a row
-//!   (`Read 3 files`), at most [`MAX_GROUP`], as the author chose (`native-sessions-ux.md`):
+//!   (`Read ×3`), at most [`MAX_GROUP`], as the author chose (`native-sessions-ux.md`):
 //!   never a call that names a path outside the session's directory or one that may hold
 //!   secrets, which keeps a row of its own. A call joins while its input streams, before its
 //!   path is known; once it is, a call that may not share leaves for a row of its own, or,
@@ -37,10 +39,12 @@ use super::wire::{
 };
 
 mod calls;
+mod changes;
 mod past;
 mod sent;
 
 use calls::new_call;
+pub use changes::{Changes, RowChange};
 
 /// The tools whose calls one after another share a row: they read or search, and change
 /// nothing.
@@ -59,6 +63,8 @@ pub struct Row {
     pub depth: u8,
     /// Shown as its first line only; `TAB` turns it.
     pub folded: bool,
+    /// A blank line sets it apart from the row before.
+    pub gap: bool,
 }
 
 /// What a row shows.
@@ -113,6 +119,8 @@ pub struct Tool {
     /// The person approved it on its card, which its row says: a plan's, whether edited, and
     /// the mode after it (part 3d).
     pub approved: Option<(bool, oso_core::editor::Approval)>,
+    /// The person is asked about it, and has not answered.
+    pub waiting: bool,
 }
 
 /// Where a tool call is.
@@ -127,67 +135,6 @@ pub enum ToolState {
     Denied(String),
     /// The turn ended without its result.
     Unfinished,
-}
-
-/// What changed with an event.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RowChange {
-    /// A row was added at the end, at this index.
-    Added(usize),
-    /// The row at this index changed.
-    Changed(usize),
-    /// The reply at `row` grew: its first `lines` lines as drawn stay, and what follows them
-    /// is [`render::tail`](super::render::tail) from the text's byte `from`.
-    Grew {
-        row: usize,
-        lines: usize,
-        from: usize,
-    },
-}
-
-impl RowChange {
-    /// The row that changed.
-    pub fn row(self) -> usize {
-        match self {
-            Self::Added(row) | Self::Changed(row) | Self::Grew { row, .. } => row,
-        }
-    }
-
-    /// Of two changes to one row, which says more: an addition, then a change, then growth.
-    pub fn rank(self) -> u8 {
-        match self {
-            Self::Added(_) => 0,
-            Self::Changed(_) => 1,
-            Self::Grew { .. } => 2,
-        }
-    }
-}
-
-/// Changes gathered over several events, one a row, in their rows' order: what says more of
-/// a row wins, and of two growths the first, which the later ones grew on.
-#[derive(Debug, Default)]
-pub struct Changes(std::collections::BTreeMap<usize, RowChange>);
-
-impl Changes {
-    pub fn add(&mut self, change: RowChange) {
-        let kept = self.0.entry(change.row()).or_insert(change);
-        if change.rank() < kept.rank() {
-            *kept = change;
-        }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-}
-
-impl IntoIterator for Changes {
-    type Item = RowChange;
-    type IntoIter = std::collections::btree_map::IntoValues<usize, RowChange>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.into_values()
-    }
 }
 
 /// A native session's rows.
@@ -211,7 +158,8 @@ pub struct Rows {
 }
 
 /// A block that started: its message's id, its index, its row and its place in the row; for
-/// a reply, where its last line starts and how many lines are before it.
+/// a reply, where its last line starts and how many lines are before it as drawn, its gap
+/// among them.
 #[derive(Debug)]
 struct Open {
     message_id: String,
@@ -306,11 +254,20 @@ impl Rows {
         changes
     }
 
+    /// Adds a row, set apart from the one before by a blank line: not from a turn's result,
+    /// which ends with one, nor a tool row from a tool row, nor a turn's result from its turn.
     fn push(&mut self, kind: Kind, depth: u8, folded: bool) -> RowChange {
+        let joins = matches!(
+            (self.rows.last().map(|row| &row.kind), &kind),
+            (None | Some(Kind::Result(_)), _)
+                | (Some(Kind::Tools(_)), Kind::Tools(_))
+                | (_, Kind::Result(_))
+        );
         self.rows.push(Row {
             kind,
             depth,
             folded,
+            gap: !joins,
         });
         RowChange::Added(self.rows.len() - 1)
     }
@@ -348,7 +305,7 @@ impl Rows {
                     row,
                     slot,
                     last_line: 0,
-                    lines: 0,
+                    lines: usize::from(self.rows[row].gap),
                 });
                 Some(change)
             }
@@ -496,6 +453,7 @@ impl Rows {
         let mut changes = Vec::new();
         for mut result in message.results {
             let id = result.tool_use_id.clone();
+            let mut changed = false;
             changes.extend(self.update_call(&id, |tool| {
                 if !matches!(tool.state, ToolState::Denied(_)) {
                     tool.state = if result.error {
@@ -508,8 +466,13 @@ impl Rows {
                     result.patch.clear();
                     result.changed = (0, 0);
                 }
+                changed |= !result.error && !result.patch.is_empty();
                 tool.result = Some(result);
             }));
+            // A change shows open: the person sees what was changed without a key.
+            if let Some(&(row, _)) = self.calls.get(&id).filter(|_| changed) {
+                self.rows[row].folded = false;
+            }
         }
         // A subagent's prompt is its tool call's input, shown there.
         if message.parent.is_some() || message.synthetic || !message.replay {

@@ -74,6 +74,8 @@ pub(in crate::app::sessions::hosting::native) fn native(buffer: BufferId) -> Nat
         buffer,
         rows: Rows::new(PathBuf::from("/w")),
         placed: Placed::default(),
+        width: 80,
+        results: HashMap::new(),
         stream: None,
         first: false,
         spoke: true,
@@ -216,15 +218,15 @@ fn a_reply_is_opened_once_whole_and_its_runs_go_past_its_marks() {
     setup.sync(true);
     assert_eq!(setup.opened().len(), 1, "once");
 
-    assert_eq!(setup.text(), "● # Hi\n  some `x`\n");
+    assert_eq!(setup.text(), "  # Hi\n  some `x`\n");
     assert!(setup.report(key, heading(REPLY, 0..4), true));
-    // `● ` is four bytes, and keeps its face; `# Hi` takes the report's.
+    // Its indent is two bytes, and keeps its face; `# Hi` takes the report's.
     assert_eq!(setup.at(0), Some(Highlight::SessionQuiet));
-    assert_eq!(setup.at(4), Some(Highlight::Heading));
-    assert_eq!(setup.at(7), Some(Highlight::Heading));
-    assert_eq!(setup.at(8), None, "a break has none");
+    assert_eq!(setup.at(2), Some(Highlight::Heading));
+    assert_eq!(setup.at(5), Some(Highlight::Heading));
+    assert_eq!(setup.at(6), None, "a break has none");
     assert_eq!(
-        setup.at(9),
+        setup.at(7),
         Some(Highlight::SessionQuiet),
         "the next line's mark"
     );

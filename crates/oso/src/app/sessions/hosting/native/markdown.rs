@@ -414,7 +414,9 @@ fn lay_faces(editor: &mut Editor, freer: &Freer, native: &Native) -> bool {
         let runs = match plain(at) {
             Some(runs) => fits(&runs, &range).then_some(runs),
             None => {
-                let rendered = render::render(at, directory);
+                // A result's, for the width it was drawn for.
+                let width = native.results.get(&row).copied().unwrap_or(native.width);
+                let rendered = render::render(at, directory, width);
                 // Its runs leave out what has none at its end.
                 (rendered.text.len() == range.len()).then(|| rendered.runs())
             }

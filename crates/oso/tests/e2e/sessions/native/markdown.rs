@@ -96,7 +96,7 @@ fn a_reply_is_plain_while_it_streams_and_highlighted_once_whole() {
         coloured(state) && text(state).contains("fn main() {}")
     });
     let shown = text(&state);
-    assert!(shown.contains("● # Notes"), "{shown}");
+    assert!(shown.contains("  # Notes"), "{shown}");
     assert!(shown.contains("  ```rust"), "{shown}");
     // Only macOS draws text so far (ADR 0036): elsewhere the state alone is checked.
     let shot = cfg!(target_os = "macos").then(|| app.screenshot());

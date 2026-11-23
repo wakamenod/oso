@@ -174,6 +174,7 @@ fn tool(name: &str, input: &serde_json::Value) -> Tool {
         folded: true,
         apart: false,
         approved: None,
+        waiting: false,
     }
 }
 

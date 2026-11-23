@@ -27,6 +27,7 @@ use oso_render::{
 };
 
 use super::spaces::SpacesFills;
+use super::transcript::TranscriptFills;
 use crate::sessions::list::SpaceBands;
 use crate::terminal::hosted::Terminals;
 
@@ -70,7 +71,8 @@ pub(super) fn pane_id(window: WindowId, part: Part) -> PaneId {
 /// current line's band and trailing whitespace (ADR 0097), the other cursors' boxes
 /// (ADR 0091), its rows in view (ADR 0104), its gutter's numbers (ADR 0097), a jump's
 /// matches and labels (ADR 0116), a review's bands (ADR 0122), a server's diagnostics and
-/// the gutter's signs (ADR 0138), and dictation's provisional spans (ADR 0175).
+/// the gutter's signs (ADR 0138), dictation's provisional spans (ADR 0175), and a native
+/// session's rows' bands (ADR 0165).
 #[derive(Default)]
 pub(super) struct WindowCells {
     region: Vec<CellRect>,
@@ -83,6 +85,7 @@ pub(super) struct WindowCells {
     review: ReviewCells,
     /// `*Spaces*`' bands, in the side window (ADR 0140).
     pane: SpacesFills,
+    transcript: TranscriptFills,
     screen: Screen,
     gutter: Gutter,
     diagnostics: DiagnosticCells,
@@ -113,6 +116,7 @@ impl WindowCells {
         self.band.extend(editor.current_line_cells(id, screen));
         self.pane
             .fill((editor, bands), (id, screen), &mut self.band);
+        self.transcript.fill(editor, (id, screen));
     }
 }
 
@@ -166,7 +170,8 @@ pub(super) struct Behind<'a> {
 }
 
 /// The fills behind a window's text, from the back: `*Spaces*`' bands and the lit beat of its
-/// blink, in the side window only (ADR 0140), the current line's band, a review's bands
+/// blink, in the side window only (ADR 0140), the current line's band, a native session's rows'
+/// bands (ADR 0165), a review's bands
 /// (added and removed lines, a pane's filler rows, their refined words, file headers and
 /// comment cards), trailing
 /// whitespace, a dictation's text while Claude fixes it (ADR 0175), then the current match first, so that it always has room, a jump's matches as
@@ -181,6 +186,10 @@ fn fills_of(cells: &WindowCells) -> [(Face, &[CellRect]); FILLS] {
         // A waiting row's mark and name on the blink's lit beat, over the point's band.
         (Face::SessionAlertLit, &cells.pane.lit[..]),
         (Face::CurrentLine, &cells.band[..]),
+        // A native session's rows', as a review's (ADR 0165).
+        (Face::SessionHeader, &cells.transcript.prompts[..]),
+        (Face::DiffAdded, &cells.transcript.added[..]),
+        (Face::DiffRemoved, &cells.transcript.removed[..]),
         (Face::DiffAdded, &cells.review.added[..]),
         (Face::DiffRemoved, &cells.review.removed[..]),
         (Face::DiffFiller, &cells.review.fillers[..]),
@@ -198,7 +207,7 @@ fn fills_of(cells: &WindowCells) -> [(Face, &[CellRect]); FILLS] {
 }
 
 /// How many lists of cells a window fills behind its text.
-const FILLS: usize = 19;
+const FILLS: usize = 22;
 
 /// Room for what a frame lists of the tiled windows, empty between frames, which each frame
 /// takes at its own lifetime ([`super::reuse`]), so that a frame allocates nothing once warm.

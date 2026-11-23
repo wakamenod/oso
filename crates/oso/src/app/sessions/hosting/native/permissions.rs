@@ -277,6 +277,7 @@ impl App {
             self.close_card(ask.key);
         }
         if ask.question.is_some() {
+            self.call_waits(ask.key, &ask.call.tool_use_id, false);
             self.tell_tracker(ask.key, Target::Working);
         }
         let _ = (ask.reply).send(Ok(permission::deny(
@@ -327,6 +328,9 @@ impl App {
             }
         });
         self.hosting.natives.permissions.asks = asks;
+        if outcomes.iter().any(|o| matches!(o, Outcome::Found(_))) {
+            self.say_calls_wait();
+        }
         for outcome in outcomes {
             match outcome {
                 // A session showing a card already waits for it: a later call waits behind it.
@@ -341,11 +345,33 @@ impl App {
                 }
                 Outcome::Denied(ask, why, found) => {
                     if found {
+                        self.call_waits(ask.key, &ask.call.tool_use_id, false);
                         self.tell_tracker(ask.key, Target::Working);
                     }
                     let _ = ask.reply.send(Ok(permission::deny(denial(why))));
                 }
             }
+        }
+    }
+
+    /// Each call found to wait for the person says so on its row.
+    fn say_calls_wait(&mut self) {
+        let asked: Vec<(SessionKey, String)> = (self.hosting.natives.permissions.asks.asked())
+            .map(|(key, id)| (key, id.to_owned()))
+            .collect();
+        for (key, id) in asked {
+            self.call_waits(key, &id, true);
+        }
+    }
+
+    /// The row of session `key`'s call `id` says that it waits for the person, or no more.
+    fn call_waits(&mut self, key: SessionKey, id: &str, waiting: bool) {
+        let Some(native) = self.hosting.natives.map.get_mut(&key) else {
+            return;
+        };
+        if let Some(change) = native.rows.waits(id, waiting) {
+            super::draw(&mut self.editor, native, [change]);
+            self.request_redraw();
         }
     }
 
