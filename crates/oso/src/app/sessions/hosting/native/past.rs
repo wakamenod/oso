@@ -22,7 +22,7 @@ use oso_core::editor::Editor;
 
 use super::{App, Native, draw};
 use crate::sessions::identity::SessionId;
-use crate::sessions::native::past::{Past, PastAsk};
+use crate::sessions::native::past::{Past, PastAsk, Since};
 use crate::sessions::native::render;
 use crate::sessions::native::rows::Kind;
 use crate::sessions::start::NativeOrder;
@@ -33,6 +33,7 @@ impl App {
     /// hold none of it; what follows their newest messages when it may have gone on elsewhere
     /// since (part 5b); else nothing. Then the notes said meanwhile wait for what is read.
     pub(super) fn native_wants_past(&mut self, key: SessionKey, id: &SessionId) -> Option<PastAsk> {
+        let from = self.hosting.table.started_by(id);
         let native = self.hosting.natives.map.get_mut(&key)?;
         let after = match native.rows.holds_conversation() {
             false => Vec::new(),
@@ -42,6 +43,7 @@ impl App {
             true => return None,
         };
         native.notes_after_past.get_or_insert_with(Vec::new);
+        native.rows.note_started_by(from);
         Some(PastAsk {
             id: id.clone(),
             after,
@@ -105,7 +107,9 @@ impl App {
             native.rows.note(&before);
         }
         let notes = past.after();
-        let changes = native.rows.past(past.said);
+        // Whether the conversation's first message is among them.
+        let first = !past.cut && !matches!(past.since, Since::After { .. });
+        let changes = native.rows.past(past.said, first);
         for note in notes.iter().chain(&waiting) {
             native.rows.note(note);
         }

@@ -17,7 +17,7 @@ use super::wire::MAX_TEXT;
 /// What a move goes to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Wanted {
-    /// A message of the person's.
+    /// A message of the person's, or the brief an agent started the session with.
     Prompt,
     /// A row of tool calls.
     Tools,
@@ -26,7 +26,7 @@ pub enum Wanted {
 impl Wanted {
     fn is(self, row: &Row) -> bool {
         match self {
-            Self::Prompt => matches!(row.kind, Kind::Prompt(_)),
+            Self::Prompt => matches!(row.kind, Kind::Prompt(_) | Kind::Brief { .. }),
             Self::Tools => matches!(row.kind, Kind::Tools(_)),
         }
     }

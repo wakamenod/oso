@@ -3,8 +3,8 @@
 //!
 //! Must not depend on: threads, files or the UI; methods of [`Rows`] over its own state.
 //!
-//! - A message the transcript marks as the person's is a prompt; a message from another
-//!   session a note; any other is what its replay would show: a command's output a note, a
+//! - A message the transcript marks as the person's is a prompt, or the brief an agent's tool
+//!   started the session with, the first one only; a message from another session a note; any other is what its replay would show: a command's output a note, a
 //!   wrapped one nothing.
 //! - Replies, thinking and tool calls are rows as they are live, folded and grouped by the
 //!   same rules. A call whose result the transcript does not hold is unfinished.
@@ -15,6 +15,7 @@
 use super::{Changes, Kind, RowChange, Rows};
 use crate::sessions::native::wire::transcript::Said;
 use crate::sessions::transcripts::WRAPPERS;
+use crate::sessions::worktree::brief::{self, Form};
 
 /// The most ids of the session's newest messages kept.
 pub const MAX_KEPT: usize = 64;
@@ -45,13 +46,14 @@ impl Rows {
 
     /// Folds in `said`, a session's earlier turns, oldest first, and says which rows changed:
     /// once each, in their order.
-    pub fn past(&mut self, said: Vec<Said>) -> Vec<RowChange> {
+    /// `first` says whether the conversation's first message is among them.
+    pub fn past(&mut self, said: Vec<Said>, mut first: bool) -> Vec<RowChange> {
         let mut changes = Changes::default();
         for said in said {
             let changed = match said {
                 Said::Prompt { text, uuid } => {
                     self.keep(uuid, true);
-                    self.past_prompt(text).into_iter().collect()
+                    self.past_prompt(text, &mut first).into_iter().collect()
                 }
                 Said::Note { text, uuid } => {
                     self.keep(uuid, true);
@@ -81,13 +83,31 @@ impl Rows {
         changes.into_iter().collect()
     }
 
-    /// A message the transcript marks as the person's: a prompt, unless a command or a hook
-    /// wrapped it.
-    fn past_prompt(&mut self, text: String) -> Option<RowChange> {
+    /// Notes whose the session's first message is when an agent's tool started it, for the
+    /// next read of its transcript.
+    pub fn note_started_by(&mut self, from: Option<String>) {
+        self.started_by = from;
+    }
+
+    /// A message the transcript marks as the person's, the conversation's `first` or not: a
+    /// prompt, unless a command or a hook wrapped it, or it is the brief the session started
+    /// with. The transcript does not say whose it is: it is a brief when it starts as oso
+    /// starts one, and one of a worktree, which the person hands off too, only where an agent's
+    /// tool started the session.
+    fn past_prompt(&mut self, text: String, first: &mut bool) -> Option<RowChange> {
         let start = text.trim_start();
         if WRAPPERS.iter().any(|wrapper| start.starts_with(wrapper)) {
             return self.not_sent(text);
         }
-        Some(self.push(Kind::Prompt(text), 0, false))
+        let from = match std::mem::take(first).then(|| brief::form(start)).flatten() {
+            Some(Form::Directory) => Some(self.started_by.take().unwrap_or_else(brief::unknown)),
+            Some(Form::Worktree) => self.started_by.take(),
+            None => None,
+        };
+        let kind = match from {
+            Some(from) => Kind::Brief { from, text },
+            None => Kind::Prompt(text),
+        };
+        Some(self.push(kind, 0, false))
     }
 }

@@ -172,6 +172,39 @@ pub enum Face {
     SessionSpace,
     /// A repository's name in `*Spaces*` (ADR 0140).
     SessionRepository,
+    /// What the person said in a native session, and the band behind it (ADR 0165).
+    SessionPrompt,
+    /// The mark before it, on its band.
+    SessionPromptMark,
+    /// What an agent wrote to start a native session, and the band behind it, in a hue apart
+    /// from the person's.
+    SessionBrief,
+    /// Who it is from and the mark before it, on its band.
+    SessionBriefMark,
+    /// A tool's name on a native session's row, in no colour a reply's text has.
+    SessionTool,
+    /// Inline code in a reply, on the text's background.
+    SessionCode,
+    /// What stands for a bullet, a list's number, a quote or a rule in a reply.
+    SessionBullet,
+    /// The mark of a call or of thinking under way.
+    SessionRunning,
+    /// The badge of a tool that reads, and the chip behind it, as the 7 below.
+    SessionIconRead,
+    /// One that changes files.
+    SessionIconWrite,
+    /// One that runs commands.
+    SessionIconShell,
+    /// One that searches.
+    SessionIconSearch,
+    /// One that runs an agent.
+    SessionIconAgent,
+    /// One that reads the web.
+    SessionIconWeb,
+    /// One that keeps tasks.
+    SessionIconTask,
+    /// Any other.
+    SessionIconOther,
     /// The band behind a space's row and the pane's other sections' (ADR 0140): a fill.
     SessionHeader,
     /// The faint band behind the front worktree's rows (ADR 0140): a fill.

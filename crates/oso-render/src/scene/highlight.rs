@@ -33,7 +33,7 @@ impl CellRows {
         let fills = view
             .fills
             .iter()
-            .filter(|(face, _)| !SYNTAX_FILLS.contains(face));
+            .filter(|(face, cells)| !cells.is_empty() && !SYNTAX_FILLS.contains(face));
         let flash = view.flash.as_ref().map(|flash| &flash.cells);
         self.read_cells(
             fills.flat_map(|(_, cells)| cells.iter()).chain(flash),

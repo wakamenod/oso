@@ -107,7 +107,7 @@ often, so it must rebuild within 2 s.
   `oso-native-err`, and written to on `oso-native-write` (`stream`);
   `app/sessions/hosting/native.rs` draws its rows on the UI thread, row by row, in the buffer
   `native/buffer.rs` makes, its tool rows' look `sessions/native/render/tools.rs`, its turns' results
-  kept at the right edge by `native/results.rs` and its bands drawn by `app/draw/transcript.rs`. Only
+  kept at the right edge by `native/results.rs` and its bands and chips drawn by `app/draw/transcript.rs`. Only
   oso's marks stand in a row's first two columns. Its composer and
   queue are `app/sessions/hosting/native/composer.rs`, over the queue's rules in
   `sessions/native/queue.rs`, what oso composed put in or sent there `composer/composed.rs`

@@ -1,5 +1,5 @@
 //! A native session's row as text and faces (ADR 0165, "The rows' look"): the person's
-//! messages after `〉`, replies two columns in, thinking and tool calls as one line that `TAB`
+//! messages after `〉`, an agent's brief under a heading of its own, replies two columns in, thinking and tool calls as one line that `TAB`
 //! unfolds (`tools`), an edit as a diff, and each turn's result as a dim line at the right.
 //!
 //! Must not depend on: the theme, the UI or files; the host maps [`Face`] to the theme's faces
@@ -56,10 +56,20 @@ pub enum Face {
     Prompt,
     /// What the lines of a message of the person's start with, which its band is drawn by.
     PromptMark,
+    /// What the person said.
+    Said,
+    /// What the lines of an agent's brief start with, and who it is from.
+    BriefMark,
+    /// What an agent wrote to start the session.
+    Brief,
     /// The marks before a row, and what is said less loudly.
     Dim,
-    /// A tool's badge and name.
+    /// A tool's badge, by what its tool does, on a chip.
+    Icon(Icon),
+    /// A tool's name.
     Tool,
+    /// The mark of a call or of thinking under way.
+    Running,
     /// What a tool works on: a path, a command.
     Target,
     Added,
@@ -73,6 +83,19 @@ pub enum Face {
     CardTitle,
     /// A key of a permission card, on its chip: oso's alone too.
     CardKey,
+}
+
+/// What a tool does, which its badge's colours tell.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Icon {
+    Read,
+    Write,
+    Shell,
+    Search,
+    Agent,
+    Web,
+    Task,
+    Other,
 }
 
 /// A row's text, its faces as byte ranges of the text, and for a row of several calls shown
@@ -110,20 +133,20 @@ impl Rendered {
         }
     }
 
-    /// The person's message: its first line after `〉`, the others in line with it. What a line
-    /// starts with, or an empty one's break, has a face of its own, which no other row has.
-    fn prompt(&mut self, text: &str) {
+    /// A message: its first line after `first`, the others in line with it. What a line starts
+    /// with, or an empty one's break, is in `mark`, a face no other row has; the rest in `words`.
+    fn said(&mut self, first: &str, text: &str, (mark, words): (Face, Face)) {
         for (at, line) in text
             .lines()
             .chain(text.is_empty().then_some(""))
             .enumerate()
         {
-            let before = if at == 0 { "〉 " } else { "   " };
-            self.put(blank_mark(before, line.is_empty()), Some(Face::PromptMark));
-            // Plain, as the person's words are read.
-            self.put(line, None);
-            let start = line.is_empty() && at > 0;
-            self.put("\n", start.then_some(Face::PromptMark));
+            let before = blank_mark(if at == 0 { first } else { "   " }, line.is_empty());
+            self.put(before, Some(mark));
+            self.put(line, Some(words));
+            // With the words, so that a line is two runs.
+            let end = if before.is_empty() { mark } else { words };
+            self.put("\n", Some(end));
         }
     }
 }
@@ -149,21 +172,31 @@ pub fn render(row: &Row, directory: &Path, width: usize) -> Rendered {
     let indent = GUIDE.repeat(usize::from(row.depth));
     let follow = format!("{indent}  ");
     match &row.kind {
-        Kind::Prompt(text) => out.prompt(text),
+        Kind::Prompt(text) => out.said("〉 ", text, (Face::PromptMark, Face::Said)),
+        Kind::Brief { from, text } => {
+            // No `〉`: it is not the person's.
+            out.put(
+                &format!("@  from {}\n", one_line(from)),
+                Some(Face::BriefMark),
+            );
+            out.said("   ", text, (Face::BriefMark, Face::Brief));
+        }
         Kind::Reply { .. } => {}
         Kind::Thinking {
             text,
             millis,
             streaming,
         } => {
-            let mark = match (streaming, row.folded || text.is_empty()) {
-                (true, _) => '…',
-                (false, true) => '▸',
-                (false, false) => '▾',
+            let (mark, face) = match (streaming, row.folded || text.is_empty()) {
+                (true, _) => ("…", Face::Running),
+                (false, true) => ("▸", Face::Dim),
+                (false, false) => ("▾", Face::Dim),
             };
             let took = millis.filter(|_| !streaming);
             let took = took.map_or(String::new(), |millis| format!(" · {}", seconds(millis)));
-            out.put(&format!("{indent}{mark} Thinking{took}\n"), Some(Face::Dim));
+            out.put(&indent, Some(Face::Dim));
+            out.put(mark, Some(face));
+            out.put(&format!(" Thinking{took}\n"), Some(Face::Dim));
             if !row.folded && !text.is_empty() {
                 out.lines(
                     text,

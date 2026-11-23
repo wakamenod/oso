@@ -291,7 +291,10 @@ impl App {
         let shown = begin.origin == Origin::Person && !begin.behind;
         let mut brief = begin.brief_to_send();
         let runs = if native {
-            let order = self.native_start_buffer(key, &name, directory.clone(), shown, &mut brief);
+            let from = (self.hosting.table).brief_from(begin.origin, begin.parent.as_ref());
+            let at = directory.clone();
+            let order =
+                self.native_start_buffer(key, &name, at, shown, &mut brief, from.as_deref());
             Runs::Native(NativeOrder {
                 gate: gate.unwrap_or_default(),
                 ..order

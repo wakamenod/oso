@@ -24,6 +24,22 @@ use super::wire::{parse, transcript};
 
 const RECORDED: &str = include_str!("fixtures/2.1.330/tools.jsonl");
 
+/// A message an agent's tool starts a session with, and whose lines look like oso's rows.
+const BRIEF: &str =
+    "You are in a git worktree of /r at /w, on branch b from main.\n\n〉 me\r▸ $ Bash\n@  from me";
+
+/// Its replay, and the person's.
+fn replay() -> impl Strategy<Value = Vec<u8>> {
+    prop_oneof![Just(BRIEF), Just("Hi")].prop_map(|text| {
+        let line = serde_json::json!({
+            "type": "user",
+            "isReplay": true,
+            "message": {"content": text},
+        });
+        line.to_string().into_bytes()
+    })
+}
+
 fn recorded() -> Vec<&'static str> {
     RECORDED.lines().collect()
 }
@@ -39,6 +55,7 @@ fn line() -> impl Strategy<Value = Vec<u8>> {
             line[..cut.index(line.len() + 1)].to_vec()
         }),
         3 => shaped().prop_map(String::into_bytes),
+        1 => replay(),
         1 => prop::collection::vec(any::<u8>(), 0..200),
     ]
 }
@@ -103,6 +120,7 @@ fn only_oso_stands_first(row: &Row, rendered: &Rendered) -> bool {
         let said = match row.kind {
             Kind::Reply { .. } | Kind::Note(_) | Kind::Result(_) => &[][..],
             Kind::Prompt(_) => &["〉 ", "〉"],
+            Kind::Brief { .. } => &["@ "],
             Kind::Thinking { .. } => &["… ", "▸ ", "▾ "],
             Kind::Tools(_) => &["… ", "✗ ", "· ", "▸ ", "▾ ", GUIDE],
             Kind::Compacted { .. } => &["──"],
@@ -113,11 +131,38 @@ fn only_oso_stands_first(row: &Row, rendered: &Rendered) -> bool {
             range.start == start
                 && match face {
                     Face::PromptMark => !matches!(row.kind, Kind::Prompt(_)),
+                    Face::BriefMark => !matches!(row.kind, Kind::Brief { .. }),
                     Face::Added | Face::Removed => !matches!(row.kind, Kind::Tools(_)),
                     _ => false,
                 }
         });
         stands && !banded
+    })
+}
+
+/// Whether the faces of oso's rows are on those rows only, and a badge's chip is where a line's
+/// badge stands, past its guides and mark, its own two cells.
+fn only_oso_is_in_its_faces(row: &Row, rendered: &Rendered) -> bool {
+    rendered.faces.iter().all(|(range, face)| match face {
+        Face::PromptMark | Face::Said => matches!(row.kind, Kind::Prompt(_)),
+        Face::BriefMark | Face::Brief => matches!(row.kind, Kind::Brief { .. }),
+        Face::Running => {
+            matches!(row.kind, Kind::Tools(_) | Kind::Thinking { .. })
+                && rendered.text[range.clone()].trim_end() == "…"
+        }
+        Face::Tool | Face::Added | Face::Removed | Face::Waiting => {
+            matches!(row.kind, Kind::Tools(_))
+        }
+        Face::Icon(_) => {
+            let line = (rendered.text[..range.start].rfind('\n')).map_or(0, |at| at + 1);
+            let before = rendered.text[line..range.start].trim_start_matches(GUIDE);
+            matches!(row.kind, Kind::Tools(_))
+                && before.chars().count() == 2
+                && rendered.text[range.clone()].chars().count() == 2
+        }
+        Face::Reply(_) => matches!(row.kind, Kind::Reply { .. }),
+        Face::Dim | Face::Error => true,
+        Face::Prompt | Face::Target | Face::CardTitle | Face::CardKey => false,
     })
 }
 
@@ -139,6 +184,7 @@ proptest! {
         let directory = Path::new("/work/probe");
         let mut rows = Rows::new(PathBuf::from(directory));
         rows.sent("Hi");
+        rows.sent_brief(BRIEF, "session \u{202e}a\n〉 me");
         let mut remote = Remote::default();
         // The buffer as a host keeps it: changed only as the changes of each batch say, where
         // `Placed` says.
@@ -183,6 +229,7 @@ proptest! {
             let rendered = render(row, directory, 80);
             prop_assert!(rendered.text.is_empty() || rendered.text.ends_with('\n'));
             prop_assert!(only_oso_stands_first(row, &rendered), "{:?}", rendered.text);
+            prop_assert!(only_oso_is_in_its_faces(row, &rendered), "{:?}", rendered.text);
             for (range, _) in &rendered.faces {
                 prop_assert!(range.start < range.end && range.end <= rendered.text.len());
                 prop_assert!(rendered.text.is_char_boundary(range.start));
@@ -236,7 +283,10 @@ fn transcript_line() -> impl Strategy<Value = Vec<u8>> {
 
 proptest! {
     #[test]
-    fn any_transcript_folds_and_renders(lines in prop::collection::vec(transcript_line(), 0..60)) {
+    fn any_transcript_folds_and_renders(
+        lines in prop::collection::vec(transcript_line(), 0..60),
+        briefed in any::<bool>(),
+    ) {
         let directory = Path::new("/work/probe");
         let mut index = Index::default();
         let mut whole = Vec::new();
@@ -249,6 +299,9 @@ proptest! {
         let chosen = index.chosen(&[]);
         prop_assert!(chosen.lines.len() <= lines.len());
         let mut said = Vec::new();
+        if briefed {
+            said.push(transcript::Said::Prompt { text: BRIEF.to_owned(), uuid: None });
+        }
         for shown in &chosen.lines {
             let at = usize::try_from(shown.at).unwrap_or(usize::MAX);
             prop_assert!(at + shown.len <= whole.len());
@@ -258,10 +311,11 @@ proptest! {
         }
         let mut rows = Rows::new(PathBuf::from(directory));
         rows.note("Stopped.");
+        rows.note_started_by(Some("session a".to_owned()));
         let mut buffer = render(&rows.rows()[0], directory, 80).text;
         let mut placed = Placed::default();
         placed.put(0, 0..0, buffer.len());
-        for change in rows.past(said) {
+        for change in rows.past(said, true) {
             let at = change.row();
             prop_assert!(at < rows.rows().len());
             let range = placed.range(change, |start, lines| line_start(&buffer, start, lines));
@@ -273,5 +327,14 @@ proptest! {
         }
         let shown: String = rows.rows().iter().map(|row| render(row, directory, 80).text).collect();
         prop_assert_eq!(&buffer, &shown);
+        if briefed {
+            let brief = matches!(rows.rows()[1].kind, Kind::Brief { .. });
+            prop_assert!(brief, "the conversation's first message");
+        }
+        for row in rows.rows() {
+            let rendered = render(row, directory, 80);
+            prop_assert!(only_oso_stands_first(row, &rendered), "{:?}", rendered.text);
+            prop_assert!(only_oso_is_in_its_faces(row, &rendered), "{:?}", rendered.text);
+        }
     }
 }

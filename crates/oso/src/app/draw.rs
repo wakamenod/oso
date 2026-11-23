@@ -28,6 +28,7 @@ use crate::terminal::hosted::Terminals;
 use crate::text;
 
 mod card;
+mod chip;
 mod float;
 mod menu;
 mod spaces;

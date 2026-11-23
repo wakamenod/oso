@@ -35,11 +35,19 @@ fn new_transcript(editor: &mut Editor, name: &str) -> BufferId {
     id
 }
 
+/// A session's first message, as its start sends it.
+#[derive(Clone, Copy)]
+pub(in crate::app::sessions::hosting) struct First<'a> {
+    text: &'a str,
+    /// Whose it is, when an agent's tool started the session: `None` for the person's.
+    from: Option<&'a str>,
+}
+
 impl App {
     /// A new native session `key`'s buffer, as [`App::native_session_buffer`] makes it, with
-    /// `brief` as its first message: none when blank, as the person writes it in the composer,
-    /// and none when it would clear the conversation (step 2d), which waits in the composer
-    /// instead and is taken out of `brief`.
+    /// `brief` as its first message, `from` whose it is, if an agent's: none when blank, as the
+    /// person writes it in the composer, and none when it would clear the conversation (step
+    /// 2d), which waits in the composer instead and is taken out of `brief`.
     pub(in crate::app::sessions::hosting) fn native_start_buffer(
         &mut self,
         key: SessionKey,
@@ -47,6 +55,7 @@ impl App {
         directory: PathBuf,
         shown: bool,
         brief: &mut Option<String>,
+        from: Option<&str>,
     ) -> NativeOrder {
         let first = brief.as_deref().filter(|brief| has_brief(Some(brief)));
         let held = first.filter(|first| SlashCommands::default().refused(first).is_some());
@@ -55,6 +64,7 @@ impl App {
             *brief = None;
         }
         let first = brief.as_deref().filter(|brief| has_brief(Some(brief)));
+        let first = first.map(|text| First { text, from });
         let order = self.native_session_buffer(key, name, directory, shown, first);
         if let Some(held) = held {
             self.hold_in_composer(key, &held);
@@ -64,14 +74,14 @@ impl App {
 
     /// The buffer a native session `key`, named `name`, in `directory`, is shown in: made now,
     /// and shown unless not `shown`. Its start's order for the start thread, which writes
-    /// `first` as the person's first message: its replay is the person's.
+    /// `first` as its first message: its replay is the person's, or a brief.
     pub(in crate::app::sessions::hosting) fn native_session_buffer(
         &mut self,
         key: SessionKey,
         name: &str,
         directory: PathBuf,
         shown: bool,
-        first: Option<&str>,
+        first: Option<First<'_>>,
     ) -> NativeOrder {
         // Its bridge asks the person's permission there (ADR 0165, step 2).
         self.start_sessions_socket();
@@ -143,13 +153,18 @@ impl App {
         key: SessionKey,
         name: &str,
         directory: PathBuf,
-        first: Option<&str>,
+        first: Option<First<'_>>,
     ) -> BufferId {
         let buffer = new_transcript(&mut self.editor, name);
         self.mark_session_buffer(key, buffer);
         let mut rows = Rows::new(directory);
-        if let Some(first) = first {
-            rows.sent(first);
+        match first {
+            Some(First { text, from: None }) => rows.sent(text),
+            Some(First {
+                text,
+                from: Some(from),
+            }) => rows.sent_brief(text, from),
+            None => {}
         }
         let native = Native {
             buffer,
