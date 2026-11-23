@@ -2063,6 +2063,36 @@ transcript holds after them, when the conversation may have gone on elsewhere si
   decoded: hidden under the CLI's start for the median transcript, not measured at the largest.
 - **New public items:** none.
 
+## Long lines, as built
+
+The author found a transcript whose long lines are cut at the window's edge unreadable, and
+chose on 2026-11-24:
+
+- **A transcript, its composer and `*result: NAME*` wrap from when they are made**
+  ([ADR 0100](0100-soft-wrap.md)), for native sessions only. That covers a start, a resume, a
+  fork, a session brought back, an adoption, a switch from the TUI and the earlier turns.
+- **`toggle-truncate-lines` still turns each off,** and what the person chose stays for as long
+  as that buffer lives: a `*result*` shown again for another call keeps it.
+- **Not the card or the strip,** which oso draws to their window's width: a card that wraps takes
+  no answer (part 2e-2). Nor a plan's edit, `*plan: NAME*`, which was not asked for.
+- **The composer's rows** were counted as wrapped since [ADR 0170](0170-docked-windows-under-a-sessions-transcript.md),
+  so its window grew for text that it then cut. They agree now: a composer whose lines the person
+  truncates takes as many rows as its lines.
+- **A restart** makes a transcript and a composer again, wrapped, whatever the person chose there;
+  a result's buffer is made at the next `RET`. Transcripts and results are internal and never
+  carried. A composer's entry in the state stands for `*scratch*`, which it must not wrap, so it
+  says nothing of it, and an entry that does not say it wraps leaves the buffer as it is.
+- **The first text in an empty wrapped buffer,** as a fork's earlier turns or a yank into the
+  composer, is wrapped at once only within the budget, and otherwise provisional until the job
+  reports, as any edit; it was all wrapped on the UI thread.
+- **Measured** (`text_perf -- transcript`, a frame of 64 by 100, the composer docked and selected,
+  M-series Mac): a batch that draws the growing last line again, its rewrap, the frame's rows and
+  the jobs asked for take 0.07 ms at p50 and 0.15 ms at p99 wrapped, 0.02 and 0.03 ms truncated,
+  at 100 rows and at 10,000. On a line that grows to 1 MiB they take 0.40 and 0.53 ms, 0.18 and
+  0.31 ms truncated. 10,000 rows of earlier turns, put in at once, take 6.6 ms, 6.8 truncated:
+  the text's own cost. Back in the window they wrap in 0.1 ms, the rest on the worker.
+- **New public items:** none.
+
 ## Remote Control is off, as amended
 
 Amended on 2026-11-24, the author's choice. Claude Code's Remote Control connects a session to
@@ -2269,6 +2299,13 @@ Each passage stays in its ADR as written; what holds now follows it.
   whole as a fork does, before its key is reserved and its buffer made; a second adoption of a
   conversation whose adoption waits is held too, and says "That conversation is being
   adopted" once it goes (part 4e).
+
+- [ADR 0100](0100-soft-wrap.md), "**Off by default, for every buffer (author).**" and "Nothing
+  turns it on by file name; modes do that from M3": except a native session's transcript, its
+  composer and `*result: NAME*`, which wrap from when they are made ("Long lines, as built").
+- ADR 0100, "`oso dev` carries each buffer's setting to the instance that replaces it": not that
+  of a buffer whose entry stands for `*scratch*`, as a composer's. ADR 0103's "a buffer that wraps
+  says `"wraps": true`" is the same.
 
 ## Consequences
 

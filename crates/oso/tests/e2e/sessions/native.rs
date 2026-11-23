@@ -156,6 +156,14 @@ fn stream() -> String {
     format!("{}\n", lines.join("\n"))
 }
 
+/// The text the selected window shows, its view rows one after the other, so that a wrapped
+/// line reads whole.
+fn joined(state: &Value) -> String {
+    (state["text"]["rows"].as_array().into_iter().flatten())
+        .filter_map(Value::as_str)
+        .collect()
+}
+
 fn text(state: &Value) -> String {
     state["text"]["rows"]
         .as_array()
@@ -526,6 +534,7 @@ mod status;
 mod suggest;
 mod switch;
 mod todo;
+mod wrap;
 
 /// The selected window, if it is the composer docked under a session.
 fn selected_composer(state: &Value) -> Option<&Value> {

@@ -169,7 +169,7 @@ impl App {
                     }
                 }
             }
-            self.editor.set_wraps(buffer, wraps);
+            carry::restore_wraps(&mut self.editor, buffer, wraps);
             named.push(buffer);
         }
         // The terminals only once nothing can fail: their threads start here.
