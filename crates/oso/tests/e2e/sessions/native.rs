@@ -463,10 +463,21 @@ fn wait_for_answers(app: &mut App) {
     });
 }
 
-/// Sends `key` once the card takes an answer.
+/// Sends `key` once the card takes an answer, again while the card says to wait, as the person
+/// would. On X11, winit holds its report that oso turned the IME off until the next X event,
+/// which may be the one of the session's attention, asked for as the card comes to take
+/// answers: the report counts as typing, and restarts the quiet moment between the look and
+/// the key. A key refused does nothing, and every key empties the echo area first, so what it
+/// says is of this key.
 fn answer_after_quiet(app: &mut App, key: &str) {
-    wait_for_answers(app);
-    app.send_keys(key);
+    for _ in 0..3 {
+        wait_for_answers(app);
+        app.send_keys(key);
+        if app.state()["echo"] != "Wait a moment, then answer the card" {
+            return;
+        }
+    }
+    panic!("the card took no {key}, sent three times as it took answers");
 }
 
 mod adopt;
