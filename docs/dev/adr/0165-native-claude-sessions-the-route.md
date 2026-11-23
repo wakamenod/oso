@@ -1159,7 +1159,9 @@ As built:
   a line that says a mode asking more is carried, the safe side. A line can still make the
   modeline say another mode than the CLI's until the CLI says one again. Part 3d's plan
   approved with a mode (`a`, or `A` after its question) counts as the person's choice of it,
-  as a switch does (`ModeState::chose`).
+  as a switch does (`ModeState::chose`), once the bridge took the answer: the author approved,
+  on 2026-11-23, that it is carried across resumes, forks and an orchestrator's resume until
+  the person switches.
 - **Across an oso restart** (Q-B2 (a)): the mode is not in the record, so a session resumed
   after the restart starts as the settings say.
 - **Public API (approved):** `NativeAction::CycleMode`.
