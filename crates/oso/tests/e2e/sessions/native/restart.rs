@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 
 use super::super::super::harness::{App, sockets};
 use super::super::super::spaces::trust_restricted;
+use super::super::super::worktrees::keys;
 use super::modes::{MODES_FAKE, mode_shown, modeline, send};
 use super::{Flow, in_composer, text};
 
@@ -63,6 +64,14 @@ fn resumed_in_accept_edits(flow: &Flow, id: &str) {
     assert!(run.contains("arg --permission-mode=acceptEdits"), "{run}");
 }
 
+/// Shows the session's transcript, which the new instance does not show at first, as it
+/// comes back behind the file.
+fn show_transcript(app: &mut App) {
+    app.send_keys("C-x b");
+    app.send_keys(&keys("*claude: proj*"));
+    app.send_keys("RET");
+}
+
 /// Waits until `app`'s transcript says `row`.
 fn transcript_says(app: &mut App, row: &str) {
     app.send_keys("C-c C-o");
@@ -84,6 +93,7 @@ fn a_native_session_resumes_in_the_instance_oso_restart_starts_in_its_mode() {
     new.wait_until_ready();
     // Run 1 ended with its input, and only then, the old instance gone, did run 2 start.
     resumed_in_accept_edits(&flow, &id);
+    show_transcript(&mut new);
     transcript_says(&mut new, "Resumed after oso-restart.");
     new.wait_for("the mode", |state| modeline(state).contains("acceptEdits"));
     // The resumed session takes messages: run 2's first.
@@ -94,13 +104,9 @@ fn a_native_session_resumes_in_the_instance_oso_restart_starts_in_its_mode() {
     let _ = new.exchange("exit", None);
 }
 
-/// Waits until `app`'s restart has stayed, and its session resumed there.
+/// Waits until `app`'s restart has stayed, and its session resumed there. The echo's
+/// "everything stays here" may give way at once to the agent channel's coming back on.
 fn stayed_and_resumed(flow: &Flow, app: &mut App, id: &str) {
-    app.wait_for("the restart to stay", |state| {
-        state["echo"]
-            .as_str()
-            .is_some_and(|echo| echo.contains("everything stays here"))
-    });
     resumed_in_accept_edits(flow, id);
     transcript_says(app, "oso-restart stayed here: resumed.");
     app.send_keys("i");
