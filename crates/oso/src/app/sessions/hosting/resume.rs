@@ -71,6 +71,11 @@ impl App {
         let Some(session) = self.hosting.table.get(key) else {
             return Err("That session is gone".into());
         };
+        // The restart going ends the sessions and the new oso resumes them: one here meanwhile
+        // would be a second writer of the conversation (ADR 0165, part 4c).
+        if self.restart_going() {
+            return Err("oso-restart is under way".into());
+        }
         if session.runs() {
             return Err(format!("Session {} runs", session.name));
         }
@@ -129,6 +134,8 @@ impl App {
                 ..self.session_terminal(key, &name, Some(buffer), shown)
             }),
         };
+        // Resumed now, by whoever asked: not again as a restart's (part 4c).
+        self.forget_restart_resume(key);
         self.order_session(Order {
             token: key,
             kind,

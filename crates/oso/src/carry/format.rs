@@ -83,6 +83,8 @@ pub struct State {
     pub follows: Vec<u32>,
     /// The reviews its windows showed, which open again (ADR 0122, step 6).
     pub reviews: Vec<super::reviews::ReviewEntry>,
+    /// The native sessions it resumes once the instance before has gone (ADR 0165, part 4c).
+    pub native_resumes: Vec<super::natives::NativeResume>,
 }
 
 #[cfg(test)]
@@ -258,7 +260,7 @@ pub fn parse(state: &Value) -> Result<State, String> {
         order,
         windows,
         pending_keys: parse_keys(state)?,
-        frame: parse_frame(state)?,
+        frame: super::layout::parse_frame(state)?,
         theme: super::look::parse_theme(state)?,
         visual_aids: super::look::parse_aids(state)?,
         font_lock: super::look::parse_font_lock(state)?,
@@ -268,6 +270,7 @@ pub fn parse(state: &Value) -> Result<State, String> {
         terminals,
         follows: super::terminals::parse_follows(state)?,
         reviews,
+        native_resumes: super::natives::parse(state),
     })
 }
 
@@ -540,34 +543,6 @@ fn parse_keys(state: &Map<String, Value>) -> Result<Vec<KeyPress>, String> {
         .ok_or("the state has no pending keys")?;
     let KeySequence(keys) = keys.parse().map_err(|e| format!("{e}"))?;
     Ok(keys)
-}
-
-fn parse_frame(state: &Map<String, Value>) -> Result<Option<Frame>, String> {
-    let frame = match state.get("frame") {
-        None | Some(Value::Null) => return Ok(None),
-        Some(frame) => frame.as_object().ok_or("the frame is not an object")?,
-    };
-    let coordinate = |name: &str| match frame.get(name) {
-        None | Some(Value::Null) => Ok(None),
-        Some(value) => value
-            .as_i64()
-            .and_then(|value| i32::try_from(value).ok())
-            .map(Some)
-            .ok_or_else(|| format!("the frame's {name} is not a position")),
-    };
-    let side = |name: &str| {
-        frame
-            .get(name)
-            .and_then(Value::as_u64)
-            .and_then(|value| u32::try_from(value).ok())
-            .filter(|value| (1..=MAX_FRAME_SIDE).contains(value))
-            .ok_or_else(|| format!("the frame's {name} is not a size"))
-    };
-    Ok(Some(Frame {
-        position: coordinate("x")?.zip(coordinate("y")?),
-        width: side("width")?,
-        height: side("height")?,
-    }))
 }
 
 pub(super) fn array<'a>(

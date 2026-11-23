@@ -63,6 +63,7 @@ pub mod pair;
 pub mod pieces;
 use internal::{behind_internal, handed_over};
 mod look;
+pub mod natives;
 pub mod notice;
 mod restore;
 pub mod reviews;

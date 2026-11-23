@@ -24,6 +24,8 @@
 //!   to-do strip, `todo`'s (part 3e).
 //! - Its prompt suggestion is `suggesting`'s, and the recap of a turn that ended out of sight
 //!   `recap`'s (part 3f).
+//! - Its process ended before `oso-restart`, and resumed by the new instance, is
+//!   `restarting`'s (part 4c).
 //! - Its side of a switch to the TUI, and its transcript set aside meanwhile, are
 //!   `switching`'s (part 4d).
 //! - Its bridge asks the person's permission for its calls on the sessions' socket, in
@@ -46,6 +48,7 @@ mod mode;
 mod note;
 mod permissions;
 mod recap;
+mod restarting;
 mod resume;
 mod slash;
 mod status;
@@ -94,6 +97,8 @@ pub(in crate::app) struct NativeSessions {
     slash_listed: Option<slash::Listed>,
     /// The replies highlighted as Markdown that wait or are open (part 2g).
     replies: markdown::Replies,
+    /// In a new instance: the sessions the restart's state resumes (part 4c).
+    resuming: restarting::Resuming,
     /// The transcripts set aside while their sessions run in the TUI (part 4d).
     aside: HashMap<SessionKey, Native>,
     /// The sessions switching between the modes, and where each switch is (part 4d).
@@ -292,6 +297,8 @@ impl App {
             Out::Events(events) => self.native_events(key, events),
             Out::Ended { status, stderr } => {
                 self.native_ended(key, status, &stderr);
+                // The restart goes on once each session it ends has (part 4c).
+                self.native_ended_for_restart(key);
                 self.request_redraw();
             }
         }

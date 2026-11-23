@@ -25,7 +25,7 @@ use super::{Flow, in_composer, text};
 /// so that the mode is the note's first part, which the transcript's narrow modeline beside
 /// `*Spaces*` keeps (part 3a). `SIGINT` ends the turn and the process, as the CLI's does,
 /// noting `signalled.N`.
-const MODES_FAKE: &str = r#"#!/bin/sh
+pub(super) const MODES_FAKE: &str = r#"#!/bin/sh
 dir='DIR'
 n=$(ls "$dir" | grep -c '^run\.')
 n=$((n+1))
@@ -88,12 +88,12 @@ fn started(test: &str, tier: u8) -> (Flow, App) {
     (flow, app)
 }
 
-fn modeline(state: &Value) -> &str {
+pub(super) fn modeline(state: &Value) -> &str {
     state["modeline"].as_str().unwrap_or_default()
 }
 
 /// The transcript once its modeline says `mode`, then back to the composer.
-fn mode_shown(app: &mut App, mode: &str) -> Value {
+pub(super) fn mode_shown(app: &mut App, mode: &str) -> Value {
     app.send_keys("C-c C-o");
     let state = app.wait_for(mode, |state| {
         state["buffer"]["name"] == "*claude: proj*" && modeline(state).contains(mode)
@@ -104,7 +104,7 @@ fn mode_shown(app: &mut App, mode: &str) -> Value {
 }
 
 /// Sends `message` from the composer.
-fn send(app: &mut App, message: &str) {
+pub(super) fn send(app: &mut App, message: &str) {
     app.send_keys(&keys(message));
     app.send_keys("C-c C-c");
 }

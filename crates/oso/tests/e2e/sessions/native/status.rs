@@ -7,7 +7,7 @@
 //!
 //! Must not depend on: the app's internals; the line's rules have their own tests.
 
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use super::super::super::harness::App;
 use super::super::super::spaces::trust_restricted;
@@ -105,6 +105,10 @@ fn the_transcripts_modeline_says_the_sessions_model_mode_context_cost_and_limit(
     app.send_keys(&keys("plan it"));
     app.send_keys("C-c C-c");
     flow.wait_for_file("sent.1");
+    // The turn ended while the composer was selected: until its transcript has been in front
+    // of the person for a moment (ADR 0140), the session's attention mark leads the modeline
+    // and crowds the line, and a CI window that lost its focus never has the person in front.
+    app.call("focus", Some(json!({ "focused": true })));
     let state = transcript_says(&mut app, AFTER);
     assert!(modeline(&state).ends_with(AFTER), "{}", modeline(&state));
     narrow_windows_drop_parts_from_the_right(&mut app);

@@ -19,7 +19,9 @@
 //!    told to [`STAY`] out of it: it gives the terminals up, and closes unless it was edited.
 //!
 //! So only one instance reads each PTY at a time: this one until the export, the new one only
-//! once this one has gone. `dev/restart.rs` is the same order for `oso dev`'s supervisor: a
+//! once this one has gone. Before this order starts, the UI thread has ended its native
+//! sessions; the state names them, and the new instance resumes them only once this one has
+//! gone too, or this one does if it stays (ADR 0165, part 4c). `dev/restart.rs` is the same order for `oso dev`'s supervisor: a
 //! change to one is a change to the other.
 
 // The restart needs the pair and terminals, which only Unix has for now; its parts are

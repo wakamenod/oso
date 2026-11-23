@@ -305,3 +305,23 @@ fn a_result_says_its_local_command_and_its_replys_first_line() {
     };
     assert_eq!(result.local_command, None);
 }
+
+#[test]
+fn a_session_an_oso_restart_resumes_keeps_a_choice_that_can_be_carried() {
+    let kept = Choice::restarted(Some("claude-sonnet-5-5"), Some("high"));
+    assert_eq!(
+        kept.for_start(),
+        (Some("claude-sonnet-5-5".into()), Some("high"))
+    );
+    assert_eq!(Choice::restarted(None, None), Choice::default());
+    let long = "m".repeat(300);
+    for (model, effort) in [
+        ("--dangerously-skip-permissions", "HIGH"),
+        ("two words", "auto"),
+        (long.as_str(), "unset"),
+        ("", "highest"),
+    ] {
+        let dropped = Choice::restarted(Some(model), Some(effort));
+        assert_eq!(dropped.for_start(), (None, None), "{model:?} {effort:?}");
+    }
+}

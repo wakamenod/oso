@@ -10,7 +10,8 @@
 //!   [`TAKE_MASTERS`] are held, not read: the terminals take them only once the pair has ended
 //!   and the instance going is no longer this one's parent, so that only one instance reads
 //!   each PTY. If it stays ([`STAY`]), or does not go within [`GONE_TIME`] of the end, they are
-//!   given up and the terminals end with their last screen.
+//!   given up and the terminals end with their last screen. The native sessions the state
+//!   names resume once it has gone so too, terminals or none (ADR 0165, part 4c).
 //! - What comes over the pair comes only from the parent: the pair is the one this process
 //!   inherited, whose peer was its parent when it started.
 
@@ -58,6 +59,7 @@ fn serve(mut pair: Pair, parent: u32, post: impl Fn(Asked) -> bool) {
         post,
         generation: None,
         terminals: 0,
+        natives: false,
         masters: Vec::new(),
     };
     loop {
@@ -89,6 +91,8 @@ struct Coming<P> {
     generation: Option<u64>,
     /// How many terminals the state carried.
     terminals: usize,
+    /// It named native sessions, which resume once the instance going has gone.
+    natives: bool,
     /// Their masters, held until the instance going has gone.
     masters: Vec<Fd>,
 }
@@ -104,9 +108,11 @@ impl<P: Fn(Asked) -> bool> Coming<P> {
                 }
                 let state = parse(fields.get("state").ok_or("no state came")?)?;
                 let terminals = state.terminals.len();
+                let natives = !state.native_resumes.is_empty();
                 let reply = self.ask(Op::ImportState(Box::new(state)), Vec::new())?;
                 self.generation = reply["generation"].as_u64();
                 self.terminals = terminals;
+                self.natives = natives;
                 Ok(reply)
             }
             TAKE_MASTERS => {
@@ -151,15 +157,21 @@ impl<P: Fn(Asked) -> bool> Coming<P> {
     }
 
     /// The pair has ended: once the instance going is no longer `parent`'s, as `parent_now`
-    /// tells, the terminals take their masters; if it is still there after [`GONE_TIME`], or no
-    /// masters came, they are given up.
+    /// tells, the terminals take their masters and the native sessions named resume; if it is
+    /// still there after [`GONE_TIME`], or no masters came for the terminals, they are given
+    /// up, and the sessions stay stopped.
     fn ended(mut self, parent: u32, parent_now: impl Fn() -> u32) {
-        if self.terminals == 0 {
+        if self.terminals == 0 && !self.natives {
             return;
         }
         let masters = std::mem::take(&mut self.masters);
         let count = masters.len();
-        let gone = count > 0 && {
+        let came = if self.terminals > 0 {
+            count > 0
+        } else {
+            self.natives
+        };
+        let gone = came && {
             let since = Instant::now();
             loop {
                 if parent_now() != parent {
@@ -176,7 +188,10 @@ impl<P: Fn(Asked) -> bool> Coming<P> {
         };
         let brought = if gone { masters } else { Vec::new() };
         if let Err(why) = self.ask(op, brought) {
-            log::warn!("oso-restart: the terminals carried here did not take over: {why}");
+            log::warn!(
+                "oso-restart: the terminals or native sessions carried here did not take over: \
+                 {why}"
+            );
         }
     }
 }
