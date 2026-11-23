@@ -1051,14 +1051,14 @@ structure, approved the plan's mock-ups, and chose, for this part (D1): `M-w` co
 shown and `w` a reply's raw Markdown (Q8 (a)); a link's target is hidden only behind plain
 words. ECC is GPL: its look was read, and no code or colour of it is here. It amends part 2g.
 
-- **Drawn without marks:** a reply's rows are drawn by `sessions::native::shown`, a pure walk
-  over its text: no `#` before a heading, no `*` around emphasis, no backticks around inline
-  code, no fence lines; `• ` for a `- ` or `* ` (an ordered list's numbers and `+ ` stay), `│ ` for a
-  quote's `> `, a line of 32 `─` for a rule, a link as its text. oso writes the rows' text, so nothing
-  is concealed by the display: the buffer holds what shows. An empty line stands for a fence's
-  line where none was. Faces are existing ones, or the session's own since ("The rows' colours"): what hidden marks were around keeps a
-  colour (a heading, emphasis, inline code, a link). Real bold and italic, and tables, are
-  later parts: a table is drawn as written.
+- **Drawn without marks:** a reply's rows are drawn by `sessions::native::shown`, a pure walk over
+  its text: no `#` before a heading, no `*` around emphasis, no backticks around inline code, no
+  fence lines; `• ` for a `- ` or `* ` (an ordered list's numbers and `+ ` stay), `│ ` for a quote's
+  `> `, a line of 32 `─` for a rule, a link as its text. oso writes the rows' text, so nothing is
+  concealed by the display: the buffer holds what shows. An empty line stands for a fence's line
+  where none was. Faces are existing ones, or the session's own since ("The rows' colours"): what
+  hidden marks were around keeps a colour (a heading, emphasis, inline code, a link). Real bold and
+  italic, and tables, are later parts: a table is drawn as written.
 - **Faces:** `shown` gives a reply's faces at once, also while it streams. The parse (part 2g)
   still runs once the reply is whole: its runs lie on a fence's code, and on what has no face
   of `shown`'s; code whose language gave it none is in inline code's face.
@@ -2175,15 +2175,16 @@ for the reason under "Only oso's rows look so").
   into view.
 - **`AskUserQuestion`'s row** shows its first question; its input as JSON is gone. What a request is
   held against is as it was.
-- **Only oso's rows look so.** Only oso's marks and guides stand in the first two columns of a line, at
-  every depth, whatever a reply, a note, thinking, a result or a change says: a fuzz target holds it.
-  On a tool row and in what it shows, what Claude or a tool says is dim and oso's words are not (a
-  waiting call's, a failure's and a denial's have colours of their own), and runs of spaces in it are
-  one, so it spells no outcome in oso's face. A changed line's number is not in the line's face. A
-  band is drawn where a line starts in a highlight that only `sessions::native::render` gives, in a
-  session's buffer, never from what a text holds; a tool's name is in one that no parser gives. These
-  were `*Spaces*`' highlights, until the session's own ("The rows' colours"). With `global-font-lock-mode` off there
-  are no bands or faces, and the columns still hold. A wrapped row's columns are "Long lines"'.
+- **Only oso's rows look so.** Only oso's marks and guides stand in the first two columns of a line,
+  at every depth, whatever a reply, a note, thinking, a result or a change says: a fuzz target holds
+  it. On a tool row and in what it shows, what Claude or a tool says is dim and oso's words are not
+  (a waiting call's, a failure's and a denial's have colours of their own), and runs of spaces in it
+  are one, so it spells no outcome in oso's face. A changed line's number is not in the line's face.
+  A band is drawn where a line starts in a highlight that only `sessions::native::render` gives, in
+  a session's buffer, never from what a text holds; a tool's name is in one that no parser gives.
+  These were `*Spaces*`' highlights, until the session's own ("The rows' colours"). With
+  `global-font-lock-mode` off there are no bands or faces, and the columns still hold. A wrapped
+  row's columns are "Long lines"'.
 - **Measured** (release, this Mac, other builds running, a throwaway test run twice each way in turn;
   10,000 rows, about 1,700 edits of 20 lines among them, 2.0 MB of text where it was 0.4; a 60 by
   100 window that wraps), before and after:
@@ -2200,53 +2201,58 @@ The plan's part E, which the author approved with its mock-ups on 2026-11-24. Th
 own, in its three themes; none is ECC's.
 
 - **A prompt** is in `SessionPrompt`, the text's colour on a green band of its own, apart from the
-  bands of a change; what its lines start with is in `SessionPromptMark`, which the band is drawn by.
-  It is drawn as typed: its Markdown is not read.
+  bands of a change; what its lines start with is in `SessionPromptMark`, which the band is drawn
+  by. It is drawn as typed: its Markdown is not read.
 - **A tool row:** its name and count are in `SessionTool`, a pink; its badge is in one of eight
   `SessionIcon…` classes by what the tool does (reads, writes, runs commands, searches, runs an
   agent, reads the web, keeps tasks, anything else), on a chip over its cell and the space after it.
   The badges stay plain characters, as before. A mark of a call or of thinking under way, `…`, is in
-  `SessionRunning`, a green; of a call that waits for the person it stays quiet, and its words amber.
-- **A reply:** inline code, and a fence's in a language oso does not read, are in `SessionCode`, violet
-  (a pale cyan in `dusk`, where no violet reads at 7:1), with no background; what stands for a
-  bullet, a list's number, a quote or a rule is in `SessionBullet`.
-- **No class of a reply is a row's.** Of what a reply's text can be in, its Markdown's classes and every
-  one a parser gives, none is in a row of oso's, a card's frame or a key. A test holds it, over
-  `match`es with no wildcard of every class and every face of a row, so that a new one must be placed;
-  the fuzz targets hold that each class of a row is on its rows only. The themes' tests hold it for
-  colours too: a tool's name, a prompt's and a brief's mark and a running mark are at least 0.05 apart in OKLab from
-  every syntax colour, code and bullets, and a tool's name 0.09 from inline code, which a light theme's
-  looked like. So the dark theme's pink is lighter than the mock-up's, which is its functions' own.
+  `SessionRunning`, a green; of a call that waits for the person it stays quiet, and its words
+  amber.
+- **A reply:** inline code, and a fence's in a language oso does not read, are in `SessionCode`,
+  violet (a pale cyan in `dusk`, where no violet reads at 7:1), with no background; what stands for
+  a bullet, a list's number, a quote or a rule is in `SessionBullet`.
+- **No class of a reply is a row's.** Of what a reply's text can be in, its Markdown's classes and
+  every one a parser gives, none is in a row of oso's, a card's frame or a key. A test holds it,
+  over `match`es with no wildcard of every class and every face of a row, so that a new one must be
+  placed; the fuzz targets hold that each class of a row is on its rows only. The themes' tests hold
+  it for colours too: a tool's name, a prompt's and a brief's mark and a running mark are at least
+  0.05 apart in OKLab from every syntax colour, code and bullets, and a tool's name 0.09 from inline
+  code, which a light theme's looked like. So the dark theme's pink is lighter than the mock-up's,
+  which is its functions' own.
 - **Contrast:** a prompt's words and inline code at 7:1, code on the current line too; the others at
-  4.5:1, a badge on its chip. Escapes, whitespace's and wraps' marks are checked on the prompt's band.
-- **A chip** is drawn where a badge's class is near the start of a line of a session's buffer, with nothing but
-  a row's classes before it on that line, two cells wide, on the line's first row; it scrolls sideways
-  with its text. What a text holds is never looked at.
-- **An agent's brief** (the author's OK of 2026-11-24): what an agent's tool started the session with was drawn
-  as the person's. It is `@  from session NAME`, then its lines three columns in, with no `〉`, in
-  `SessionBrief` on a violet band, its mark and heading in `SessionBriefMark`: 0.09 or more from the
-  person's band. `NAME` is its parent's name as the row is made; else it says `another session`. `n` and
-  `p` stop at it as at a prompt.
+  4.5:1, a badge on its chip. Escapes, whitespace's and wraps' marks are checked on the prompt's
+  band.
+- **A chip** is drawn where a badge's class is near the start of a line of a session's buffer, with
+  nothing but a row's classes before it on that line, two cells wide, on the line's first row; it
+  scrolls sideways with its text. What a text holds is never looked at.
+- **An agent's brief** (the author's OK of 2026-11-24): what an agent's tool started the session
+  with was drawn as the person's. It is `@  from session NAME`, then its lines three columns in,
+  with no `〉`, in `SessionBrief` on a violet band, its mark and heading in `SessionBriefMark`: 0.09
+  or more from the person's band. `NAME` is its parent's name as the row is made; else it says
+  `another session`. `n` and `p` stop at it as at a prompt.
   - Live, it is the first message of a start by an agent's tool, asked or not (`Hosted` table's
     `brief_from`).
-  - A transcript does not say whose a message is, so there it is the conversation's first one, in a read that
-    starts there and is not cut, when it starts as oso starts one (`sessions::worktree::brief::form`):
-    with oso's line of a start in a directory, whatever the session's origin, or with a
-    worktree's header where the origin is an agent's, as the person hands off to a worktree too.
-  - So a fork of a worktree's session, which oso has as the person's, shows it as a prompt once it is read
-    again, as before; and what oso composes for the person's own start, such as an orchestrator's
-    take-over, stays after `〉`.
-- **Measured** (release, this Mac, a throwaway test run twice each way in turn; the 10,000 rows of "The rows'
-  look", a 60 by 100 window that wraps), before and after:
+  - A transcript does not say whose a message is, so there it is the conversation's first one, in a
+    read that starts there and is not cut, when it starts as oso starts one
+    (`sessions::worktree::brief::form`): with oso's line of a start in a directory, whatever the
+    session's origin, or with a worktree's header where the origin is an agent's, as the person
+    hands off to a worktree too.
+  - So a fork of a worktree's session, which oso has as the person's, shows it as a prompt once it
+    is read again, as before; and what oso composes for the person's own start, such as an
+    orchestrator's take-over, stays after `〉`.
+- **Measured** (release, this Mac, a throwaway test run twice each way in turn; the 10,000 rows of
+  "The rows' look", a 60 by 100 window that wraps), before and after:
   - a streamed delta folded and drawn: p50 7.3 to 7.5 and 7.3 µs, p99 10 and 10 µs;
-  - an edit's result: p50 12.7 and 12.7 µs, p99 14 to 15 and 16 to 18 µs; 1,024 of them in one batch 21
-    to 22 and 21 to 22 ms;
+  - an edit's result: p50 12.7 and 12.7 µs, p99 14 to 15 and 16 to 18 µs; 1,024 of them in one batch
+    21 to 22 and 21 to 22 ms;
   - the window's rows laid out: p50 23 and 23 µs, p99 29 to 31 and 28 µs;
-  - a frame's fills, 58 rows in view, every one a tool's: p50 10 and 18 µs, p99 11 to 13 and 21 to 22 µs.
+  - a frame's fills, 58 rows in view, every one a tool's: p50 10 and 18 µs, p99 11 to 13 and 21 to
+    22 µs.
 - **New public items** (the author's OK of 2026-11-24): `oso_core::syntax::Highlight` and
   `oso_render::Face`, each with `SessionPrompt`, `SessionPromptMark`, `SessionTool`, `SessionCode`,
-  `SessionBullet`, `SessionRunning`, `SessionBrief`, `SessionBriefMark` and `SessionIcon{Read, Write, Shell, Search, Agent, Web, Task,
-  Other}`.
+  `SessionBullet`, `SessionRunning`, `SessionBrief`, `SessionBriefMark` and `SessionIcon{Read,
+  Write, Shell, Search, Agent, Web, Task, Other}`.
 
 ## Long lines, as built
 
