@@ -9,11 +9,12 @@
 //! - A resume first reads Claude Code's registry: a live process with the id refuses, naming
 //!   its process and directory, and the person is offered a fork. Five seconds after the
 //!   resume, the registry is read again, and two live processes with the id give a warning.
+//!   These checks are `live`'s.
 //! - A missing directory refuses before anything starts.
 //! - A native resume or fork judged by the record of trusted projects (ADR 0165, part 4a) is
 //!   judged here by its root's path and identity, before the root's other checks.
 //! - For a new or adopted session in a trusted project, the baseline is taken first (ADR 0122), waiting at most
-//!   [`BASELINE_WAIT`]; past that, the session starts and the baseline follows.
+//!   [`BASELINE_WAIT`]; past that, the session starts and the baseline follows (`baseline`).
 //! - The shell is found as ADR 0120 has it, and `claude` on `PATH` when the shell is not one
 //!   that runs the wrapper, as [`launch`](super::launch) has it.
 //! - The terminal starts here too, with ADR 0120's environment, `[sessions] env`'s names and
@@ -25,29 +26,30 @@
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
 use oso_core::buffer::BufferId;
+use oso_platform::process::Executable;
 use oso_platform::process::pty::Size;
-use oso_platform::process::{self, Executable};
 use oso_term::{Palette, Terminal};
 
 use super::command::{self, Line, SESSION_VARIABLE, Start};
 use super::identity::{self, SessionId};
 use super::launch::{self, Launch};
-use super::registry;
 use super::stream::{self, Stream};
 
+mod baseline;
+mod live;
 mod runs;
 pub mod trust;
 
 use super::worktree::steer;
 use crate::git::TrustedRoot;
-use crate::review::{self, Reviewer};
 use crate::terminal::hosted;
 use crate::terminal::shell::{self, Settings};
+use baseline::Baseline;
+use live::{held_back, live_count};
 use runs::start_runs;
 
 /// The longest a session waits for its baseline before it starts (ADR 0122).
@@ -334,28 +336,6 @@ fn prepare(mut order: Order, send: &(dyn Fn(Report) + Sync)) {
     }
 }
 
-/// What stops `order` before anything is made: a missing directory, a new session's directory
-/// where another live one runs when it is to ask first, or a resume whose conversation is live.
-fn held_back(order: &Order) -> Option<Report> {
-    let token = order.token;
-    if !order.directory.is_dir() {
-        return Some(Report::Refused {
-            token,
-            why: "The session's directory is not there any more".into(),
-        });
-    }
-    match &order.kind {
-        Kind::Resume(id) => live(id).map(|(pid, directory)| Report::Live {
-            token,
-            pid,
-            directory,
-        }),
-        Kind::New | Kind::Fork(_) => {
-            (order.check_shared && runs_in(&order.directory)).then_some(Report::Shared { token })
-        }
-    }
-}
-
 /// The variables a session's terminal sets: a terminal's, and [`SESSION_VARIABLE`].
 fn set(shell_path: &Path, id: &SessionId) -> Vec<(String, OsString)> {
     let mut set = shell::set(shell_path);
@@ -504,88 +484,6 @@ fn launch_of(
         .map_err(|e| format!("The session did not start: {e}"))
 }
 
-/// A live process of the session `id`, by the registry: its pid and directory. With no pid,
-/// the registry could not tell: its directory is not known, or it was not listed and read in
-/// full (`registry::Listing::complete`). A resume is then refused too, as the safe side.
-fn live(id: &SessionId) -> Option<(Option<u32>, Option<PathBuf>)> {
-    live_in(registry::directory().as_deref(), id)
-}
-
-/// [`live`] in the registry `directory`, `None` if it is not known.
-fn live_in(directory: Option<&Path>, id: &SessionId) -> Option<(Option<u32>, Option<PathBuf>)> {
-    let Some(directory) = directory else {
-        return Some((None, None));
-    };
-    let listing = registry::list(directory);
-    let live = registry::live_with(&listing.entries, id, process::start_time);
-    match live.first() {
-        Some(entry) => Some((Some(entry.pid), entry.cwd.clone())),
-        None => (!listing.complete()).then_some((None, None)),
-    }
-}
-
-/// Whether the registry has a live session whose directory is `directory`.
-fn runs_in(directory: &Path) -> bool {
-    let Some(dir) = registry::directory() else {
-        return false;
-    };
-    registry::read(&dir).iter().any(|entry| {
-        entry
-            .cwd
-            .as_deref()
-            .is_some_and(|cwd| oso_core::project::same_place(cwd, directory))
-            && registry::liveness(entry, process::start_time) != registry::Live::No
-    })
-}
-
-/// How many live processes the registry has for `id`.
-fn live_count(id: &SessionId) -> usize {
-    let Some(directory) = registry::directory() else {
-        return 0;
-    };
-    let entries = registry::read(&directory);
-    registry::live_with(&entries, id, process::start_time).len()
-}
-
-/// A baseline being taken by a review's thread of its own.
-struct Baseline {
-    _reviewer: Reviewer,
-    trees: mpsc::Receiver<Option<String>>,
-}
-
-impl Baseline {
-    fn start(root: TrustedRoot, state: Option<PathBuf>) -> Option<Self> {
-        let (sender, trees) = mpsc::channel();
-        let reviewer = Reviewer::start(root, state, move |report| {
-            let tree = match report {
-                review::Report::Baseline { tree, .. } => Some(tree.as_str().to_owned()),
-                review::Report::Failed { why, .. } => {
-                    log::warn!("a session's baseline was not taken: {why}");
-                    None
-                }
-                _ => return true,
-            };
-            let _ = sender.send(tree);
-            false
-        })
-        .map_err(|e| log::warn!("a session's baseline cannot be taken: {e}"))
-        .ok()?;
-        reviewer.ask(review::Request::Baseline).then_some(Self {
-            _reviewer: reviewer,
-            trees,
-        })
-    }
-
-    /// The tree, `Some(None)` if it failed, or `None` if it did not come within `wait`.
-    fn wait(&self, wait: Duration) -> Option<Option<String>> {
-        match self.trees.recv_timeout(wait) {
-            Ok(tree) => Some(tree),
-            Err(mpsc::RecvTimeoutError::Timeout) => None,
-            Err(mpsc::RecvTimeoutError::Disconnected) => Some(None),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::path::Path;
@@ -595,58 +493,6 @@ mod tests {
     use super::launch::inherit;
     use super::{SESSION_VARIABLE, set};
     use crate::sessions::identity::SessionId;
-
-    // Hosted sessions run on Unix only (ADR 0120).
-    #[cfg(unix)]
-    mod live {
-        use super::super::live_in;
-        use crate::sessions::identity::SessionId;
-
-        /// A scratch directory, removed when dropped.
-        struct Scratch(std::path::PathBuf);
-
-        impl Drop for Scratch {
-            fn drop(&mut self) {
-                let _ = std::fs::remove_dir_all(&self.0);
-            }
-        }
-
-        #[test]
-        fn a_resume_counts_a_registry_not_read_in_full_as_live() {
-            use std::os::unix::fs::PermissionsExt as _;
-            let id = SessionId::from_random([7; 16]);
-            let scratch = Scratch(std::env::temp_dir().join(format!(
-                "oso-start-live-{}-{:?}",
-                std::process::id(),
-                std::time::SystemTime::now()
-            )));
-            let dir = scratch.0.as_path();
-            std::fs::create_dir(dir).unwrap();
-            // Nothing there: no session wrote to it.
-            assert_eq!(live_in(Some(&dir.join("missing")), &id), None);
-            assert_eq!(live_in(Some(dir), &id), None);
-            assert_eq!(live_in(None, &id), Some((None, None)));
-            // An entry file that cannot be read. Root reads it anyway.
-            let shut = dir.join("1.json");
-            std::fs::write(&shut, r#"{"pid":1}"#).unwrap();
-            std::fs::set_permissions(&shut, std::fs::Permissions::from_mode(0o000)).unwrap();
-            let want = std::fs::File::open(&shut).is_err().then_some((None, None));
-            assert_eq!(live_in(Some(dir), &id), want);
-            std::fs::remove_file(&shut).unwrap();
-            // One that holds no entry for its process, root or not.
-            std::fs::write(&shut, "not json").unwrap();
-            assert_eq!(live_in(Some(dir), &id), Some((None, None)));
-            std::fs::remove_file(&shut).unwrap();
-            // A file where the directory should be cannot be listed.
-            std::fs::write(dir.join("file"), "").unwrap();
-            assert_eq!(live_in(Some(&dir.join("file")), &id), Some((None, None)));
-            for pid in 1..=crate::sessions::registry::MAX_FILES + 1 {
-                let entry = format!(r#"{{"pid":{pid}}}"#);
-                std::fs::write(dir.join(format!("{pid}.json")), entry).unwrap();
-            }
-            assert_eq!(live_in(Some(dir), &id), Some((None, None)));
-        }
-    }
 
     #[test]
     fn a_session_passes_on_its_names_and_the_config_and_socket_directories_once_each() {

@@ -810,8 +810,9 @@ The UI thread never blocks on I/O or parsing:
 - A hosted session (`claude`, ADR 0121 step 1) gets ready on a short `oso-session-start`
   thread of its own (`sessions/start.rs`): the id from `oso_platform::random`, the directory and
   `[sessions] claude` checked, Claude Code's registry read before a resume and again 5 s after
-  (`sessions/registry.rs`, liveness by `oso_platform::process::start_time`), the shell found, and
-  in a trusted project ADR 0122's baseline, waited for at most 2 s. Its command line is built by
+  (`sessions/registry.rs`, liveness by `oso_platform::process::start_time`, checked in
+  `sessions/start/live.rs`), the shell found, and in a trusted project ADR 0122's baseline,
+  waited for at most 2 s (`sessions/start/baseline.rs`). Its command line is built by
   pure functions (`sessions/command.rs`, `sessions/launch.rs`). The same thread starts its
   `oso_term::Terminal`, with the shell ADR 0120's terminal finds (`terminal::hosted::find_shell`)
   and that terminal's environment, and waits at most 5 s for its child's spawn

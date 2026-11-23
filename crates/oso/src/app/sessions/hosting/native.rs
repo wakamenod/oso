@@ -13,6 +13,8 @@
 //! - A native session runs only in a trusted project (Q5): elsewhere a session is a terminal.
 //! - Its buffer's keys, `TAB`, `RET`, `n`/`p` and `]`/`[`, are carried out in `keys`, which
 //!   routes the composer's and the queue's to `composer` (step 2).
+//! - Its buffer, made for a start, a resume or a fork, or brought back with no process, is
+//!   `buffer`'s.
 //! - Its composer, queue and history are `composer`'s; its run state and modeline note are
 //!   `note`'s; its resume and a native fork are `resume`'s; how it ends, stopped, failed,
 //!   archived or forgotten, `end`'s; its interrupt, `interrupting`'s (step 2c); its slash
@@ -30,6 +32,7 @@
 //!   terminal's does (or forgets it, given no message), when the session list stops it, and killed as oso exits. A stopped
 //!   native session comes back at oso's next start as a native buffer with no process.
 
+mod buffer;
 mod composer;
 mod control;
 mod end;
@@ -48,14 +51,13 @@ mod todo;
 
 use std::collections::HashMap;
 use std::ops::Range;
-use std::path::PathBuf;
 
 use oso_core::buffer::{Buffer, BufferId};
 use oso_core::project::ProjectId;
 
 use self::note::NativeState;
 use super::Begin;
-use crate::app::{App, UserEvent};
+use crate::app::App;
 use crate::git::TrustedRoot;
 use crate::sessions::hosted::Run;
 use crate::sessions::identity::Origin;
@@ -69,7 +71,7 @@ use crate::sessions::native::rows::{Changes, RowChange, Rows};
 use crate::sessions::native::slash::SlashCommands;
 use crate::sessions::native::turns;
 use crate::sessions::native::wire::Event;
-use crate::sessions::start::{NativeOrder, Ready, Started};
+use crate::sessions::start::{Ready, Started};
 use crate::sessions::state::Target;
 use crate::sessions::stream::{Out, Stream};
 use crate::sessions::worker::{Job, SessionKey};
@@ -186,176 +188,6 @@ impl App {
         self.configuration.native_sessions()
             && trusted
             && (has_brief(begin.brief.as_deref()) || begin.origin == Origin::Person)
-    }
-
-    /// A new native session `key`'s buffer, as [`App::native_session_buffer`] makes it, with
-    /// `brief` as its first message: none when blank, as the person writes it in the composer,
-    /// and none when it would clear the conversation (step 2d), which waits in the composer
-    /// instead and is taken out of `brief`.
-    pub(super) fn native_start_buffer(
-        &mut self,
-        key: SessionKey,
-        name: &str,
-        directory: PathBuf,
-        shown: bool,
-        brief: &mut Option<String>,
-    ) -> NativeOrder {
-        let first = brief.as_deref().filter(|brief| has_brief(Some(brief)));
-        let held = first.filter(|first| SlashCommands::default().refused(first).is_some());
-        let held = held.map(str::to_owned);
-        if held.is_some() {
-            *brief = None;
-        }
-        let first = brief.as_deref().filter(|brief| has_brief(Some(brief)));
-        let order = self.native_session_buffer(key, name, directory, shown, first);
-        if let Some(held) = held {
-            self.hold_in_composer(key, &held);
-        }
-        order
-    }
-
-    /// The buffer a native session `key`, named `name`, in `directory`, is shown in: made now,
-    /// and shown unless not `shown`. Its start's order for the start thread, which writes
-    /// `first` as the person's first message: its replay is the person's.
-    pub(super) fn native_session_buffer(
-        &mut self,
-        key: SessionKey,
-        name: &str,
-        directory: PathBuf,
-        shown: bool,
-        first: Option<&str>,
-    ) -> NativeOrder {
-        // Its bridge asks the person's permission there (ADR 0165, step 2).
-        self.start_sessions_socket();
-        let buffer = self.add_native_buffer(key, name, directory, first);
-        self.editor.set_running(buffer, true);
-        self.set_native_state(key, NativeState::Starting);
-        if shown {
-            self.editor.show(buffer);
-            // With no first message, the person writes it there (step 2).
-            if first.is_none() {
-                self.composer_go(key, true);
-            }
-        }
-        self.hosting.starting.insert(key, buffer);
-        self.native_order(key, buffer)
-    }
-
-    /// The start thread's order for native session `key`, shown in `buffer`: its variables,
-    /// and where its stream's batches go. Its control layer starts now: the process's
-    /// `initialize` may be answered before the start thread says it started (step 2c).
-    fn native_order(&mut self, key: SessionKey, buffer: BufferId) -> NativeOrder {
-        if let Some(native) = self.hosting.natives.map.get_mut(&key) {
-            native.control = Some(Control::started(std::time::Instant::now()));
-            native.interrupt = Interrupt::new(interrupting::SIGNALS);
-            native.commands.new_process();
-            native.cli_id = None;
-            native.status.new_process();
-            native.choice.new_process();
-        }
-        // The mode it was in, as `--resume` keeps none (part 3b), and the model and effort
-        // chosen (part 3c).
-        let native = self.hosting.natives.map.get_mut(&key);
-        let (permission_mode, (model, effort)) = native.map_or((None, (None, None)), |native| {
-            (native.mode.for_start(), native.choice.for_start())
-        });
-        let waker = self.waker.clone();
-        NativeOrder {
-            buffer,
-            trust: crate::sessions::start::trust::ByRecord::No,
-            settings: self.terminal_settings(),
-            env: self.configuration.session_env().to_vec(),
-            out: Box::new(move |out| {
-                waker.send(UserEvent::NativeSession(key, out));
-            }),
-            permission_mode,
-            model,
-            effort,
-        }
-    }
-
-    /// Native session `key`'s control layer as if its process started now: its start waited
-    /// for the configuration's first look, and its `initialize` is not yet written (ADR 0173).
-    pub(super) fn native_control_from_now(&mut self, key: SessionKey) {
-        let native = self.hosting.natives.map.get_mut(&key);
-        if let Some(control) = native.and_then(|native| native.control.as_mut()) {
-            *control = Control::started(std::time::Instant::now());
-        }
-    }
-
-    /// A native session buffer for session `key`, named `name`, running in `directory`, with
-    /// its rows, and `first` as the message oso sent.
-    fn add_native_buffer(
-        &mut self,
-        key: SessionKey,
-        name: &str,
-        directory: PathBuf,
-        first: Option<&str>,
-    ) -> BufferId {
-        let buffer = self
-            .editor
-            .add_native_session_buffer(super::buffer_name(name));
-        self.mark_session_buffer(key, buffer);
-        let mut rows = Rows::new(directory);
-        if let Some(first) = first {
-            rows.sent(first);
-        }
-        let native = Native {
-            buffer,
-            rows,
-            placed: Placed::default(),
-            stream: None,
-            state: NativeState::Starting,
-            card: None,
-            first: first.is_some(),
-            ended: None,
-            result: None,
-            result_of: None,
-            calls: HashMap::new(),
-            // Its first message's turn is under way once it runs.
-            composing: composer::Composing::starting(first.is_some()),
-            markdown: markdown::Marks::default(),
-            unseen: false,
-            spoke: first.is_some(),
-            control: None,
-            interrupt: Interrupt::new(interrupting::SIGNALS),
-            commands: SlashCommands::default(),
-            slash_rows: None,
-            cli_id: None,
-            moved: false,
-            status: status::StatusState::default(),
-            mode: ModeState::default(),
-            choice: Choice::default(),
-            todo: todo::TodoStrip::default(),
-        };
-        self.hosting.natives.map.insert(key, native);
-        // Its composer, docked under it (ADR 0170).
-        self.dock_composer(key, buffer, name);
-        buffer
-    }
-
-    /// Brings native session `key` back as a buffer with no process, which says so. Nothing
-    /// starts.
-    pub(super) fn bring_back_native(&mut self, key: SessionKey) {
-        let Some(session) = self.hosting.table.get(key) else {
-            return;
-        };
-        let (name, directory) = (session.name.clone(), session.directory.clone());
-        let buffer = self.add_native_buffer(key, &name, directory, None);
-        self.editor.set_running(buffer, false);
-        self.set_native_state(key, NativeState::Stopped);
-        if let Some(native) = self.hosting.natives.map.get_mut(&key) {
-            // Kept in the record, so it had a conversation.
-            native.spoke = true;
-            let change = native
-                .rows
-                .note("Stopped. Its conversation is kept by Claude Code.");
-            draw(&mut self.editor, native, [change]);
-        }
-        if let Some(session) = self.hosting.table.get_mut(key) {
-            session.buffer = Some(buffer);
-            session.run = Run::Stopped;
-        }
     }
 
     /// The start thread started native session `key`'s process. Returns whether its buffer
