@@ -5,14 +5,14 @@
 //! Must not depend on: sockets or threads. The handoff's carry jobs copy and build the
 //! texts off this thread, and this only clones ropes and installs what they built.
 
+mod import;
+
 use std::sync::mpsc;
 
 use oso_core::buffer::BufferId;
 use serde_json::{Value, json};
 
 use super::App;
-
-mod import;
 use crate::carry::{self, pieces};
 use crate::carry::{Op, Passed, Reply};
 

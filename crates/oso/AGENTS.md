@@ -21,7 +21,7 @@ often, so it must rebuild within 2 s.
   resumes for the record of trusted projects, ADR 0165 part 4a) do the
   work, `control`
   answers the dev socket, and `handover` exports and imports the state of a restart, `oso dev`'s
-  or `oso-restart`'s; its terminals go in `terminals/carry.rs` (the instance going) and
+  or `oso-restart`'s, the import in `handover/import.rs`; its terminals go in `terminals/carry.rs` (the instance going) and
   `terminals/adopt.rs` (the one coming) (ADR 0120, step 11). `restart` starts `oso-restart`
   and answers its threads, and says when a new binary is in place (ADR 0133).
 - `src/carry.rs` and `src/carry/` are the state a restart carries and both its transports'
@@ -93,7 +93,8 @@ often, so it must rebuild within 2 s.
   fixtures are recordings scrubbed of ids, paths and the person's setup. Its `claude -p` is
   started on the start thread, read on `oso-native-read`, `oso-native-batch` and
   `oso-native-err`, and written to on `oso-native-write` (`stream`);
-  `app/sessions/hosting/native.rs` draws its rows on the UI thread, row by row. Its composer and
+  `app/sessions/hosting/native.rs` draws its rows on the UI thread, row by row, in the buffer
+  `native/buffer.rs` makes. Its composer and
   queue are `app/sessions/hosting/native/composer.rs`, over the queue's rules in
   `sessions/native/queue.rs`, what oso composed put in or sent there `composer/composed.rs`
   (part 2f), escaped by `sessions/send/escape.rs` as every send is, its interrupt `native/interrupting.rs`, over the control layer's

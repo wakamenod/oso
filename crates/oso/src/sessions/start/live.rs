@@ -1,5 +1,5 @@
-//! A session's checks of Claude Code's registry, on its start thread (ADR 0121, "Restore and
-//! the fork hazard"): what holds a start back before anything is made, a resume whose
+//! What holds a session's start back, on its start thread (ADR 0121, "Restore and the fork
+//! hazard"): a missing directory, and Claude Code's registry's checks, a resume whose
 //! conversation is live elsewhere or a new session where another runs, and the second look
 //! after a resume.
 //!
