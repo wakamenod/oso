@@ -10,7 +10,10 @@ as amended):
 | `oso-mac`   | `[self-hosted, macOS, ARM64, oso]`    | `just e2e (macos)` | `~/actions-runner`   |
 | `oso-mac-2` | `[self-hosted, macOS, ARM64, oso-ci]` | `just ci (macos)`  | `~/actions-runner-2` |
 
-So the two jobs run at once, and only `oso-mac` opens windows. Both runners run as the same
+Both jobs run on pushes to `main`; a pull request runs neither, except `just e2e` when it
+is labelled `e2e`
+([ADR 0174](adr/0174-fast-checks-on-pull-requests.md)). So the two jobs run at once, and only
+`oso-mac` opens windows. Both runners run as the same
 macOS user and use the same hooks. The first runner keeps `oso`, the label every macOS job
 asked for before, so a branch that has not merged `main` since still runs both jobs there,
 one after the other. Never give `oso-mac-2` the label `oso`: two e2e runs at once would take
@@ -320,10 +323,10 @@ and `-`.
 
 - Settings → Actions → Runners shows `oso-mac` as Idle with the labels `self-hosted`,
   `macOS`, `ARM64` and `oso`, and `oso-mac-2` with `oso-ci` in place of `oso`.
-- Push a branch of this repository, or re-run a pull request's checks. `just e2e (macos)`
+- Re-run the latest push to `main`'s CI run. `e2e / just e2e (macos)`
   runs on `oso-mac` and `just ci (macos)` on `oso-mac-2`, at the same time. In each job's
   log, "Set up runner" shows `oso-ci: cleaned for runner …` with that job's runner. Then
-  `ls ~/ci-target/oso-mac/pr ~/ci-target/oso-mac-2/pr` lists `e2e` and `ci`.
+  `ls ~/ci-target/oso-mac/main ~/ci-target/oso-mac-2/main` lists `e2e` and `ci`.
 - A refused job fails at "Set up runner" with `oso-ci: this runner does not run this job`.
 
 ## Keeping it up
@@ -349,8 +352,8 @@ and `-`.
 ## While a runner is offline
 
 A macOS job stays "Queued" until its runner is back, and GitHub fails a job that waits more
-than 24 hours. No check is required yet, so nothing blocks a merge mechanically. Still, wait
-for `ci-ok`, which waits for them.
+than 24 hours. No check is required yet, so nothing blocks a merge mechanically. On `main`,
+`ci-ok` waits for them; a pull request's `ci-ok` waits for no job on the Mac.
 
 To run both jobs on GitHub's runners instead:
 

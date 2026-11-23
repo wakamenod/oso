@@ -476,6 +476,7 @@ mod markdown;
 mod model;
 mod modes;
 mod plan;
+mod quit;
 mod resume;
 mod slash;
 mod status;

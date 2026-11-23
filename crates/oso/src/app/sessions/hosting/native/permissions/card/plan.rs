@@ -106,9 +106,10 @@ pub(super) fn mode_after(approval: Approval) -> Option<PermissionMode> {
     }
 }
 
-/// Whether a `y` at `now` answers the question asked `at`: [`QUIET`] passed since it opened
-/// and since `before`, the person's key or text before the `y`.
-fn answered_in_time(at: Instant, before: Option<Instant>, now: Instant) -> bool {
+/// Whether an answer at `now` counts for what was put before the person `at`, a question or
+/// a card: [`QUIET`] passed since then and since `before`, the person's key or text before
+/// the answer.
+pub(super) fn answered_in_time(at: Instant, before: Option<Instant>, now: Instant) -> bool {
     now >= at + QUIET && before.is_none_or(|before| now >= before + QUIET)
 }
 

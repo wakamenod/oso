@@ -57,7 +57,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos, windows-latest]
+        # macOS on pushes to main only (ADR 0174): the commit hook runs the same just ci on
+        # the author's Mac for commits made through Claude Code, though not for merges.
+        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest", "windows-latest"]' || '["ubuntu-latest", "macos", "windows-latest"]') }}
     # macOS runs on the author's self-hosted Mac (docs/dev/ci-runner.md, ADR 0166), except
     # for a pull request from a fork, which gets a GitHub-hosted runner. The Mac has two
     # runners: this job asks for oso-ci, the second one's label, and e2e asks for oso, the
@@ -136,89 +138,19 @@ jobs:
         if: runner.os == 'Linux'
         run: just test-time 60
 
-  # End-to-end tests over the control socket (ADR 0037, ADR 0049): on Linux with Xvfb and
-  # lavapipe, and on macOS, the one runner that draws text, on oso's own window layer
-  # (ADR 0070). Nothing here reads a baseline or writes anything back, so the token stays
-  # read-only (ADR 0021). Moved here from e2e.yml so that ci-ok covers it (ADR 0166).
+  # End-to-end tests (e2e.yml), on pushes to main only (ADR 0174). A pull request runs
+  # them from e2e.yml itself, only when labelled e2e, and its ci-ok does not wait for them. Keep this call off pull requests:
+  # there e2e.yml skips its job without the label, and ci-ok would count that as passed.
   e2e:
-    name: just e2e (${{ matrix.os }})
     needs: changes
-    if: needs.changes.outputs.docs-only != 'true'
-    strategy:
-      fail-fast: false
-      matrix:
-        # Not Windows: the control socket does not support it yet (ADR 0032).
-        os: [ubuntu-latest, macos]
-    # macOS runs on the author's self-hosted Mac (docs/dev/ci-runner.md, ADR 0166), except
-    # for a pull request from a fork, which gets a GitHub-hosted runner. The label oso is
-    # the Mac's first runner's alone, so e2e runs never overlap there and windows do not
-    # take the focus from each other; just ci runs on the second one. The repository
-    # variable OSO_MACOS_RUNNER, a runner label such as macos-latest, overrides the Mac while
-    # it is offline. The runner's own job-started hook refuses a fork's job all the same,
-    # since a fork can edit this line.
-    runs-on: ${{ matrix.os != 'macos' && matrix.os || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'macos-latest' || vars.OSO_MACOS_RUNNER || fromJSON('["self-hosted", "macOS", "ARM64", "oso"]') }}
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v7.0.1
-        with:
-          persist-credentials: false
-      - run: rustup toolchain install
-      - uses: Swatinem/rust-cache@v2.9.3
-        if: runner.environment == 'github-hosted'
-        with:
-          # Only main writes the cache, so pull requests cannot poison it.
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      # The self-hosted Mac keeps its build between jobs instead, outside the workspace, which
-      # checkout cleans: pull requests and main each have their own, so main never builds on
-      # what a branch left (ADR 0166). Each runner has its own folder, named as the runner, and
-      # its hooks clean only that one. git clean removes only the link.
-      - name: Keep the build on the runner
-        if: runner.environment == 'self-hosted'
-        env:
-          KIND: ${{ github.ref == 'refs/heads/main' && 'main' || 'pr' }}
-          JOB: ${{ github.job }}
-          # So that A-Z below means ASCII letters only.
-          LC_ALL: C
-        run: |
-          # The hooks refuse the same names; pr and main were the folders of a single runner.
-          case "$RUNNER_NAME" in
-            '' | . | .. | pr | main | *[!A-Za-z0-9._-]*)
-              echo "error: the runner's name cannot name a build folder: '$RUNNER_NAME'"
-              exit 1 ;;
-          esac
-          dir="$HOME/ci-target/$RUNNER_NAME/$KIND/$JOB"
-          mkdir -p "$dir"
-          rm -rf target
-          ln -s "$dir" target
-      # just from the cache or its release through the API, checked (.github/actions).
-      - uses: $/.github/actions/install-just
-      # Zig and libghostty-vt's tarballs for oso-term's build script (ADR 0120).
-      - uses: $/.github/actions/install-zig
-      - uses: $/.github/actions/fetch-ghostty-vt
-      # Linux has no display or GPU: Xvfb and lavapipe, as in perf.yml. It draws
-      # no text yet (ADR 0036), and the flows say what that changes.
-      - name: Install a virtual display and lavapipe
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            xvfb mesa-vulkan-drivers libvulkan1 libx11-xcb1 libxcursor1 libxi6 libxrandr2 libxkbcommon-x11-0
-      - name: End-to-end tests
-        run: |
-          if [ "$RUNNER_OS" = Linux ]; then
-            xvfb-run -a -s '-screen 0 1280x800x24' just e2e
-          else
-            just e2e
-          fi
-      # Panes in real pixels (ADR 0061). The glyphs come from a fake text system,
-      # so Linux asserts the same as macOS. No display is needed.
-      - name: Pixel tests
-        run: just pixel-tests
+    if: github.event_name != 'pull_request' && needs.changes.outputs.docs-only != 'true'
+    uses: ./.github/workflows/e2e.yml
 
   # The one check that says whether a pull request's CI passed (ADR 0166): it fails when a
   # job above failed or was cancelled, and passes when each succeeded or was skipped, as the
   # code jobs are for a change to docs alone. It runs even when the run is cancelled, so a
-  # cancelled run never reads as passed.
+  # cancelled run never reads as passed. On a pull request it covers the fast checks only, as
+  # macOS just ci and e2e do not run there; on main it covers every job.
   ci-ok:
     if: always()
     needs: [changes, ci, e2e, release-safety, public-api, deny, audit, markers, secrets]

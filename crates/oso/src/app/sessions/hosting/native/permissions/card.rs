@@ -18,6 +18,7 @@
 //! - It is drawn again when its window's width changes, as its rows are broken at it.
 //! - A plan's card approves with a mode after it, or edits the plan first: `plan` (part 3d).
 
+mod gate;
 mod plan;
 
 pub(super) use plan::Plans;
@@ -250,7 +251,7 @@ impl App {
             self.editor.message("No call waits for you here");
             return true;
         };
-        if !self.card_takes_answers(key) {
+        if !self.card_admits_answer(key) {
             return true;
         }
         let questions = kind == Kind::Questions;
@@ -292,73 +293,6 @@ impl App {
             _ => self.toggle_whole(key),
         }
         true
-    }
-
-    /// Whether session `key`'s card takes an answer now; else the echo area says why.
-    fn card_takes_answers(&mut self, key: SessionKey) -> bool {
-        if self.editor.macro_replaying() {
-            self.editor.message("A macro does not answer a card");
-            return false;
-        }
-        let now = Instant::now();
-        let card = (self.hosting.natives.map.get(&key)).and_then(|native| native.card);
-        let current = self.hosting.natives.permissions.current;
-        // Point came to it with this key: the wait starts now.
-        if card.is_none_or(|card| current.is_none_or(|current| current.card != card)) {
-            self.note_current_card();
-            self.editor.message("Wait a moment, then answer the card");
-            return false;
-        }
-        let since = current.is_some_and(|current| now >= current.since + QUIET);
-        let quiet = self
-            .agent_key_before()
-            .is_none_or(|before| now >= before + QUIET);
-        if !(since && quiet) {
-            self.editor.message("Wait a moment, then answer the card");
-            return false;
-        }
-        if !self.card_shows_all(key) {
-            self.editor
-                .message("The card is cut: make the window taller to answer it");
-            return false;
-        }
-        true
-    }
-
-    /// Whether session `key`'s card's window shows every row of it, from its start, at the
-    /// width it was drawn at, with no row wrapped.
-    fn card_shows_all(&self, key: SessionKey) -> bool {
-        let Some(native) = self.hosting.natives.map.get(&key) else {
-            return false;
-        };
-        let Some(buffer) = native.card.and_then(|card| self.editor.buffer(card)) else {
-            return false;
-        };
-        let Some(id) = self.editor.dock_window(native.buffer, DockSlot::Card) else {
-            return false;
-        };
-        let (Some(window), Some(regions)) = (self.editor.window_by_id(id), self.editor.regions(id))
-        else {
-            return false;
-        };
-        let drawn = (self.hosting.natives.permissions.drawn.iter())
-            .find_map(|&(drawn, width)| (drawn == key).then_some(width));
-        if drawn.is_none_or(|width| regions.text.columns < width) || buffer.wraps() {
-            return false;
-        }
-        let whole = (self.hosting.natives.permissions.asks.shown(key))
-            .and_then(|ask| ask.question.as_ref())
-            .is_some_and(|question| question.whole);
-        // The whole view scrolls, its keys on its title row; the card shows from its start.
-        let scroll = window.scroll();
-        match whole {
-            true => regions.text.rows > 0 && scroll.left == 0,
-            false => {
-                scroll.start == 0
-                    && scroll.left == 0
-                    && buffer.text().line_count() <= regions.text.rows
-            }
-        }
     }
 
     /// After each event: which card, if any, is the selected buffer, and since when.
@@ -567,18 +501,6 @@ impl App {
         self.note_current_card();
         (self.hosting.natives.permissions.focus_pending).retain(|&(pending, _)| pending != key);
         self.request_redraw();
-    }
-
-    /// Whether the selected card, if one is, takes an answer now: its quiet moment passed since
-    /// point came to it and since the last key. For end-to-end flows.
-    #[cfg(feature = "dev")]
-    pub(in crate::app) fn card_takes_answer(&self) -> Option<bool> {
-        let current = self.hosting.natives.permissions.current?;
-        let now = Instant::now();
-        let quiet = self
-            .agent_person_typed()
-            .is_none_or(|typed| now >= typed + QUIET);
-        Some(now >= current.since + QUIET && quiet)
     }
 
     /// Whether `buffer` is a native session's card, and whose.

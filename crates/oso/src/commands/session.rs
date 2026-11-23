@@ -21,7 +21,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "save-buffers-kill-terminal",
-        doc: "Exit oso, if nothing is at risk.\n\nWith a modified buffer, a save running, or a program running in a terminal, this asks whether to exit, and says how many. It names the sessions with a turn under way, the terminals with a job running, and the repositories git commits in. `y` exits, unless more is at risk by then, when it asks again, and a save still running then gets to finish. With work under way, `w` waits for it, as `quit-when-idle` does.",
+        doc: "Exit oso, if nothing is at risk.\n\nWith a modified buffer, a save running, a session's turn under way, or a program running in a terminal, this asks whether to exit, and says how many. It names the sessions with a turn under way, the terminals with a job running, and the repositories git commits in. `y` exits, unless more is at risk by then, when it asks again, and a save still running then gets to finish. With work under way, `w` waits for it, as `quit-when-idle` does.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: save_buffers_kill_terminal,
@@ -29,7 +29,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "quit-when-idle",
-        doc: "Exit oso once no session has a turn under way, no terminal runs a job, and git commits nowhere.\n\nYou go on working meanwhile. Once every terminal has been idle for 2 seconds, oso exits as `C-x C-c` would, and if more is at risk by then than you agreed to lose, or a review comment of yours is not sent, it stops and says so instead. `C-x C-c` cancels, as it asks again and only `w` waits again, and so does `C-g` where oso has the keys: a terminal sends it to its program. A shell started with no job control, as `sh -c` is, shows no job, and a job in the background is not waited for.",
+        doc: "Exit oso once no session has a turn under way, no terminal runs a job, and git commits nowhere.\n\nYou go on working meanwhile. Once every terminal and session has been idle for 2 seconds, oso exits as `C-x C-c` would, and if more is at risk by then than you agreed to lose, or a review comment of yours is not sent, it stops and says so instead. `C-x C-c` cancels, as it asks again and only `w` waits again, and so does `C-g` where oso has the keys: a terminal sends it to its program. A shell started with no job control, as `sh -c` is, shows no job, and a job in the background is not waited for.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: quit_when_idle,
@@ -129,8 +129,10 @@ fn save_buffers_kill_terminal(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandE
     }
     let work = !turns.is_empty() || !jobs.is_empty() || !runs.is_empty();
     let more = if work { " more" } else { "" };
+    // Native turns are named but are no running terminal: the busy terminals, not the turns,
+    // are the running terminals named already.
     let others = ctx.editor.running_terminals().count();
-    match others.saturating_sub(turns.len() + jobs.len()) {
+    match others.saturating_sub(ctx.editor.busy_terminals().count()) {
         0 => {}
         1 if work => lost.push("1 more terminal ends".to_owned()),
         1 => lost.push("1 terminal runs a program".to_owned()),
@@ -208,13 +210,17 @@ fn quit_when_idle(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     Ok(())
 }
 
-/// The busy terminals: hosted sessions with a turn under way, then those with a job running.
+/// What is busy: the sessions with a turn under way or a question asked, hosted in a terminal
+/// or native (ADR 0165), whose process the exit ends; then the terminals with a job running.
 fn busy(editor: &Editor) -> (Vec<BufferId>, Vec<BufferId>) {
-    editor.busy_terminals().partition(|id| {
-        editor
-            .buffer(*id)
-            .is_some_and(oso_core::buffer::Buffer::hosts_session)
-    })
+    let (mut turns, jobs): (Vec<BufferId>, Vec<BufferId>) =
+        editor.busy_terminals().partition(|id| {
+            editor
+                .buffer(*id)
+                .is_some_and(oso_core::buffer::Buffer::hosts_session)
+        });
+    turns.extend(editor.busy_native_sessions());
+    (turns, jobs)
 }
 
 /// The names of the buffers `ids`, up to [`NAMED`], and how many more.
@@ -392,6 +398,57 @@ mod tests {
         // A job that ends leaves the turn to wait for.
         editor.set_terminal_job(job, false);
         assert_eq!(editor.busy_terminals().count(), 1);
+    }
+
+    #[test]
+    fn a_native_sessions_turn_holds_an_exit_as_a_terminals_does() {
+        let mut editor = editor("");
+        let native = editor.add_native_session_buffer("*claude: notes*");
+        editor.set_running(native, true);
+        editor.set_session_turn(native, true);
+        let (result, effects) = run(&mut editor, "save-buffers-kill-terminal", Args::NONE);
+        assert_eq!(result, Ok(()));
+        assert!(!effects.exit, "the turn would end with oso");
+        assert_eq!(
+            editor.prompt().expect("a question").label(),
+            "a turn is under way in *claude: notes*; exit anyway? (y, n or w)"
+        );
+        run(&mut editor, "keyboard-quit", Args::NONE).0.unwrap();
+        // Idle, it holds nothing: its conversation is kept by Claude Code.
+        editor.set_session_turn(native, false);
+        let (_, effects) = run(&mut editor, "save-buffers-kill-terminal", Args::NONE);
+        assert!(effects.exit);
+        // A native session is no terminal: the terminals that end are counted apart.
+        let mut editor = editor_with_a_native_turn_and_a_shell();
+        run(&mut editor, "save-buffers-kill-terminal", Args::NONE)
+            .0
+            .unwrap();
+        assert_eq!(
+            editor.prompt().expect("a question").label(),
+            "a turn is under way in *claude: notes*, and 1 more terminal ends; exit anyway? \
+             (y, n or w)"
+        );
+        run(&mut editor, "answer-third", Args::NONE).0.unwrap();
+        let Some(oso_core::minibuffer::Outcome::Run(name)) = editor.take_prompt_outcome() else {
+            panic!("w runs nothing");
+        };
+        run(&mut editor, name, Args::NONE).0.unwrap();
+        assert_eq!(
+            echo(&editor),
+            "Quitting when idle: 1 turn under way; C-x C-c n cancels"
+        );
+    }
+
+    /// An editor with a native session's turn under way and an idle shell.
+    fn editor_with_a_native_turn_and_a_shell() -> oso_core::editor::Editor {
+        let mut editor = editor("");
+        let native = editor.add_native_session_buffer("*claude: notes*");
+        let shell = editor.add_terminal_buffer("*terminal*");
+        for id in [native, shell] {
+            editor.set_running(id, true);
+        }
+        editor.set_session_turn(native, true);
+        editor
     }
 
     #[test]

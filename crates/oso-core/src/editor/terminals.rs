@@ -138,7 +138,8 @@ impl Editor {
     /// Notes whether the terminal buffer `id`, or a native session's, hosts an agent session
     /// (ADR 0132, ADR 0165): session mode's keys apply in it and its modeline says
     /// `Session`. Taking it back leaves the buffer outside every project again. Nothing
-    /// happens to another buffer.
+    /// happens to another buffer. The host marks only terminals so: a native session's
+    /// buffer is busy by its turn without it (`Buffer::is_busy`).
     pub fn set_hosts_session(&mut self, id: BufferId, hosts: bool) {
         let Some(buffer) = self
             .buffer_mut(id)

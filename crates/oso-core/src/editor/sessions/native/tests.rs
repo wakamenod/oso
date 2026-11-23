@@ -96,11 +96,12 @@ fn a_cursor_at_the_end_follows_new_rows() {
 fn a_native_session_takes_the_session_flags() {
     let mut editor = Editor::default();
     let id = editor.add_native_session_buffer("*claude: oso*");
-    editor.set_hosts_session(id, true);
     editor.set_running(id, true);
     assert_eq!(editor.busy_native_sessions().count(), 0);
+    // Busy by its turn, though the host never marks it as hosting a terminal's session.
     editor.set_session_turn(id, true);
     assert_eq!(editor.busy_native_sessions().collect::<Vec<_>>(), vec![id]);
+    editor.set_hosts_session(id, true);
     assert!(editor.buffer(id).unwrap().hosts_session());
     editor.set_agent_reads(id, true);
     assert!(editor.buffer(id).unwrap().agent_reads());
@@ -111,4 +112,7 @@ fn a_native_session_takes_the_session_flags() {
     editor.set_session_turn(other, true);
     editor.set_running(other, true);
     assert!(!editor.buffer(other).unwrap().is_busy());
+    // Its process ended: nothing is under way.
+    editor.set_running(id, false);
+    assert_eq!(editor.busy_native_sessions().count(), 0);
 }

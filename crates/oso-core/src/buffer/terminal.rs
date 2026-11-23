@@ -50,9 +50,12 @@ impl Buffer {
 
     /// Whether work is under way in its terminal (ADR 0133): in a hosted session's, a turn or
     /// a question it asks, as the sessions' worker read its screen; in another, a job its
-    /// shell waits for, as the PTY's foreground process group says. Never while nothing runs.
+    /// shell waits for, as the PTY's foreground process group says. A native session's buffer
+    /// (ADR 0165) is busy by its turn, as a hosted session's, though the host does not mark it
+    /// as hosting a session. Never while nothing runs.
     pub fn is_busy(&self) -> bool {
-        self.running && if self.session { self.turn } else { self.job }
+        let turn = self.session || self.is_native_session();
+        self.running && if turn { self.turn } else { self.job }
     }
 
     pub(crate) fn set_job(&mut self, job: bool) {
