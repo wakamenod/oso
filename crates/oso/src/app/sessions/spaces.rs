@@ -66,7 +66,7 @@ pub(in crate::app) struct SpaceWork {
     pub(in crate::app) asked_names: HashMap<SpaceId, String>,
     /// The run of the person's `claude` that names a space, while one is out: at most one,
     /// which an exit or a restart stops.
-    pub(in crate::app) summary_run: Option<crate::sessions::spaces::summary::Running>,
+    pub(in crate::app) summary_run: Option<crate::sessions::oneshot::Running>,
     /// The spaces whose directory is being made: one job a space at a time.
     pub(in crate::app) making: HashSet<SpaceId>,
     /// The spaces whose directory is shown once it is made.

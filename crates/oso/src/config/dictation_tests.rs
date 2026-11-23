@@ -63,6 +63,18 @@ fn a_bad_entry_is_said_and_left_out() {
         ("max_seconds = 1801", "from 5 to 1800"),
         ("max_seconds = \"60\"", "from 5 to 1800"),
         ("microphone = \"built-in\"", "microphone"),
+        (
+            "fix_model = \"sonnet --tools=Bash\"",
+            "fix_model takes a model's name",
+        ),
+        ("fix_model = \"\"", "fix_model takes a model's name"),
+        ("fix_effort = \"none\"", "fix_effort takes low, medium"),
+        ("fix_context_lines = 21", "from 0 to 20"),
+        ("fix_min_confidence = \"sure\"", "takes low, medium or high"),
+        (
+            "fix_min_confidence = 1",
+            "takes low, medium or high, not a number",
+        ),
     ] {
         let loaded = f.parse(&format!("[dictation]\n{entry}\n"));
         let messages = messages(&loaded);
@@ -74,4 +86,32 @@ fn a_bad_entry_is_said_and_left_out() {
             "{entry}"
         );
     }
+}
+
+#[test]
+fn the_fix_takes_sonnet_at_low_effort_three_lines_and_medium_unless_set() {
+    let f = Fixture::new();
+    let loaded = f.parse("[dictation]\n");
+    let dictation = &loaded.settings.dictation;
+    assert_eq!(dictation.fix_model(), "sonnet");
+    assert_eq!(dictation.fix_effort(), "low");
+    assert_eq!(dictation.fix_context_lines(), 3);
+    assert_eq!(
+        dictation.fix_min_confidence(),
+        crate::dictation::fix::Confidence::Medium
+    );
+
+    let loaded = f.parse(
+        "[dictation]\nfix_model = \"claude-haiku-5-5\"\nfix_effort = \"medium\"\n\
+         fix_context_lines = 0\nfix_min_confidence = \"low\"\n",
+    );
+    assert_eq!(messages(&loaded), Vec::<String>::new());
+    let dictation = &loaded.settings.dictation;
+    assert_eq!(dictation.fix_model(), "claude-haiku-5-5");
+    assert_eq!(dictation.fix_effort(), "medium");
+    assert_eq!(dictation.fix_context_lines(), 0);
+    assert_eq!(
+        dictation.fix_min_confidence(),
+        crate::dictation::fix::Confidence::Low
+    );
 }

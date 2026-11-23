@@ -328,7 +328,7 @@ impl App {
         if !self.watch.polling {
             return;
         }
-        self.leave_out_naming_runs(&mut live);
+        crate::sessions::oneshot::leave_out_runs(self.hosting.state_directory(), &mut live);
         let now = Instant::now();
         let table = self.hosting.table();
         let ids: HashSet<&SessionId> = table.iter().map(|session| &session.id).collect();

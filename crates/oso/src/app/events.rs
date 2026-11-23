@@ -96,6 +96,7 @@ impl App {
             UserEvent::Copies(event) => self.copies_event(event),
             UserEvent::Clipboard(event) => self.clipboard_event(event_loop, event),
             UserEvent::Dictation(generation, event) => self.dictation_event(generation, event),
+            UserEvent::DictationFix(id, answer) => self.dictation_fixed(id, answer),
             UserEvent::Trim(report) => self.trim_reported(report),
             UserEvent::Search(report) => self.isearch_reported(report),
             UserEvent::Wrap(report) => self.wrap_reported(report),

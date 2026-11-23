@@ -1,6 +1,8 @@
 //! How the cursors and marks of every window follow a change to a buffer they show,
-//! and are put where a cursor can be afterwards (ADR 0053, ADR 0071), and how isearch and
-//! a jump are kept true to the text they show before the host waits (ADR 0082, ADR 0116).
+//! and are put where a cursor can be afterwards (ADR 0053, ADR 0071), how isearch and
+//! a jump are kept true to the text they show before the host waits (ADR 0082, ADR 0116), and
+//! how the other places the editor marks in a buffer follow each edit: servers' answers
+//! (ADR 0138) and dictation's provisional spans (ADR 0175).
 //!
 //! Must not depend on: `command` or `keymap`; it works out sets of selections from
 //! offsets and a display snapshot, and the editor swaps them in.
@@ -15,6 +17,43 @@ use crate::selection::{MarkActive, OffsetEdit, SelectionSet, new_text_ends};
 use crate::sum_tree::Bias;
 
 impl Editor {
+    /// The places marked in `buffer` follow an edit's `steps`, as the cursors do: servers'
+    /// answers and dictation's spans.
+    pub(super) fn marks_follow(&mut self, buffer: BufferId, steps: &[Vec<OffsetEdit>]) {
+        self.answers_follow(buffer, steps);
+        self.dictation_spans_follow(buffer, steps);
+    }
+
+    /// `buffer` was read again, its offsets moved through `map`: servers' answers move or go,
+    /// and dictation's spans, whose text is no longer known, go.
+    pub(super) fn marks_reloaded(&mut self, buffer: BufferId, map: impl FnMut(usize) -> usize) {
+        self.answers_reloaded(buffer, map);
+        self.forget_dictation_spans(buffer);
+    }
+
+    /// The places marked in `buffer` follow what a sliced undo's step did since `before`, as
+    /// the batch the buffer keeps says (ADR 0119). A buffer that keeps none leaves servers'
+    /// answers where they were, and its dictation spans go, as where they are is not known.
+    pub(super) fn marks_cross(&mut self, buffer: BufferId, before: u64) {
+        let Some(splices) = self
+            .buffer(buffer)
+            .and_then(|shown| shown.edits_since(before))
+        else {
+            self.forget_dictation_spans(buffer);
+            return;
+        };
+        let mut edits: Vec<OffsetEdit> = splices
+            .iter()
+            .map(|splice| OffsetEdit {
+                start: splice.start,
+                old_len: splice.old_len,
+                new_len: splice.new_len,
+            })
+            .collect();
+        edits.sort_unstable_by_key(|edit| edit.start);
+        self.marks_follow(buffer, &[edits]);
+    }
+
     /// Keeps isearch and a jump true to their windows and their text: isearch ends if its
     /// window no longer shows its buffer, or a prompt is open, and searches again if the text
     /// changed; a jump reading its string finds its matches again, and one showing labels ends,

@@ -372,7 +372,7 @@ impl Editor {
             self.windows[index].selections = set;
         }
         self.commit_views(id, views);
-        self.jumps_cross(id, before);
+        self.marks_cross(id, before);
         // Crossing a recovery takes its verdict along.
         self.note_secret_shown();
         if let Some(scope) = &mut self.undo_scope {

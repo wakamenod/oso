@@ -115,27 +115,6 @@ impl Editor {
         }
     }
 
-    /// Moves what answers left in `buffer` through what a sliced undo's step did since `before`,
-    /// as the batch the buffer keeps says; a buffer that keeps none leaves them (ADR 0119).
-    pub(in crate::editor) fn jumps_cross(&mut self, buffer: BufferId, before: u64) {
-        let Some(splices) = self
-            .buffer(buffer)
-            .and_then(|shown| shown.edits_since(before))
-        else {
-            return;
-        };
-        let mut edits: Vec<OffsetEdit> = splices
-            .iter()
-            .map(|splice| OffsetEdit {
-                start: splice.start,
-                old_len: splice.old_len,
-                new_len: splice.new_len,
-            })
-            .collect();
-        edits.sort_unstable_by_key(|edit| edit.start);
-        self.answers_follow(buffer, &[edits]);
-    }
-
     /// Moves the places in `buffer` of every window's history through `map`, as a reload
     /// moves the cursors.
     pub(in crate::editor) fn map_jump_history(

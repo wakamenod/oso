@@ -416,8 +416,9 @@ pub(crate) mod tests {
     }
 
     /// Plain text is read on every fill a line of it sits on, and on a selected candidate.
-    const TEXT: [(Face, f32); 14] = [
+    const TEXT: [(Face, f32); 15] = [
         (Face::Text, 7.0),
+        (Face::DictationProvisional, 7.0),
         // The spaces pane's bands (ADR 0140).
         (Face::SessionHeader, 7.0),
         (Face::SessionPoint, 7.0),
@@ -449,8 +450,9 @@ pub(crate) mod tests {
 
     /// An escape's label sits wherever text can: on every fill behind buffer text, a review's
     /// bands among them, in a modeline's name and on a float.
-    const ESCAPE_PAIRS: [(Face, f32); 16] = [
+    const ESCAPE_PAIRS: [(Face, f32); 17] = [
         (Face::Text, 4.5),
+        (Face::DictationProvisional, 4.5),
         (Face::CurrentLine, 4.5),
         (Face::Flash, 4.5),
         (Face::Region, 4.5),
@@ -469,8 +471,9 @@ pub(crate) mod tests {
     ];
 
     /// A whitespace or wrap mark sits on everything behind buffer text (ADR 0097).
-    const MARK_PAIRS: [(Face, f32); 13] = [
+    const MARK_PAIRS: [(Face, f32); 14] = [
         (Face::Text, 3.0),
+        (Face::DictationProvisional, 3.0),
         (Face::CurrentLine, 3.0),
         (Face::TrailingWhitespace, 3.0),
         (Face::Flash, 3.0),
@@ -487,8 +490,9 @@ pub(crate) mod tests {
 
     /// A diagnostic's wavy line is a mark to notice under text, on the fills a line of a buffer
     /// a server follows can have; its count is a modeline's label (ADR 0138).
-    const DIAGNOSTIC_PAIRS: [(Face, f32); 7] = [
+    const DIAGNOSTIC_PAIRS: [(Face, f32); 8] = [
         (Face::Text, 3.0),
+        (Face::DictationProvisional, 3.0),
         (Face::CurrentLine, 3.0),
         (Face::Region, 3.0),
         (Face::SearchMatch, 3.0),
@@ -658,6 +662,7 @@ pub(crate) mod tests {
             | Face::SearchCurrent
             | Face::SecondaryCursor
             | Face::TrailingWhitespace
+            | Face::DictationProvisional
             | Face::CurrentLine
             | Face::Flash
             | Face::DiffRefineAdded
@@ -810,6 +815,7 @@ pub(crate) mod tests {
                 (Face::Field, float),
                 (Face::CurrentLine, behind_text),
                 (Face::TrailingWhitespace, behind_text),
+                (Face::DictationProvisional, behind_text),
                 (Face::Flash, behind_text),
                 (Face::JumpLabel, behind_text),
                 (Face::JumpLabelNext, behind_text),
@@ -896,6 +902,7 @@ pub(crate) mod tests {
                 Face::SearchMatch,
                 Face::SearchCurrent,
                 Face::TrailingWhitespace,
+                Face::DictationProvisional,
                 Face::Flash,
                 Face::JumpLabel,
                 Face::JumpLabelNext,
@@ -917,6 +924,7 @@ pub(crate) mod tests {
                 Face::SearchMatch,
                 Face::SearchCurrent,
                 Face::TrailingWhitespace,
+                Face::DictationProvisional,
                 Face::CompletionSelected,
                 Face::JumpLabel,
                 Face::JumpLabelNext,

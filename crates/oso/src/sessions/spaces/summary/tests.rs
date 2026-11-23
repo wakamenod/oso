@@ -248,7 +248,7 @@ mod runs {
         // executable.
         let held = loop {
             let held = running.lock().unwrap();
-            if held.is_some() {
+            if held.started() {
                 break held;
             }
             drop(held);
@@ -279,14 +279,21 @@ mod runs {
         let running = std::sync::Arc::clone(&ask.running);
         let started = Instant::now();
         let run = std::thread::spawn(move || run_within(&ask, Duration::from_secs(20)));
-        while running.lock().unwrap().is_none() {
+        while !running.lock().unwrap().started() {
             if run.is_finished() {
                 panic!("the run ended before its child was seen: {:?}", run.join());
             }
             std::thread::sleep(Duration::from_millis(10));
         }
-        super::super::stop(&running);
+        crate::sessions::oneshot::stop(&running);
         assert_eq!(run.join().unwrap(), Err("oso stopped it".into()));
         assert!(started.elapsed() < Duration::from_secs(5));
+
+        // A stop before the run starts holds: no `claude` starts.
+        let ask =
+            scratch.ask(scratch.claude(&format!("touch '{d}/started'", d = scratch.0.display())));
+        crate::sessions::oneshot::stop(&ask.running);
+        assert_eq!(run_within(&ask, ROOM), Err("oso stopped it".into()));
+        assert!(!scratch.0.join("started").exists(), "nothing started");
     }
 }

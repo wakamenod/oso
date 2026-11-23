@@ -47,6 +47,8 @@ pub(super) enum Name {
     BgCurrentLine,
     /// The cursor flash, at full strength.
     BgFlash,
+    /// A dictation's text while Claude fixes it (ADR 0175, step 2).
+    BgProvisional,
     /// Line numbers, dim, and the current line's, bright.
     FgLineNumber,
     FgLineNumberCurrent,
@@ -166,6 +168,7 @@ pub(super) fn dark(name: Name) -> Color {
         BgTrailing => rgb(0x3a1b22),
         BgCurrentLine => rgb(0x181a22),
         BgFlash => rgb(0x4a2a5a),
+        BgProvisional => rgb(0x15323a),
         FgLineNumber => rgb(0x767c93),
         FgLineNumberCurrent => rgb(0xd8dbe6),
         FgWrapMark => rgb(0x6aa6c4),
@@ -243,6 +246,7 @@ pub(super) fn light(name: Name) -> Color {
         BgTrailing => rgb(0xf5d6d6),
         BgCurrentLine => rgb(0xeeefe8),
         BgFlash => rgb(0xebc9ef),
+        BgProvisional => rgb(0xc4e6e6),
         FgLineNumber => rgb(0x6e7385),
         FgLineNumberCurrent => rgb(0x272a33),
         FgWrapMark => rgb(0x2f6684),
@@ -321,6 +325,7 @@ pub(super) fn dusk(name: Name) -> Color {
         BgTrailing => rgb(0x5d3a46),
         BgCurrentLine => rgb(0x4a4a52),
         BgFlash => rgb(0x603c6c),
+        BgProvisional => rgb(0x1f5058),
         FgLineNumber => rgb(0xb0b3c4),
         FgLineNumberCurrent => rgb(0xf3f3f6),
         FgWrapMark => rgb(0x94cde6),

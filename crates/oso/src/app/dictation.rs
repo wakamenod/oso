@@ -1,6 +1,6 @@
 //! Dictation in the app (ADR 0175): the commands' requests, the dictation's thread and what it
-//! says, the modeline's mark, the text typed where the dictation started, and the guard that
-//! holds TypeWhisper's own Command-V while the text is due.
+//! says, the modeline's mark, the text typed where the dictation started, its fix by Claude
+//! (`fix`, step 2), and the guard that holds TypeWhisper's own Command-V while the text is due.
 //!
 //! Must not depend on: how a frame is drawn.
 //!
@@ -8,29 +8,31 @@
 //! thread.
 //!
 //! - One dictation at a time. `s-d` starts one where the person is, and stops it; the place is
-//!   taken at the start (`dictation::target`).
+//!   taken at the start (`oso_core::editor`'s dictation). Its text is typed as a provisional
+//!   span and fixed in the background, unless `C-u` came with either press.
 //! - The guard opens as oso asks the dictation to stop, or learns it stopped, and closes
 //!   [`GUARD_AFTER`] after its text came, or after it failed once it had stopped, as
 //!   TypeWhisper's paste may follow either, and at the latest that long after the text's own
 //!   wait.
 //! - Nothing is carried across a restart: an exit starts a stop if one records, and does not
-//!   wait for it.
+//!   wait for it, and kills the fixes under way.
 
 use std::time::{Duration, Instant};
 
 use oso_core::command::Effects;
-use oso_core::editor::{DictationMark, DictationRequest};
+use oso_core::editor::{DictationMark, DictationPlaced, DictationRequest, DictationTarget};
 
 use super::shell::Loop;
 use super::{App, UserEvent};
 use crate::dictation::api::{Curl, Transport};
 use crate::dictation::state::{self, Event, Handle, MakeTransport, Settings, Stopped};
-use crate::dictation::target::{Placed, Target};
 use crate::dictation::{self, MARKER};
 use crate::dispatch::PasteGuard;
 
 /// How long after a dictation's text came TypeWhisper's own Command-V is still dropped.
 pub const GUARD_AFTER: Duration = Duration::from_secs(3);
+
+mod fix;
 
 /// How long an exit waits for a recording dictation's thread to have started its stop.
 const EXIT_WAIT: Duration = Duration::from_millis(300);
@@ -50,22 +52,35 @@ enum Phase {
 struct Current {
     generation: u64,
     handle: Handle,
-    target: Target,
+    target: DictationTarget,
     phase: Phase,
     /// The person asked it to stop before it recorded: it stops as it starts.
     stop_asked: bool,
     /// `dictation-cancel` dropped it: its text goes nowhere.
     cancelled: bool,
-    /// A prefix argument came with either press of `s-d`, kept for the fix that comes later
-    /// (ADR 0175, step 2).
+    /// A prefix argument came with either press of `s-d`: the text is typed plain, with no
+    /// fix (step 2).
     prefix: bool,
+}
+
+impl Current {
+    /// What the modeline says of it.
+    fn mark(&self) -> DictationMark {
+        match self.phase {
+            Phase::Starting => DictationMark::Off,
+            Phase::Recording => DictationMark::Recording,
+            Phase::Waiting => DictationMark::Waiting,
+        }
+    }
 }
 
 /// Text that came while an input method composed in its window, and waits for it to end.
 struct Due {
     generation: u64,
-    target: Target,
+    target: DictationTarget,
     text: String,
+    /// Typed as a provisional span and fixed.
+    provisional: bool,
     /// The dictation's thread, kept so that it says when the wait is over.
     _thread: Handle,
 }
@@ -78,6 +93,10 @@ pub(super) struct Dictations {
     next: u64,
     current: Option<Current>,
     due: Option<Due>,
+    /// The fixes under way, each of a dictation typed already.
+    fixes: Vec<fix::Fixing>,
+    /// The id the next fix gets.
+    next_fix: u64,
 }
 
 impl App {
@@ -90,6 +109,7 @@ impl App {
             }
         }
         self.place_due_dictation(false);
+        self.land_dictation_fixes();
     }
 
     fn toggle_dictation(&mut self, prefix: bool) {
@@ -127,21 +147,16 @@ impl App {
         if self.is_leaving_now() {
             return;
         }
-        let target = match dictation::target::capture(&self.editor) {
+        let target = match self.editor.dictation_target() {
             Ok(target) => target,
             Err(why) => return self.editor.message(why),
         };
-        let settings = self.configuration.dictation();
-        let home = super::home();
-        let discovery = match &settings.discovery {
-            Some(written) => crate::config::expand(written, home.as_deref()),
-            None => home.as_deref().and_then(dictation::discovery::default_path),
-        };
-        let Some(discovery) = discovery else {
+        let Some(discovery) = self.discovery_path() else {
             return self.editor.message(
                 "Dictation needs TypeWhisper's discovery file: [dictation] discovery names it",
             );
         };
+        let settings = self.configuration.dictation();
         let settings_now = Settings {
             discovery,
             workflow: settings.workflow.clone(),
@@ -177,9 +192,25 @@ impl App {
         });
     }
 
+    /// Where TypeWhisper's discovery file is: `[dictation] discovery`, else the release
+    /// build's.
+    fn discovery_path(&self) -> Option<std::path::PathBuf> {
+        let home = super::home();
+        match &self.configuration.dictation().discovery {
+            Some(written) => crate::config::expand(written, home.as_deref()),
+            None => home.as_deref().and_then(dictation::discovery::default_path),
+        }
+    }
+
     fn cancel_dictation(&mut self) {
         if self.dictations.due.take().is_some() {
             return self.editor.message("Dictation cancelled");
+        }
+        if self.dictations.current.is_none() && self.stop_dictation_fixes() {
+            self.request_redraw();
+            return self
+                .editor
+                .message("Dictation fix cancelled: the text stays as typed");
         }
         let Some(current) = self
             .dictations
@@ -194,7 +225,7 @@ impl App {
         if current.phase == Phase::Recording {
             self.open_paste_guard();
         }
-        self.editor.set_dictation_mark(DictationMark::Off);
+        self.show_dictation_mark();
         self.editor.message("Dictation cancelled");
         self.request_redraw();
     }
@@ -202,7 +233,8 @@ impl App {
     /// Takes in what a dictation's thread said.
     pub(super) fn dictation_event(&mut self, generation: u64, event: Event) {
         if event == Event::Settled {
-            return self.dictation_settled(generation);
+            self.dictation_settled(generation);
+            return self.land_dictation_fixes();
         }
         let Some(current) = self
             .dictations
@@ -222,7 +254,7 @@ impl App {
                 }
                 if !cancelled {
                     let keys = self.dispatcher.where_is(&self.editor, "dictation-toggle");
-                    self.editor.set_dictation_mark(DictationMark::Recording);
+                    self.show_dictation_mark();
                     self.editor.message(format!("Dictating: {keys} stops"));
                 }
             }
@@ -230,7 +262,7 @@ impl App {
                 current.phase = Phase::Waiting;
                 self.open_paste_guard();
                 if !cancelled {
-                    self.editor.set_dictation_mark(DictationMark::Waiting);
+                    self.show_dictation_mark();
                     if stopped == Stopped::Limit {
                         let limit = self.configuration.dictation().max_recording().as_secs();
                         self.editor
@@ -243,10 +275,10 @@ impl App {
                     return;
                 };
                 self.close_paste_guard_soon();
-                self.editor.set_dictation_mark(DictationMark::Off);
                 if !current.cancelled {
                     self.dictated(current, &text);
                 }
+                self.show_dictation_mark();
             }
             Event::Failed(why) => {
                 let Some(current) = self.dictations.current.take() else {
@@ -255,7 +287,7 @@ impl App {
                 if current.phase == Phase::Waiting {
                     self.close_paste_guard_soon();
                 }
-                self.editor.set_dictation_mark(DictationMark::Off);
+                self.show_dictation_mark();
                 // It may quote what TypeWhisper said, which stays out of the log (ADR 0138).
                 if !current.cancelled {
                     self.editor.message_unlogged(why);
@@ -263,6 +295,7 @@ impl App {
             }
             Event::Settled => {}
         }
+        self.land_dictation_fixes();
         self.request_redraw();
     }
 
@@ -279,27 +312,36 @@ impl App {
         if text.is_empty() {
             return self.editor.message("TypeWhisper heard nothing");
         }
-        if current.target.waits(&self.editor) {
+        let provisional = !current.prefix;
+        if self.editor.dictation_waits(&current.target) {
             self.dictations.due = Some(Due {
                 generation: current.generation,
                 target: current.target,
                 text,
+                provisional,
                 _thread: current.handle,
             });
             return;
         }
-        self.place(&current.target, &text, cut);
+        self.place(&current.target, &text, cut, provisional);
     }
 
-    /// Types `text` at `target`, or puts it in the kill ring, and says so.
-    fn place(&mut self, target: &Target, text: &str, cut: bool) {
-        match target.place(&mut self.editor, text) {
-            Placed::Typed if cut => self.editor.message(format!(
-                "Dictation typed its first {} KiB",
-                dictation::MAX_TEXT >> 10
-            )),
-            Placed::Typed => {}
-            Placed::Kept(why) => self.kept_dictation(why),
+    /// Types `text` at `target`, or puts it in the kill ring, and says so; with `provisional`,
+    /// as a span that Claude then fixes.
+    fn place(&mut self, target: &DictationTarget, text: &str, cut: bool, provisional: bool) {
+        match self.editor.place_dictation(target, text, provisional) {
+            DictationPlaced::Typed { span } => {
+                if cut {
+                    self.editor.message(format!(
+                        "Dictation typed its first {} KiB",
+                        dictation::MAX_TEXT >> 10
+                    ));
+                }
+                if let Some(span) = span {
+                    self.start_dictation_fix(span);
+                }
+            }
+            DictationPlaced::Kept(why) => self.kept_dictation(why),
         }
         self.editor.follow_cursor();
         self.dispatcher.publish_for_emergency(&self.editor);
@@ -319,20 +361,20 @@ impl App {
         let Some(due) = &self.dictations.due else {
             return;
         };
-        if !now && due.target.waits(&self.editor) {
+        if !now && self.editor.dictation_waits(&due.target) {
             return;
         }
         let Some(due) = self.dictations.due.take() else {
             return;
         };
-        if now && due.target.waits(&self.editor) {
-            due.target
-                .keep(&mut self.editor, &due.text, "a composition stayed open");
+        if now && self.editor.dictation_waits(&due.target) {
+            self.editor
+                .keep_dictation(&due.target, &due.text, "a composition stayed open");
             self.kept_dictation("a composition stayed open");
             self.request_redraw();
             return;
         }
-        self.place(&due.target, &due.text, false);
+        self.place(&due.target, &due.text, false, due.provisional);
     }
 
     /// A dictation's text came long enough ago: if it still waits for a composition, it goes to
@@ -375,10 +417,11 @@ impl App {
         self.apply(event_loop, effects);
     }
 
-    /// As oso exits: a dictation that records gets a stop, which is not waited for, and
-    /// nothing is carried to the next instance.
+    /// As oso exits: a dictation that records gets a stop, which is not waited for, the fixes
+    /// under way are killed, and nothing is carried to the next instance.
     pub(super) fn leave_dictation(&mut self) {
         self.dictations.due = None;
+        self.stop_dictation_fixes();
         if let Some(current) = self.dictations.current.take() {
             current.handle.leave(EXIT_WAIT);
         }

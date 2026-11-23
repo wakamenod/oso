@@ -441,6 +441,19 @@ network features.
   commands are `Person`, refused in keyboard macros. A stale file with another local process on
   its port would get the token and type what it answers. TypeWhisper itself puts dictated text
   on the clipboard, unmarked, also from a buffer that may hold secrets.
+- A dictation's fix (ADR 0175, step 2) sends the dictated text, `[dictation]
+  fix_context_lines` lines on each side (3 unless set, at most 20, and at most 4 KiB a side),
+  the mode's name and TypeWhisper's dictionary, capped, to Anthropic through the person's
+  `claude -p`, as one JSON object on its standard input that the system prompt calls data. It
+  runs in untrusted projects too: `claude` reads nothing of the project, though the text sent
+  is the project's. `claude` runs with no tool, no MCP server, no project setting and no
+  session kept, in a new private directory, killed at 30 s; a stop before it starts holds.
+  Its answer can only replace text inside the span, while the span still holds exactly what
+  was sent, in one undo step, at most 1024 replacements; a `right` with a control, an
+  invisible or bidi character or a noncharacter, or much longer than its `wrong`, is dropped.
+  Nothing of a buffer that may hold secrets is sent, checked at the start and again at the
+  answer, and the minibuffer's text is never fixed. The report of a fix is shown in the echo
+  area alone, withheld from the dev socket and agents, and never in `*Messages*` or the log.
 - The environment is sanitized and every spawn is logged in a visible buffer.
 
 ### Dependencies (T2, T8)

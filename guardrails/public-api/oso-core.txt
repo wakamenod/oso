@@ -1487,6 +1487,7 @@ pub fn oso_core::editor::CursorError::fmt(&self, &mut core::fmt::Formatter<'_>) 
 impl core::marker::Copy for oso_core::editor::CursorError
 impl core::marker::StructuralPartialEq for oso_core::editor::CursorError
 pub enum oso_core::editor::DictationMark
+pub oso_core::editor::DictationMark::Fixing
 pub oso_core::editor::DictationMark::Off
 pub oso_core::editor::DictationMark::Recording
 pub oso_core::editor::DictationMark::Waiting
@@ -1501,6 +1502,19 @@ impl core::fmt::Debug for oso_core::editor::DictationMark
 pub fn oso_core::editor::DictationMark::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::DictationMark
 impl core::marker::StructuralPartialEq for oso_core::editor::DictationMark
+pub enum oso_core::editor::DictationPlaced
+pub oso_core::editor::DictationPlaced::Kept(&'static str)
+pub oso_core::editor::DictationPlaced::Typed
+pub oso_core::editor::DictationPlaced::Typed::span: core::option::Option<oso_core::editor::DictationSpan>
+impl core::clone::Clone for oso_core::editor::DictationPlaced
+pub fn oso_core::editor::DictationPlaced::clone(&self) -> oso_core::editor::DictationPlaced
+impl core::cmp::Eq for oso_core::editor::DictationPlaced
+impl core::cmp::PartialEq for oso_core::editor::DictationPlaced
+pub fn oso_core::editor::DictationPlaced::eq(&self, &oso_core::editor::DictationPlaced) -> bool
+impl core::fmt::Debug for oso_core::editor::DictationPlaced
+pub fn oso_core::editor::DictationPlaced::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::DictationPlaced
+impl core::marker::StructuralPartialEq for oso_core::editor::DictationPlaced
 pub enum oso_core::editor::DictationRequest
 pub oso_core::editor::DictationRequest::Cancel
 pub oso_core::editor::DictationRequest::Toggle
@@ -2917,6 +2931,40 @@ impl core::clone::Clone for oso_core::editor::DiagnosticsRequest
 pub fn oso_core::editor::DiagnosticsRequest::clone(&self) -> oso_core::editor::DiagnosticsRequest
 impl core::fmt::Debug for oso_core::editor::DiagnosticsRequest
 pub fn oso_core::editor::DiagnosticsRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::editor::DictationContext
+pub oso_core::editor::DictationContext::after: alloc::string::String
+pub oso_core::editor::DictationContext::before: alloc::string::String
+pub oso_core::editor::DictationContext::mode: &'static str
+pub oso_core::editor::DictationContext::text: alloc::string::String
+impl core::clone::Clone for oso_core::editor::DictationContext
+pub fn oso_core::editor::DictationContext::clone(&self) -> oso_core::editor::DictationContext
+impl core::cmp::Eq for oso_core::editor::DictationContext
+impl core::cmp::PartialEq for oso_core::editor::DictationContext
+pub fn oso_core::editor::DictationContext::eq(&self, &oso_core::editor::DictationContext) -> bool
+impl core::fmt::Debug for oso_core::editor::DictationContext
+pub fn oso_core::editor::DictationContext::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::editor::DictationContext
+pub struct oso_core::editor::DictationSpan(_)
+impl core::clone::Clone for oso_core::editor::DictationSpan
+pub fn oso_core::editor::DictationSpan::clone(&self) -> oso_core::editor::DictationSpan
+impl core::cmp::Eq for oso_core::editor::DictationSpan
+impl core::cmp::PartialEq for oso_core::editor::DictationSpan
+pub fn oso_core::editor::DictationSpan::eq(&self, &oso_core::editor::DictationSpan) -> bool
+impl core::fmt::Debug for oso_core::editor::DictationSpan
+pub fn oso_core::editor::DictationSpan::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::editor::DictationSpan
+pub fn oso_core::editor::DictationSpan::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::editor::DictationSpan
+impl core::marker::StructuralPartialEq for oso_core::editor::DictationSpan
+pub struct oso_core::editor::DictationTarget
+impl core::clone::Clone for oso_core::editor::DictationTarget
+pub fn oso_core::editor::DictationTarget::clone(&self) -> oso_core::editor::DictationTarget
+impl core::cmp::Eq for oso_core::editor::DictationTarget
+impl core::cmp::PartialEq for oso_core::editor::DictationTarget
+pub fn oso_core::editor::DictationTarget::eq(&self, &oso_core::editor::DictationTarget) -> bool
+impl core::fmt::Debug for oso_core::editor::DictationTarget
+pub fn oso_core::editor::DictationTarget::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::editor::DictationTarget
 pub struct oso_core::editor::EditApplied
 pub oso_core::editor::EditApplied::buffers: usize
 pub oso_core::editor::EditApplied::edits: usize
@@ -3312,7 +3360,15 @@ pub fn oso_core::editor::Editor::open_diagnostics_list(&mut self, &str) -> core:
 pub fn oso_core::editor::Editor::take_diagnostic_hit(&mut self) -> core::option::Option<oso_core::editor::ListedHit>
 pub fn oso_core::editor::Editor::take_diagnostics_request(&mut self) -> core::option::Option<oso_core::editor::DiagnosticsRequest>
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::dictation_context(&self, oso_core::editor::DictationSpan, usize, usize) -> core::option::Option<oso_core::editor::DictationContext>
 pub fn oso_core::editor::Editor::dictation_mark(&self) -> oso_core::editor::DictationMark
+pub fn oso_core::editor::Editor::dictation_span_cells(&self, oso_core::window::WindowId, &oso_core::window::Screen, &mut alloc::vec::Vec<oso_core::frame::CellRect>)
+pub fn oso_core::editor::Editor::dictation_target(&self) -> core::result::Result<oso_core::editor::DictationTarget, &'static str>
+pub fn oso_core::editor::Editor::dictation_waits(&self, &oso_core::editor::DictationTarget) -> bool
+pub fn oso_core::editor::Editor::end_dictation_span(&mut self, oso_core::editor::DictationSpan)
+pub fn oso_core::editor::Editor::fix_dictation(&mut self, oso_core::editor::DictationSpan, &str, &[(core::ops::range::Range<usize>, &str)]) -> core::result::Result<(), &'static str>
+pub fn oso_core::editor::Editor::keep_dictation(&mut self, &oso_core::editor::DictationTarget, &str, &'static str) -> oso_core::editor::DictationPlaced
+pub fn oso_core::editor::Editor::place_dictation(&mut self, &oso_core::editor::DictationTarget, &str, bool) -> oso_core::editor::DictationPlaced
 pub fn oso_core::editor::Editor::request_dictation(&mut self, oso_core::editor::DictationRequest)
 pub fn oso_core::editor::Editor::set_dictation_mark(&mut self, oso_core::editor::DictationMark)
 pub fn oso_core::editor::Editor::take_dictation_requests(&mut self) -> alloc::vec::Vec<oso_core::editor::DictationRequest>

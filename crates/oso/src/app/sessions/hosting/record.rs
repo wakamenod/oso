@@ -63,8 +63,11 @@ impl App {
         // A space's naming does not outlive this instance: its run is stopped, and the space
         // keeps oso's own names (ADR 0159).
         if let Some(running) = self.hosting.spaces.summary_run.take() {
-            crate::sessions::spaces::summary::stop(&running);
+            crate::sessions::oneshot::stop(&running);
         }
+        // Nor does a dictation's fix, which would edit the buffer the next oso takes over
+        // (ADR 0175, step 2).
+        self.stop_dictation_fixes();
         // Nor does a native session's `claude`: it is stopped, and resumed by the next oso
         // (ADR 0165, Q8).
         self.kill_native_sessions();
