@@ -486,18 +486,41 @@ mod restart_wait;
 mod resume;
 mod slash;
 mod space;
+mod split;
 mod status;
 mod suggest;
 mod switch;
 mod todo;
 
+/// The selected window, if it is the composer docked under a session.
+fn selected_composer(state: &Value) -> Option<&Value> {
+    (state["windows"].as_array().into_iter().flatten())
+        .find(|window| window["selected"] == true && window["docked"]["slot"] == "composer")
+}
+
 /// Whether the selected window is the composer docked under a session.
 fn in_composer(state: &serde_json::Value) -> bool {
-    state["windows"].as_array().is_some_and(|windows| {
-        windows
-            .iter()
-            .any(|window| window["selected"] == true && window["docked"]["slot"] == "composer")
-    })
+    selected_composer(state).is_some()
+}
+
+/// Whether the composer is selected, docked under its session's transcript and laid out, a row
+/// or more, inside a window that shows that transcript (ADR 0170): as a session started
+/// natively shows it, also after a switch or a restart.
+fn composer_docked(state: &Value) -> bool {
+    let Some(composer) = selected_composer(state) else {
+        return false;
+    };
+    let windows = state["windows"].as_array().map_or(&[][..], Vec::as_slice);
+    let at = |window: &Value, key: &str| window["area"][key].as_u64().unwrap_or(0);
+    let (row, rows) = (at(composer, "row"), at(composer, "rows"));
+    rows >= 1
+        && windows.iter().any(|host| {
+            host["docked"].is_null()
+                && host["buffer"] == composer["docked"]["host"]
+                && at(host, "column") == at(composer, "column")
+                && at(host, "row") <= row
+                && row + rows <= at(host, "row") + at(host, "rows")
+        })
 }
 
 /// The tracker's state of the flow's one hosted session, as the dev state gives it: `working`

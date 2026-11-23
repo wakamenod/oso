@@ -1200,7 +1200,8 @@ a switch made with its command stands until that setting changes in the file
   screen says it is idle, done or ready for review, or it is stopped, in a trusted project: the TUI is hung up, and once
   its `claude` is gone the session resumes natively in its transcript set aside, which takes
   `*claude: NAME*` back. A TUI the hand-off started that exits of itself comes back so at
-  once. A native session's `C-c C-t` stays its to-do strip.
+  once. Either way, every window that showed the session shows it in its other mode. A
+  native session's `C-c C-t` stays its to-do strip.
 - `C-x k` on a session's buffer archives the session: it is not brought back at the next start.
 - A session's buffer has session mode ([ADR 0132](adr/0132-a-session-mode-for-hosted-sessions.md)):
   its modeline says `Session` in place of `Terminal`, and `C-c C-<letter>` runs the Agents menu's

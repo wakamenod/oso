@@ -188,7 +188,7 @@ fn an_orchestrator_switches_to_the_tui_and_back_in_its_spaces_directory() {
     switch_back(&mut app);
     let back = args(&flow, 3);
     assert!(native_in_space(&back), "{back:?}");
-    app.wait_for("the composer", in_composer);
+    app.wait_for("the composer docked", super::composer_docked);
     let _ = app.exchange("exit", None);
     app.wait_for_exit();
 }

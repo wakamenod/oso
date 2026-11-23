@@ -192,6 +192,11 @@ impl NativeSessions {
         self.aside.contains_key(&key)
     }
 
+    /// Session `key`'s transcript set aside while it runs in the TUI, if one is (part 4d).
+    pub(in crate::app) fn aside_buffer(&self, key: SessionKey) -> Option<BufferId> {
+        self.aside.get(&key).map(|native| native.buffer)
+    }
+
     /// Whether native session `key`'s conversation moved to a session id oso does not follow.
     pub(in crate::app) fn moved(&self, key: SessionKey) -> bool {
         self.map.get(&key).is_some_and(|native| native.moved)
