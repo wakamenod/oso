@@ -1,6 +1,6 @@
 //! The windows a state hands over and the tree they are laid out by (ADR 0090, ADR 0112):
 //! each tiled window's buffer and positions, in the tree's order, the layout with each
-//! child's weight, and which window is selected.
+//! child's weight, and which window is selected; and the OS window's place and size.
 //!
 //! Must not depend on: the control socket, the window system or threads; it turns the editor's
 //! tree into a state's fields and back, and checks them before anything changes.
@@ -10,7 +10,8 @@ use oso_core::selection::SelectionSet;
 use oso_core::window::Scroll;
 use serde_json::{Map, Value, json};
 
-use super::format::{array, parse_selections, size};
+use super::Frame;
+use super::format::{MAX_FRAME_SIDE, array, parse_selections, size};
 
 /// The most windows a state may hand over (ADR 0112): far more than a person works in, and
 /// few enough that a new instance takes them in milliseconds. A frame split into more holds
@@ -202,4 +203,33 @@ fn parse_run(run: &Map<String, Value>, next: &mut usize, depth: usize) -> Result
         })
         .collect::<Result<_, String>>()?;
     Ok(Tiling::Run { way, children })
+}
+
+/// The OS window's place and size a state says, if it says one.
+pub(super) fn parse_frame(state: &Map<String, Value>) -> Result<Option<Frame>, String> {
+    let frame = match state.get("frame") {
+        None | Some(Value::Null) => return Ok(None),
+        Some(frame) => frame.as_object().ok_or("the frame is not an object")?,
+    };
+    let coordinate = |name: &str| match frame.get(name) {
+        None | Some(Value::Null) => Ok(None),
+        Some(value) => value
+            .as_i64()
+            .and_then(|value| i32::try_from(value).ok())
+            .map(Some)
+            .ok_or_else(|| format!("the frame's {name} is not a position")),
+    };
+    let side = |name: &str| {
+        frame
+            .get(name)
+            .and_then(Value::as_u64)
+            .and_then(|value| u32::try_from(value).ok())
+            .filter(|value| (1..=MAX_FRAME_SIDE).contains(value))
+            .ok_or_else(|| format!("the frame's {name} is not a size"))
+    };
+    Ok(Some(Frame {
+        position: coordinate("x")?.zip(coordinate("y")?),
+        width: side("width")?,
+        height: side("height")?,
+    }))
 }

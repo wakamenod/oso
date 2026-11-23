@@ -1355,7 +1355,11 @@ a switch made with its command stands until that setting changes in the file
   the composer's text first, ahead of the queue,
   which then goes on; with no turn under way it is `C-c C-c`. Nothing queued goes while oso
   waits to quit when idle. A message holding secret text a yank brought is not sent. A restart
-  is refused while a composer holds text or a queue holds messages. A send, a paste or `session-explain` to
+  is refused while a composer holds text or a queue holds messages. Otherwise `oso-restart`
+  stops each native session that runs, and the new oso resumes it in its buffer, in its
+  permission mode, with its model and effort, under a row "Resumed after oso-restart."; the
+  rows before are not shown again (ADR 0165, part 4c). If the restart stays, the sessions
+  resume where they were. A send, a paste or `session-explain` to
   it from elsewhere says it takes none yet. `session-resume` resumes a stopped native session
   natively, in its own buffer, with a "Resumed" row and the composer selected, at the root of
   a project trusted now, by an open buffer of it or, with none open, by the record of trusted

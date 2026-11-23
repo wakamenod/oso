@@ -346,6 +346,8 @@ impl App {
         // The masters' instance, and those before it, for a bridge that looks for its oso.
         state["pid"] = json!(std::process::id());
         state["follows"] = json!(self.handover.follows);
+        // Last, as they never refuse the restart (ADR 0165, part 4c).
+        crate::carry::natives::add(&mut state, &self.native_resumes());
         if let Err(why) = crate::carry::fits(&state) {
             pieces::drop_later(texts);
             return self.export_given_up(exporting, items, why);

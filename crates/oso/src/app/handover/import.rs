@@ -32,10 +32,12 @@ impl App {
             let refused = super::super::terminals::carry::NOT_PARENT.to_owned();
             return Some((reply, Err(refused)));
         }
-        // Which instances a bridge follows here is the parent's to say.
+        // Which instances a bridge follows here, and which native sessions resume, are the
+        // parent's to say (ADR 0165, part 4c).
         let mut state = state;
         if !parent {
             state.follows.clear();
+            state.native_resumes.clear();
         }
         let judging = match self.import_state(state) {
             Ok(judging) => judging,
@@ -93,6 +95,7 @@ impl App {
             .collect::<Result<Vec<_>, _>>()?;
         let carried_terminals = std::mem::take(&mut state.terminals);
         let follows = std::mem::take(&mut state.follows);
+        let native_resumes = std::mem::take(&mut state.native_resumes);
         let histories = state
             .histories
             .iter()
@@ -172,6 +175,8 @@ impl App {
         // The terminals only once nothing can fail: their threads start here.
         self.place_terminals(carried_terminals, terminal_texts, &stand_for, &mut named);
         self.handover.follows = follows;
+        // They resume once the instance before has gone (ADR 0165, part 4c).
+        self.natives_carried(native_resumes);
         if let (Some((text, facts)), Some(buffer)) = (scratch_text, self.editor.buffer_mut(scratch))
         {
             buffer.apply_carried(text, facts);

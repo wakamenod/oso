@@ -227,6 +227,18 @@ impl ModeState {
         }
     }
 
+    /// The state of a session an oso restart resumes (part 4c, Q4-2): the mode the instance
+    /// before would have given its next process, by these rules, pending, and taken as the
+    /// person's choice, so that a mode that asks less than the one given is not carried
+    /// from what the stream says later.
+    pub fn restarted(mode: Option<PermissionMode>) -> Self {
+        Self {
+            pending: mode,
+            chosen: mode,
+            ..Self::default()
+        }
+    }
+
     /// A new process starts: the mode it is given, [`ModeState::carried`], which is pending
     /// until it says one. A switch under way ends here: a tier-1 one's mode is the one given,
     /// the person's choice, and a request's was the old process's.

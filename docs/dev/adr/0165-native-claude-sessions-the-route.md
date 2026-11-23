@@ -1573,7 +1573,7 @@ The author's (a) on Q4-1: the restart waits without asking, and `C-g` cancels it
 - **After the wait,** the restart is the one of before: the instance going still ends each
   native process, now idle, whose conversation Claude Code has kept (a `SIGKILL` after a
   `result` loses nothing, measured 2026-11-23), and the new instance brings it back stopped.
-  Ending them gently and resuming them in the new instance is part 4c's.
+  Ending them gently and resuming them in the new instance is part 4c's (below).
 - **Two older faults,** found by the end-to-end flow, kept any restart from happening while a
   native session was in the record, or while no terminal ran. The new instance brings a native
   session back with its empty composer, which a restart makes again rather than carries
@@ -1596,6 +1596,93 @@ The author's (a) on Q4-1: the restart waits without asking, and `C-g` cancels it
   waiting; the person cancels); a test of the
   app's own wiring (the queue held, a refusal once due) beside the end-to-end flows, as the app
   has no harness of its own.
+
+### Part 4c: `oso-restart` resumes native sessions in place
+
+Q8 (a), with the author's answers of 2026-11-23: Q4-2 (a), the mode, model and effort carry
+across through the restart's state; Q4-3 (a), no transcript row is carried, and one row says
+"Resumed after oso-restart."; Q4-4 (a), a composer's draft or a queued message still refuses
+the restart; Q4-10 (a), the resume is judged by part 4a's trust.
+
+- **Before this part,** the instance going killed every native process with `SIGKILL` as it
+  wrote its records, and the new instance brought each session back stopped.
+- **The instance going** (`app/sessions/hosting/native/restarting.rs`, `app/restart.rs`).
+  Once part 4b's wait is over and the restart's checks pass, and the agent channel is off,
+  each native session whose `claude -p` runs and that was given a message is stopped as the
+  session list stops it: its standard input closed and its group sent `SIGTERM`, `SIGKILL`
+  after 5 s. Its end is no failure, and no resume starts of itself meanwhile (the tier-1
+  respawn and the interrupt's resume are held, as a restart under way holds them). Nothing
+  waits on the UI thread: each end is an event, and once each has ended the checks run
+  again, as the person may have written meanwhile, and the restart's thread starts as
+  before. A session given no message has no conversation, and the exit ends it as before.
+  Nothing resumes in the instance going while its restart goes on: `session-resume` says
+  "oso-restart is under way" (the security review's finding: a resume then would be a second
+  writer once the new instance resumed it too), and a session started meanwhile keeps the
+  restart here, as does one that runs at the exit. One not ended within 10 s keeps the
+  restart here; it is not resumed, and says that `session-resume` resumes it. A session oso
+  is stopping already, at the person's word or for an orchestrator's successor (ADR 0136),
+  holds the restart's wait (part 4b) until it has ended, and is not resumed: the stop wins,
+  and a successor starts before the restart, not during it. Nor is one the person is asked
+  whether to stop. An instance that is going (its window closed meanwhile) resumes nothing
+  and starts no restart.
+- **The state** (`carry/natives.rs`) names each session ended so, or under `oso dev`, whose
+  order ends none first, each that runs at the export, which the exit ends: its session id,
+  and the permission mode its next process would have been given (part 3b's rules), its
+  model and its effort level (part 3c). It is an optional field, `native_resumes`, at most 64
+  entries, each read on its own: an entry that does not read (an id not of 36 ASCII
+  characters, a mode oso never sends, a model or level too long) is left out, never refusing
+  the restart. A reader from before this part knows no such field, and brings the sessions
+  back stopped, as before. The state version stays 5.
+- **The state is written last,** once the terminals are in, and so is left out rather than
+  refusing a restart that would not fit with it.
+- **A restart that stays here,** for any reason, its new instance not starting, refusing the
+  state or told to stay out, resumes here each session it ended, under the trust judged now,
+  each saying "oso-restart stayed here: resumed." or why it did not.
+- **The new instance** reads the field only from its parent, as it reads which instances a
+  bridge follows. It resumes nothing until the instance before has gone: `oso-restart`'s
+  `oso-carried` thread waits, as for the terminals' masters, until its parent is no longer
+  the instance going (at most 10 s, else nothing resumes), and asks `import-terminals` then,
+  with a count of 0 when no terminal came; `oso dev`'s supervisor asks it once the old
+  instance has stopped, or once one that agreed has gone. A word that they stay
+  (`import-terminals` with `abandon`, or being told to stay out), or masters that do not
+  match, drops them; `handover`'s `before_gone` says which to the sessions, beside the
+  terminals' import. Then, once the record of sessions is read,
+  each id the record has as a stopped native session with its buffer is resumed with
+  `session-resume`'s checks: the name, directory and root are the record's, never the
+  state's; its trust is part 4a's, as no person is there to open a file (an open buffer of
+  the project decides; else the record of trusted projects, by path and identity); its start
+  waits for the configuration's first look (ADR 0173); and the start thread refuses a
+  conversation live elsewhere, by Claude Code's registry. A refusal leaves it stopped, its
+  row saying why. The mode, model and effort carried are its own either way, as they were in
+  the instance before, and its next resume starts with them: the refusal's row names the
+  mode. Only a stopped session is resumed,
+  and one the person or an agent resumed meanwhile is not resumed again. Its next process
+  starts in the mode carried, taken as the person's choice,
+  so that a mode that asks less is not carried from what its stream says later, and with the
+  model and effort carried, read again as part 3c reads them. A session the state does not
+  name, a stopped or failed one among them, stays stopped.
+- **One writer.** The process before has ended, and its group been killed, before the
+  restart's thread starts; the new instance resumes only once the instance going has gone;
+  and the start thread's look in the registry refuses a conversation still live. Under
+  `oso dev`, an old instance that agreed to exit but has not gone while terminals go with it
+  has the new one resume anyway, and the registry's look is then what refuses a process not
+  yet ended.
+- **Not done:** the transcript's past rows (part 5); a mark while the sessions end, other
+  than the echo said once.
+- **Tests.** The field's round trip, its refusals and its cap (`carry::natives`), and that a
+  state that would not fit leaves it out; the new instance's wait for its parent with no
+  terminal (`carry::coming`); the supervisor's word after a stop, and none while the old one
+  stays or has not gone (`dev::restart`); the mode and choice a resume starts with
+  (`sessions::native::{mode, choice}`). End to end (`sessions::native::restart`): an idle
+  session in `acceptEdits` is resumed by the new instance, run 2's arguments carrying
+  `--resume=ID` and `--permission-mode=acceptEdits`, and takes a message; with
+  `OSO_DEV_RESTART_FAIL=hello` the instance going resumes it itself; with `=exit`, after the
+  new instance took the state, the instance going resumes it and the new one, told to stay
+  out, starts no run.
+- **Not tested:** the app's own wiring alone (a non-parent's import that names sessions, the
+  record's matching, the 10 s bound, a resume refused during the restart), as the app has no
+  harness of its own beside the end-to-end flows.
+- **New public items:** none.
 
 ### Part 4d-1: a native session handed to the TUI
 
@@ -1756,6 +1843,16 @@ Each passage stays in its ADR as written; what holds now follows it.
   been idle for 2 s, and `C-g` or `C-x C-c` cancels the wait (part 4b). Any session starting,
   ADR 0173's held starts, git's runs and a file operation hold it too; terminals still do
   not.
+- [ADR 0133](0133-keeping-terminals-over-an-update.md), step 2, as built, "The order": before
+  the thread starts, the native sessions that run are stopped and the state names them; the
+  new instance resumes them once the instance going has gone, which `import-terminals` now
+  says with no terminal too (a count of 0), and a restart that stays resumes them in the
+  instance going (part 4c). "The new instance attaches the masters only once the pair has
+  ended": it waits so for the sessions named too.
+- [ADR 0120](0120-the-terminal.md), step 11, as built, "The order": `import-terminals {count}`
+  goes with the masters, and also with none, a count of 0, when no terminal went but the
+  state named native sessions to resume; either way it says that the old instance has gone
+  (part 4c).
 - [ADR 0133](0133-keeping-terminals-over-an-update.md), step 5, as built, "Waiting.": `w` and
   `quit-when-idle` also cancel a restart that waits, and `oso-restart`, waiting or beginning,
   cancels an exit that waits and resets its guard, so that only one of the two waits (part

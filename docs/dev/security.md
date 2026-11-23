@@ -659,7 +659,11 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   The start thread looks at the root again before the spawn.
   The resume that follows an interrupt by signal is such a resume, judged again then, and none
   starts while the person is asked whether to stop the session, or oso waits to quit or
-  restart (step 2c).
+  restart (step 2c). So is `oso-restart`'s resume of the sessions it stopped (part 4c), which
+  runs with no person there: only the ids the parent's state names that the new instance's
+  own record has as stopped native sessions, at most 64, in the record's directory and root,
+  under the trust judged then, once the instance before has gone, and refused by the start
+  thread while the registry has the conversation live.
 - A native session's control layer (ADR 0165, step 2c) writes only `initialize`,
   `interrupt`, `get_usage` (part 3a) and `set_permission_mode` (part 3b), and reads of an
   answer only its id, its success, its error, cut to 256 bytes and logged escaped,
@@ -679,7 +683,8 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   command line, where whether the CLI holds it to those settings is not measured. The person's
   own command includes text an agent put in the composer (part 2f escapes only the start of
   what it puts) that the person then sent. Nothing of it is
-  in the record across oso's restart. Completion over the models and levels shows the CLI's
+  in the record across oso's restart; the restart's state carries it for a session the
+  restart resumes (part 4c), read again by these rules. Completion over the models and levels shows the CLI's
   text as completion rows show any text, escaped, and puts the one chosen in the composer,
   unsent.
 - oso changes a native session's permission mode (ADR 0165, Q4, part 3b) only on the
@@ -699,7 +704,9 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   ended is still taken, as the CLI speaks the protocol (step 2c). A fork starts as its
   source's next process would. A tier-1 switch whose resume is refused (the project not
   trusted now) is over. A new session gets no mode, and starts as the person's Claude
-  Code settings say; so does one that comes back after oso's restart. A tier-1 switch stops
+  Code settings say; so does one that comes back stopped after oso's restart. One that
+  `oso-restart` resumes (part 4c) starts in the mode the instance before would have given its
+  next process, from the parent's state, taken as the person's choice. A tier-1 switch stops
   only an idle process, and only while a resume may start (no stop asked, no quit or restart
   waiting); the resume is judged under trust then. A mode that is not readable as itself
   (ASCII letters, digits, `-`, `_`, at most 256 bytes) is not shown.

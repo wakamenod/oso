@@ -19,8 +19,9 @@
 //! - What is noted goes on a command line (`--model=`, `--effort=`): a model is one word that
 //!   reads as a model's id (`wire::status_line::Kind::Id`) and does not start with `-`; an
 //!   effort level is one of [`EFFORTS`], which `--effort` takes, in lower case.
-//! - A fork starts with its source's choice. Across an oso restart nothing is kept: the record
-//!   holds no model.
+//! - A fork starts with its source's choice. Across an oso restart, the record holds no model,
+//!   but a session the restart resumes has it from the restart's state (part 4c, Q4-2), read
+//!   again by the rules above.
 
 use super::slash::{SlashCommands, ends_word};
 use super::wire::status_line::{Kind, Model, readable};
@@ -115,6 +116,17 @@ impl Choice {
         Self {
             asked: None,
             ..self.clone()
+        }
+    }
+
+    /// The choice of a session an oso restart resumes, from the restart's state (part 4c):
+    /// `model` if it is one that can be carried, and `effort` if it is a level `--effort`
+    /// takes, each else none.
+    pub fn restarted(model: Option<&str>, effort: Option<&str>) -> Self {
+        Self {
+            model: model.and_then(self::model),
+            effort: effort.and_then(|effort| EFFORTS.into_iter().find(|level| *level == effort)),
+            asked: None,
         }
     }
 

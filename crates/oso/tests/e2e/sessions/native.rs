@@ -477,6 +477,7 @@ mod model;
 mod modes;
 mod plan;
 mod quit;
+mod restart;
 mod restart_wait;
 mod resume;
 mod slash;
