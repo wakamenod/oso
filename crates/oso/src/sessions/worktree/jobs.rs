@@ -58,21 +58,28 @@ pub struct Snapshot {
 
 impl Snapshot {
     /// What it holds about the worktree at `path`, with `idle` the process ids the registry
-    /// calls idle: a hosted session is busy unless both halves say it is not.
-    pub fn held(&self, path: &Path, idle: &HashSet<u32>) -> Held {
+    /// calls idle and `shell` those it says run a background shell: a hosted session is busy
+    /// unless both halves say it is not, and one settled on screen whose registry says `shell`
+    /// is named apart, so that the refusal says why (ADR 0179).
+    pub fn held(&self, path: &Path, (idle, shell): (&HashSet<u32>, &HashSet<u32>)) -> Held {
+        let (shells, busy): (Vec<&HostedSession>, Vec<&HostedSession>) = self
+            .sessions
+            .iter()
+            .filter(|session| session.directory.starts_with(path))
+            .filter(|session| {
+                let registry_idle = session.pid.is_some_and(|pid| idle.contains(&pid));
+                checks::busy(session, registry_idle)
+            })
+            .partition(|session| {
+                session.settled && session.pid.is_some_and(|p| shell.contains(&p))
+            });
+        let names =
+            |sessions: Vec<&HostedSession>| sessions.iter().map(|s| s.name.clone()).collect();
         Held {
             unsaved: self.unsaved.iter().filter(|f| f.starts_with(path)).count(),
             unsent: self.briefs.iter().any(|b| b.starts_with(path)),
-            busy: self
-                .sessions
-                .iter()
-                .filter(|session| session.directory.starts_with(path))
-                .filter(|session| {
-                    let registry_idle = session.pid.is_some_and(|pid| idle.contains(&pid));
-                    checks::busy(session, registry_idle)
-                })
-                .map(|session| session.name.clone())
-                .collect(),
+            busy: names(busy),
+            shell: names(shells),
         }
     }
 }
@@ -458,7 +465,7 @@ fn check(
     };
     let gh = Gh::find(repo.main());
     let facts = RepoFacts::gather(repo, gh_host, &snapshot.hosted, registry);
-    let held = snapshot.held(&listed.path, &facts.hosted_idle);
+    let held = snapshot.held(&listed.path, (&facts.hosted_idle, &facts.hosted_shell));
     let looked = checks::look(
         repo,
         gh.as_ref(),
@@ -487,7 +494,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::Snapshot;
-    use crate::sessions::worktree::checks::HostedSession;
+    use crate::sessions::worktree::checks::{self, Check, Held, HostedSession};
 
     fn session(name: &str, pid: u32, settled: bool) -> HostedSession {
         HostedSession {
@@ -510,12 +517,46 @@ mod tests {
             ..Snapshot::default()
         };
         let idle: HashSet<u32> = [1, 3].into();
-        let held = snapshot.held(&PathBuf::from("/r/.claude/worktrees/w"), &idle);
+        let none = HashSet::new();
+        let held = snapshot.held(&PathBuf::from("/r/.claude/worktrees/w"), (&idle, &none));
         assert_eq!(
             held.busy,
             ["working", "idle-but-registry-busy", "not-in-the-registry"]
         );
-        let elsewhere = snapshot.held(&PathBuf::from("/r/.claude/worktrees/v"), &idle);
+        assert!(held.shell.is_empty());
+        let elsewhere = snapshot.held(&PathBuf::from("/r/.claude/worktrees/v"), (&idle, &none));
         assert!(elsewhere.busy.is_empty());
+    }
+
+    /// A session settled on screen whose registry says `shell` is named apart, so that the
+    /// refusal says a background shell runs; one that works is busy whatever the registry says.
+    #[test]
+    fn a_settled_session_with_a_background_shell_is_named_apart() {
+        let snapshot = Snapshot {
+            sessions: vec![
+                session("working-shell", 1, false),
+                session("settled-shell", 2, true),
+            ],
+            ..Snapshot::default()
+        };
+        let (idle, shell): (HashSet<u32>, HashSet<u32>) = (HashSet::new(), [1, 2].into());
+        let held = snapshot.held(&PathBuf::from("/r/.claude/worktrees/w"), (&idle, &shell));
+        assert_eq!(held.busy, ["working-shell"]);
+        assert_eq!(held.shell, ["settled-shell"]);
+        assert_eq!(
+            checks::held_refusal(&held),
+            Some(Check::Busy(vec!["working-shell".into()]))
+        );
+        let only = Held {
+            busy: Vec::new(),
+            ..held
+        };
+        let refused = checks::held_refusal(&only).unwrap();
+        assert_eq!(refused, Check::Shell(vec!["settled-shell".into()]));
+        assert!(
+            refused.why().contains("background shell"),
+            "{}",
+            refused.why()
+        );
     }
 }

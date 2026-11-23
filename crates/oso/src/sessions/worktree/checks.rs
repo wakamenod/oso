@@ -34,6 +34,9 @@ pub struct Held {
     pub unsent: bool,
     /// The hosted sessions in it that count as busy (see [`busy`]), by name.
     pub busy: Vec<String>,
+    /// The hosted sessions in it settled on screen that count as busy only as a shell each
+    /// runs in the background still runs, which Claude Code's registry calls `shell`, by name.
+    pub shell: Vec<String>,
 }
 
 /// A hosted session that runs, as the UI thread sees it when a job is asked for. A failed or
@@ -75,6 +78,8 @@ pub enum Check {
     Unsent,
     /// 4: these hosted sessions in it are busy.
     Busy(Vec<String>),
+    /// 4: these hosted sessions in it are settled, but each still runs a background shell.
+    Shell(Vec<String>),
     /// 4: these sessions oso did not start run in it.
     External(Vec<String>),
     /// 5: its branch is not known to be merged, and why.
@@ -94,6 +99,10 @@ impl Check {
             Self::Unsaved(n) => format!("{n} buffers in it have unsaved changes"),
             Self::Unsent => "a brief for it is not sent".to_owned(),
             Self::Busy(names) => format!("session {} in it is busy", names.join(", ")),
+            Self::Shell(names) => format!(
+                "session {} in it still runs a background shell (Claude Code's registry says shell)",
+                names.join(", ")
+            ),
             Self::External(names) => {
                 format!(
                     "a session oso did not start runs in it: {}",
@@ -125,6 +134,8 @@ pub struct Looked {
     /// The hosted sessions in it that were busy when the job looked, by name: the registry's
     /// half of check 4, which only the job reads.
     pub busy: Vec<String>,
+    /// Those of them settled on screen whose registry entry says a background shell runs.
+    pub shell: Vec<String>,
     /// The tip of its branch, when only a merged pull request can tell whether it is merged
     /// and a row's look left `gh` to be asked after every row.
     pub gh_pending: Option<String>,
@@ -178,6 +189,7 @@ pub fn look(
         external: Vec::new(),
         registry_untold: None,
         busy: held.busy.clone(),
+        shell: held.shell.clone(),
         gh_pending: None,
         removing: false,
     };
@@ -283,6 +295,9 @@ pub fn first(looked: &Looked, held: &Held) -> Option<Check> {
     if !looked.busy.is_empty() {
         return Some(Check::Busy(looked.busy.clone()));
     }
+    if !looked.shell.is_empty() {
+        return Some(Check::Shell(looked.shell.clone()));
+    }
     if !looked.external.is_empty() {
         return Some(Check::External(looked.external.clone()));
     }
@@ -301,7 +316,10 @@ pub fn held_refusal(held: &Held) -> Option<Check> {
     if held.unsent {
         return Some(Check::Unsent);
     }
-    (!held.busy.is_empty()).then(|| Check::Busy(held.busy.clone()))
+    if !held.busy.is_empty() {
+        return Some(Check::Busy(held.busy.clone()));
+    }
+    (!held.shell.is_empty()).then(|| Check::Shell(held.shell.clone()))
 }
 
 /// Whether every check holds: each fact was read, and none refuses.
@@ -385,6 +403,7 @@ mod tests {
             external: Vec::new(),
             registry_untold: None,
             busy: Vec::new(),
+            shell: Vec::new(),
             gh_pending: None,
             removing: false,
             looked_at: std::time::Instant::now(),

@@ -421,16 +421,21 @@ impl App {
     /// Sends the hang-up to session `key`'s terminal: oso stopped it, so its end is no failure.
     /// A worktree's removal stops the worktree's idle sessions so too (ADR 0121 step 4).
     pub(in crate::app) fn hang_up_session(&mut self, key: SessionKey) {
-        if self.hang_up_native(key) {
-            // oso stopped it: its end is no failure (Q8).
+        if !self.stop_quietly(key) {
+            self.editor.message("That session does not run");
+        }
+    }
+
+    /// As [`App::hang_up_session`], saying nothing: whether the hang-up was sent. An agent's
+    /// archive stops an idle session here, outside the tools' own files, as a worktree's removal
+    /// stops one through `stop_idle_sessions_in` (ADR 0179).
+    pub(in crate::app) fn stop_quietly(&mut self, key: SessionKey) -> bool {
+        let sent = self.hang_up_native(key) || self.hang_up_terminal(key);
+        if sent {
+            // oso stopped it: its end, by the signal or the closed stream, is no failure (Q8).
             self.watch.hung_up.insert(key);
-            return;
         }
-        if !self.hang_up_terminal(key) {
-            return self.editor.message("That session does not run");
-        }
-        // oso stopped it: its end by the signal is no failure (Q8).
-        self.watch.hung_up.insert(key);
+        sent
     }
 
     /// Sends the hang-up to session `key`'s terminal, if it has one that runs: whether it did.

@@ -1529,8 +1529,12 @@ a switch made with its command stands until that setting changes in the file
   echo area says `Agent: session "repo" is starting a session in a new worktree … without asking
   (brief: 1 line; C-c a e explains)`, the row's place ends in `· unasked` (alone under its worktree in the tree), and
   `*Session explain*` starts with who started it and ends with its brief, or says that the brief
-  is not kept across a restart. `agent-starts-ask` and `agent-starts-allow` turn the question back on and off
-  until oso restarts.
+  is not kept across a restart. The same setting lets `session_archive` stop an idle session of
+  the caller's reach with no question, unless the session shows in the selected window; the echo
+  area says `Agent: session "lead" archived session "w", stopping it first without asking; A
+  under Archived in *Spaces* brings it back` ([ADR 0179](adr/0179-agents-archive-sessions.md)).
+  `agent-starts-ask` and `agent-starts-allow` turn the question back on and off, for starts and
+  these stops alike, until oso restarts.
 - A space is a project with its sessions, and keeps its own windows. `C-c a j` (`space-switch`)
   switches to another; showing a session of another space switches to it first. A space
   entered for the first time shows its last file and its last session side by side; one

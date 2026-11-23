@@ -18,11 +18,16 @@
 use oso_core::command::Reach;
 
 mod add_repo;
+mod archive;
 mod guard;
 mod rename;
 pub mod repo;
 
 pub use add_repo::{add_dir, add_repo_question, add_repo_said, addable};
+pub use archive::{
+    Archivable, Archive, Runs, archivable, archive_asks, archive_question, archived_said,
+    registry_idle, stops_without_asking,
+};
 pub use guard::{Guard, Refusal};
 pub use rename::{Renamable, renamable, rename_clash, rename_note, renamed_said};
 
@@ -82,7 +87,7 @@ const fn reads(name: &'static str) -> Tool {
 
 /// The tools, the reading ones first. A change here is a change of what an agent may do: the
 /// test below spells the table out, so that review sees it.
-pub const TOOLS: [Tool; 12] = [
+pub const TOOLS: [Tool; 13] = [
     reads("session_list"),
     reads("session_state"),
     // It runs git and `gh` with no question, as the author chose (ADR 0121, step 4).
@@ -160,6 +165,17 @@ pub const TOOLS: [Tool; 12] = [
     // does not trust always asks (ADR 0161).
     Tool {
         name: "space_add_repo",
+        reach: Reach::Change,
+        asks: Asks::UnlessAllowed,
+        destructive: false,
+        outside: false,
+        starts: false,
+    },
+    // A session's row, as the person's `A` archives it, which `A` undoes: a stopped one with
+    // no question; one that runs only when idle, stopped first as ADR 0135 lets a start go
+    // without asking (ADR 0179).
+    Tool {
+        name: "session_archive",
         reach: Reach::Change,
         asks: Asks::UnlessAllowed,
         destructive: false,

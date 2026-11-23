@@ -595,6 +595,7 @@ tools besides oso's editing ones:
 | `start_worktree_session` | Start a session in a new worktree, with a brief. Asks you first. |
 | `session_resume` | For a space's orchestrator: resume a stopped session of its space with its conversation, as `C-c a r` does. Asks you first. |
 | `session_rename` | Rename its own session or one it started; a space's orchestrator also its space's sessions. Asks nothing, and the echo area says it. |
+| `session_archive` | Archive a session it started; a space's orchestrator also its space's sessions, never an orchestrator or a pinned one. A stopped session is archived with no question. One that runs is stopped first only when it is idle, done or ready for review and Claude Code says its process is idle, with no shell left running in the background; that stop asks you first. Its worktree is kept, and `A` under `Archived` brings the row back. |
 | `space_add_repo` | For a space's orchestrator: add a repository's main checkout to its space, as the space menu's `a` does. Asks you first, unless the setting below allows it for a trusted repository oso already knows; any other always asks, and one oso does not trust joins restricted. Once it is trusted, oso offers to paste `/add-dir PATH` into the orchestrator, or to resume a native one with it. |
 | `worktree_list` | List the repository's worktrees, as `M-x worktree-list` does. |
 | `worktree_remove` | Remove a finished worktree, under the same rules as `M-x worktree-remove`. |
@@ -682,7 +683,8 @@ session of its space through `session_resume`, without asking you, in a trusted 
 only, up to `agents_start_limit` running sessions each; past that it asks again. It also lets a
 space's orchestrator add a trusted repository oso already knows (one `space-add-repo` would
 offer) to its space through `space_add_repo`, with no start limit; any other
-repository asks. With
+repository asks. It lets `session_archive` stop an idle session without asking too, whatever
+the project's trust, with no start limit, and the echo area says each one. With
 `agents_start_limit = "none"` no limit makes it ask: a session may start as many sessions as it
 asks for, within its 30 calls a minute of the tools that ask or change. A session started this way asks for its own. A session an
 agent starts, whether it asked or not, stays in the background: it appears in the pane and the
@@ -854,7 +856,8 @@ To empty it, delete `recent-files` in the state directory below.
   Linux.
 - Images you attach to a session with `C-c C-y`: `~/Library/Caches/oso/images` on macOS,
   `$XDG_CACHE_HOME/oso/images` or `~/.cache/oso/images` on Linux, one directory a session. They
-  go when the session is archived, or after a week.
+  go when you archive the session, or after a week; a session an agent archived keeps them
+  until the week ends.
 
 ## Update
 

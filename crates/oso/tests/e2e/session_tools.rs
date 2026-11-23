@@ -492,7 +492,7 @@ fn state_of(state: &Value, name: &str) -> Option<String> {
 /// Has session `name`, run `run` of the fake, take a turn that ends: working, then done or,
 /// with changes not merged, ready for review. Returns the first state seen after working:
 /// done can be passed unseen on the way to ready for review.
-fn turn(app: &mut App, flow: &Flow, run: &Run, name: &str) -> String {
+pub(super) fn turn(app: &mut App, flow: &Flow, run: &Run, name: &str) -> String {
     print(flow, run, WORKING);
     app.wait_for("working", |state| {
         state_of(state, name).as_deref() == Some("working")
@@ -744,6 +744,12 @@ fn an_idle_session_with_no_bridge_of_its_own_is_known_and_its_worktree_removed()
 /// `claude` at its prompt does: the other half of a removal's check that it is not busy. Its
 /// `startedAt` is the process's own start, which check 4 matches, as the CLI's is.
 fn registered_idle(flow: &Flow, run: &Run, cwd: &Path) {
+    registered(flow, run, cwd, "idle");
+}
+
+/// As [`registered_idle`], with `status` as the registry's status: `shell` while a shell the
+/// session runs in the background still runs.
+pub(super) fn registered(flow: &Flow, run: &Run, cwd: &Path, status: &str) {
     let millis = |time: std::time::SystemTime| {
         time.duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -761,7 +767,7 @@ fn registered_idle(flow: &Flow, run: &Run, cwd: &Path) {
         "cwd": cwd,
         "startedAt": millis(started),
         "kind": "interactive",
-        "status": "idle",
+        "status": status,
         "statusUpdatedAt": now,
     });
     fs::write(
