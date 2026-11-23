@@ -16,13 +16,15 @@
 //!   session's earlier turns, is `transcript`'s (step 5).
 //! - `messages` reads the messages' bodies, `tools` a tool call's input, `card` what a
 //!   permission card shows, `control` the control protocol's lines, `slash` the slash commands
-//!   listed, `status_line` what the status line reads of the answers (part 3a) and `todo` the
-//!   to-do tools' input and results (part 3e): with this file and `transcript`, the only places
+//!   listed, `status_line` what the status line reads of the answers (part 3a), `todo` the
+//!   to-do tools' input and results (part 3e) and `remote` what the stream says of Remote
+//!   Control (ADR 0181): with this file and `transcript`, the only places
 //!   that touch JSON.
 
 pub mod card;
 pub mod control;
 mod messages;
+pub mod remote;
 pub mod slash;
 pub mod status_line;
 pub mod todo;
@@ -87,6 +89,11 @@ pub enum Event {
     RateLimit(RateLimit),
     /// `control_response`: the CLI's answer to a request oso wrote (step 2c).
     Answer(control::Answer),
+    /// `system/bridge_state`: where Remote Control's connection is (ADR 0181).
+    Connection(remote::Connection),
+    /// `command_lifecycle`: where a message with an id of its own is in the CLI's queue
+    /// (ADR 0181).
+    Lifecycle(remote::Lifecycle),
     /// `prompt_suggestion`: what the person might send next, once a turn ended (part 3f), cut
     /// to [`MAX_NAME`]; never empty.
     Suggestion(String),
@@ -210,6 +217,10 @@ pub struct User {
     pub replay: bool,
     /// The CLI wrote it itself, such as a compaction's summary.
     pub synthetic: bool,
+    /// Where it says it came from (ADR 0181).
+    pub origin: remote::Origin,
+    /// How it came, as `native::remote` judged it (ADR 0181).
+    pub came: remote::Came,
     pub results: Vec<ToolResult>,
     /// What a to-do tool gave back, for a message of one result (part 3e).
     pub todo: Option<todo::Done>,
@@ -302,6 +313,9 @@ pub fn parse(line: &[u8]) -> Event {
         "control_response" => {
             control::answer(&object).map_or_else(|| other(&object), Event::Answer)
         }
+        "command_lifecycle" => {
+            remote::lifecycle(&object).map_or_else(|| other(&object), Event::Lifecycle)
+        }
         "prompt_suggestion" => Some(string(&object, "suggestion"))
             .filter(|text| !text.trim().is_empty())
             .map_or_else(|| other(&object), Event::Suggestion),
@@ -355,6 +369,9 @@ fn system(object: &Map<String, Value>) -> Event {
                 manual: meta.is_some_and(|meta| string(meta, "trigger") == "manual"),
                 uuid: Some(string(object, "uuid")).filter(|id| !id.is_empty()),
             }
+        }
+        "bridge_state" => {
+            remote::connection(object).map_or_else(|| other(object), Event::Connection)
         }
         "permission_denied" => Event::Denied {
             tool_use_id: string(object, "tool_use_id"),

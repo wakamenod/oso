@@ -42,6 +42,7 @@ use oso_term::{Palette, Terminal};
 use super::command::{self, Line, SESSION_VARIABLE, Start};
 use super::identity::{self, SessionId};
 use super::launch::{self, Launch};
+use super::settings;
 use super::stream::{self, Stream};
 
 mod baseline;
@@ -52,7 +53,6 @@ mod runs;
 pub mod space_gate;
 pub mod trust;
 
-use super::worktree::steer;
 use crate::git::TrustedRoot;
 use crate::terminal::hosted;
 use crate::terminal::shell::{self, Settings};
@@ -478,9 +478,9 @@ fn launch_of(
         Kind::Resume(_) => Start::Resume { id },
         Kind::Fork(from) => Start::Fork { from, id },
     };
-    let settings = steer::settings(
+    let settings = settings::settings(
         &oso,
-        &steer::Parts {
+        &settings::Parts {
             steer_worktrees: order.steer_worktrees,
             disable_remote_control: order.runs.native(),
         },

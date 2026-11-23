@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 
 use super::past::Index;
 use super::placed::Placed;
+use super::remote::Remote;
 use super::render::{Face, GUIDE, Rendered, render, tail};
 use super::rows::{Changes, Kind, Row, RowChange, Rows};
 use super::turns::target;
@@ -64,6 +65,9 @@ fn shaped() -> impl Strategy<Value = String> {
     let id = prop_oneof![Just("t".to_owned()), Just(String::new()), "[a-z]{1,3}"];
     let value = prop_oneof![
         Just("null".to_owned()),
+        Just("\"connected\"".to_owned()),
+        Just("\"queued\"".to_owned()),
+        Just("{\"kind\":\"human\"}".to_owned()),
         Just("1".to_owned()),
         Just("-1".to_owned()),
         Just("1e999".to_owned()),
@@ -72,7 +76,7 @@ fn shaped() -> impl Strategy<Value = String> {
         Just("\"\\u0000é\\n\\t\\u001b[31m\"".to_owned()),
         "\"[a-z\\n]{0,40}\"",
     ];
-    (0..10usize, id.clone(), id, value, 0..3u64).prop_map(|(kind, a, b, v, index)| match kind {
+    (0..14usize, id.clone(), id, value, 0..3u64).prop_map(|(kind, a, b, v, index)| match kind {
         0 => format!(r#"{{"type":"stream_event","api_message_id":"m","parent_tool_use_id":{v},"event":{{"type":"content_block_start","index":{index},"content_block":{{"type":"tool_use","id":"{a}","name":{v}}}}}}}"#),
         1 => format!(r#"{{"type":"stream_event","api_message_id":"m","event":{{"type":"content_block_start","index":{index},"content_block":{{"type":"text"}}}}}}"#),
         2 => format!(r#"{{"type":"stream_event","api_message_id":"m","event":{{"type":"content_block_delta","index":{index},"delta":{{"type":"text_delta","text":{v}}}}}}}"#),
@@ -82,6 +86,10 @@ fn shaped() -> impl Strategy<Value = String> {
         6 => format!(r#"{{"type":"system","subtype":"permission_denied","tool_use_id":"{b}","message":{v}}}"#),
         7 => format!(r#"{{"type":"system","subtype":"task_progress","tool_use_id":"{b}","description":{v}}}"#),
         8 => format!(r#"{{"type":"result","subtype":{v},"is_error":{v},"terminal_reason":{v},"duration_ms":{v},"total_cost_usd":{v},"permission_denials":{v}}}"#),
+        9 => format!(r#"{{"type":"system","subtype":"bridge_state","state":{v},"detail":{v},"bridge_epoch":{v}}}"#),
+        10 => format!(r#"{{"type":"command_lifecycle","command_uuid":{v},"state":{v}}}"#),
+        11 => format!(r#"{{"type":"user","isReplay":true,"origin":{v},"uuid":{v},"message":{{"content":{v}}}}}"#),
+        12 => format!(r#"{{"type":"control_response","response":{{"subtype":"success","request_id":"oso-1","response":{{"session_url":{v},"bridge_session_id":{v},"remote_control_available":{v}}}}}}}"#),
         _ => format!(r#"{{"type":"system","subtype":"compact_boundary","compact_metadata":{{"pre_tokens":{v},"post_tokens":{v},"trigger":{v}}}}}"#),
     })
 }
@@ -177,6 +185,7 @@ proptest! {
         let mut rows = Rows::new(PathBuf::from(directory));
         rows.sent("Hi");
         rows.sent_brief(BRIEF, "session \u{202e}a\n〉 me");
+        let mut remote = Remote::default();
         // The buffer as a host keeps it: changed only as the changes of each batch say, where
         // `Placed` says.
         let mut buffer = String::new();
@@ -184,8 +193,10 @@ proptest! {
         for chunk in lines.chunks(batch) {
             let mut changes = Changes::default();
             for line in chunk {
-                let event = parse(line);
+                let mut event = parse(line);
                 let _ = target(&event);
+                remote.event(&mut event);
+                prop_assert!(!remote.marked(), "no line turns Remote Control on");
                 for change in rows.apply(event) {
                     prop_assert!(change.row() < rows.rows().len());
                     changes.add(change);

@@ -26,6 +26,12 @@
 //!   not authenticated: a line a tool wrote to it can say any mode, so a mode that asks less is
 //!   carried only from the person's switch. A session nobody switched is given no mode, and
 //!   starts as the person's Claude Code settings say. A fork starts as its source would.
+//! - In a process that Remote Control may connect (ADR 0181, `Remote::watched`), a mode the
+//!   CLI says that no switch made here gave is shown, and never carried: it may be the phone's.
+//!   The next start is in `plan` if the mode held before was `plan`, else in `default`, and the
+//!   person's earlier choice of a mode that asks less is over, though the CLI says it again,
+//!   until the person makes it again here. Claude's own plan mode cannot be told from the
+//!   phone's, and is not carried then either.
 //! - One switch at a time.
 
 use std::time::{Duration, Instant};
@@ -138,6 +144,9 @@ pub struct ModeState {
     /// The mode the person last switched to here, which a mode that asks less must be to be
     /// carried.
     chosen: Option<PermissionMode>,
+    /// What the next process is given, once the CLI said a mode that no switch here gave while
+    /// Remote Control may connect (ADR 0181).
+    strayed: Option<PermissionMode>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -153,12 +162,16 @@ enum Switch {
 }
 
 impl ModeState {
-    /// The CLI said the session is in mode `text`. Returns whether the mode shown changed.
+    /// The CLI said the session is in mode `text`, and may be from elsewhere if `remote`
+    /// (`Remote::watched`, ADR 0181). Returns whether the mode shown changed.
     /// Empty, it says nothing; not readable as itself, the mode is no more shown, rather than
     /// left saying what the CLI no more says.
-    pub fn said(&mut self, text: &str) -> bool {
+    pub fn said(&mut self, text: &str, remote: bool) -> bool {
         if text.is_empty() {
             return false;
+        }
+        if remote {
+            self.strays(text);
         }
         // The process said a mode: what oso put it in is settled.
         self.pending = None;
@@ -181,15 +194,37 @@ impl ModeState {
         true
     }
 
-    /// Notes the mode `event` says, if it says one: `system/init`'s or `system/status`'s.
-    /// Returns whether the mode shown changed. `initialize`'s first answer says one too, which
+    /// The CLI says mode `text` while Remote Control may connect: one that no switch here gave
+    /// and that is not the one it said last is never carried (ADR 0181).
+    fn strays(&mut self, text: &str) {
+        // A switch that is not answered yet gave none: its answer, if it succeeds, makes it the
+        // person's again.
+        let same = match (self.pending, &self.said) {
+            (Some(mode), _) | (None, &Some(Said::Mode(mode))) => mode.name() == text,
+            (None, Some(Said::Other(other))) => other == text,
+            // Its first word: no switch was made here, and nothing is carried for it.
+            (None, None) => true,
+        };
+        if same {
+            return;
+        }
+        let held = match self.carried() {
+            Some(PermissionMode::Plan) => PermissionMode::Plan,
+            _ => PermissionMode::Default,
+        };
+        self.strayed = Some(held);
+        self.chosen = Some(held);
+    }
+
+    /// Notes the mode `event` says, if it says one: `system/init`'s or `system/status`'s, as
+    /// [`ModeState::said`] does with `remote`. Returns whether the mode shown changed. `initialize`'s first answer says one too, which
     /// the caller gives [`ModeState::said`].
-    pub fn event(&mut self, event: &Event) -> bool {
+    pub fn event(&mut self, event: &Event, remote: bool) -> bool {
         match event {
-            Event::Init(init) => self.said(&init.permission_mode),
+            Event::Init(init) => self.said(&init.permission_mode, remote),
             Event::Status {
                 mode: Some(mode), ..
-            } => self.said(mode),
+            } => self.said(mode, remote),
             _ => false,
         }
     }
@@ -221,6 +256,9 @@ impl ModeState {
         if self.pending.is_some() {
             return self.pending;
         }
+        if self.strayed.is_some() {
+            return self.strayed;
+        }
         match self.said {
             Some(Said::Mode(mode @ (PermissionMode::Default | PermissionMode::Plan))) => Some(mode),
             Some(Said::Mode(mode)) if self.chosen == Some(mode) => Some(mode),
@@ -239,6 +277,7 @@ impl ModeState {
             switch: None,
             pending: self.carried(),
             chosen: self.chosen,
+            strayed: None,
         }
     }
 
@@ -262,6 +301,7 @@ impl ModeState {
         if let Some(Switch::Respawn(chosen)) = self.switch.take() {
             self.chosen = Some(chosen);
         }
+        self.strayed = None;
         self.pending = mode;
         mode
     }
@@ -355,8 +395,7 @@ impl ModeState {
         match error {
             None => {
                 self.switch = None;
-                self.pending = Some(mode);
-                self.chosen = Some(mode);
+                self.chose(mode);
                 Vec::new()
             }
             Some(why) => {
@@ -371,6 +410,7 @@ impl ModeState {
     pub fn chose(&mut self, mode: PermissionMode) {
         self.chosen = Some(mode);
         self.pending = Some(mode);
+        self.strayed = None;
     }
 
     /// The process was stopped for nothing: a switch it was stopped for is over.

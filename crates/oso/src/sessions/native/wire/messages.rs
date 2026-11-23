@@ -159,6 +159,8 @@ pub(super) fn user(object: &Map<String, Value>) -> Option<User> {
                 .get("isMeta")
                 .and_then(Value::as_bool)
                 .unwrap_or(false),
+        origin: super::remote::origin(object),
+        came: super::remote::Came::default(),
         results: Vec::new(),
         todo: None,
     };

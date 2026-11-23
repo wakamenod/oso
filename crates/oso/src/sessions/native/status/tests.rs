@@ -50,7 +50,7 @@ fn fold(line: &mut Line, event: Event) {
     match event {
         Event::Answer(answer) => {
             if let Some(mode) = answer.mode {
-                line.modes.said(&mode);
+                line.modes.said(&mode, false);
             }
             if let Some(models) = answer.models {
                 line.initialized(models);
@@ -60,7 +60,7 @@ fn fold(line: &mut Line, event: Event) {
             }
         }
         event => {
-            line.modes.event(&event);
+            line.modes.event(&event, false);
             line.status.event(&event);
         }
     }

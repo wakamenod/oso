@@ -749,8 +749,9 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
 - A native session's control layer (ADR 0165, step 2c) writes only `initialize`,
   `interrupt`, `get_usage` (part 3a) and `set_permission_mode` (part 3b), and reads of an
   answer only its id, its success, its error, cut to 256 bytes and logged escaped,
-  `initialize`'s slash commands (below), its models and its permission mode, and
-  `get_usage`'s cost and two windows; it answers no request of the CLI's. `SIGINT` goes to the session's
+  `initialize`'s slash commands (below), its models, its permission mode and whether Remote
+  Control is available, `get_usage`'s cost and two windows, and `remote_control`'s address and
+  id (ADR 0181, which nothing asks yet); it answers no request of the CLI's. `SIGINT` goes to the session's
   process alone, never its group, and only on Unix: on Windows it would end the process at
   once and leave its tools running.
 - A native session's model and effort level (ADR 0165, part 3c) go on a later process's
@@ -939,9 +940,20 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   request to connect it to claude.ai, whatever the project's settings or the person's
   `remoteControlAtStartup` say. Connected, the conversation would be stored there, and messages
   and mode changes would come from outside oso's window, past oso's rules on who makes them.
-  oso never asks for it. A terminal's `claude`, the TUI a native session is handed to among
+  oso never asks for it: the request and the state are there
+  ([ADR 0181](adr/0181-remote-control-of-native-sessions.md), part RC-1), with nothing that
+  writes it. A terminal's `claude`, the TUI a native session is handed to among
   them, follows the person's own settings. It is a setting of that one process: a `claude` the
   session runs reads its own, and it is no boundary against other processes of the same user.
+  - What the stream says of it is read strictly, and a process started blocked is off whatever it
+    says: no line turns it on, makes a message the person's, or answers a card. Where a process
+    may be connected, a mode no key here chose is shown and never carried to a later process, and
+    a request to connect has a random id. The session's address is kept only of claude.ai's
+    exact shape, never opened; neither it nor the session's id is logged.
+  - The canary: in a process started blocked, an `initialize` that says it is available, or a
+    `bridge_state` that says it connects, is said once, in a row and the log, and that
+    process's messages and modes are then judged as a connected one's, which only takes away.
+    Any process that writes to the stream can make it do so.
 - The agents' session tools ([ADR 0121](adr/0121-agent-sessions-and-spaces.md), step 6) act
   only for a session oso started, proven by its bridge, and only within its repository; any
   other connection may only read, within the selected window's project, or ask to move into a

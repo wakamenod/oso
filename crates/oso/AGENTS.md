@@ -80,7 +80,8 @@ often, so it must rebuild within 2 s.
   sessions (`sessions/worktree/`), whose git and `gh` jobs run on `oso-sessions-git`, beside the
   worker; a removal's `git worktree remove` runs on `oso-sessions-remove`, with no time limit. Their patterns use `regex`, compiled with size limits; the screen is untrusted text.
   Hosted sessions get ready and start their terminal on `oso-session-start` (`start`), with a
-  command line built by pure functions (`command`, `launch`); Claude Code's registry
+  command line built by pure functions (`command`, `launch`, and `settings` for its
+  `--settings`); Claude Code's registry
   (`registry`) and oso's record (`record`) are read off the UI thread, and a bridge's claim is
   judged by one pure function (`bridge`). `session-adopt` reads Claude Code's transcripts
   (`transcripts`) only for ids, names, times and directories, on its own
@@ -98,8 +99,9 @@ often, so it must rebuild within 2 s.
   rendered by pure functions (`native`); only `native/wire.rs` and its modules touch its JSON,
   the control layer's requests and answers included (`wire/control.rs`), the slash
   commands listed (`wire/slash.rs`) and what the status line reads of the answers
-  (`wire/status_line.rs`, part 3a) and a transcript's lines (`wire/transcript.rs`, part 5a),
-  and its
+  (`wire/status_line.rs`, part 3a), what the stream says of Remote Control (`wire/remote.rs`,
+  whose state is `sessions/native/remote.rs`, ADR 0181) and a transcript's lines
+  (`wire/transcript.rs`, part 5a), and its
   fixtures are recordings scrubbed of ids, paths and the person's setup. Its `claude -p` is
   started on the start thread, read on `oso-native-read`, `oso-native-batch` and
   `oso-native-err`, and written to on `oso-native-write` (`stream`);
