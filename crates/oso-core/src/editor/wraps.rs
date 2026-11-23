@@ -315,16 +315,16 @@ impl Editor {
             .filter(|(_, region)| region.rows > 0 && region.columns > 0)
             .and_then(|((id, start), region)| {
                 let buffer = self.buffer(id).filter(|buffer| buffer.wraps())?;
-                let hangs = buffer.is_native_session();
+                let indents = buffer.is_native_session();
                 Some((
                     id,
                     start,
                     region,
                     buffer.display(),
-                    (buffer.revision(), hangs),
+                    (buffer.revision(), indents),
                 ))
             });
-        let Some((id, start, region, display, (revision, hangs))) = wanted else {
+        let Some((id, start, region, display, (revision, indents))) = wanted else {
             self.preview_wrap = None;
             return;
         };
@@ -335,7 +335,7 @@ impl Editor {
             id,
             revision,
             columns: region.columns,
-            wrap: WrapMap::provisional(&display, region.columns, hangs),
+            wrap: WrapMap::provisional(&display, region.columns, indents),
         });
         kept.wrap.refill();
         kept.wrap.realize(&display, start, region.rows);

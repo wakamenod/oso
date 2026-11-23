@@ -22,7 +22,7 @@ impl Layout {
     }
 
     /// The same for a row whose text starts `cells` into the region, as one its line goes on in
-    /// indented (ADR 0165): nothing of it draws before there.
+    /// indented (ADR 0165).
     pub(crate) fn indented(self, cells: usize) -> Self {
         let cells = cells.min(self.region.columns);
         Self {

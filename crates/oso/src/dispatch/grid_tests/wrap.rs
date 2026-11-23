@@ -118,7 +118,7 @@ fn a_window_too_narrow_to_wrap_scrolls_sideways_to_the_cursor() {
 #[test]
 fn a_native_transcripts_rows_go_on_indented_with_the_cursor_a_region_and_matches_on_them() {
     // 25 columns: 24 of text and the mark's. A reply's item and its quote, a nested tool row.
-    let text = "› long message of a person\n  - one two three four five six seven\n  │ 日本語の引用を折り返して続けます。\n  ▸ Bash cargo test --all-features\n";
+    let text = "› long message of a person\n  - one two three four five six seven eight nine ten\n  │ 日本語の引用を折り返して続けます。\n  ▸ Bash cargo test --all-features\n";
     let mut editor = oso_core::editor::Editor::default();
     super::aids_off(&mut editor);
     editor.set_view_size(oso_core::window::ViewSize::new(10, 25));
@@ -129,7 +129,7 @@ fn a_native_transcripts_rows_go_on_indented_with_the_cursor_a_region_and_matches
     let steps = [
         "M-<",
         "C-n C-e",
-        "C-a C-SPC M-f M-f M-f M-f M-f M-f",
+        "C-a C-SPC M-f M-f M-f M-f M-f M-f M-f M-f M-f",
         "C-g C-a C-s t",
         "C-x x t",
     ];

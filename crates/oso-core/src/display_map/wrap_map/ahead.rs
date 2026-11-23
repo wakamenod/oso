@@ -3,7 +3,8 @@
 //!
 //! Must not depend on: windows or the renderer.
 
-use super::{Bytes, Fit, Start, WrapItem, WrapSnapshot};
+use super::fit::Fit;
+use super::{Bytes, Start, WrapItem, WrapSnapshot};
 use crate::display_map::DisplaySnapshot;
 use crate::sum_tree::Cursor;
 
@@ -68,15 +69,13 @@ pub(super) struct Ahead {
 }
 
 impl Ahead {
-    /// Whether the line that holds `at` in `display` is indented as the one that held `old` in
-    /// `before`.
+    /// Whether line `line` of `display` is indented as the one that held `old` in `before`.
     pub(super) fn same_indent(
         &mut self,
         fit: Fit,
         (before, display): (&DisplaySnapshot, &DisplaySnapshot),
-        (old, at): (usize, usize),
+        (old, line): (usize, usize),
     ) -> bool {
-        let line = display.offset_to_display_point(at).row;
         if let Some((known, same)) = self.indent
             && known == line
         {

@@ -17,8 +17,8 @@ struct Window {
 }
 
 impl Window {
-    /// A window whose rows hang, all of them wrapped.
-    fn hanging(text: &str, columns: usize) -> Self {
+    /// A window whose rows are indented, all of them wrapped.
+    fn indenting(text: &str, columns: usize) -> Self {
         let mut window = Self::provisional(text, columns, true);
         window.settle();
         window
@@ -32,10 +32,10 @@ impl Window {
     }
 
     /// A window that has just turned wrapping on: its rows provisional.
-    fn provisional(text: &str, columns: usize, hangs: bool) -> Self {
+    fn provisional(text: &str, columns: usize, indents: bool) -> Self {
         let rope = Rope::from(text);
         let map = DisplayMap::new(&rope, TabWidth::new(4));
-        let wrap = WrapMap::provisional(&map.snapshot(), columns, hangs);
+        let wrap = WrapMap::provisional(&map.snapshot(), columns, indents);
         Self { rope, map, wrap }
     }
 
@@ -75,8 +75,8 @@ impl Window {
 
     fn fresh(&self, columns: usize) -> Vec<(usize, usize, bool)> {
         let display = self.map.snapshot();
-        let hangs = self.wrap.snapshot().fit.hangs;
-        let fresh = WrapSnapshot::with_fit(&display, Fit::new(columns, hangs));
+        let indents = self.wrap.snapshot().fit.indents;
+        let fresh = WrapSnapshot::with_fit(&display, Fit::new(columns, indents));
         shape(&fresh, &display)
     }
 }
@@ -426,11 +426,11 @@ proptest! {
         ),
         columns in 4_usize..28,
         provisional in any::<bool>(),
-        hangs in any::<bool>(),
+        indents in any::<bool>(),
     ) {
-        let mut window = match (provisional, hangs) {
-            (true, hangs) => Window::provisional(&text, columns, hangs),
-            (false, true) => Window::hanging(&text, columns),
+        let mut window = match (provisional, indents) {
+            (true, indents) => Window::provisional(&text, columns, indents),
+            (false, true) => Window::indenting(&text, columns),
             (false, false) => Window::new(&text, columns),
         };
         let mut columns = columns;

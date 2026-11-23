@@ -49,13 +49,19 @@ impl WrapMap {
         Self::with_rows(WrapSnapshot::new(display, columns), columns)
     }
 
+    /// [`WrapMap::new`] of a buffer whose rows are indented (`indent.rs`).
+    #[cfg(test)]
+    pub(crate) fn indenting(display: &DisplaySnapshot, columns: usize) -> Self {
+        Self::with_rows(WrapSnapshot::indenting(display, columns), columns)
+    }
+
     /// The rows of `display` at `columns` before any is wrapped: one a logical line, made in
     /// O(log n), with a job wanted for all of them. The rows near the view are then wrapped
-    /// with [`WrapMap::realize`]. The rows a line goes on in are indented if they `hang`
-    /// (`hang.rs`).
-    pub(crate) fn provisional(display: &DisplaySnapshot, columns: usize, hang: bool) -> Self {
+    /// with [`WrapMap::realize`]. The rows a line goes on in are indented if it `indents`
+    /// (`indent.rs`).
+    pub(crate) fn provisional(display: &DisplaySnapshot, columns: usize, indents: bool) -> Self {
         let mut map = Self::with_rows(
-            WrapSnapshot::provisional(display, Fit::new(columns, hang)),
+            WrapSnapshot::provisional(display, Fit::new(columns, indents)),
             columns,
         );
         if map.wrap.wraps() {
@@ -84,7 +90,7 @@ impl WrapMap {
     /// rows, with a job for all of them that supersedes the running one.
     pub(crate) fn reset(&mut self, display: &DisplaySnapshot) {
         let columns = self.columns;
-        let fresh = Self::provisional(display, columns, self.wrap.fit.hangs);
+        let fresh = Self::provisional(display, columns, self.wrap.fit.indents);
         self.wrap = fresh.wrap;
         self.unrealized = fresh.unrealized;
         self.since = Hulls::default();
@@ -191,7 +197,7 @@ impl WrapMap {
         if columns == self.columns {
             return;
         }
-        let (was, fit) = (self.wrap.wraps(), Fit::new(columns, self.wrap.fit.hangs));
+        let (was, fit) = (self.wrap.wraps(), Fit::new(columns, self.wrap.fit.indents));
         self.columns = columns;
         if !fit.wraps() || !was {
             self.reset(display);

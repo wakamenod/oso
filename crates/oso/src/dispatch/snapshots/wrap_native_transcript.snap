@@ -1,6 +1,6 @@
 ---
 source: crates/oso/src/dispatch/grid_tests.rs
-description: "text: › long message of a person\\n  - one two three four five six seven\\n  │ 日本語の引用を折り返して続けます。\\n  ▸ Bash cargo test --all-features\\n"
+description: "text: › long message of a person\\n  - one two three four five six seven eight nine ten\\n  │ 日本語の引用を折り返して続けます。\\n  ▸ Bash cargo test --all-features\\n"
 ---
 keys: M-<
 │› long message of a     ↩│
@@ -8,7 +8,9 @@ keys: M-<
 │  person                 │
 │  - one two three four  ↩│
 :                        m:
-│    five six seven       │
+│    five six seven eight↩│
+:                        m:
+│    nine ten             │
 │  │ 日本語の引用を折り返↩│
 :    <><><><><><><><><><>m:
 │    して続けます。       │
@@ -16,7 +18,6 @@ keys: M-<
 │  ▸ Bash cargo test     ↩│
 :                        m:
 │    --all-features       │
-│                         │
 │                         │
 =%% *claude: s*  1:0  Sess=
 "Mark set                 "
@@ -27,8 +28,10 @@ keys: C-n C-e
 │  person                 │
 │  - one two three four  ↩│
 :                        m:
-│    five six seven       │
-:                  ^      :
+│    five six seven eight↩│
+:                        m:
+│    nine ten             │
+:            ^            :
 │  │ 日本語の引用を折り返↩│
 :    <><><><><><><><><><>m:
 │    して続けます。       │
@@ -37,20 +40,22 @@ keys: C-n C-e
 :                        m:
 │    --all-features       │
 │                         │
-│                         │
-=%% *claude: s*  2:37  Ses=
+=%% *claude: s*  2:52  Ses=
 "                         "
 
-keys: C-a C-SPC M-f M-f M-f M-f M-f M-f
+keys: C-a C-SPC M-f M-f M-f M-f M-f M-f M-f M-f M-f
 │› long message of a     ↩│
 :                        m:
 │  person                 │
 │  - one two three four  ↩│
 :                        m:
 +  ********************** +
-│    five six seven       │
-:            ^            :
-+    ********             +
+│    five six seven eight↩│
+:                        m:
++    *********************+
+│    nine ten             │
+:        ^                :
++    ****                 +
 │  │ 日本語の引用を折り返↩│
 :    <><><><><><><><><><>m:
 │    して続けます。       │
@@ -59,8 +64,7 @@ keys: C-a C-SPC M-f M-f M-f M-f M-f M-f
 :                        m:
 │    --all-features       │
 │                         │
-│                         │
-=%% *claude: s*  2:31  Ses=
+=%% *claude: s*  2:48  Ses=
 "                         "
 
 keys: C-g C-a C-s t
@@ -70,7 +74,11 @@ keys: C-g C-a C-s t
 │  - one two three four  ↩│
 :         ^              m:
 +        #   ~            +
-│    five six seven       │
+│    five six seven eight↩│
+:                        m:
++                       ~ +
+│    nine ten             │
++         ~               +
 │  │ 日本語の引用を折り返↩│
 :    <><><><><><><><><><>m:
 │    して続けます。       │
@@ -82,9 +90,8 @@ keys: C-g C-a C-s t
 │    --all-features       │
 +             ~           +
 │                         │
-│                         │
 =%% *claude: s*  2:9  Sess=
-"[migemo] I-search: t [1/6"
+"[migemo] I-search: t [1/8"
 
 keys: C-x x t
 │› long message of a perso│

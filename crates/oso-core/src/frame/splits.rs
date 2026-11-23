@@ -21,7 +21,7 @@ pub use tiling::{BadTiling, Tiling};
 /// The fewest text rows each half of a split keeps, above its modeline.
 const SPLIT_ROWS: usize = 2;
 /// The fewest text columns each half of a split keeps, beside the narrowest gutter: the
-/// narrowest a window wraps at (ADR 0104).
+/// narrowest a window wraps at (ADR 0104), but one on a native session's transcript (ADR 0165).
 const SPLIT_COLUMNS: usize = 10;
 
 /// How a run lays out its children.

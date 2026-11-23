@@ -14,10 +14,10 @@ fn display(text: &str) -> DisplaySnapshot {
     DisplayMap::new(&Rope::from(text), TabWidth::new(4)).snapshot()
 }
 
-/// The rows of `display` at `columns`, hanging or not.
-fn wrap_at(display: &DisplaySnapshot, columns: usize, hangs: bool) -> WrapSnapshot {
-    match hangs {
-        true => WrapSnapshot::hanging(display, columns),
+/// The rows of `display` at `columns`, indented or not.
+fn wrap_at(display: &DisplaySnapshot, columns: usize, indents: bool) -> WrapSnapshot {
+    match indents {
+        true => WrapSnapshot::indenting(display, columns),
         false => WrapSnapshot::new(display, columns),
     }
 }
@@ -156,10 +156,10 @@ proptest! {
     fn rows_cover_the_text_and_convert_both_ways(
         text in wrap_text(60),
         columns in 8_usize..32,
-        hangs in any::<bool>(),
+        indents in any::<bool>(),
     ) {
         let display = display(&text);
-        let wrap = wrap_at(&display, columns, hangs);
+        let wrap = wrap_at(&display, columns, indents);
         let mut at = 0;
         for index in 0..wrap.row_count() {
             let row = wrap.row(&display, index);
@@ -181,14 +181,14 @@ proptest! {
         start in 0_usize..400,
         len in 0_usize..12,
         columns in 8_usize..32,
-        hangs in any::<bool>(),
+        indents in any::<bool>(),
         wrapped in any::<bool>(),
     ) {
         let mut rope = Rope::from(text.as_str());
         let mut map = DisplayMap::new(&rope, TabWidth::new(4));
         let before = map.snapshot();
         let wrap = if wrapped {
-            wrap_at(&before, columns, hangs)
+            wrap_at(&before, columns, indents)
         } else {
             WrapSnapshot::unwrapped(&before)
         };
@@ -199,7 +199,7 @@ proptest! {
         let after = map.snapshot();
         let edited = wrap.edited(&before, &after, &edit);
         let fresh = if wrapped {
-            wrap_at(&after, columns, hangs)
+            wrap_at(&after, columns, indents)
         } else {
             WrapSnapshot::unwrapped(&after)
         };
@@ -216,11 +216,11 @@ proptest! {
         text in wrap_text(40),
         edits in prop::collection::vec((0_usize..300, 0_usize..6, wrap_text(3)), 1..8),
         columns in 8_usize..28,
-        hangs in any::<bool>(),
+        indents in any::<bool>(),
     ) {
         let mut rope = Rope::from(text.as_str());
         let mut map = DisplayMap::new(&rope, TabWidth::new(4));
-        let mut wrap = wrap_at(&map.snapshot(), columns, hangs);
+        let mut wrap = wrap_at(&map.snapshot(), columns, indents);
         for (start, len, insert) in edits {
             let now = rope.to_string();
             let start = crate::rope::tests::floor_boundary(&now, start);
@@ -231,7 +231,7 @@ proptest! {
             wrap = wrap.edited(&before, &map.snapshot(), &edit);
         }
         let after = map.snapshot();
-        let fresh = wrap_at(&after, columns, hangs);
+        let fresh = wrap_at(&after, columns, indents);
         prop_assert_eq!(shape(&wrap, &after), shape(&fresh, &after));
     }
 }
@@ -246,7 +246,7 @@ proptest! {
             0..30,
         ),
         columns in 8_usize..32,
-        hangs in any::<bool>(),
+        indents in any::<bool>(),
         tab_width in 1_u32..13,
     ) {
         // As a load does: each invalid byte a U+FFFD, noted before the text that holds it.
@@ -267,7 +267,7 @@ proptest! {
         let edit = rope.push_str(&text);
         map.sync(&rope, &edit);
         let display = map.snapshot();
-        let wrap = wrap_at(&display, columns, hangs);
+        let wrap = wrap_at(&display, columns, indents);
         let mut at = 0;
         for index in 0..wrap.row_count() {
             let row = wrap.row(&display, index);
@@ -285,20 +285,20 @@ proptest! {
         start in 0_usize..300,
         len in 0_usize..10,
         columns in 8_usize..32,
-        hangs in any::<bool>(),
+        indents in any::<bool>(),
         tab_width in 1_u32..13,
     ) {
         let mut rope = Rope::from(text.as_str());
         let mut map = DisplayMap::new(&rope, TabWidth::new(tab_width));
         let before = map.snapshot();
-        let wrap = wrap_at(&before, columns, hangs);
+        let wrap = wrap_at(&before, columns, indents);
         let start = crate::rope::tests::floor_boundary(&text, start);
         let end = crate::rope::tests::floor_boundary(&text, start + len);
         let edit = rope.replace(start..end, &insert);
         map.sync(&rope, &edit);
         let after = map.snapshot();
         let edited = wrap.edited(&before, &after, &edit);
-        let fresh = wrap_at(&after, columns, hangs);
+        let fresh = wrap_at(&after, columns, indents);
         prop_assert_eq!(shape(&edited, &after), shape(&fresh, &after));
     }
 
@@ -309,11 +309,11 @@ proptest! {
         text in wrap_text(50),
         places in prop::collection::vec((0_usize..300, 0_usize..5, wrap_text(2)), 1..6),
         columns in 8_usize..28,
-        hangs in any::<bool>(),
+        indents in any::<bool>(),
     ) {
         let mut rope = Rope::from(text.as_str());
         let mut map = DisplayMap::new(&rope, TabWidth::new(4));
-        let wrap = wrap_at(&map.snapshot(), columns, hangs);
+        let wrap = wrap_at(&map.snapshot(), columns, indents);
         let mut places = places;
         places.sort_by_key(|&(start, ..)| std::cmp::Reverse(start));
         let mut splices = Vec::new();
@@ -330,7 +330,7 @@ proptest! {
         let mut unlimited = usize::MAX;
         let (edited, stale) = wrap.edited_command(&splices, &mut unlimited);
         prop_assert!(stale.is_empty());
-        prop_assert_eq!(shape(&edited, &after), shape(&wrap_at(&after, columns, hangs), &after));
+        prop_assert_eq!(shape(&edited, &after), shape(&wrap_at(&after, columns, indents), &after));
     }
 }
 
@@ -395,12 +395,12 @@ type Shape = Vec<(usize, usize, bool)>;
 fn edited_at(
     text: &str,
     (range, insert): (Range<usize>, &str),
-    (columns, hangs): (usize, bool),
+    (columns, indents): (usize, bool),
 ) -> (Shape, Shape) {
     let mut rope = Rope::from(text);
     let mut map = DisplayMap::new(&rope, TabWidth::new(4));
     let before = map.snapshot();
-    let wrap = wrap_at(&before, columns, hangs);
+    let wrap = wrap_at(&before, columns, indents);
     let real = rope.replace(range.clone(), insert);
     map.sync(&rope, &real);
     let after = map.snapshot();
@@ -409,14 +409,14 @@ fn edited_at(
         new: range.start..range.start + insert.len(),
     };
     let edited = wrap.edited(&before, &after, &edit);
-    let fresh = wrap_at(&after, columns, hangs);
+    let fresh = wrap_at(&after, columns, indents);
     (shape(&edited, &after), shape(&fresh, &after))
 }
 
 #[test]
 fn an_edit_that_makes_a_break_lets_an_earlier_short_row_reach_it() {
     // "aa" broke early, as nothing after it could; a "b" before the last "。" may start a
-    // row after the spaces, the last of which hangs, so "aa" takes the row after it too.
+    // row after the spaces, the last of which indents, so "aa" takes the row after it too.
     let text = "aaあ。。  。";
     let at = text.len() - "。".len();
     let (edited, fresh) = edited_at(text, (at..at, "b"), (10, false));
@@ -439,11 +439,11 @@ proptest! {
         start in 0_usize..200,
         len in 0_usize..8,
         columns in 4_usize..24,
-        hangs in any::<bool>(),
+        indents in any::<bool>(),
     ) {
         let start = crate::rope::tests::floor_boundary(&text, start);
         let end = crate::rope::tests::floor_boundary(&text, start + len);
-        let (edited, fresh) = edited_at(&text, (start..end, &insert), (columns, hangs));
+        let (edited, fresh) = edited_at(&text, (start..end, &insert), (columns, indents));
         prop_assert_eq!(edited, fresh);
     }
 }

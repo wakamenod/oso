@@ -279,7 +279,7 @@ impl WrapJob {
                 wrap
             }
             Work::Columns(columns) => {
-                let fit = Fit::new(columns, self.wrap.fit.hangs);
+                let fit = Fit::new(columns, self.wrap.fit.indents);
                 WrapSnapshot::with_fit_unless(&self.display, fit, &stop)?
             }
         };

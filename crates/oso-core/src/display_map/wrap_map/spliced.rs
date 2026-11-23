@@ -6,9 +6,11 @@
 //!
 //! The layout starts where an edit at the cursor would start its rewrap, and reads the line's
 //! clusters with the preedit's spliced in, as `row_clusters` draws them, a row at a time, for
-//! as many rows as the caller asks. Nothing is kept: the window's rows stay as they are.
+//! as many rows as the caller asks. A line's indent (`indent.rs`) is read without the preedit: the
+//! only buffer whose rows are indented takes no typing. Nothing is kept: the window's rows stay as they are.
 
 use super::breaks::{Cluster, Rows};
+use super::indent::LineIndent;
 use super::{WrapSnapshot, buffer_end, line_end};
 use crate::display_map::{DisplayCluster, DisplayPoint, DisplaySnapshot, Preedit};
 
@@ -75,8 +77,8 @@ impl WrapSnapshot {
             }
         };
         let (mut row_start, mut column) = (from, start.column);
-        let indent = self.fit.indent(display, at.row);
-        for row in Rows::new(clusters, (self.fit.width, indent), line_end) {
+        let indent = LineIndent::of(self.fit, display, at.row);
+        for row in Rows::new(clusters, indent, line_end) {
             out.push(SplicedRow {
                 start: in_buffer(row_start),
                 end: in_buffer(row.end),

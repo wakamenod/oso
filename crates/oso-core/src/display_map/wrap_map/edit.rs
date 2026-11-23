@@ -86,12 +86,13 @@ impl WrapSnapshot {
                 fresh.push(Fresh::Row(row));
                 *budget = budget.saturating_sub(row.len as usize);
                 let (at, column) = stream.position();
+                let line = stream.line;
                 if at > edit.new.end {
                     let old = at.checked_add_signed(-delta).unwrap_or(0);
                     if self.starts_row_at(
                         (before, display),
                         (old, at),
-                        (column, rows_from_before),
+                        (DisplayPoint::new(line, column), rows_from_before),
                         &mut ahead,
                     ) {
                         until = old;
@@ -259,19 +260,19 @@ impl WrapSnapshot {
     /// cluster that does not fit and one more: a break the edit makes there moves its end
     /// (ADR 0125).
     ///
-    /// Where rows hang, an edit of what a line's indent is read from starts at the line's start
-    /// (`hang.rs`).
+    /// Where rows are indented, an edit of what a line's indent is read from starts at the line's
+    /// start (`indent.rs`).
     pub(super) fn rewrap_start(&self, display: &DisplaySnapshot, at: usize) -> usize {
-        let mut row = self.row_of(display, at);
-        let mut start = self.row_span(display, row).0;
-        // A row reads the cluster at `at` when the one before it starts within the row's
-        // width: no cluster before that one overflows it. Left of a zero-cell cluster this
-        // finds an earlier one, which steps back over more rows, never fewer.
         let point = display.offset_to_display_point(at);
         if self.fit.reach().is_some_and(|reach| point.column <= reach) {
             let line = DisplayPoint::new(point.row, 0);
             return display.display_point_to_offset(line, Bias::Left);
         }
+        let mut row = self.row_of(display, at);
+        let mut start = self.row_span(display, row).0;
+        // A row reads the cluster at `at` when the one before it starts within the row's
+        // width: no cluster before that one overflows it. Left of a zero-cell cluster this
+        // finds an earlier one, which steps back over more rows, never fewer.
         let before_at = point
             .column
             .checked_sub(1)
@@ -308,14 +309,14 @@ impl WrapSnapshot {
     }
 
     /// Whether a row started at `old` in `before`, as one now starts at `at`, the same place
-    /// in `display` after the edit with what precedes it unchanged, at `column`. Past a tab on
+    /// in `display` after the edit with what precedes it unchanged, at `point`. Past a tab on
     /// the line, the columns must also agree modulo the tab width, for its cells to. Where rows
-    /// hang, the line's indent must be as it was, or `at` start a line.
+    /// are indented, the line's indent must be as it was, or `at` start a line.
     fn starts_row_at(
         &self,
         (before, display): (&DisplaySnapshot, &DisplaySnapshot),
         (old, at): (usize, usize),
-        (column, rows_from_before): (usize, bool),
+        (point, rows_from_before): (DisplayPoint, bool),
         ahead: &mut Ahead,
     ) -> bool {
         let mut cursor = self.tree.cursor::<(Bytes, Start)>();
@@ -330,10 +331,10 @@ impl WrapSnapshot {
                 let mut row_start = start.bytes;
                 for index in 0..rows.len() {
                     if row_start == old {
-                        if column > 0
+                        if point.column > 0
                             && self.fit.reach().is_some()
                             && !(rows_from_before
-                                && ahead.same_indent(self.fit, (before, display), (old, at)))
+                                && ahead.same_indent(self.fit, (before, display), (old, point.row)))
                         {
                             return false;
                         }
@@ -345,7 +346,7 @@ impl WrapSnapshot {
                         }
                         let tab_width = display.tab_width().get() as usize;
                         let was = before.offset_to_display_point(old).column;
-                        return was % tab_width == column % tab_width;
+                        return was % tab_width == point.column % tab_width;
                     }
                     row_start += rows[index].len as usize;
                 }

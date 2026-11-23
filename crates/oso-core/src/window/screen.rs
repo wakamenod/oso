@@ -10,6 +10,9 @@
 //!   column says which of its columns show.
 //! - A wrapped row that continues draws its text in the wrap's width and the mark in the column
 //!   after; a row that does not, as a provisional one, draws up to the window's edge.
+//! - In a native session's transcript, a row past its line's first is indented (ADR 0165): its
+//!   indent takes of the wrap's width, and its origin, the column that would be at the window's
+//!   left edge, is before its first.
 //! - With an input method's preedit on a row in view, the preedit's logical line is laid out
 //!   again with it in, as if inserted (`wrap_map`'s `spliced`), and its rows' columns count the
 //!   preedit's cells, as `row_clusters` draws them. The rows after it in view move down.
@@ -78,7 +81,8 @@ pub struct Screen {
     left: usize,
     /// The text area's columns.
     columns: usize,
-    /// The cells a wrapped row's text takes, the mark's column after them; `usize::MAX` when
+    /// The cells a wrapped row's text takes, its indent among them, the mark's column after
+    /// them; `usize::MAX` when
     /// nothing wraps.
     width: usize,
     /// The point of a preedit and its cells, which push what follows it on its line.
@@ -121,7 +125,8 @@ impl Screen {
         self.columns
     }
 
-    /// The cells a wrapped row's text takes, the mark's column after them; `usize::MAX` when
+    /// The cells a wrapped row's text takes, its indent among them, the mark's column after
+    /// them; `usize::MAX` when
     /// nothing wraps.
     pub(crate) fn width(&self) -> usize {
         self.width
@@ -492,12 +497,18 @@ fn next_line_start(display: &DisplaySnapshot, line: usize) -> usize {
     }
 }
 
-/// The cells a row that starts at `start` is indented by: none on its line's first, and never
-/// more than its column, which a row of an edit not yet wrapped again may start before.
+/// The cells a row that starts at `start` is indented by, as [`indent_of`] has it.
 fn indent_at(wrap: &WrapSnapshot, display: &DisplaySnapshot, start: DisplayPoint) -> usize {
-    match start.column {
+    indent_of(start.column, || wrap.indent(display, start.row))
+}
+
+/// The cells a row that starts at `column` of a line whose rows are indented by `indent` is: none
+/// on its line's first, and never more than its column, which a row of an edit not yet wrapped
+/// again may start before.
+fn indent_of(column: usize, indent: impl FnOnce() -> usize) -> usize {
+    match column {
         0 => 0,
-        column => wrap.indent(display, start.row).min(column),
+        column => indent().min(column),
     }
 }
 
@@ -517,13 +528,12 @@ fn push_rows(
         }
         let (start, end, continues) = wrap.row_span(display, row);
         let point = display.offset_to_display_point(start);
-        if point.column > 0 && known.0 != point.row {
-            known = (point.row, wrap.indent(display, point.row));
-        }
-        let indent = match point.column {
-            0 => 0,
-            column => known.1.min(column),
-        };
+        let indent = indent_of(point.column, || {
+            if known.0 != point.row {
+                known = (point.row, wrap.indent(display, point.row));
+            }
+            known.1
+        });
         out.push(ScreenRow {
             line: point.row,
             column: point.column,
@@ -564,6 +574,7 @@ fn push_spliced(
     (spliced, line): (&[SplicedRow], usize),
     wanted: usize,
 ) {
+    let indent = wrap.indent(display, line);
     for (index, row) in spliced.iter().enumerate() {
         if out.rows.len() >= wanted {
             return;
@@ -579,7 +590,7 @@ fn push_spliced(
             continues: row.continues,
             start: row.start,
             end: row.end,
-            indent: indent_at(wrap, display, DisplayPoint::new(line, row.column)),
+            indent: indent_of(row.column, || indent),
         });
     }
 }

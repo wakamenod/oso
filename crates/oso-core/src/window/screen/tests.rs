@@ -33,6 +33,17 @@ fn make(
     (window, display)
 }
 
+/// As [`make`], of a buffer whose rows are indented.
+fn make_indented(
+    text: &str,
+    (rows, columns): (usize, usize),
+    cursor: usize,
+) -> (Window, DisplaySnapshot) {
+    let (mut window, display) = make(text, (rows, columns), false, cursor);
+    window.set_wrap(Some(WrapMap::indenting(&display, columns)), &display, 0);
+    (window, display)
+}
+
 fn screen(window: &Window, display: &DisplaySnapshot, preedit: Option<&Preedit>) -> Screen {
     let mut out = Screen::default();
     window.screen_into(display, preedit, &mut out);
@@ -201,15 +212,19 @@ proptest! {
     /// screen shows it.
     #[test]
     fn prop_the_cursors_place_is_its_screen_rows(
-        text in "[a あ。\n]{0,40}",
+        text in "[a あ。\n-]{0,60}",
         composed in proptest::option::of("[b い」]{1,10}"),
         (at, top) in (0usize..64, 0usize..64),
         rows in 1usize..6,
         columns in 10usize..15,
-        wraps in proptest::bool::ANY,
+        (wraps, indents) in proptest::bool::ANY.prop_flat_map(|w| (Just(w), proptest::bool::ANY)),
     ) {
         let cursor = text.floor_char_boundary(at.min(text.len()));
-        let (mut window, display) = make(&text, (rows, columns), wraps, cursor);
+        let (mut window, display) = match indents {
+            // Wide enough to wrap; a row further left than it stands is drawn at its column.
+            true => make_indented(&text, (rows, columns + 6), cursor),
+            false => make(&text, (rows, columns), wraps, cursor),
+        };
         let start = text.floor_char_boundary(top.min(text.len()));
         window.set_scroll(Scroll { start, left: 0 });
         let preedit = composed.map(|composed| Preedit::new(composed, None));
@@ -263,4 +278,64 @@ fn a_preedit_that_makes_a_break_lets_an_earlier_short_row_take_the_rows_after() 
     whole.insert(cursor, 'b');
     let (inserted, display) = make(&whole, (6, 10), true, cursor);
     assert_eq!(shape(&shown), shape(&screen(&inserted, &display, None)));
+}
+
+#[test]
+fn an_indented_row_draws_past_its_indent_with_its_mark_in_the_last_column() {
+    // 17 columns: 16 of text and the mark's; the rows it goes on in, 12 at column 4.
+    let text = "  - aaaaaaaaaaaa bbbbbbbbbbbb cccccc ddd";
+    let (mut window, display) = make_indented(text, (4, 17), 0);
+    let shown = screen(&window, &display, None);
+    let columns: Vec<_> = shown.rows().iter().map(|row| row.column).collect();
+    assert_eq!(columns, [0, 17, 30]);
+    let (first, middle, last) = (&shown.rows()[0], &shown.rows()[1], &shown.rows()[2]);
+    assert_eq!((first.indent, middle.indent, last.indent), (0, 4, 4));
+    // The space after each word hangs in the mark's column.
+    assert_eq!(
+        (shown.mark(first), shown.mark(middle)),
+        (Some(16), Some(16))
+    );
+    assert_eq!(shown.mark(last), None);
+    assert_eq!(shown.origin(middle), 13);
+    assert_eq!(shown.drawn(middle), 17..29, "the space hangs");
+    assert_eq!(shown.drawn(last), 30..43);
+    // The cursor on that row, and on its hanging space.
+    for (offset, cell) in [(17, 4), (28, 15), (29, 16)] {
+        window.selections = SelectionSet::new(offset);
+        let (row, origin) = window.cursor_place(&display, None).unwrap();
+        assert_eq!((row, offset - origin), (1, cell));
+    }
+}
+
+#[test]
+fn rows_not_yet_wrapped_again_show_no_text_before_where_their_line_starts() {
+    let text = format!("{}\n", "    ▸ Read a word of text and more ".repeat(40));
+    let display = snapshot(&text);
+    let mut window = Window::new(WindowId::new(0), BufferId(0));
+    let check = |window: &Window, columns: usize| {
+        let shown = screen(window, &display, None);
+        for row in shown.rows().iter().filter(|row| row.column > 0) {
+            let cell = shown.drawn(row).start - shown.origin(row);
+            assert!(cell >= 6.min(row.column), "at {columns}");
+        }
+    };
+    // Provisional, then wrapped from an anchor, then narrower before its report.
+    for columns in [60, 30, 15] {
+        window.set_size(ViewSize::new(6, columns));
+        let mut wrap = WrapMap::provisional(&display, columns, true);
+        window.set_wrap(Some(wrap.clone()), &display, 0);
+        check(&window, columns);
+        wrap.refill();
+        wrap.realize(&display, 700, 4);
+        window.set_wrap(Some(wrap.clone()), &display, 0);
+        window.set_scroll(Scroll {
+            start: 700,
+            left: 0,
+        });
+        check(&window, columns);
+        let mut wrap = WrapMap::indenting(&display, 80);
+        wrap.set_columns(columns, &display);
+        window.set_wrap(Some(wrap), &display, 0);
+        check(&window, columns);
+    }
 }

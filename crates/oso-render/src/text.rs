@@ -11,7 +11,7 @@
 //!   in steps of [`WINDOW_STEP`] columns, shaped through the cache in
 //!   `rows`. A 10 MB line costs what a screen of it does.
 
-mod rows;
+mod place;
 
 use std::ops::Range;
 

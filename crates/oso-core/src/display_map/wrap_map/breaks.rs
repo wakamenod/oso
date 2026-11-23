@@ -1,12 +1,14 @@
 //! Where a view row breaks (ADR 0100): after a run of spaces, between CJK clusters, with
 //! basic kinsoku, one space hanging into the mark's column, and a cluster that does not fit
-//! moved to the next row whole.
+//! moved to the next row whole. An indented row holds its indent fewer, and no row breaks before
+//! the column the next one stands at (ADR 0165).
 //!
 //! Must not depend on: the tree of rows, windows or the renderer. It sees clusters of one
 //! logical line, from a row's start, and says where each row ends.
 
 use std::collections::VecDeque;
 
+use super::indent::LineIndent;
 use crate::display_map::DisplayCluster;
 
 /// How far kinsoku moves a break back, in clusters, before it gives up.
@@ -124,13 +126,11 @@ pub(super) struct RowEnd {
     pub(super) tabs: bool,
 }
 
-/// The rows of one logical line from a row's start, at `width` cells a row, the mark's
-/// column aside. Fed one cluster at a time, it holds at most a row and a cluster of them.
-pub(super) struct Rows<I> {
+/// The rows of one logical line from a row's start, the mark's column aside. Fed one cluster at a time, it holds at most a row and a cluster of them.
+pub(super) struct Rows<'a, I> {
     clusters: I,
-    width: usize,
-    /// The cells its rows are indented by, but the line's first.
-    indent: usize,
+    /// The cells a row holds, and those its rows are indented by, but the line's first.
+    indent: LineIndent<'a>,
     /// The clusters read and not yet in a row, from the current row's start.
     pending: VecDeque<Cluster>,
     /// Where the line ends, past its last cluster, once the clusters have run out.
@@ -138,16 +138,13 @@ pub(super) struct Rows<I> {
     done: bool,
 }
 
-impl<I: Iterator<Item = Cluster>> Rows<I> {
+impl<'a, I: Iterator<Item = Cluster>> Rows<'a, I> {
     /// The rows of the clusters `clusters`, which run to the end of a logical line ending
-    /// at `line_end`, `width` cells each, of which `indent` are none of its on a row past the
-    /// line's first.
-    pub(super) fn new(clusters: I, (width, indent): (usize, usize), line_end: usize) -> Self {
-        let width = width.max(1);
+    /// at `line_end`, as wide and indented as `indent` says.
+    pub(super) fn new(clusters: I, indent: LineIndent<'a>, line_end: usize) -> Self {
         Self {
             clusters,
-            width,
-            indent: indent.min(width - 1),
+            indent,
             pending: VecDeque::new(),
             line_end,
             done: false,
@@ -160,10 +157,10 @@ impl<I: Iterator<Item = Cluster>> Rows<I> {
     }
 
     /// The cells the current row holds.
-    fn room(&self) -> usize {
+    fn room(&mut self) -> usize {
         match self.row_column() {
-            None | Some(0) => self.width,
-            Some(_) => self.width - self.indent,
+            None | Some(0) => self.indent.width(),
+            Some(_) => self.indent.width().saturating_sub(self.indent.get()),
         }
     }
 
@@ -207,9 +204,10 @@ impl<I: Iterator<Item = Cluster>> Rows<I> {
         }
     }
 
-    /// The break for a row whose cluster at `overflow` does not fit: how many clusters it
-    /// keeps.
-    fn break_before(&self, overflow: usize) -> usize {
+    /// The break for a row of `room` cells whose cluster at `overflow` does not fit: how many
+    /// clusters it keeps.
+    fn break_before(&mut self, overflow: usize, room: usize) -> usize {
+        let indent = self.indent.get();
         let pending = &self.pending;
         let at = |index: usize| &pending[index];
         // One space may hang into the mark's column, if the row may break after it or more
@@ -219,10 +217,7 @@ impl<I: Iterator<Item = Cluster>> Rows<I> {
         let breaks_after = pending.get(overflow + 1).is_none_or(|next| {
             next.class == Class::Space || (may_break(over, next) && keeps_kinsoku(over, next))
         });
-        if overflow > 0
-            && over.class == Class::Space
-            && over.column - start == self.room()
-            && breaks_after
+        if overflow > 0 && over.class == Class::Space && over.column - start == room && breaks_after
         {
             return overflow + 1;
         }
@@ -232,7 +227,7 @@ impl<I: Iterator<Item = Cluster>> Rows<I> {
         }
         // Never before the column the next row stands at, so that it lines up there.
         let may_break =
-            |kept: usize| at(kept).column >= self.indent && may_break(at(kept - 1), at(kept));
+            |kept: usize| at(kept).column >= indent && may_break(at(kept - 1), at(kept));
         let greedy = (1..=overflow)
             .rev()
             .find(|&kept| may_break(kept))
@@ -248,7 +243,7 @@ impl<I: Iterator<Item = Cluster>> Rows<I> {
     }
 }
 
-impl<I: Iterator<Item = Cluster>> Iterator for Rows<I> {
+impl<I: Iterator<Item = Cluster>> Iterator for Rows<'_, I> {
     type Item = RowEnd;
 
     fn next(&mut self) -> Option<RowEnd> {
@@ -297,7 +292,7 @@ impl<I: Iterator<Item = Cluster>> Iterator for Rows<I> {
                 {
                     self.pending.push_back(next);
                 }
-                let kept = self.break_before(index);
+                let kept = self.break_before(index, room);
                 return Some(self.take(kept));
             }
             index += 1;
@@ -331,7 +326,7 @@ mod tests {
             })
             .collect();
         let mut start = 0;
-        Rows::new(clusters.into_iter(), (width, 0), text.len())
+        Rows::new(clusters.into_iter(), LineIndent::none(width), text.len())
             .map(|row| {
                 let piece = text[start..row.end].to_owned();
                 start = row.end;
