@@ -10,6 +10,7 @@ mod agent_sessions;
 mod buffers;
 mod complete;
 mod cursors;
+mod dictation;
 mod dired;
 mod edit;
 mod files;
@@ -57,6 +58,7 @@ use oso_core::keymap::Keymap;
 const TABLES: &[&[(&str, &str)]] = &[
     complete::BINDINGS,
     cursors::BINDINGS,
+    dictation::BINDINGS,
     dired::BINDINGS,
     edit::BINDINGS,
     files::BINDINGS,

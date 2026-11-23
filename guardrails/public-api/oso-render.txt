@@ -75,6 +75,7 @@ pub oso_render::Face::Cursor
 pub oso_render::Face::DiagnosticError
 pub oso_render::Face::DiagnosticInfo
 pub oso_render::Face::DiagnosticWarning
+pub oso_render::Face::Dictation
 pub oso_render::Face::DiffAdded
 pub oso_render::Face::DiffFileHeader
 pub oso_render::Face::DiffFiller

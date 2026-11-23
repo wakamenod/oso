@@ -23,6 +23,11 @@
 //! TIFF, which macOS apps often put there alone. Its bytes are copied, never decoded here. An
 //! image read waits up to [`GIVE_UP`] for its answer, as nothing waits on it.
 //!
+//! Whether the clipboard carries a type, such as the marker an app puts beside text it pastes
+//! itself, is asked on the same worker ([`Clipboard::has_type`]): only the list of types is
+//! looked at, never what they hold, and the answer comes within [`TYPE_TIMEOUT`], as a key waits
+//! on it (ADR 0175).
+//!
 //! Nothing here logs or prints text or an image, and the types that carry them print only
 //! their length.
 
@@ -46,6 +51,10 @@ pub use memory::MemoryClipboard;
 
 /// How long a read may take before the host is told [`Contents::NoAnswer`].
 pub const READ_TIMEOUT: Duration = Duration::from_millis(500);
+
+/// How long a look at the clipboard's types may take before the host is told it has no answer
+/// (ADR 0175).
+pub const TYPE_TIMEOUT: Duration = Duration::from_millis(200);
 
 /// How long a read may take before its worker is left behind and a new one takes over,
 /// as Emacs's `x-selection-timeout`.
@@ -212,6 +221,10 @@ pub enum Event {
     Read(Contents),
     /// The answer to an image read.
     Image(ImageContents),
+    /// Whether the clipboard carries the type asked about: `None` with no answer within
+    /// [`TYPE_TIMEOUT`], a read still running from before, or no clipboard. `Some(false)` while
+    /// it holds what this clipboard wrote last.
+    HasType(Option<bool>),
     /// A read did not return within [`GIVE_UP`]; a new worker has taken over.
     NotAnswering,
 }
@@ -244,6 +257,9 @@ trait Backend {
     /// Reads an image, if there is one of a type it reads and it is at most `max` bytes.
     /// [`ImageContents::NoAnswer`] when another app wrote the clipboard during the read.
     fn read_image(&mut self, max: usize) -> ImageContents;
+    /// Whether the clipboard carries the type `name`, looking at its list of types alone; `None`
+    /// with no clipboard.
+    fn has_type(&mut self, name: &str) -> Option<bool>;
 }
 
 /// Text a write computes on the backend's thread, so that joining it costs the UI thread
@@ -267,6 +283,7 @@ impl fmt::Debug for Clipboard {
 /// How long the front waits on a worker, as the host sees it.
 const TIMING: Timing = Timing {
     answer: READ_TIMEOUT,
+    types: TYPE_TIMEOUT,
     give_up: GIVE_UP,
 };
 
@@ -331,6 +348,13 @@ impl Clipboard {
     /// [`ImageContents::NoAnswer`].
     pub fn read_image(&self) {
         let _ = self.messages.send(Message::ReadImage);
+    }
+
+    /// Asks whether the clipboard carries the type `name`, and reports [`Event::HasType`] within
+    /// [`TYPE_TIMEOUT`]. Nothing it holds is read (ADR 0175). A look while a read is out is
+    /// answered at once with `None`.
+    pub fn has_type(&self, name: &'static str) {
+        let _ = self.messages.send(Message::HasType(name));
     }
 
     /// The clipboard in memory, if it was started over one.

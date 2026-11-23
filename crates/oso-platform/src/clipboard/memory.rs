@@ -9,11 +9,13 @@ use std::sync::{Arc, Mutex, PoisonError};
 use super::{Backend, Found, Image, ImageContents, ImageKind};
 
 /// What it holds. Like the system's, it holds text or an image, and a copy of one replaces
-/// the other.
+/// the other. The types are those another app marked its text with, which a copy drops
+/// (ADR 0175).
 #[derive(Default)]
 struct Held {
     text: Option<(String, bool)>,
     image: Option<(Image, bool)>,
+    types: Vec<String>,
     count: i64,
 }
 
@@ -41,9 +43,16 @@ impl MemoryClipboard {
 
     /// Puts `text` there, as another app would, marked concealed if `concealed`.
     pub fn set(&self, text: String, concealed: bool) {
+        self.set_marked(text, concealed, Vec::new());
+    }
+
+    /// Puts `text` there, as [`Self::set`] does, with the types `types` beside it, as an app
+    /// marks text it pastes itself (ADR 0175).
+    pub fn set_marked(&self, text: String, concealed: bool, types: Vec<String>) {
         self.with(|held| {
             held.text = Some((text, concealed));
             held.image = None;
+            held.types = types;
             held.count += 1;
         });
     }
@@ -54,6 +63,7 @@ impl MemoryClipboard {
         self.with(|held| {
             held.image = Some((Image { kind, bytes }, concealed));
             held.text = None;
+            held.types.clear();
             held.count += 1;
         });
     }
@@ -87,5 +97,9 @@ impl Backend for MemoryClipboard {
             Some((image, false)) if !image.bytes.is_empty() => ImageContents::Image(image.clone()),
             _ => ImageContents::Nothing,
         })
+    }
+
+    fn has_type(&mut self, name: &str) -> Option<bool> {
+        Some(self.with(|held| held.types.iter().any(|held| held == name)))
     }
 }

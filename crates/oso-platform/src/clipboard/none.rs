@@ -24,4 +24,8 @@ impl Backend for NoClipboard {
     fn read_image(&mut self, _: usize) -> ImageContents {
         ImageContents::Unsupported
     }
+
+    fn has_type(&mut self, _: &str) -> Option<bool> {
+        None
+    }
 }

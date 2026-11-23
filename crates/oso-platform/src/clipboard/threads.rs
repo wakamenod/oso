@@ -13,7 +13,8 @@
 //! clipboard for the rest of the session. What a worker left behind says afterwards is
 //! dropped. An image read is a read too, but nothing waits on it: it gets its answer when the
 //! worker has one, or [`ImageContents::NoAnswer`] at the give-up time, when its worker is left
-//! behind in the same way.
+//! behind in the same way. A look at the types alone ([`Event::HasType`]) is a read too, answered
+//! within its own, shorter time, as a held key waits on it.
 
 use std::collections::hash_map::RandomState;
 use std::hash::BuildHasher;
@@ -36,6 +37,7 @@ enum Job {
     Write(WriteJob),
     Read,
     ReadImage,
+    HasType(&'static str),
 }
 
 /// What reaches the front: from the host, or from a worker of a given generation.
@@ -43,6 +45,7 @@ pub(super) enum Message {
     Write(WriteJob),
     Read,
     ReadImage,
+    HasType(&'static str),
     Written {
         id: u64,
         fingerprint: Fingerprint,
@@ -55,15 +58,20 @@ pub(super) enum Message {
         worker: u64,
         contents: ImageContents,
     },
+    FoundType {
+        worker: u64,
+        present: Option<bool>,
+    },
     /// The host's handle went: end once the worker has done its work.
     Close,
 }
 
-/// How long the front waits before it answers for a read, and before it leaves a worker
-/// behind.
+/// How long the front waits before it answers for a read, and for a look at the types, and
+/// before it leaves a worker behind.
 #[derive(Clone, Copy)]
 pub(super) struct Timing {
     pub(super) answer: Duration,
+    pub(super) types: Duration,
     pub(super) give_up: Duration,
 }
 
@@ -96,12 +104,20 @@ pub(super) fn start(
     Ok(messages)
 }
 
-/// A read the worker is on: when it began, whether the host has had its answer, and whether
-/// it reads an image.
+/// What a read the worker is on reads.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Reads {
+    Text,
+    Image,
+    Types,
+}
+
+/// A read the worker is on: when it began, whether the host has had its answer, and what it
+/// reads.
 struct Reading {
     since: Instant,
     answered: bool,
-    image: bool,
+    reads: Reads,
 }
 
 struct Front {
@@ -138,11 +154,13 @@ impl Front {
     /// When the front must act next with no message: answer for a read, or give up on it.
     fn deadline(&self) -> Option<Instant> {
         self.reading.as_ref().map(|reading| {
-            if reading.answered || reading.image {
-                reading.since + self.timing.give_up
-            } else {
-                reading.since + self.timing.answer
-            }
+            reading.since
+                + match reading.reads {
+                    _ if reading.answered => self.timing.give_up,
+                    Reads::Image => self.timing.give_up,
+                    Reads::Text => self.timing.answer,
+                    Reads::Types => self.timing.types,
+                }
         })
     }
 
@@ -170,11 +188,13 @@ impl Front {
                 Message::Read if self.reading.is_some() => {
                     report(Event::Read(Contents::NoAnswer));
                 }
-                Message::Read => self.start_read(false),
+                Message::Read => self.start_read(Job::Read, Reads::Text),
                 Message::ReadImage if self.reading.is_some() => {
                     report(Event::Image(ImageContents::NoAnswer));
                 }
-                Message::ReadImage => self.start_read(true),
+                Message::ReadImage => self.start_read(Job::ReadImage, Reads::Image),
+                Message::HasType(_) if self.reading.is_some() => report(Event::HasType(None)),
+                Message::HasType(name) => self.start_read(Job::HasType(name), Reads::Types),
                 Message::Written { id, fingerprint } => report(Event::Written { id, fingerprint }),
                 Message::Found { worker, contents } if worker == self.worker => {
                     if self.reading.take().is_some_and(|reading| !reading.answered) {
@@ -188,20 +208,26 @@ impl Front {
                     }
                     self.send_pending();
                 }
+                Message::FoundType { worker, present } if worker == self.worker => {
+                    if self.reading.take().is_some_and(|reading| !reading.answered) {
+                        report(Event::HasType(present));
+                    }
+                    self.send_pending();
+                }
                 // From a worker left behind.
-                Message::Found { .. } | Message::FoundImage { .. } => {}
+                Message::Found { .. } | Message::FoundImage { .. } | Message::FoundType { .. } => {}
                 Message::Close => return,
             }
         }
     }
 
-    /// Hands the worker a read, of an image if `image`.
-    fn start_read(&mut self, image: bool) {
-        self.send(if image { Job::ReadImage } else { Job::Read });
+    /// Hands the worker `job`, a read of what `reads` says.
+    fn start_read(&mut self, job: Job, reads: Reads) {
+        self.send(job);
         self.reading = Some(Reading {
             since: Instant::now(),
             answered: false,
-            image,
+            reads,
         });
     }
 
@@ -211,12 +237,16 @@ impl Front {
         let Some(reading) = &mut self.reading else {
             return;
         };
-        if reading.image {
+        if reading.reads == Reads::Image {
             // Its one answer, at the give-up time.
             report(Event::Image(ImageContents::NoAnswer));
         } else if !reading.answered {
             reading.answered = true;
-            report(Event::Read(Contents::NoAnswer));
+            report(if reading.reads == Reads::Types {
+                Event::HasType(None)
+            } else {
+                Event::Read(Contents::NoAnswer)
+            });
             return;
         } else {
             report(Event::NotAnswering);
@@ -270,7 +300,7 @@ fn run_worker(
                 while let Ok(later) = work.try_recv() {
                     match later {
                         Job::Write(newer) => write = newer,
-                        read @ (Job::Read | Job::ReadImage) => {
+                        read @ (Job::Read | Job::ReadImage | Job::HasType(_)) => {
                             next = Some(read);
                             break;
                         }
@@ -302,6 +332,14 @@ fn run_worker(
             Job::ReadImage => Message::FoundImage {
                 worker,
                 contents: backend.read_image(MAX_IMAGE),
+            },
+            // Nor a type another app marks its text with: its own write is never one.
+            Job::HasType(name) => Message::FoundType {
+                worker,
+                present: match backend.change_count() {
+                    Some(count) if Some(count) == own => Some(false),
+                    _ => backend.has_type(name),
+                },
             },
         };
         if answers.send(message).is_err() {

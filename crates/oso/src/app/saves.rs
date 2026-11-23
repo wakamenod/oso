@@ -229,6 +229,9 @@ impl App {
         self.quit_servers();
         // git's runs end with oso, a hook and what it started too (ADR 0127, Q7).
         self.end_git_runs();
+        // A dictation that records gets a stop, waiting at most 300 ms for it to have gone
+        // (ADR 0175).
+        self.leave_dictation();
     }
 
     /// Whether this instance has agreed to go. Nothing that could still be lost with the

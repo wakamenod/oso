@@ -762,6 +762,39 @@ session its to-do tools only when you turn them on, in `~/.claude/settings.json`
 { "env": { "CLAUDE_CODE_ENABLE_TODO_TOOLS": "1" } }
 ```
 
+## Dictation
+
+oso dictates through [TypeWhisper](https://github.com/TypeWhisper/typewhisper-mac), which
+records and recognises your speech on your Mac. Turn on its API server in TypeWhisper's settings.
+
+- `s-d` (Option-D) starts a dictation where you are: a buffer, the minibuffer or a session's
+  composer. The modeline says `● REC` while it records. `s-d` again stops it; the modeline says
+  `…` until the text comes, and the text goes in where you started, at each cursor, in one
+  undo step.
+- If you changed that buffer's text meanwhile, or the place is gone, the text goes to the kill
+  ring instead, and `C-y` yanks it. While an input method composes there, the text waits.
+- `M-x dictation-cancel` drops a dictation and its text.
+- TypeWhisper pastes the same text itself with Command-V, which oso reads as `M-v`. oso drops
+  an `M-v` while the text is due and TypeWhisper's copy is on the clipboard, a few seconds at
+  most. TypeWhisper leaves the text on the clipboard unless its own settings put the clipboard
+  back, also from a buffer that may hold secrets.
+- Dictation never types into a terminal, a passphrase or a question, and does not run in a
+  keyboard macro. It works only with TypeWhisper running: oso never starts it.
+
+`[dictation]` in `config.toml` sets it up; each entry is optional:
+
+```toml
+[dictation]
+# TypeWhisper's discovery file: this is where its release build keeps it.
+discovery = "~/Library/Application Support/TypeWhisper/api-discovery.json"
+# The curl oso runs to call TypeWhisper.
+curl = "/usr/bin/curl"
+# A TypeWhisper workflow to dictate in, by its id.
+# workflow = "0F3C2B1A-1234-4ABC-9DEF-0123456789AB"
+# The longest a dictation records, in seconds: 5 to 1800, 120 unless set.
+max_seconds = 300
+```
+
 ## Developing beside it
 
 In the repository, run:

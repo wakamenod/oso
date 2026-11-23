@@ -10,8 +10,13 @@ use serde_json::{Map, Value};
 pub enum ClipboardOp {
     /// Report what it holds.
     Get,
-    /// Put text there, marked concealed or not.
-    Set { text: String, concealed: bool },
+    /// Put text there, marked concealed or not, with the types another app would put beside it,
+    /// such as TypeWhisper's marker (ADR 0175).
+    Set {
+        text: String,
+        concealed: bool,
+        types: Vec<String>,
+    },
     /// Put an image there in place of any text, marked concealed or not (ADR 0142).
     SetImage {
         kind: oso_platform::clipboard::ImageKind,
@@ -24,10 +29,15 @@ impl std::fmt::Debug for ClipboardOp {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Get => f.write_str("Get"),
-            Self::Set { text, concealed } => f
+            Self::Set {
+                text,
+                concealed,
+                types,
+            } => f
                 .debug_struct("Set")
                 .field("len", &text.len())
                 .field("concealed", concealed)
+                .field("types", types)
                 .finish(),
             Self::SetImage {
                 kind,
@@ -44,8 +54,9 @@ impl std::fmt::Debug for ClipboardOp {
 }
 
 /// `clipboard` with no parameters reads, and with `text`, and `concealed` if it is to
-/// be marked so, sets. With `image`, a type (`png`, `jpeg`, `gif`, `webp` or `tiff`), and
-/// `bytes`, an array of byte values, it puts an image there.
+/// be marked so, and `types`, a list of the types beside it, sets. With `image`, a type
+/// (`png`, `jpeg`, `gif`, `webp` or `tiff`), and `bytes`, an array of byte values, it puts an
+/// image there.
 pub(super) fn parse_clipboard(params: &Map<String, Value>) -> Result<ClipboardOp, String> {
     use oso_platform::clipboard::ImageKind;
     let concealed = match params.get("concealed") {
@@ -76,12 +87,24 @@ pub(super) fn parse_clipboard(params: &Map<String, Value>) -> Result<ClipboardOp
             concealed,
         });
     }
+    let types = match params.get("types") {
+        None => Vec::new(),
+        Some(Value::Array(types)) => types
+            .iter()
+            .map(|name| name.as_str().map(str::to_owned))
+            .collect::<Option<Vec<String>>>()
+            .ok_or("clipboard's \"types\" must be a list of strings")?,
+        Some(_) => return Err("clipboard's \"types\" must be a list of strings".into()),
+    };
     match params.get("text") {
         None if params.is_empty() => Ok(ClipboardOp::Get),
         Some(Value::String(text)) => Ok(ClipboardOp::Set {
             text: text.clone(),
             concealed,
+            types,
         }),
-        _ => Err("clipboard takes a string \"text\", and \"concealed\", or nothing".into()),
+        _ => Err(
+            "clipboard takes a string \"text\", and \"concealed\" and \"types\", or nothing".into(),
+        ),
     }
 }

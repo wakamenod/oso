@@ -62,6 +62,15 @@ path = "tests/fake_lsp_server/server.rs"
 required-features = ["dev"]
 test = true
 
+# A TypeWhisper for tests that answers its dictation API from a script on the loopback and
+# records what it was asked (ADR 0175). Only a dev build has it, and `just release-safety` checks
+# that no release build does. `test = true` runs its script's unit tests.
+[[bin]]
+name = "fake-typewhisper"
+path = "tests/fake_typewhisper/server.rs"
+required-features = ["dev"]
+test = true
+
 # A server's life against the fake server: `oso-lsp`'s threads, spawn, restarts and stops
 # (ADR 0138, step 3).
 [[test]]

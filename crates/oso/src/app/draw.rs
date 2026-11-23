@@ -717,15 +717,49 @@ mod tests {
         let modeline = &panes[1].2;
         // `Agent` comes first while the agent channel is on, and is empty here (ADR 0085).
         assert_eq!(modeline[0], (String::new(), Face::Prompt));
+        // Then dictation's mark, none here (ADR 0175).
+        assert_eq!(modeline[1], (String::new(), Face::Prompt));
         // Then the sessions' marks, none here (ADR 0121).
-        assert_eq!(modeline[1], (String::new(), Face::SessionAlert));
-        assert_eq!(modeline[2], (String::new(), Face::SessionDone));
-        assert_eq!(modeline[3], ("[bidi controls] ".to_owned(), Face::Warning));
-        assert_eq!(modeline[4], ("-- a.txt  ".to_owned(), Face::Modeline));
-        assert_eq!(modeline[5].1, Face::Modeline);
+        assert_eq!(modeline[2], (String::new(), Face::SessionAlert));
+        assert_eq!(modeline[3], (String::new(), Face::SessionDone));
+        assert_eq!(modeline[4], ("[bidi controls] ".to_owned(), Face::Warning));
+        assert_eq!(modeline[5], ("-- a.txt  ".to_owned(), Face::Modeline));
+        assert_eq!(modeline[6].1, Face::Modeline);
         let echo = &panes[2].2;
         assert_eq!(echo[0], (String::new(), Face::Warning), "not said twice");
         assert_eq!(echo[1], ("Saved".to_owned(), Face::Text));
+    }
+
+    /// The spans of the selected window's modeline in `editor`, with their faces.
+    fn modeline_of(editor: &Editor) -> Vec<(String, Face)> {
+        with_panes(editor, &statuses(editor), &mut Cells::default(), |panes| {
+            let modeline = panes
+                .iter()
+                .find(|pane| pane.background == Some(Face::Modeline));
+            match modeline.map(|pane| &pane.content) {
+                Some(PaneContent::Lines(lines)) => lines[0]
+                    .iter()
+                    .map(|span| (span.text.to_owned(), span.face))
+                    .collect::<Vec<_>>(),
+                _ => Vec::new(),
+            }
+        })
+    }
+
+    #[test]
+    fn a_dictation_that_records_is_red_and_one_that_waits_is_dim() {
+        let mut editor = Editor::with_buffer(Buffer::from_text("a.txt", ""));
+        editor.set_frame_size(FrameSize {
+            rows: 24,
+            columns: 80,
+        });
+        editor.set_dictation_mark(oso_core::editor::DictationMark::Recording);
+        assert_eq!(
+            modeline_of(&editor)[1],
+            ("● REC  ".to_owned(), Face::Dictation)
+        );
+        editor.set_dictation_mark(oso_core::editor::DictationMark::Waiting);
+        assert_eq!(modeline_of(&editor)[1], ("…  ".to_owned(), Face::Prompt));
     }
 
     #[test]
@@ -758,8 +792,8 @@ mod tests {
             },
         );
         // As `*Spaces*` draws their marks (ADR 0131).
-        assert_eq!(modeline[1], ("⚠ 2  ".to_owned(), Face::SessionAlert));
-        assert_eq!(modeline[2], ("● 3  ".to_owned(), Face::SessionDone));
+        assert_eq!(modeline[2], ("⚠ 2  ".to_owned(), Face::SessionAlert));
+        assert_eq!(modeline[3], ("● 3  ".to_owned(), Face::SessionDone));
     }
 
     #[test]

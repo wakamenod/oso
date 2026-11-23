@@ -11,7 +11,9 @@ use oso_render::{Face, Span};
 
 /// A modeline's spans: warnings first, so that nothing can push them off the row, after
 /// `Agent` while the agent channel is on, dim, and bright while an agent is connected
-/// (ADR 0085), which only the selected window's says, as it does the space in front's name
+/// (ADR 0085), then `● REC` in [`Face::Dictation`] while a dictation records and a dim `…`
+/// while it waits for its text (ADR 0175), which only the selected window's says, as it does
+/// the space in front's name
 /// after the project (ADR 0159), then the sessions' marks, `⚠ N` and
 /// `● N` in their states' faces, as `*Spaces*` draws them (ADR 0121, ADR 0131), and the
 /// server's counts in their severities' faces (ADR 0138). A name and the rest are shaped apart,
@@ -31,8 +33,14 @@ pub(super) fn modeline_spans(status: &Status) -> [Span<'_>; MODELINE_SPANS] {
     let [errors, warnings, information] = status
         .count_parts()
         .map(|(text, severity)| (text, super::severity_face(severity).unwrap_or(face)));
+    let dictation = if status.dictation.starts_with('●') {
+        Face::Dictation
+    } else {
+        Face::Prompt
+    };
     [
         span(status.agent, agent),
+        span(status.dictation, dictation),
         span(waiting, Face::SessionAlert),
         span(done, Face::SessionDone),
         span(&status.warnings[..], Face::Warning),
@@ -61,7 +69,7 @@ pub(super) fn modeline_spans(status: &Status) -> [Span<'_>; MODELINE_SPANS] {
 }
 
 /// How many spans a modeline is drawn in.
-pub(super) const MODELINE_SPANS: usize = 14;
+pub(super) const MODELINE_SPANS: usize = 15;
 
 /// The face of a modeline and its text: the selected window's, or that of one not selected
 /// (ADR 0112).

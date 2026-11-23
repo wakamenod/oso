@@ -12,6 +12,9 @@
 //! Nothing is read from a pasteboard marked concealed, and an image read while another app
 //! wrote the pasteboard is dropped, as it may not be the one the concealed check saw.
 //!
+//! Whether it carries a type is asked of its list of types alone, which the pasteboard server
+//! keeps: no app is asked for what it promised, and nothing is read (ADR 0175).
+//!
 //! Apple documents no rule for the threads `NSPasteboard` may run on; it is used only
 //! from the clipboard's thread here, never from two at once. Each call runs in an
 //! autorelease pool of its own, as that thread has none.
@@ -129,6 +132,17 @@ impl Backend for Pasteboard {
                 });
             }
             ImageContents::Nothing
+        })
+    }
+
+    fn has_type(&mut self, name: &str) -> Option<bool> {
+        autoreleasepool(|_| {
+            let name = NSString::from_str(name);
+            Some(
+                NSPasteboard::generalPasteboard()
+                    .types()
+                    .is_some_and(|types| types.containsObject(&name)),
+            )
         })
     }
 }

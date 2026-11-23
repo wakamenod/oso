@@ -430,6 +430,17 @@ network features.
   its controls and bidi and invisible characters written out; one too large to show, or with
   edits that overlap, is refused, not shown in part. The new name is at most 256 bytes with no
   control, and neither it nor an edit's text is logged.
+- Dictation calls TypeWhisper's local API through curl, never a socket of oso's own
+  ([ADR 0175](adr/0175-dictation-through-typewhisper.md)): `/usr/bin/curl` or `[dictation]
+  curl` by absolute path, with only `-q --config -` as arguments. The address, the token and
+  the body go in the configuration on its standard input; the host is `127.0.0.1`, fixed in
+  oso, with no proxy, no protocol but `http`, no redirect, a time limit and a size limit. The
+  token comes from TypeWhisper's discovery file, read fresh for each dictation and refused when
+  it is a link, not this user's, writable by its group or others, or over 4 KiB; it is a
+  redacted type that no argument, log line, message, restart state or agent reaches. The
+  commands are `Person`, refused in keyboard macros. A stale file with another local process on
+  its port would get the token and type what it answers. TypeWhisper itself puts dictated text
+  on the clipboard, unmarked, also from a buffer that may hold secrets.
 - The environment is sanitized and every spawn is logged in a visible buffer.
 
 ### Dependencies (T2, T8)
@@ -539,7 +550,9 @@ shown, boxed or escaped.
   selected, and reads only a source's ID and its ASCII flag
   ([ADR 0106](adr/0106-the-input-source-turns-japanese-on-in-a-file-name-prompt.md)).
 - The kill ring syncs with the OS clipboard but is never persisted. oso reads the
-  clipboard only on a yank, on its own thread. A kill from a buffer that may hold secrets
+  clipboard only on a yank, on its own thread, and while a dictation's text is due looks only
+  at its list of types, to drop TypeWhisper's own Command-V
+  ([ADR 0175](adr/0175-dictation-through-typewhisper.md)). A kill from a buffer that may hold secrets
   goes there marked concealed for clipboard managers, never shows over the socket, and
   makes the buffer it is yanked into secret, also after a round trip through another app
   ([ADR 0074](adr/0074-the-kill-ring-and-the-clipboard.md)). An image is read only on

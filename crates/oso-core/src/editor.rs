@@ -43,6 +43,7 @@ mod copies;
 mod crossing;
 mod cursors;
 mod diagnostics;
+mod dictation;
 mod directories;
 mod excerpt;
 mod file_preview;
@@ -98,6 +99,7 @@ pub use copies::RecoveryAction;
 pub use crossing::Crossing;
 pub use cursors::{CursorError, Toward};
 pub use diagnostics::DiagnosticCells;
+pub use dictation::{DictationMark, DictationRequest};
 pub use file_preview::{Excerpt, FilePreviewRead, FilePreviewRequest, PreviewAt};
 pub use files::Looked;
 pub use git::*;
@@ -264,6 +266,8 @@ pub struct Editor {
     kills: kill::Kills,
     /// What the editor knows of the agent channel (ADR 0085).
     agent: agent::Agent,
+    /// What commands asked of dictation, and its mark (ADR 0175).
+    dictation: dictation::Dictation,
     /// Agent sessions' requests, side window, marks and lists (ADR 0121).
     sessions: sessions::Sessions,
     /// What commands asked of the host about terminals (ADR 0120).
@@ -388,6 +392,7 @@ impl Editor {
             save_over_asked: None,
             kills: kill::Kills::default(),
             agent: agent::Agent::default(),
+            dictation: dictation::Dictation::default(),
             sessions: sessions::Sessions::default(),
             terminal_requests: Vec::new(),
             servers: servers::Servers::default(),

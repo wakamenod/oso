@@ -48,6 +48,8 @@ impl App {
     /// agent channel's (ADR 0069, ADR 0085).
     pub(super) fn after_event(&mut self, event_loop: &Loop<'_>) {
         self.sync_ime_after_event(event_loop);
+        // What commands asked of dictation, and its text once a composition ended (ADR 0175).
+        self.sync_dictation();
         // What the person's events changed is looked at before the agent channel's turn, so
         // that what the channel changes is told apart (ADR 0127).
         self.sync_git(false, false);
@@ -93,6 +95,7 @@ impl App {
             }
             UserEvent::Copies(event) => self.copies_event(event),
             UserEvent::Clipboard(event) => self.clipboard_event(event_loop, event),
+            UserEvent::Dictation(generation, event) => self.dictation_event(generation, event),
             UserEvent::Trim(report) => self.trim_reported(report),
             UserEvent::Search(report) => self.isearch_reported(report),
             UserEvent::Wrap(report) => self.wrap_reported(report),

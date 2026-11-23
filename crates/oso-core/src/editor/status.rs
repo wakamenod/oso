@@ -48,6 +48,10 @@ const MIN_NAME_CELLS: usize = 20;
 const GAP: &str = "  ";
 /// Says that the agent channel is on (ADR 0085).
 const AGENT: &str = "Agent  ";
+/// Says that a dictation records (ADR 0175).
+const RECORDING: &str = "● REC  ";
+/// Says that a dictation stopped recording and waits for its text (ADR 0175).
+const WAITING: &str = "…  ";
 /// Says that a keyboard macro is being recorded (ADR 0113).
 const DEFINING: &str = "  Def";
 /// What a terminal that hosts an agent session calls its mode (ADR 0132).
@@ -83,6 +87,9 @@ pub struct Status {
     pub agent: &'static str,
     /// An agent is connected, so the host draws [`Self::agent`] bright.
     pub agent_connected: bool,
+    /// `● REC` while a dictation records, then `…` while it waits for its text, with a gap
+    /// after it, after [`Self::agent`], or nothing (ADR 0175).
+    pub dictation: &'static str,
     /// Agent sessions that need the person, after [`Self::agent`] (ADR 0121): `⚠ 2  ` while
     /// two need input, then `● 3  ` while three are done or ready for review, or as many
     /// blanks while their mark blinks off.
@@ -135,8 +142,9 @@ impl Status {
     /// The modeline as one string.
     pub fn modeline(&self) -> String {
         format!(
-            "{}{}{}{}{}{}{}{}{}{}{}",
+            "{}{}{}{}{}{}{}{}{}{}{}{}",
             self.agent,
+            self.dictation,
             self.sessions,
             self.warnings,
             self.name,
@@ -446,6 +454,12 @@ impl Editor {
             AGENT
         };
         status.agent_connected = frame_segments && agent == super::AgentChannel::Connected;
+        status.dictation = match self.dictation_mark() {
+            _ if !frame_segments => "",
+            super::DictationMark::Off => "",
+            super::DictationMark::Recording => RECORDING,
+            super::DictationMark::Waiting => WAITING,
+        };
         status.sessions.clear();
         if frame_segments {
             self.session_marks().write(&mut status.sessions);
@@ -477,6 +491,7 @@ impl Editor {
         let marker = marker(buffer);
         // These parts are ASCII, so their bytes are their cells.
         let others = status.agent.len()
+            + text_cells(status.dictation)
             + text_cells(&status.sessions)
             + status.warnings.len()
             + marker.len()
@@ -647,6 +662,25 @@ mod tests {
         let mut theirs = Status::default();
         editor.status_into(other, &mut theirs);
         assert_eq!(theirs.space, "", "only the selected window's says it");
+    }
+
+    #[test]
+    fn the_selected_windows_modeline_says_a_dictation_records_then_waits() {
+        let mut editor = editor("a\n");
+        assert_eq!(status(&editor).dictation, "");
+        editor.set_dictation_mark(crate::editor::DictationMark::Recording);
+        let shown = status(&editor);
+        assert_eq!(shown.dictation, "● REC  ");
+        assert!(shown.modeline().starts_with("● REC  -- notes.md"));
+        editor.set_dictation_mark(crate::editor::DictationMark::Waiting);
+        assert_eq!(status(&editor).dictation, "…  ");
+        let other = editor.window().id();
+        editor.split_window(crate::frame::Way::Down, true).unwrap();
+        let mut theirs = Status::default();
+        editor.status_into(other, &mut theirs);
+        assert_eq!(theirs.dictation, "", "only the selected window's says it");
+        editor.set_dictation_mark(crate::editor::DictationMark::Off);
+        assert_eq!(status(&editor).dictation, "");
     }
 
     /// An editor `columns` wide showing a native session whose note is `note`.

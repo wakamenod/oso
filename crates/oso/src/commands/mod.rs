@@ -15,6 +15,7 @@ mod complete;
 mod cursors;
 #[cfg(feature = "dev")]
 mod dev_tools;
+mod dictation;
 pub(crate) mod dired;
 mod edit;
 pub use edit::MAX_CROSSINGS;
@@ -90,6 +91,7 @@ const TABLES: &[&[Command]] = &[
     cursors::COMMANDS,
     #[cfg(feature = "dev")]
     dev_tools::COMMANDS,
+    dictation::COMMANDS,
     dired::COMMANDS,
     dired::MARK_COMMANDS,
     dired::OPERATION_COMMANDS,
@@ -303,6 +305,9 @@ mod tests {
         "project-search",
         // Moving every terminal and session to another binary (ADR 0133).
         "oso-restart",
+        // The person's microphone, and curl, which dictation starts (ADR 0175).
+        "dictation-cancel",
+        "dictation-toggle",
         // Emergency copies.
         "emergency-copies-back",
         "emergency-copies-refresh",
