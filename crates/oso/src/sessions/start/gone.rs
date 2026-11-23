@@ -11,9 +11,10 @@
 //!   thread just after the spawn (`Hosted::tui_process`), until its end is seen reaped.
 //! - The process counts as running while one with the id started when it did: a process id is
 //!   reused only once its process ended and was reaped, and a start time read twice from the
-//!   system is read the same, so a change of the wall clock fools nothing. Within a second,
-//!   as a Linux start time counts from a boot time in whole seconds. With no start time known,
-//!   any process with the id counts as it; so does one whose start the system does not say.
+//!   system is read the same, within a second, as a Linux start time counts from a boot time
+//!   in whole seconds. On macOS a change of the wall clock moves neither read. With no start
+//!   time known, any process with the id counts as it; so does one whose start the system
+//!   does not say.
 //! - Past [`WAIT`], the resume is refused, saying why: the session stays stopped, and its next
 //!   native resume waits again.
 
@@ -134,10 +135,10 @@ mod tests {
         assert_eq!(wait(&unread, Duration::ZERO, |_| Ok(None)), Ok(()));
     }
 
-    /// The wall clock set back after the TUI started changes nothing: the start times read
-    /// are compared with each other, not with the clock.
+    /// A start time in the future, as the wall clock set back since makes it, is still the
+    /// TUI's: the start times read are compared with each other, not with the clock.
     #[test]
-    fn a_clock_set_back_does_not_pass_a_tui_that_runs_for_gone() {
+    fn a_start_after_the_clock_now_is_still_the_tuis() {
         let future = SystemTime::now() + Duration::from_secs(3600);
         let process = started_at(future);
         assert!(wait(&process, Duration::ZERO, |_| Ok(Some(future))).is_err());

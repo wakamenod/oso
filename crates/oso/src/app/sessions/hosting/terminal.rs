@@ -106,13 +106,15 @@ impl App {
         session.buffer = Some(buffer);
         session.run = Run::Running { child };
         session.archived = false;
-        // Its `claude`, which a native resume waits to be gone for (ADR 0165, part 4d-2).
-        session.tui_process = child.map(|pid| TuiProcess {
+        // Its `claude`, which a native resume waits to be gone for (ADR 0165, part 4d-2); with
+        // its id not known yet, an earlier TUI's, which may still run, is kept.
+        let started = child.map(|pid| TuiProcess {
             pid,
             started: child_started
                 .filter(|(started_pid, _)| *started_pid == pid)
                 .map(|(_, at)| at),
         });
+        session.tui_process = started.or(session.tui_process);
         let name = session.name.clone();
         // The path only: the environment's values are never shown (ADR 0120). Not logged: an
         // adopted or forked session's name and directory come from a transcript (ADR 0145).

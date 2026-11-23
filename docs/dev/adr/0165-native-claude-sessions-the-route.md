@@ -1796,8 +1796,9 @@ of "One session, and the TUI as a hand-off" (Q3).
   session, the switch's or a later `session-resume`'s, waits first, on its start thread, before
   the directory's and the registry's looks (`sessions::start::gone`): at most 10 s, until no
   process with the id started when it did (a process id is reused only once reaped, and two
-  reads of a start time agree, within a second on Linux, so a change of the wall clock fools
-  nothing; with no start time known, any process with the id counts). Past the bound the
+  reads of a start time agree, within a second on Linux; on macOS a change of the wall clock
+  moves neither; with no start time known, any process with the id counts). A TUI carried
+  over an `oso-restart` is waited for by the id and start the restart carried. Past the bound the
   resume is refused, saying why, the session stays stopped, and its next native resume waits
   again; meanwhile, as any start does, it holds `oso-restart` and an exit that waits (part
   4b), up to those 10 s. The record says native only once the native process started, so a
