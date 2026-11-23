@@ -347,8 +347,8 @@ it. `just pixel-tests` runs five ignored tests in `oso-render`'s `paint`, which 
 on a real GPU with a block for a glyph and read the pixels: an opaque pane hides the text
 under it, a pane's text goes over its background, both layers draw their own ranges, a
 glyph stops at its pane's edges, and the frame's top row keeps its band. They are ignored
-because `cargo test` must not need a GPU. The `e2e` job of `ci.yml` runs them on Linux with
-lavapipe and on macOS. The glyphs come from a fake text system, so they assert the same on both, and a
+because `cargo test` must not need a GPU. `e2e.yml` runs them on Linux with lavapipe and on
+macOS, on `main` and on a pull request labelled `e2e`. The glyphs come from a fake text system, so they assert the same on both, and a
 failure on Linux is real. There are no stored images to compare. Once M2-16 draws floats,
 a flow can take over.
 
@@ -548,8 +548,9 @@ agent sessions' rules engine (`sessions::fuzz_tests`) and each module of `oso-ls
 GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and
 every push to `main`. See [ADR 0021](adr/0021-development-tooling.md) and
 [ADR 0166](adr/0166-macos-ci-on-a-self-hosted-mac-and-fewer-jobs-per-pull-request.md).
-Its macOS jobs run on a self-hosted Mac, set up as in [ci-runner.md](ci-runner.md); a pull
-request from a fork gets GitHub's `macos-latest` instead.
+Its macOS jobs run on a self-hosted Mac, set up as in [ci-runner.md](ci-runner.md), on
+pushes to `main`; a pull request runs a macOS job only when labelled `e2e`, and one from a
+fork gets GitHub's `macos-latest` instead.
 
 A pull request that changes nothing but docs builds nothing. Docs here means files under
 `docs/` and Markdown files at the root; Markdown elsewhere can be a test input. Its first
@@ -557,15 +558,14 @@ job, `changes`, finds that from the files it changes since it left `main`, and e
 below that builds or checks code is skipped, so it shows as skipped, not failed. The
 gitleaks scan, `just markers` and `adr-cited` still run. A push to `main` always runs
 everything. `ci-ok` sums the run up: it fails if a job of `ci.yml` failed or was
-cancelled, and counts a skipped one as passed.
+cancelled, and counts a skipped one as passed. On a pull request it covers only the fast
+checks below; on `main` it covers every job of `ci.yml`, e2e included.
 
-On each pull request:
+On each pull request, the fast checks:
 
-- `just ci` on Linux, macOS and Windows. `check`, `lint` and `test` cover
-  the dev features too (`--all-features`). The macOS job also runs
-  `just public-api-macos-check` and `just release-safety`, below.
-- `just e2e` and `just pixel-tests` on Linux with Xvfb and lavapipe, and on macOS, the one
-  runner that checks text pixels ([ADR 0049](adr/0049-end-to-end-test-harness.md))
+- `just ci` on Linux and Windows. `check`, `lint` and `test` cover
+  the dev features too (`--all-features`). The commit hook runs it on macOS, for commits
+  made through Claude Code.
 - `just release-safety` on Linux: release builds contain no dev-only
   features, crates or code ([ADR 0032](adr/0032-control-socket-transport.md))
 - `cargo-deny` and `cargo-audit`
@@ -573,12 +573,22 @@ On each pull request:
 - `just markers` on Linux: no conflict marker in any tracked file, without a build, as
   the architecture test checks within `just ci`
 - `just public-api-check` on Linux: the public API matches
-  `guardrails/public-api` ([ADR 0038](adr/0038-architecture-guardrails.md)); and
-  `just public-api-macos-check` in the macOS `just ci` job for `oso-platform`'s macOS API,
-  with the native window layer ([ADR 0070](adr/0070-windowing-and-input-without-winit.md))
+  `guardrails/public-api` ([ADR 0038](adr/0038-architecture-guardrails.md))
 - the structure workflow (`structure.yml`): a structural change needs an
   ADR cited in the pull request description
 - `just test-time` on Linux: a warning when the test run grows past its budget
+
+On pushes to `main`, in `ci.yml`, and not on pull requests
+([ADR 0174](adr/0174-fast-checks-on-pull-requests.md)):
+
+- `just ci` on macOS, which also runs `just release-safety`, as above, and
+  `just public-api-macos-check` for `oso-platform`'s macOS API, with the native window
+  layer ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)).
+- `just e2e` and `just pixel-tests` (`e2e.yml`) on Linux with Xvfb and lavapipe, and on
+  macOS, the one runner that checks text pixels
+  ([ADR 0049](adr/0049-end-to-end-test-harness.md)). A pull request runs them when
+  labelled `e2e`, which only people with triage access can add; its `ci-ok` does not wait
+  for them.
 
 On pushes to `main`, nightly at 17:00 UTC, and when started by hand, not on pull requests:
 
