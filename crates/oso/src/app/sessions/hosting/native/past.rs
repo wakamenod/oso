@@ -113,6 +113,7 @@ impl App {
         let earlier: Vec<_> = (changes.into_iter())
             .filter(|change| change.row() < from)
             .collect();
+        self.editor.refill_wraps();
         draw(&mut self.editor, native, earlier);
         draw_added(&mut self.editor, native, from);
         let buffer = native.buffer;

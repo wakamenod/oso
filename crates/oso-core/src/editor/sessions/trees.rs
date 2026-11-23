@@ -77,6 +77,11 @@ impl Editor {
         self.note_secret_shown();
         // The budget its wraps hold stays with the frame's windows.
         self.wrap_pool = self.gather_wrap_budget();
+        // A window at the end of a transcript comes back at its end (ADR 0165).
+        for index in 0..self.windows.len() {
+            let tail = self.at_native_end(index);
+            self.windows[index].set_tail(tail);
+        }
         let side = self.side_window();
         let side_selected = self.side_selected();
         let last = self.tree_id();
@@ -139,7 +144,10 @@ impl Editor {
     pub fn window_tree_showing(&mut self, buffers: &[BufferId]) -> WindowTree {
         let fresh = |editor: &mut Self, buffer: BufferId| {
             let mut window = editor.new_window(buffer);
-            if let Some(place) = editor.place_in_other(None, buffer)
+            if editor.native_end_place(buffer).is_some() {
+                // A transcript starts at its end (ADR 0165).
+                window.set_tail(true);
+            } else if let Some(place) = editor.place_in_other(None, buffer)
                 && let Some(shown) = editor.buffer(buffer)
             {
                 window.restore_positions(place.selections, place.scroll, &shown.display());
@@ -179,6 +187,7 @@ impl Editor {
         let id = WindowId::new(self.next_window);
         self.next_window += 1;
         let mut window = self.windows[at].split_off(id);
+        window.set_tail(self.at_native_end(at));
         if let Some(wrap) = window.wrap_map_mut() {
             wrap.take_budget();
         }
@@ -226,6 +235,9 @@ impl Editor {
         let (window, buffer) = self.window_mut(index);
         let display = buffer.display();
         let mut selections = std::mem::take(&mut window.selections);
+        if window.take_tail() && buffer.is_native_session() {
+            selections.move_primary(display.len());
+        }
         clip_selections(&mut selections, &display, &[], false, None);
         let scroll = window.scroll();
         window.restore_positions(selections, scroll, &display);

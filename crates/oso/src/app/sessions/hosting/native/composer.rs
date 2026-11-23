@@ -25,7 +25,7 @@ use std::collections::VecDeque;
 
 use oso_core::buffer::{Buffer, BufferId, Mode, Replacement};
 use oso_core::editor::NativeAction;
-use oso_core::window::DockSlot;
+use oso_core::window::{DockSlot, WindowId};
 
 use super::interrupting::Interrupted;
 use super::note::NativeState;
@@ -48,6 +48,8 @@ pub(super) struct Composing {
     /// The queue's rows as drawn at the transcript's end, then the suggestion's: their bytes
     /// are theirs there.
     pub(super) rows: String,
+    /// The messages of the queue's rows as drawn, so that point stays on its own.
+    drawn: Vec<u64>,
     /// The CLI's prompt suggestion since its turn ended, until a turn starts, the person
     /// sends or the process ends (part 3f).
     pub(super) suggestion: Option<String>,
@@ -231,13 +233,24 @@ impl App {
             true => native.composing.queue.send_now(text, turn),
             false => native.composing.queue.send(text, turn),
         };
+        // Sent or queued: the window it was written in follows again.
+        let mut went = true;
         match sent {
             Sent::Now(text) if self.deliver(key, &text) => self.set_composer_text(key, ""),
             // The person's text stays in the composer, and the queue waits for the person.
-            Sent::Now(_) => self.not_sent(key, None),
-            Sent::Next(text) if !self.deliver(key, &text) => self.not_sent(key, Some(text)),
+            Sent::Now(_) => {
+                went = false;
+                self.not_sent(key, None);
+            }
+            Sent::Next(text) if !self.deliver(key, &text) => {
+                went = false;
+                self.not_sent(key, Some(text));
+            }
             Sent::Next(_) => {}
-            Sent::Resumed => self.editor.message("The queue goes on once the turn ends"),
+            Sent::Resumed => {
+                went = false;
+                self.editor.message("The queue goes on once the turn ends");
+            }
             Sent::Queued(count) => {
                 self.set_composer_text(key, "");
                 let when = match turn.run {
@@ -255,17 +268,56 @@ impl App {
                     self.editor.message("It goes first, once the turn ends");
                 }
             }
-            Sent::PutBack => self.set_composer_text(key, ""),
-            Sent::Refused(Refusal::Empty) => self.editor.message("The message is empty"),
-            Sent::Refused(Refusal::TooLong) => self.editor.message("The message is over 64 KiB"),
-            Sent::Refused(Refusal::Full) => self
-                .editor
-                .message("The queue is full: wait for a turn to end"),
-            Sent::Refused(Refusal::Editing) => self
-                .editor
-                .message("A queued message is edited here: C-c C-c puts it back first"),
+            Sent::PutBack => {
+                went = false;
+                self.set_composer_text(key, "");
+            }
+            Sent::Refused(why) => {
+                went = false;
+                self.editor.message(not_queued(why));
+            }
         }
         self.draw_queue(key);
+        if went {
+            self.transcript_to_end(key);
+        }
+    }
+
+    /// Puts the window that carries native session `key`'s composer at the end of its
+    /// transcript, with its mark, so that it follows the conversation.
+    fn transcript_to_end(&mut self, key: SessionKey) {
+        let Some(transcript) = self.hosting.natives.map.get(&key).map(|n| n.buffer) else {
+            return;
+        };
+        let end = (self.editor.buffer(transcript)).map(|buffer| buffer.text().len());
+        let carrier = self.transcript_carrier(key, transcript);
+        let window = carrier.and_then(|id| self.editor.window_by_id(id));
+        if let (Some(end), Some(window)) = (end, window) {
+            let mut selections = window.selections.clone();
+            selections.keep_primary();
+            selections.move_primary(end);
+            let (id, scroll) = (window.id(), window.scroll());
+            self.editor.restore_positions_in(id, selections, scroll);
+        }
+    }
+
+    /// The window that carries native session `key`'s composer, which shows `transcript`: it
+    /// holds the composer's cells inside its own. With the composer hidden, the selected window,
+    /// if it shows it.
+    fn transcript_carrier(&mut self, key: SessionKey, transcript: BufferId) -> Option<WindowId> {
+        let composer = self.composer(key);
+        let docked = composer.and(self.editor.dock_window(transcript, DockSlot::Composer));
+        let Some(inside) = docked.and_then(|id| Some(self.editor.regions(id)?.text)) else {
+            let (selected, _) = self.editor.tiled();
+            return (selected.buffer() == transcript).then(|| selected.id());
+        };
+        (self.editor.frame().windows().iter()).find_map(|(id, regions)| {
+            let window = self.editor.window_by_id(*id)?;
+            let area = regions.area();
+            let holds = (area.row..regions.modeline.row).contains(&inside.row)
+                && (area.column..area.column + area.columns).contains(&inside.column);
+            (window.docked().is_none() && window.buffer() == transcript && holds).then_some(*id)
+        })
     }
 
     /// Writes `text` to native session `key` as the person's message. Whether it went.
@@ -475,15 +527,7 @@ impl App {
                     .message("The composer is hidden: the window is too short for it"),
             };
         }
-        // The window that carries the dock holds the composer's rows inside its own.
-        let carrier = (self.editor.frame().windows().iter()).find_map(|(id, regions)| {
-            let window = self.editor.window_by_id(*id)?;
-            let holds = shown.is_none_or(|(_, inside)| {
-                regions.text.row <= inside.row && inside.row < regions.modeline.row
-            });
-            (window.docked().is_none() && window.buffer() == transcript && holds).then_some(*id)
-        });
-        match carrier {
+        match self.transcript_carrier(key, transcript) {
             Some(id) => self.editor.select_window(id),
             None => self.editor.show(transcript),
         }
@@ -512,5 +556,15 @@ impl App {
         let id = (self.hosting.natives.map.get(&key)).and_then(|native| native.composing.buffer);
         id.and_then(|id| self.editor.buffer(id))
             .is_none_or(|buffer| buffer.text().is_empty())
+    }
+}
+
+/// What `C-c C-c` says as the queue refuses a message.
+fn not_queued(why: Refusal) -> &'static str {
+    match why {
+        Refusal::Empty => "The message is empty",
+        Refusal::TooLong => "The message is over 64 KiB",
+        Refusal::Full => "The queue is full: wait for a turn to end",
+        Refusal::Editing => "A queued message is edited here: C-c C-c puts it back first",
     }
 }

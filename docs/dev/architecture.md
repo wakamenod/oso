@@ -164,7 +164,8 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   [ADR 0007](adr/0007-multi-cursor.md) and [ADR 0071](adr/0071-mark-and-region.md).
   Every window's cursors follow an edit of the buffer it shows, and those in the
   chunks the edit rebuilt are clipped to display clusters (`display-model.md`). In the selected window a cursor at an insertion ends after
-  it; in others it stays before, as an Emacs marker. Marks follow as markers in
+  it; in others it stays before, as an Emacs marker. In a native session's transcript a cursor
+  at the end stays there in every window, and the view goes with it (ADR 0165). Marks follow as markers in
   every window, and an edit hides the regions.
 - **Edits** go through `Editor::apply_edits`, but for an internal buffer's, which have no undo
   ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)), and a recovered emergency copy's whole text

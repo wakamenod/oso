@@ -14,8 +14,7 @@ use std::time::Instant;
 
 use crate::buffer::BufferId;
 use crate::search::{self, CompileError, Find, MAX_QUERY_CHARS, Needle, On, Prepared};
-use crate::selection::SelectionSet;
-use crate::window::Scroll;
+use crate::window::Place;
 
 use crate::editor::migemo::{Cache, Migemo, Sought};
 
@@ -110,7 +109,7 @@ pub struct Isearch {
     pub(super) tally: Option<Tally>,
     /// The buffer it searches, and the cursors, marks and view before it began, for `C-g`.
     pub(super) buffer: BufferId,
-    pub(super) begin: (SelectionSet, Scroll),
+    pub(super) begin: Place,
     /// The buffer's revision when it last searched.
     pub(super) revision: u64,
     pub(super) steps: VecDeque<Step>,
@@ -141,7 +140,7 @@ impl Isearch {
     /// `regexp` or not, with migemo on or off as `use_migemo` says.
     pub(super) fn new(
         buffer: BufferId,
-        begin: (SelectionSet, Scroll),
+        begin: Place,
         revision: u64,
         (backward, regexp, use_migemo): (bool, bool, bool),
         around_secret: bool,
