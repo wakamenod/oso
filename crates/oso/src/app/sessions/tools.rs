@@ -12,8 +12,8 @@
 //!   ask to move its own session into a space, which asks the person each time (ADR 0151).
 //! - A tool that asks puts its question to the person once they are free, as the connection's
 //!   own question waits, and its reply waits for the answer and for what the answer starts.
-//! - A call that changes something is counted, and refused past the loop guard or within a
-//!   minute of the person's `n` to the same call.
+//! - A call that changes something is refused within a minute of the person's `n` to the same
+//!   call; no count of calls bounds a session (ADR 0177).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -332,9 +332,9 @@ impl App {
         self.draft_set(caller.key, &caller.runs_in, &caller.name, id, text)
     }
 
-    /// Counts a call of `tool` on `target` from `caller` toward the loop guard, or says why
-    /// it is refused: past the guard, within a minute of the person's `n` to the same call, or,
-    /// for a tool that asks, while another agent's question waits. A start that may go ahead
+    /// Lets a call of `tool` on `target` from `caller` through, or says why it is refused:
+    /// within a minute of the person's `n` to the same call, or, for a tool that asks, while
+    /// another agent's question waits. A start that may go ahead
     /// without asking is not held back by another's question here; it is if it asks after all.
     fn admit_tool(&mut self, tool: &Tool, caller: &Caller, target: &str) -> Result<(), String> {
         let may_go_unasked = tool.asks == Asks::UnlessAllowed
@@ -399,15 +399,6 @@ impl App {
         self.open_caller_root(caller)
             .flatten()
             .is_some_and(|root| !root.revoked())
-    }
-
-    /// The person's input reached the terminal of the session `buffer` holds: its agent may
-    /// make as many calls again (ADR 0121, the author's choice: only this resets the guard).
-    pub(in crate::app) fn person_typed_in_session(&mut self, buffer: BufferId) {
-        if let Some(session) = self.hosting.table.by_buffer(buffer) {
-            let id = session.id.clone();
-            self.hosting.tools.guard.person_typed(&id);
-        }
     }
 
     /// A report of a worktree job, taken if a tool's call waits for it, else given back.

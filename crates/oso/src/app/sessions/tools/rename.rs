@@ -81,8 +81,8 @@ impl App {
     }
 
     /// `session_rename` of `session` to `name`, from `caller`: no question, as it is metadata
-    /// only (ADR 0121's table), but counted by the loop guard before the name is looked up, so
-    /// that probing which names are taken counts too.
+    /// only (ADR 0121's table). It is admitted before the name is looked up, so that a call
+    /// refused while the person is busy learns nothing of which names are taken.
     pub(super) fn tool_session_rename(
         &mut self,
         pending: Pending,

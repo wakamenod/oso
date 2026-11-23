@@ -900,7 +900,8 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     repository oso knew before the call, by device and inode; one oso does not trust always
     asks and joins restricted. A running orchestrator reads it only after the person's `/add-dir` paste.
   - `session_rename` ([ADR 0155](adr/0155-renaming-sessions.md)) asks nothing, as it changes
-    metadata only, and counts toward the loop guard before the name is looked up. An agent
+    metadata only, and nothing bounds how many it makes
+    ([ADR 0177](adr/0177-no-loop-guard-on-the-session-tools.md)). An agent
     renames itself, the sessions it started and, as a current orchestrator, its space's
     sessions; never an orchestrator, whose name is the address its workers message. A rename
     takes no name another session, a space or an earlier orchestrator has, nor one another
@@ -909,9 +910,15 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     one.
   - An agent's `worktree_remove` asks nothing once every check holds (the author's choice), and
     `worktree_list` runs git and `gh` without a question; both need a trusted project.
-  - Each session may make 20 calls that change or ask until the person types in its terminal,
-    and the person's `n` refuses the same call from it for 60 s. Both are kept by session, so a
-    new connection resets neither, and a branch's refusal by the name git resolved it to.
+  - The person's `n` refuses the same call from a session for 60 s. It is kept by session, so a
+    new connection does not reset it, and a branch's refusal by the name git resolved it to.
+    No count of calls bounds a session ([ADR 0177](adr/0177-no-loop-guard-on-the-session-tools.md)).
+    What holds a runaway agent: the questions, one at a time; the refusals, which only a
+    question's `n` records, so a tool that asks nothing is never refused; `agents_start_limit`
+    where set, which caps the unasked sessions running at once, not those started over time;
+    and the channel's 30 requests a second per connection, each session's bridge being one.
+    A session that changes its target each time asks again after every `n`. With
+    `agents_start_limit = "none"`, unasked starts have no limit at all.
   - A tool's worktree jobs take the trust of the session's open project as it is at the call,
     and again at the person's `y`, so a project the person no longer trusts runs nothing.
   - `move_to_space` ([ADR 0151](adr/0151-moving-a-session-into-a-space.md)) is the one tool
