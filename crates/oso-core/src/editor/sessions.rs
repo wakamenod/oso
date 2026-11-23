@@ -341,6 +341,9 @@ pub enum NativeAction {
     Compose,
     /// To the first queued message's row.
     Queue,
+    /// From the transcript or the composer: put the CLI's prompt suggestion at the end of the
+    /// composer, not sent.
+    Suggestion,
     /// On a queued message's row: edit it in the composer, in its place.
     EditQueued,
     /// On a queued message's row: drop it.

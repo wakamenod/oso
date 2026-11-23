@@ -1156,11 +1156,14 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     2026-11-23). Only `claude -p`'s reading was measured;
     the TUI's is taken to be the same.
   - A native session's prompt suggestion is Claude's text, which a file Claude read can
-    steer: `M-n` puts it into the composer escaped as composed text, unsent, so a suggested
-    `/command` or `@PATH` runs only if the person takes the escape out. One holding a line
+    steer: `C-c C-s` or `M-n` puts it into the composer escaped as composed text, unsent, so a
+    suggested `/command` or `@PATH` runs only if the person takes the escape out; after a draft
+    it goes with a space between, so that it joins no `/` or `@` of the draft's, and never after
+    a command. It shows in the empty composer's placeholder, never without oso's words and key
+    after it, so that it cannot pass for oso's hint, and is in no buffer. One holding a line
     break, a control, bidi or invisible character, or a variation selector that draws as
-    nothing, is dropped, so that what goes in is the one
-    line its row showed; a composer a yank turned secret takes none. The recap of a turn that ended unseen quotes the transcript, so it reaches only
+    nothing, is dropped, so that what goes in is one line
+    that shows as it is in the composer, scrolled into view; a composer a yank turned secret takes none. The recap of a turn that ended unseen quotes the transcript, so it reaches only
     the echo area, marked `NAME (last reply): …` so that it cannot pass for oso's own message,
     unlogged and left out of what the control socket and the agent channel
     read ([ADR 0165](adr/0165-native-claude-sessions-the-route.md), part 3f).

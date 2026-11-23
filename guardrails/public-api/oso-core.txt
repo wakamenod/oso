@@ -2003,6 +2003,7 @@ pub oso_core::editor::NativeAction::Prompt(isize)
 pub oso_core::editor::NativeAction::Queue
 pub oso_core::editor::NativeAction::Send
 pub oso_core::editor::NativeAction::SendNow
+pub oso_core::editor::NativeAction::Suggestion
 pub oso_core::editor::NativeAction::Todo
 pub oso_core::editor::NativeAction::Toggle
 pub oso_core::editor::NativeAction::Tool(isize)

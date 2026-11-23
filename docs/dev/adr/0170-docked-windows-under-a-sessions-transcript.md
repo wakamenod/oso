@@ -243,6 +243,13 @@ neither was taken.
   window's edge at worst.
 - **It is drawn, and is no text:** no byte of it is in the buffer, so nothing that reads, sends,
   moves over or searches the buffer meets it, nor does the agent channel.
+- **While its session has a prompt suggestion, it says that instead** (amended 2026-11-24, the
+  author's word; ADR 0165, part 3f): `TEXT   (C-c C-s takes it)`, the key read as the hint's are. The
+  text is Claude's, so it never shows without oso's words after it, which are spans of their
+  own: text alone could pass for the hint. In a narrow window the text is cut with `…` and the
+  key stays whole; with no room for the key and 8 cells, the `…` among them, or the whole of a
+  shorter text, the usual hint shows, and the key still takes it. It follows the rules below as the hint
+  does.
 - **Its pane** is the composer's one more, in the prompt's face
   ([ADR 0072](0072-floating-windows-the-minibuffer-and-questions.md)), and an exception to "a docked
   window's panes are on the tiled layer" above: it is on a layer just over them and under every

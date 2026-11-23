@@ -225,6 +225,8 @@ pub(super) struct Room {
     gutters: Vec<&'static [Span<'static>]>,
     behind: Vec<Behind<'static>>,
     labels: Vec<(CellRect, Span<'static>)>,
+    /// For the empty composers' placeholders.
+    pub(super) hints: placeholder::Room,
 }
 
 /// The status of the window `id`, the `index`th in the tree, among `statuses`, by its id so
@@ -353,8 +355,8 @@ pub(super) struct Drawn<'a> {
     pub(super) modelines: &'a [[&'a [Span<'a>]; 1]],
     pub(super) gutters: &'a [&'a [Span<'a>]],
     pub(super) statuses: &'a [(WindowId, Status)],
-    /// An empty composer's placeholder, the whole of it first, or none (ADR 0170).
-    pub(super) placeholder: &'a [&'a [Span<'a>]],
+    /// The empty composers' placeholders, and the line of each (ADR 0170).
+    pub(super) placeholders: (&'a [placeholder::Row<'a>], &'a [placeholder::Line<'a>]),
     /// The cursor flash's strength in this frame, from the app's clock (ADR 0097).
     pub(super) flash: Option<f32>,
 }
@@ -406,10 +408,8 @@ pub(super) fn panes<'a>(editor: &'a Editor, drawn: &Drawn<'a>, list: &mut Vec<Pa
             }
         }
     }
-    list.extend(shown().filter_map(|(_, ((id, regions), cells))| {
-        let place = (*id, regions);
-        placeholder::pane(editor, place, &cells.screen, drawn.placeholder)
-    }));
+    let (rows, lines) = drawn.placeholders;
+    list.extend((rows.iter().zip(lines)).map(|(row, line)| placeholder::pane(row, line)));
     let mut at = 0;
     for ((id, regions), cells) in windows.iter().zip(drawn.cells) {
         let rows = cells.gutter.rows().count();

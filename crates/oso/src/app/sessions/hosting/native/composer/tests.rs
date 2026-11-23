@@ -8,7 +8,8 @@ use oso_core::editor::Editor;
 use oso_core::frame::FrameSize;
 use oso_core::window::{DockSlot, Screen};
 
-use super::new_docked_composer;
+use super::composed::put_at_end;
+use super::{HIDDEN, new_docked_composer};
 
 /// An editor showing a transcript in a frame 40 columns wide, its composer selected.
 fn composing() -> (Editor, BufferId, BufferId) {
@@ -81,4 +82,79 @@ fn a_long_japanese_message_shows_whole_as_it_is_typed_pasted_and_deleted() {
     };
     editor.apply_edits(composer, &[pasted]).unwrap();
     assert_eq!(shown(&editor, composer), (long, rows));
+}
+
+/// Whether the composer's window shows the end of its text, and how many columns it is
+/// scrolled by.
+fn shows_end(editor: &Editor, composer: BufferId) -> (bool, usize) {
+    let (window, buffer) = editor.current();
+    assert_eq!(window.buffer(), composer);
+    let mut screen = Screen::default();
+    editor.text_screen(&mut screen);
+    let end = buffer.text().len();
+    let last = screen.rows().last().is_some_and(|row| row.end == end);
+    (last, window.scroll().left)
+}
+
+#[test]
+fn what_is_put_at_the_end_is_in_view_with_point_after_it() {
+    for (rows, wraps) in [(30, true), (12, true), (30, false), (12, false)] {
+        let (mut editor, transcript, composer) = composing();
+        editor.set_frame_size(FrameSize { rows, columns: 40 });
+        editor.set_wraps(composer, wraps);
+        typed(&mut editor, composer, &"line\n".repeat(14));
+        let start = editor.current_mut().0;
+        start.selections.move_primary(0);
+        editor.follow_cursor();
+        assert!(!shows_end(&editor, composer).0, "{rows} rows, {wraps}");
+        // From the transcript, wider than the window.
+        let host = editor
+            .windows()
+            .find(|w| w.buffer() == transcript)
+            .unwrap()
+            .id();
+        editor.select_window(host);
+        let text = "a suggestion ".repeat(5);
+        put_at_end(&mut editor, (transcript, composer), &text).unwrap();
+        let (end, left) = shows_end(&editor, composer);
+        assert!(end, "{rows} rows, {wraps}");
+        assert_eq!(left > 0, !wraps, "{rows} rows");
+        let (window, buffer) = editor.current();
+        assert_eq!(window.selections.len(), 1);
+        assert_eq!(window.selections.primary().cursor, buffer.text().len());
+    }
+}
+
+#[test]
+fn nothing_is_put_into_a_hidden_composer_or_beneath_a_prompt() {
+    let (mut editor, transcript, composer) = composing();
+    let put = |editor: &mut Editor| put_at_end(editor, (transcript, composer), "x");
+    editor.ask("Exit?", "keyboard-quit").unwrap();
+    assert!(put(&mut editor).is_err());
+    editor.quit();
+    assert!(editor.prompt().is_none());
+    editor.set_frame_size(FrameSize {
+        rows: 3,
+        columns: 40,
+    });
+    assert_eq!(put(&mut editor), Err(HIDDEN.to_owned()));
+    assert!(editor.buffer(composer).unwrap().text().is_empty());
+    editor.set_frame_size(FrameSize {
+        rows: 30,
+        columns: 40,
+    });
+    assert_eq!(put(&mut editor), Ok(()));
+}
+
+#[test]
+fn what_is_put_after_a_short_draft_shows_whole_with_it() {
+    for columns in [40, 20, 14] {
+        let (mut editor, transcript, composer) = composing();
+        editor.set_frame_size(FrameSize { rows: 30, columns });
+        typed(&mut editor, composer, "see this");
+        let text = " run the tests and fix what fails";
+        put_at_end(&mut editor, (transcript, composer), text).unwrap();
+        let (seen, _) = shown(&editor, composer);
+        assert_eq!(seen, format!("see this{text}"), "{columns} columns");
+    }
 }

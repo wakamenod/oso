@@ -22,6 +22,7 @@ use oso_render::{
 
 use super::App;
 use super::shell::{Loop, Window};
+use crate::app::sessions::NativeSessions;
 use crate::dispatch::OpenMenu;
 use crate::sessions::list::SpaceBands;
 use crate::terminal::hosted::Terminals;
@@ -91,19 +92,19 @@ pub(super) fn with_panes<R>(
     with_frame(shown, None, statuses, cells, draw)
 }
 
-/// What [`with_frame`] reads: the editor, the terminals, `*Spaces*`' bands, and an empty
-/// composer's placeholder, the whole of it and its shorter forms, once it is known (ADR 0170).
+/// What [`with_frame`] reads: the editor, the terminals, `*Spaces*`' bands, and the native
+/// sessions, whose empty composers' placeholders show (ADR 0170).
 type Shows<'a> = (
     &'a Editor,
     &'a Terminals,
     &'a SpaceBands,
-    Option<&'a [String; 3]>,
+    Option<&'a NativeSessions>,
 );
 
 /// As [`with_panes`], with the open menu's float over the tiled panes, if one is open
 /// (ADR 0117).
 pub(super) fn with_frame<R>(
-    (editor, terminals, bands, hint): Shows<'_>,
+    (editor, terminals, bands, natives): Shows<'_>,
     open_menu: Option<&OpenMenu<'_>>,
     statuses: &[(WindowId, Status)],
     cells: &mut Cells,
@@ -117,9 +118,9 @@ pub(super) fn with_frame<R>(
     let status = tiled::tiled_status(editor, statuses).unwrap_or(&empty);
     let echo = echo_spans(status);
     let echo = [&echo[..]];
-    let placeholder = hint.map(tiled::placeholder::rows);
-    let placeholder = (placeholder.as_ref()).map(|rows| rows.each_ref().map(std::slice::from_ref));
     let mut room = std::mem::take(&mut cells.room);
+    let hints = tiled::placeholder::rows(editor, &cells.windows, natives, &mut room.hints);
+    let hint_lines = tiled::placeholder::lines(&hints, &mut room.hints);
     let windows = editor.frame().windows();
     let spans = tiled::spans_of(windows, statuses, &cells.windows, &empty, &mut room);
     let rows = tiled::rows_of(&spans.0, &spans.1, &mut room);
@@ -134,7 +135,7 @@ pub(super) fn with_frame<R>(
         modelines: &rows.0,
         gutters: &rows.1,
         statuses,
-        placeholder: placeholder.as_ref().map_or(&[], |rows| &rows[..]),
+        placeholders: (&hints, &hint_lines),
         flash: cells.flash,
     };
     // A prompt's float goes over the tiled panes.
@@ -183,6 +184,8 @@ pub(super) fn with_frame<R>(
     cells
         .menu
         .give_back(menu::spans_back(menu_room, menu_spans));
+    tiled::placeholder::give_back_lines(&mut room.hints, hint_lines);
+    tiled::placeholder::give_back_rows(&mut room.hints, hints);
     tiled::give_back_rows(&mut room, rows);
     tiled::give_back_spans(&mut room, spans);
     cells.room = room;
@@ -405,8 +408,8 @@ impl App {
         let cells = &mut view.cells;
         cells.flash = self.flash.strength(Instant::now());
         let open_menu = self.dispatcher.menu();
-        let (bands, hint) = (self.watch.pane_bands(), self.hosting.natives.placeholder());
-        let shown = (&self.editor, &self.terminals.map, bands, hint);
+        let (bands, natives) = (self.watch.pane_bands(), &self.hosting.natives);
+        let shown = (&self.editor, &self.terminals.map, bands, Some(natives));
         let result = with_frame(shown, open_menu.as_ref(), &self.statuses, cells, |panes| {
             render_state.render(panes, &window_size)
         });
@@ -604,9 +607,20 @@ mod tests {
     /// The placeholder's pane of a frame of `editor`: where it is, over which background, and
     /// its text and face.
     fn placeholder(editor: &Editor, window: WindowId, hint: [&str; 3]) -> Option<Shown> {
+        placeholder_with(editor, window, (hint, None))
+    }
+
+    /// As [`placeholder`], with `suggested` the suggestion of the window's composer.
+    fn placeholder_with(
+        editor: &Editor,
+        window: WindowId,
+        (hint, suggested): ([&str; 3], Option<&str>),
+    ) -> Option<Shown> {
         let (terminals, bands) = (Terminals::default(), SpaceBands::default());
-        let hint = hint.map(str::to_owned);
-        let shown = (editor, &terminals, &bands, Some(&hint));
+        let its = editor.window_by_id(window)?.buffer();
+        let takes = "   (C-c C-s takes it)";
+        let natives = NativeSessions::saying(hint, takes, suggested.map(|text| (its, text)));
+        let shown = (editor, &terminals, &bands, Some(&natives));
         let statuses = statuses(editor);
         with_frame(shown, None, &statuses, &mut Cells::default(), |panes| {
             let id = tiled::pane_id(window, tiled::Part::Placeholder);
@@ -676,6 +690,64 @@ mod tests {
         assert_eq!(at(11), "Write · a b");
         assert_eq!(at(10), "Write");
         assert_eq!(at(4), "Write", "cut by its pane");
+    }
+
+    /// A session's suggestion shows over the hint in an empty composer, with the key that takes
+    /// it whole, and goes as the hint does (ADR 0165, part 3f).
+    #[test]
+    fn a_suggestion_shows_in_the_placeholder_until_anything_is_typed() {
+        let (mut editor, docked) = composer("");
+        let hint = ["Write to Claude"; 3];
+        let says = |editor: &Editor| {
+            let shown = placeholder_with(editor, docked, (hint, Some("run the tests")));
+            shown.map(|(_, _, spans)| spans.iter().map(|span| &span.0[..]).collect::<String>())
+        };
+        let wanted = Some("run the tests   (C-c C-s takes it)".to_owned());
+        assert_eq!(says(&editor), wanted, "not selected");
+        editor.select_window(docked);
+        assert_eq!(says(&editor), wanted);
+        assert!(editor.current().1.text().is_empty());
+        editor.set_preedit(Some(oso_core::display_map::Preedit::new("か".into(), None)));
+        assert_eq!(says(&editor), None, "composing");
+        editor.set_preedit(None);
+        let id = editor.window().buffer();
+        let typed = |range, text| [Replacement { range, text }];
+        editor.apply_edits(id, &typed(0..0, "x")).unwrap();
+        assert_eq!(says(&editor), None, "typed");
+        editor.apply_edits(id, &typed(0..1, "")).unwrap();
+        assert_eq!(says(&editor), wanted, "back");
+        let host = editor.window().docked().unwrap().0;
+        let mut secret = Buffer::visiting(std::path::PathBuf::from("/tmp/.env"));
+        secret.set_mode(Mode::Composer);
+        let secret = editor.add_buffer(secret);
+        editor.set_dock(host, oso_core::window::DockSlot::Composer, Some(secret));
+        assert_eq!(says(&editor), None, "secret");
+    }
+
+    /// A suggestion is cut for the key after it, which is whole; with no room for both, oso's
+    /// hint shows, so that Claude's text never shows without oso's words.
+    #[test]
+    fn a_narrow_window_cuts_the_suggestion_never_its_key() {
+        let (mut editor, docked) = composer("");
+        let hint = ["Write · a b", "Write", "W"];
+        let mut at = |columns: usize, text: &str| {
+            let columns = columns + 3;
+            editor.set_frame_size(FrameSize { rows: 24, columns });
+            let shown = placeholder_with(&editor, docked, (hint, Some(text))).unwrap();
+            let spans = shown.2.iter().map(|span| &span.0[..]);
+            spans.collect::<String>()
+        };
+        // The key and its brackets take 21 cells.
+        let text = "Write to Claude";
+        assert_eq!(at(36, text), "Write to Claude   (C-c C-s takes it)");
+        assert_eq!(at(35, text), "Write to Clau…   (C-c C-s takes it)");
+        assert_eq!(at(29, text), "Write t…   (C-c C-s takes it)");
+        assert_eq!(at(28, text), "Write · a b", "fewer than eight cells");
+        assert_eq!(at(10, text), "Write");
+        assert_eq!(at(23, "go"), "go   (C-c C-s takes it)", "short and whole");
+        assert_eq!(at(22, "go"), "Write · a b");
+        // Whole characters, two cells each.
+        assert_eq!(at(29, "テストを実行"), "テスト…   (C-c C-s takes it)");
     }
 
     /// Nothing is said over an empty composer that turned secret, as it sends nothing, nor over a

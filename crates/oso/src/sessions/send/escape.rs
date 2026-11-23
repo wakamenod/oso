@@ -21,6 +21,11 @@
 //!   after it the start of a word. oso's own reference, a kept image's `@PATH`, gets this
 //!   alone ([`reference`]).
 //!
+//! - Put at the end of the person's draft, a space comes first unless the CLI reads one there,
+//!   so that the two never join into a command, a file to attach or a word that is in neither
+//!   ([`after_draft`]). Nothing goes after a draft that leaves a quoted `@"` open
+//!   ([`opens_mention`]).
+//!
 //! What the person types into a session's input box or composer is never escaped. Text with
 //! nothing to escape is not copied. Nor is oso's own slash command, a [`Command`], which only
 //! this module makes, from a path it checked, so that it runs as a command (ADR 0165, part 2f).
@@ -32,8 +37,7 @@ use oso_core::display_map::cell::is_invisible;
 
 /// `text`, composed by oso, as it goes in before `next`, escaped as the module says.
 pub fn for_claude(text: &str, next: Option<char>) -> Cow<'_, str> {
-    let first = text.chars().find(|&c| !looked_through(c));
-    let leading = matches!(first, Some('/' | '!' | '#'));
+    let leading = starts_command(text.chars());
     let mut out = String::new();
     if leading {
         out.reserve(text.len() + 2);
@@ -57,6 +61,41 @@ pub fn for_claude(text: &str, next: Option<char>) -> Cow<'_, str> {
         out.push('\\');
     }
     Cow::Owned(out)
+}
+
+/// Whether a text of `chars` starts as a command, a shell command or a memory.
+pub fn starts_command(mut chars: impl Iterator<Item = char>) -> bool {
+    matches!(chars.find(|&c| !looked_through(c)), Some('/' | '!' | '#'))
+}
+
+/// Whether a draft of `chars` ends inside a quoted `@"PATH"`, its quote not closed. An `@` that
+/// starts no word counts too, as it costs nothing.
+pub fn opens_mention(chars: impl Iterator<Item = char>) -> bool {
+    let (mut at, mut open) = (false, false);
+    for c in chars {
+        match c {
+            '"' if open => open = false,
+            '"' if at => open = true,
+            c if at && looked_through(c) => continue,
+            _ => {}
+        }
+        at = c == '@' && !open;
+    }
+    open
+}
+
+/// `text`, composed by oso, as it goes in at the end of a draft whose last character is `last`,
+/// if it has one, escaped as the module says.
+pub fn after_draft(text: &str, last: Option<char>) -> Cow<'_, str> {
+    let escaped = for_claude(text, None);
+    match last {
+        // What is looked through, a NEL among it, may be no space to the CLI.
+        Some(last) if looked_through(last) || !spaces(last) => match escaped.starts_with(' ') {
+            true => escaped,
+            false => Cow::Owned(format!(" {escaped}")),
+        },
+        _ => escaped,
+    }
 }
 
 /// oso's own `reference`, as it goes in before `next`: as it is, but that it makes no `@` of
@@ -130,7 +169,7 @@ mod tests {
 
     use std::path::Path;
 
-    use super::{Command, for_claude, reference};
+    use super::{Command, after_draft, for_claude, opens_mention, reference, starts_command};
 
     fn escaped(text: &str) -> String {
         for_claude(text, None).into_owned()
@@ -222,6 +261,71 @@ mod tests {
         assert_eq!(escaped("/x @y"), " /x \\@y");
         let plain = "Fix this error.\nsrc/main.rs:10-20";
         assert_eq!(for_claude(plain, None), Cow::Borrowed(plain));
+    }
+
+    #[test]
+    fn what_goes_after_a_draft_never_joins_it() {
+        let joined = |draft: &str, text: &str| {
+            format!("{draft}{}", after_draft(text, draft.chars().next_back()))
+        };
+        assert_eq!(joined("", "/review @a.md"), " /review \\@a.md");
+        // Escapes the join would undo.
+        assert_eq!(joined("see @", "etc/hosts"), "see @ etc/hosts");
+        assert_eq!(joined("/", "compact"), "/ compact");
+        assert_eq!(joined("!", "ls"), "! ls");
+        assert_eq!(joined("#", "remember"), "# remember");
+        assert_eq!(joined("see \\", "@/etc/hosts"), "see \\ \\@/etc/hosts");
+        assert_eq!(joined("see", "@/etc/hosts"), "see \\@/etc/hosts");
+        assert_eq!(joined("see \u{200b}", "@p"), "see \u{200b} \\@p");
+        // Whitespace is enough, and a draft of nothing else starts no command.
+        assert_eq!(joined("one\n", "two"), "one\ntwo");
+        assert_eq!(joined("one\n", "/two"), "one\n /two");
+        // What may be no space to the CLI is none.
+        assert_eq!(joined("see @\u{85}", "etc"), "see @\u{85} etc");
+        assert_eq!(joined("see @\u{b}", "etc"), "see @\u{b} etc");
+        assert_eq!(joined("see @\u{feff}", "etc"), "see @\u{feff} etc");
+        assert_eq!(joined("一\u{3000}", "二"), "一\u{3000}二");
+        assert_eq!(joined("  ", "/clear"), "   /clear");
+        assert_eq!(joined("\n", "!ls"), "\n !ls");
+        // Within words, with spaces or without.
+        assert_eq!(joined("テストを", "実行して"), "テストを 実行して");
+        assert_eq!(joined("run", "/tests"), "run /tests");
+    }
+
+    #[test]
+    fn a_quoted_mention_is_open_until_its_quote_closes() {
+        for text in [
+            "@\"",
+            "see @\"a b",
+            "@\"a\" @\"b\n",
+            "@\u{200b}\"x",
+            "@@\"",
+            "x@\"y",
+        ] {
+            assert!(opens_mention(text.chars()), "{text:?}");
+        }
+        for text in [
+            "",
+            "@",
+            "\"",
+            "@a \"b",
+            "@ \"b",
+            "@\"a b\"",
+            "@\"a @\" b",
+            "say \"@",
+        ] {
+            assert!(!opens_mention(text.chars()), "{text:?}");
+        }
+    }
+
+    #[test]
+    fn a_command_starts_with_its_sign_seen_or_behind_what_is_dropped() {
+        for text in ["/x", "!x", "# x", "\u{1}/x", "\u{200b}!x"] {
+            assert!(starts_command(text.chars()), "{text:?}");
+        }
+        for text in ["", " /x", "\n/x", "x /y", "@p", "\\@p"] {
+            assert!(!starts_command(text.chars()), "{text:?}");
+        }
     }
 
     #[test]
