@@ -212,6 +212,9 @@ impl App {
         match fixed {
             // Its words are the person's and Claude's: in the echo area alone, withheld from
             // the dev socket and agents, and never in `*Messages*`.
+            Ok(()) if applied.applied.is_empty() && applied.suggested.is_empty() => {
+                self.editor.message(fix::report(&applied));
+            }
             Ok(()) => self.editor.echo_withheld_text(fix::report(&applied)),
             Err(why) => self.editor.message(format!("Dictation fix skipped: {why}")),
         }

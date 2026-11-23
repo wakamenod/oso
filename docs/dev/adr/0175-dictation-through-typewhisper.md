@@ -261,7 +261,7 @@ started, not for its answer. Nothing of a dictation is carried across a restart.
   each range still holds exactly the text sent, and at most 1024 replacements across the
   ranges: otherwise "Dictation fix skipped". The report quotes the person's words and Claude's,
   so it is shown in the echo area alone, withheld from the dev socket and agents, and never in
-  `*Messages*` or the log.
+  `*Messages*` or the log; "Dictation: no fix", which quotes nothing, is a message as any.
 - **An answer that comes while another dictation is under way waits** for that one's text to
   be placed: a fix changes the buffer, and the next text would go to the kill ring, as the
   buffer changed while the person spoke.

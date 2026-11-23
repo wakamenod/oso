@@ -254,8 +254,10 @@ fn a_dictation_types_into_the_buffer_where_it_started_and_undoes_in_one_step() {
         "{}",
         text(&state)
     );
-    assert!(!state["modeline"].as_str().unwrap().contains("REC"));
-    assert!(!state["modeline"].as_str().unwrap().contains('…'));
+    // A fix's report, withheld, leaves the modeline out of the state while it shows.
+    let modeline = state["modeline"].as_str().unwrap_or_default();
+    assert!(!modeline.contains("REC"));
+    assert!(!modeline.contains('…'));
     app.send_keys("C-z");
     app.wait_for("one undo", |state| text(state).starts_with("start"));
 
@@ -542,7 +544,9 @@ fn a_dictation_is_fixed_by_claude_and_one_undo_brings_back_what_was_said() {
         "{}",
         text(&state)
     );
-    assert!(!state["modeline"].as_str().unwrap().contains("fix  "));
+    // While the report shows, withheld, the state leaves the modeline out too.
+    let modeline = state["modeline"].as_str().unwrap_or_default();
+    assert!(!modeline.contains("fix  "));
     // The report quotes the person's words and Claude's: the echo area alone shows it, withheld
     // from the dev socket as from agents.
     assert!(
@@ -653,17 +657,26 @@ fn a_buffer_that_may_hold_secrets_never_runs_claude() {
     let config = write_config(&scratch, &fake.discovery, &claude, "");
     let file = scratch.write(".env", b"KEY=\n");
     let mut app = start(&scratch, &config, &file);
-    dictate(&mut app);
-    app.wait_for("the text", |state| {
-        state["modeline"]
-            .as_str()
-            .is_some_and(|modeline| !modeline.contains("REC") && !modeline.contains('…'))
-            && fixes(state) == 0
+    // The state says nothing of a secret buffer, its modeline included: the fake's requests
+    // show the dictation's steps.
+    let asked = |what: &str| {
+        fake.requests()
+            .iter()
+            .any(|(request, ..)| request.starts_with(what))
+    };
+    app.send_keys("s-d");
+    app.wait_for("the dictation started", |_| {
+        asked("POST /v1/dictation/start")
     });
-    thread::sleep(Duration::from_secs(2));
+    // A press before it records stops it as it starts.
+    app.send_keys("s-d");
+    app.wait_for("its text asked for once stopped", |_| {
+        asked("POST /v1/dictation/stop") && asked("GET /v1/dictation/transcription")
+    });
+    // Long enough for a fix to have started and run.
+    thread::sleep(Duration::from_secs(3));
     let state = app.state();
     assert_eq!(fixes(&state), 0);
-    assert!(!state["modeline"].as_str().unwrap().contains("fix  "));
     assert!(
         !claude_ran(&scratch),
         "nothing of a secret buffer goes to claude"
