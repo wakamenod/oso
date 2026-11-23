@@ -1323,13 +1323,15 @@ The author's Q4-10 (a), part 2b's follow-up:
   before the spawn can take seconds (the registry, a worker's reads with git), so the UI keeps
   each native resume's or fork's trust until its start thread reports, and after each event
   takes it back once its project is no longer trusted, by an open buffer of it or by the
-  record's path. The root the start thread makes from the record shares that revocation, as
-  an open buffer's does, so the look before the spawn refuses it. This also closes the same
+  record's path, or once it is no longer starting with no report from its start thread, as
+  when its buffer is killed meanwhile. The root the start thread makes from the record shares
+  that revocation, as an open buffer's does, so the look before the spawn refuses it. This also closes the same
   window for a resume or fork an open buffer judged, which part 2b left open. A start that
   waited is judged again with the record as it is when it goes.
 - **Another spelling of the root:** an open project whose identity the record pairs with the
-  session's root, as on a case-folding file system, decides as the one spelled so would: open
-  and restricted refuses. The
+  session's root, as on a case-folding file system, refuses when it is restricted, as the one
+  spelled so would. A trusted one decides nothing: the record judges the root, so that the
+  start thread checks the identity where the session runs. Windows has no identity to pair. The
   record holds no worktree claim (ADR 0114), so a session in a linked worktree still needs a
   buffer of it open. Only at the project's root, as before.
 - **A record not read yet** waits, as ADR 0173's held starts do: a resume makes its buffer and

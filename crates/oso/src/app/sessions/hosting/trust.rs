@@ -67,25 +67,26 @@ impl App {
         trust::judge(root == directory, root, open, record, may_wait)
     }
 
-    /// The trust of an open project at `root` under another spelling, as a case-folding file
-    /// system lets one be found, which the record pairs with `root` by its identity: it decides
-    /// as the one spelled so would.
+    /// `Some(None)` when an open project at `root` under another spelling, as a case-folding
+    /// file system lets one be found, which the record pairs with `root` by its identity, is
+    /// not trusted: it refuses as the one spelled so would. A trusted one decides nothing, so
+    /// the record judges the root, and the start thread its identity where the session runs.
     fn open_same_root(&self, root: &Path, record: TrustRecord<'_>) -> Option<Option<TrustedRoot>> {
         let TrustRecord::Read(list) = record else {
             return None;
         };
-        let id = (self.editor.buffers())
+        let restricted = (self.editor.buffers())
             .filter_map(|(_, buffer)| buffer.project())
-            .find(|&id| {
+            .any(|id| {
                 self.editor.project(id).is_some_and(|project| {
                     project.identity().is_some()
                         && list.trusts(&oso_core::project::RootIdentity {
                             path: root.to_owned(),
                             identity: project.identity(),
                         })
-                })
-            })?;
-        Some(TrustedRoot::of(&self.editor, id))
+                }) && TrustedRoot::of(&self.editor, id).is_none()
+            });
+        restricted.then_some(None)
     }
 
     /// The order's `trusted` and its start thread's judgement by the record, for native
@@ -102,6 +103,11 @@ impl App {
         judged.into_order()
     }
 
+    /// Forgets what was kept of start `token`'s trust: its start thread reported.
+    pub(in crate::app::sessions::hosting) fn native_start_reported(&mut self, token: SessionKey) {
+        self.hosting.native_trusts.remove(&token);
+    }
+
     /// Takes back the trust of each native resume or fork under way whose project is no
     /// longer trusted, by an open buffer of it or the record: its start thread refuses it at
     /// its look before the spawn. What started or was refused is forgotten. After each event.
@@ -109,10 +115,16 @@ impl App {
         if self.hosting.native_trusts.is_empty() {
             return;
         }
+        // One no longer starting with no report, as when its buffer was killed, is taken back:
+        // its start thread may still be under way. A report forgets it first.
         let starting = &self.hosting.starting;
-        self.hosting
-            .native_trusts
-            .retain(|key, _| starting.contains_key(key));
+        self.hosting.native_trusts.retain(|key, kept| {
+            let under_way = starting.contains_key(key);
+            if !under_way {
+                kept.revoke();
+            }
+            under_way
+        });
         let gone: Vec<SessionKey> = (self.hosting.native_trusts.iter())
             .filter(|(_, kept)| {
                 let root = kept.root();
