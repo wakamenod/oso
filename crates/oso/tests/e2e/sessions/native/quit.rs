@@ -1,7 +1,7 @@
 //! `C-x C-c` over a native session's turn (ADR 0133, step 5; ADR 0165), with the composer's
 //! fake `claude -p`, whose turn ends only once the flow writes its release file: while the
 //! turn runs, the exit asks first and offers to wait, naming the session; once it has ended,
-//! the exit goes, as an idle session loses nothing.
+//! the question names no turn, as an idle session loses nothing.
 //!
 //! Must not depend on: the app's internals; the question's text has its own tests.
 
@@ -48,23 +48,34 @@ fn turn_under_way(test: &str) -> (Flow, App) {
 #[ignore = "opens windows; run with `just e2e`"]
 fn c_x_c_c_asks_first_while_a_native_turn_runs() {
     let (flow, mut app) = turn_under_way("native-quit-turn");
-    app.send_keys("C-x C-c");
-    let state = app.wait_for("the exit's question", |state| {
-        state["prompts"][0]["kind"] == "question"
-    });
-    let label = state["prompts"][0]["prompt"].as_str().unwrap_or_default();
-    assert_eq!(
-        label,
-        "a turn is under way in *claude: proj*; exit anyway? (y, n or w)"
+    let label = exit_question(&mut app);
+    assert!(
+        label.starts_with("a turn is under way in *claude: proj*")
+            && label.ends_with("(y, n or w)"),
+        "{label}"
     );
     app.send_keys("n");
     assert!(!app.exited(), "the instance stays");
-    // The turn ends: nothing is at risk any more, and the exit goes at once.
+    // The turn ends: the question names it no more, and `y` exits.
     flow.scratch.write("release.1", b"");
     app.wait_for("the turn's end", |state| {
         let tracked = tracked(state);
         !tracked.is_empty() && tracked != "working"
     });
-    app.send_keys("C-x C-c");
+    let label = exit_question(&mut app);
+    assert!(!label.contains("turn"), "{label}");
+    app.send_keys("y");
     assert!(app.wait_for_exit().success(), "the instance exits");
+}
+
+/// `C-x C-c`'s question, once it shows.
+fn exit_question(app: &mut App) -> String {
+    app.send_keys("C-x C-c");
+    let state = app.wait_for("the exit's question", |state| {
+        state["prompts"][0]["kind"] == "question"
+    });
+    state["prompts"][0]["prompt"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned()
 }
