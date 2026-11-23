@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
 
 use super::job::{Hulls, MAX_STALE, WHOLE_PAST, Work, command_edits, shifted};
-use super::{COMMAND_BUDGET, Splice, WrapJob, WrapReport, WrapSnapshot, wrap_width};
+use super::{COMMAND_BUDGET, Fit, Splice, WrapJob, WrapReport, WrapSnapshot};
 use crate::display_map::DisplaySnapshot;
 use crate::rope::RopeEdit;
 
@@ -51,10 +51,11 @@ impl WrapMap {
 
     /// The rows of `display` at `columns` before any is wrapped: one a logical line, made in
     /// O(log n), with a job wanted for all of them. The rows near the view are then wrapped
-    /// with [`WrapMap::realize`].
-    pub(crate) fn provisional(display: &DisplaySnapshot, columns: usize) -> Self {
+    /// with [`WrapMap::realize`]. The rows a line goes on in are indented if they `hang`
+    /// (`hang.rs`).
+    pub(crate) fn provisional(display: &DisplaySnapshot, columns: usize, hang: bool) -> Self {
         let mut map = Self::with_rows(
-            WrapSnapshot::provisional(display, wrap_width(columns)),
+            WrapSnapshot::provisional(display, Fit::new(columns, hang)),
             columns,
         );
         if map.wrap.wraps() {
@@ -83,7 +84,7 @@ impl WrapMap {
     /// rows, with a job for all of them that supersedes the running one.
     pub(crate) fn reset(&mut self, display: &DisplaySnapshot) {
         let columns = self.columns;
-        let fresh = Self::provisional(display, columns);
+        let fresh = Self::provisional(display, columns, self.wrap.fit.hangs);
         self.wrap = fresh.wrap;
         self.unrealized = fresh.unrealized;
         self.since = Hulls::default();
@@ -190,13 +191,13 @@ impl WrapMap {
         if columns == self.columns {
             return;
         }
-        let (was, width) = (self.wrap.wraps(), wrap_width(columns));
+        let (was, fit) = (self.wrap.wraps(), Fit::new(columns, self.wrap.fit.hangs));
         self.columns = columns;
-        if width == usize::MAX || !was {
+        if !fit.wraps() || !was {
             self.reset(display);
             return;
         }
-        self.wrap.width = width;
+        self.wrap.fit = fit;
         // The running job's report would bring the old width back.
         self.running = false;
         self.since = Hulls::default();

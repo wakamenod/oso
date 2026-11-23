@@ -5,11 +5,12 @@
 //! Must not depend on: windows or the renderer; it reads the display snapshot after the edit
 //! and the rows from before it.
 
+use super::ahead::Ahead;
 use super::breaks;
 use super::{Builder, Bytes, Row, RowStream, Start, WrapItem, WrapSnapshot};
 use crate::display_map::{DisplayPoint, DisplaySnapshot, MAX_CLUSTER_BYTES};
 use crate::rope::RopeEdit;
-use crate::sum_tree::{Bias, Cursor};
+use crate::sum_tree::Bias;
 
 use std::ops::Range;
 
@@ -76,8 +77,8 @@ impl WrapSnapshot {
             return Some((wrap, stale, edit.new.end));
         } else {
             *budget = budget.saturating_sub(super::job::SPLICE_COST);
-            let mut stream = RowStream::new(display, from, self.width);
-            let mut tabs = None;
+            let mut stream = RowStream::new(display, from, self.fit);
+            let mut ahead = Ahead::default();
             while let Some(row) = stream.next() {
                 if fresh.len() % super::STOP_ROWS == super::STOP_ROWS - 1 && stop() {
                     return None;
@@ -91,7 +92,7 @@ impl WrapSnapshot {
                         (before, display),
                         (old, at),
                         (column, rows_from_before),
-                        &mut tabs,
+                        &mut ahead,
                     ) {
                         until = old;
                         break;
@@ -115,7 +116,7 @@ impl WrapSnapshot {
         tree.replace_items(Bytes(first)..Bytes(last), items);
         let wrap = Self {
             tree,
-            width: self.width,
+            fit: self.fit,
         };
         Some((wrap, stale, until.checked_add_signed(delta).unwrap_or(0)))
     }
@@ -154,7 +155,7 @@ impl WrapSnapshot {
         tree.replace_items(Bytes(first)..Bytes(last), items);
         let wrap = Self {
             tree,
-            width: self.width,
+            fit: self.fit,
         };
         (wrap, Some(now(stale_from)..join_now))
     }
@@ -171,9 +172,9 @@ impl WrapSnapshot {
         let len = display.len();
         if len <= *budget || !self.wraps() {
             *budget -= len.min(*budget);
-            return (Self::with_width(display, self.width), None);
+            return (Self::with_fit(display, self.fit), None);
         }
-        (Self::provisional(display, self.width), Some(0..len))
+        (Self::provisional(display, self.fit), Some(0..len))
     }
 
     /// Joins the new rows, which reach `at`, to the old ones at the first old row boundary at
@@ -257,6 +258,9 @@ impl WrapSnapshot {
     /// the last break before a stretch with none, as `aa` before `あ。。  。`, reads on to the
     /// cluster that does not fit and one more: a break the edit makes there moves its end
     /// (ADR 0125).
+    ///
+    /// Where rows hang, an edit of what a line's indent is read from starts at the line's start
+    /// (`hang.rs`).
     pub(super) fn rewrap_start(&self, display: &DisplaySnapshot, at: usize) -> usize {
         let mut row = self.row_of(display, at);
         let mut start = self.row_span(display, row).0;
@@ -264,6 +268,10 @@ impl WrapSnapshot {
         // width: no cluster before that one overflows it. Left of a zero-cell cluster this
         // finds an earlier one, which steps back over more rows, never fewer.
         let point = display.offset_to_display_point(at);
+        if self.fit.reach().is_some_and(|reach| point.column <= reach) {
+            let line = DisplayPoint::new(point.row, 0);
+            return display.display_point_to_offset(line, Bias::Left);
+        }
         let before_at = point
             .column
             .checked_sub(1)
@@ -276,7 +284,7 @@ impl WrapSnapshot {
         let reads_at = |row_start: usize| {
             before_at.is_some_and(|column| {
                 column.saturating_sub(display.offset_to_display_point(row_start).column)
-                    <= self.width
+                    <= self.fit.width
             })
         };
         let (mut steps, mut short) = (0, true);
@@ -301,13 +309,14 @@ impl WrapSnapshot {
 
     /// Whether a row started at `old` in `before`, as one now starts at `at`, the same place
     /// in `display` after the edit with what precedes it unchanged, at `column`. Past a tab on
-    /// the line, the columns must also agree modulo the tab width, for its cells to.
+    /// the line, the columns must also agree modulo the tab width, for its cells to. Where rows
+    /// hang, the line's indent must be as it was, or `at` start a line.
     fn starts_row_at(
         &self,
         (before, display): (&DisplaySnapshot, &DisplaySnapshot),
         (old, at): (usize, usize),
         (column, rows_from_before): (usize, bool),
-        tabs: &mut Option<(usize, TabAhead)>,
+        ahead: &mut Ahead,
     ) -> bool {
         let mut cursor = self.tree.cursor::<(Bytes, Start)>();
         cursor.seek(&Bytes(old), Bias::Right);
@@ -321,7 +330,14 @@ impl WrapSnapshot {
                 let mut row_start = start.bytes;
                 for index in 0..rows.len() {
                     if row_start == old {
-                        if !Self::tab_follows(&mut cursor, (index, old), tabs) {
+                        if column > 0
+                            && self.fit.reach().is_some()
+                            && !(rows_from_before
+                                && ahead.same_indent(self.fit, (before, display), (old, at)))
+                        {
+                            return false;
+                        }
+                        if !Self::tab_follows(&mut cursor, (index, old), &mut ahead.tabs) {
                             return true;
                         }
                         if !rows_from_before {
@@ -336,56 +352,6 @@ impl WrapSnapshot {
                 false
             }
         }
-    }
-
-    /// Whether a row from `index` of the item at `cursor`, which starts at `old`, to the end
-    /// of its logical line holds a tab. What it found holds for later rows of one rewrap, kept
-    /// in `known`, so that a long line is walked once.
-    fn tab_follows(
-        cursor: &mut Cursor<'_, WrapItem, (Bytes, Start)>,
-        (index, old): (usize, usize),
-        known: &mut Option<(usize, TabAhead)>,
-    ) -> bool {
-        match *known {
-            Some((from, TabAhead::At(tab))) if from <= old && old <= tab => return true,
-            Some((from, TabAhead::None(until))) if from <= old && old < until => return false,
-            _ => {}
-        }
-        let ahead = Self::tab_ahead(cursor, (index, old));
-        *known = Some((old, ahead));
-        matches!(ahead, TabAhead::At(_))
-    }
-
-    /// Where the first row from `index` of the item at `cursor`, which starts at `old`, holds a
-    /// tab on the same line, or where that line ends with none.
-    fn tab_ahead(
-        cursor: &mut Cursor<'_, WrapItem, (Bytes, Start)>,
-        (index, old): (usize, usize),
-    ) -> TabAhead {
-        let mut first = Some(index);
-        let mut at = old;
-        while let Some(item) = cursor.item() {
-            let WrapItem::Rows(rows) = item else {
-                return TabAhead::None(at);
-            };
-            let skip = first.take().unwrap_or(0);
-            let whole = skip == 0 && rows.iter().all(|row| row.continues);
-            if whole && !cursor.item_summary().is_some_and(|summary| summary.tabs) {
-                at += cursor.item_summary().map_or(0, |summary| summary.bytes);
-            } else {
-                for row in &rows[skip..] {
-                    if row.tabs {
-                        return TabAhead::At(at);
-                    }
-                    at += row.len as usize;
-                    if !row.continues {
-                        return TabAhead::None(at);
-                    }
-                }
-            }
-            cursor.next();
-        }
-        TabAhead::None(at)
     }
 
     /// The items that replace the old rows from `from` to `until`, both old offsets where a
@@ -566,13 +532,4 @@ fn lines_between(
             end < super::line_end(display, last, len),
         ));
     }
-}
-
-/// What follows a row on its line, as [`WrapSnapshot::tab_follows`] keeps it.
-#[derive(Clone, Copy)]
-enum TabAhead {
-    /// A row with a tab starts at this old offset.
-    At(usize),
-    /// No tab before the line ends at this old offset.
-    None(usize),
 }

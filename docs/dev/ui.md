@@ -1319,7 +1319,8 @@ a switch made with its command stands until that setting changes in the file
   trusted project runs `claude -p` and shows its conversation in `*claude: NAME*` as oso's own rows instead of a terminal: the
   person's messages after `› `, replies after `● `, thinking as `∴ Thought for N s`, each tool
   call as one line with what came of it, an edit as a diff, and each turn's time and cost. Its
-  long lines wrap, its composer's and its results' too, until `C-x x t` there. A
+  long lines wrap, its composer's and its results' too, until `C-x x t` there; a transcript's go on
+under their row's text. A
   start with no brief starts at once, with its composer selected, where the person writes the
   first message (step 2); a session stopped or killed before it was given one leaves nothing
   to resume, and goes (one that failed, or holds a draft, stays, saying why). Its state comes from its stream. In its buffer, `TAB` folds or unfolds

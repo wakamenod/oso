@@ -75,7 +75,8 @@ impl WrapSnapshot {
             }
         };
         let (mut row_start, mut column) = (from, start.column);
-        for row in Rows::new(clusters, self.width, line_end) {
+        let indent = self.fit.indent(display, at.row);
+        for row in Rows::new(clusters, (self.fit.width, indent), line_end) {
             out.push(SplicedRow {
                 start: in_buffer(row_start),
                 end: in_buffer(row.end),
@@ -104,7 +105,7 @@ impl WrapSnapshot {
         let mut at = from;
         while at < own {
             let (start, end, _) = self.row_span(display, row);
-            if column(end).saturating_sub(column(start)) > self.width.saturating_add(1) {
+            if column(end).saturating_sub(column(start)) > self.fit.width.saturating_add(1) {
                 return own;
             }
             (row, at) = (row + 1, end);
@@ -210,7 +211,7 @@ mod tests {
         // Rows wrapped from an anchor near the cursor, after a row of all the line before it.
         let text = "word ".repeat(200);
         let display = snapshot(&text);
-        let mut map = super::super::WrapMap::provisional(&display, 11);
+        let mut map = super::super::WrapMap::provisional(&display, 11, false);
         map.realize(&display, 900, 4);
         let wrap = map.snapshot();
         let cursor = 900;

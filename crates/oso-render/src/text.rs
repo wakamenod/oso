@@ -11,6 +11,8 @@
 //!   in steps of [`WINDOW_STEP`] columns, shaped through the cache in
 //!   `rows`. A 10 MB line costs what a screen of it does.
 
+mod rows;
+
 use std::ops::Range;
 
 use bytemuck::{Pod, Zeroable};
@@ -193,18 +195,6 @@ impl Layout {
     pub(crate) fn with_cursor(self, cells: CellRect) -> Self {
         Self {
             cursor: Some(cells),
-            ..self
-        }
-    }
-
-    /// The same with `left`, a column of a row's line, at the region's left edge: a view
-    /// row's start, or the window's left column on a line that does not wrap.
-    pub(crate) fn with_left(self, left: usize) -> Self {
-        Self {
-            scroll: ViewTop {
-                left,
-                ..self.scroll
-            },
             ..self
         }
     }

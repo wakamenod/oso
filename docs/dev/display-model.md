@@ -155,7 +155,9 @@ O(log n). This is cheaper than retrofitting variable heights later.
 Soft wrap is off by default and can be enabled per mode (for example Markdown
 or org) or toggled per buffer. `C-n` and `C-p` move by logical lines.
 A native session's transcript, its composer and its `*result: NAME*` wrap from when they are
-made ([ADR 0165](adr/0165-native-claude-sessions-the-route.md)).
+made ([ADR 0165](adr/0165-native-claude-sessions-the-route.md)). In the transcript alone, the rows a
+line goes on in are indented under the line's text, as `wrap_map/hang.rs` says, and it wraps from 13
+columns.
 [ADR 0100](adr/0100-soft-wrap.md) designs it:
 
 - `toggle-truncate-lines` (`C-x x t`) turns it on for a buffer, with Emacs's argument. Each window wraps at its own width, less a column for the `↩` that

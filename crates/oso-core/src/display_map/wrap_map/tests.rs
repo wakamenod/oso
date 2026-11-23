@@ -14,6 +14,14 @@ fn display(text: &str) -> DisplaySnapshot {
     DisplayMap::new(&Rope::from(text), TabWidth::new(4)).snapshot()
 }
 
+/// The rows of `display` at `columns`, hanging or not.
+fn wrap_at(display: &DisplaySnapshot, columns: usize, hangs: bool) -> WrapSnapshot {
+    match hangs {
+        true => WrapSnapshot::hanging(display, columns),
+        false => WrapSnapshot::new(display, columns),
+    }
+}
+
 /// Each view row's text, with `|` after one that continues.
 fn rows(wrap: &WrapSnapshot, display: &DisplaySnapshot, text: &str) -> Vec<String> {
     (0..wrap.row_count())
@@ -133,6 +141,9 @@ fn wrap_text(max_atoms: usize) -> impl Strategy<Value = String> {
                 "(",
                 "abcdefghijkl",
                 "\n",
+                "- ",
+                "│ ",
+                "1. ",
             ][..]
         ),
     ];
@@ -144,10 +155,11 @@ proptest! {
     #[test]
     fn rows_cover_the_text_and_convert_both_ways(
         text in wrap_text(60),
-        columns in 8_usize..24,
+        columns in 8_usize..32,
+        hangs in any::<bool>(),
     ) {
         let display = display(&text);
-        let wrap = WrapSnapshot::new(&display, columns);
+        let wrap = wrap_at(&display, columns, hangs);
         let mut at = 0;
         for index in 0..wrap.row_count() {
             let row = wrap.row(&display, index);
@@ -168,14 +180,15 @@ proptest! {
         insert in wrap_text(6),
         start in 0_usize..400,
         len in 0_usize..12,
-        columns in 8_usize..24,
+        columns in 8_usize..32,
+        hangs in any::<bool>(),
         wrapped in any::<bool>(),
     ) {
         let mut rope = Rope::from(text.as_str());
         let mut map = DisplayMap::new(&rope, TabWidth::new(4));
         let before = map.snapshot();
         let wrap = if wrapped {
-            WrapSnapshot::new(&before, columns)
+            wrap_at(&before, columns, hangs)
         } else {
             WrapSnapshot::unwrapped(&before)
         };
@@ -186,7 +199,7 @@ proptest! {
         let after = map.snapshot();
         let edited = wrap.edited(&before, &after, &edit);
         let fresh = if wrapped {
-            WrapSnapshot::new(&after, columns)
+            wrap_at(&after, columns, hangs)
         } else {
             WrapSnapshot::unwrapped(&after)
         };
@@ -202,11 +215,12 @@ proptest! {
     fn edits_in_a_row_rewrap_as_a_wrap_from_scratch(
         text in wrap_text(40),
         edits in prop::collection::vec((0_usize..300, 0_usize..6, wrap_text(3)), 1..8),
-        columns in 8_usize..20,
+        columns in 8_usize..28,
+        hangs in any::<bool>(),
     ) {
         let mut rope = Rope::from(text.as_str());
         let mut map = DisplayMap::new(&rope, TabWidth::new(4));
-        let mut wrap = WrapSnapshot::new(&map.snapshot(), columns);
+        let mut wrap = wrap_at(&map.snapshot(), columns, hangs);
         for (start, len, insert) in edits {
             let now = rope.to_string();
             let start = crate::rope::tests::floor_boundary(&now, start);
@@ -217,7 +231,7 @@ proptest! {
             wrap = wrap.edited(&before, &map.snapshot(), &edit);
         }
         let after = map.snapshot();
-        let fresh = WrapSnapshot::new(&after, columns);
+        let fresh = wrap_at(&after, columns, hangs);
         prop_assert_eq!(shape(&wrap, &after), shape(&fresh, &after));
     }
 }
@@ -231,7 +245,8 @@ proptest! {
             prop_oneof![wrap_text(3).prop_map(String::into_bytes), Just(b"\xff".to_vec()), Just(b"\xc3".to_vec())],
             0..30,
         ),
-        columns in 8_usize..24,
+        columns in 8_usize..32,
+        hangs in any::<bool>(),
         tab_width in 1_u32..13,
     ) {
         // As a load does: each invalid byte a U+FFFD, noted before the text that holds it.
@@ -252,7 +267,7 @@ proptest! {
         let edit = rope.push_str(&text);
         map.sync(&rope, &edit);
         let display = map.snapshot();
-        let wrap = WrapSnapshot::new(&display, columns);
+        let wrap = wrap_at(&display, columns, hangs);
         let mut at = 0;
         for index in 0..wrap.row_count() {
             let row = wrap.row(&display, index);
@@ -269,20 +284,21 @@ proptest! {
         insert in wrap_text(4),
         start in 0_usize..300,
         len in 0_usize..10,
-        columns in 8_usize..24,
+        columns in 8_usize..32,
+        hangs in any::<bool>(),
         tab_width in 1_u32..13,
     ) {
         let mut rope = Rope::from(text.as_str());
         let mut map = DisplayMap::new(&rope, TabWidth::new(tab_width));
         let before = map.snapshot();
-        let wrap = WrapSnapshot::new(&before, columns);
+        let wrap = wrap_at(&before, columns, hangs);
         let start = crate::rope::tests::floor_boundary(&text, start);
         let end = crate::rope::tests::floor_boundary(&text, start + len);
         let edit = rope.replace(start..end, &insert);
         map.sync(&rope, &edit);
         let after = map.snapshot();
         let edited = wrap.edited(&before, &after, &edit);
-        let fresh = WrapSnapshot::new(&after, columns);
+        let fresh = wrap_at(&after, columns, hangs);
         prop_assert_eq!(shape(&edited, &after), shape(&fresh, &after));
     }
 
@@ -292,11 +308,12 @@ proptest! {
     fn a_command_of_several_splices_rewraps_as_a_wrap_from_scratch(
         text in wrap_text(50),
         places in prop::collection::vec((0_usize..300, 0_usize..5, wrap_text(2)), 1..6),
-        columns in 8_usize..20,
+        columns in 8_usize..28,
+        hangs in any::<bool>(),
     ) {
         let mut rope = Rope::from(text.as_str());
         let mut map = DisplayMap::new(&rope, TabWidth::new(4));
-        let wrap = WrapSnapshot::new(&map.snapshot(), columns);
+        let wrap = wrap_at(&map.snapshot(), columns, hangs);
         let mut places = places;
         places.sort_by_key(|&(start, ..)| std::cmp::Reverse(start));
         let mut splices = Vec::new();
@@ -313,7 +330,7 @@ proptest! {
         let mut unlimited = usize::MAX;
         let (edited, stale) = wrap.edited_command(&splices, &mut unlimited);
         prop_assert!(stale.is_empty());
-        prop_assert_eq!(shape(&edited, &after), shape(&WrapSnapshot::new(&after, columns), &after));
+        prop_assert_eq!(shape(&edited, &after), shape(&wrap_at(&after, columns, hangs), &after));
     }
 }
 
@@ -325,7 +342,7 @@ proptest! {
             prop::sample::select(&["a", " ", "\t", "\r", "\r\n", "\n", "~", "\u{7f}", "é", "日"][..]),
             0..40,
         ),
-        columns in 8_usize..16,
+        columns in 8_usize..24,
         tab_width in 1_u32..9,
     ) {
         let text = text.concat();
@@ -375,11 +392,15 @@ type Shape = Vec<(usize, usize, bool)>;
 
 /// The rows of `text` edited by replacing `range` with `insert`, as an edit whose rebuilt
 /// chunks start right at it gives them, and as a wrap from scratch does.
-fn edited_at(text: &str, (range, insert): (Range<usize>, &str), columns: usize) -> (Shape, Shape) {
+fn edited_at(
+    text: &str,
+    (range, insert): (Range<usize>, &str),
+    (columns, hangs): (usize, bool),
+) -> (Shape, Shape) {
     let mut rope = Rope::from(text);
     let mut map = DisplayMap::new(&rope, TabWidth::new(4));
     let before = map.snapshot();
-    let wrap = WrapSnapshot::new(&before, columns);
+    let wrap = wrap_at(&before, columns, hangs);
     let real = rope.replace(range.clone(), insert);
     map.sync(&rope, &real);
     let after = map.snapshot();
@@ -388,7 +409,7 @@ fn edited_at(text: &str, (range, insert): (Range<usize>, &str), columns: usize) 
         new: range.start..range.start + insert.len(),
     };
     let edited = wrap.edited(&before, &after, &edit);
-    let fresh = WrapSnapshot::new(&after, columns);
+    let fresh = wrap_at(&after, columns, hangs);
     (shape(&edited, &after), shape(&fresh, &after))
 }
 
@@ -398,12 +419,12 @@ fn an_edit_that_makes_a_break_lets_an_earlier_short_row_reach_it() {
     // row after the spaces, the last of which hangs, so "aa" takes the row after it too.
     let text = "aaあ。。  。";
     let at = text.len() - "。".len();
-    let (edited, fresh) = edited_at(text, (at..at, "b"), 10);
+    let (edited, fresh) = edited_at(text, (at..at, "b"), (10, false));
     assert_eq!(edited, fresh);
     assert_eq!(fresh, [(0, 0, true), (at, 0, false)]);
     // Deleting the "。" that kept the spaces from ending a row.
     let text = "ああ。。  。 あ\n";
-    let (edited, fresh) = edited_at(text, (14..17, ""), 10);
+    let (edited, fresh) = edited_at(text, (14..17, ""), (10, false));
     assert_eq!(edited, fresh);
 }
 
@@ -413,15 +434,16 @@ proptest! {
     /// edit's start.
     #[test]
     fn an_edit_anywhere_rewraps_as_a_wrap_from_scratch(
-        text in "[a あ。\n]{0,40}",
-        insert in "[b い」]{0,4}",
+        text in "[a あ。\n-]{0,60}",
+        insert in "[b い」 -]{0,4}",
         start in 0_usize..200,
         len in 0_usize..8,
-        columns in 4_usize..16,
+        columns in 4_usize..24,
+        hangs in any::<bool>(),
     ) {
         let start = crate::rope::tests::floor_boundary(&text, start);
         let end = crate::rope::tests::floor_boundary(&text, start + len);
-        let (edited, fresh) = edited_at(&text, (start..end, &insert), columns);
+        let (edited, fresh) = edited_at(&text, (start..end, &insert), (columns, hangs));
         prop_assert_eq!(edited, fresh);
     }
 }

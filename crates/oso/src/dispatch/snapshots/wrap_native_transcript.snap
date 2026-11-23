@@ -1,0 +1,103 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: › long message of a person\\n  - one two three four five six seven\\n  │ 日本語の引用を折り返して続けます。\\n  ▸ Bash cargo test --all-features\\n"
+---
+keys: M-<
+│› long message of a     ↩│
+:^                       m:
+│  person                 │
+│  - one two three four  ↩│
+:                        m:
+│    five six seven       │
+│  │ 日本語の引用を折り返↩│
+:    <><><><><><><><><><>m:
+│    して続けます。       │
+:    <><><><><><><>       :
+│  ▸ Bash cargo test     ↩│
+:                        m:
+│    --all-features       │
+│                         │
+│                         │
+=%% *claude: s*  1:0  Sess=
+"Mark set                 "
+
+keys: C-n C-e
+│› long message of a     ↩│
+:                        m:
+│  person                 │
+│  - one two three four  ↩│
+:                        m:
+│    five six seven       │
+:                  ^      :
+│  │ 日本語の引用を折り返↩│
+:    <><><><><><><><><><>m:
+│    して続けます。       │
+:    <><><><><><><>       :
+│  ▸ Bash cargo test     ↩│
+:                        m:
+│    --all-features       │
+│                         │
+│                         │
+=%% *claude: s*  2:37  Ses=
+"                         "
+
+keys: C-a C-SPC M-f M-f M-f M-f M-f M-f
+│› long message of a     ↩│
+:                        m:
+│  person                 │
+│  - one two three four  ↩│
+:                        m:
++  ********************** +
+│    five six seven       │
+:            ^            :
++    ********             +
+│  │ 日本語の引用を折り返↩│
+:    <><><><><><><><><><>m:
+│    して続けます。       │
+:    <><><><><><><>       :
+│  ▸ Bash cargo test     ↩│
+:                        m:
+│    --all-features       │
+│                         │
+│                         │
+=%% *claude: s*  2:31  Ses=
+"                         "
+
+keys: C-g C-a C-s t
+│› long message of a     ↩│
+:                        m:
+│  person                 │
+│  - one two three four  ↩│
+:         ^              m:
++        #   ~            +
+│    five six seven       │
+│  │ 日本語の引用を折り返↩│
+:    <><><><><><><><><><>m:
+│    して続けます。       │
+:    <><><><><><><>       :
++      ~~                 +
+│  ▸ Bash cargo test     ↩│
+:                        m:
++               ~  ~      +
+│    --all-features       │
++             ~           +
+│                         │
+│                         │
+=%% *claude: s*  2:9  Sess=
+"[migemo] I-search: t [1/6"
+
+keys: C-x x t
+│› long message of a perso│
+│  - one two three four fi│
+:         ^               :
+│  │ 日本語の引用を折り返▌│
+:    <><><><><><><><><><> :
+│  ▸ Bash cargo test --all│
+│                         │
+│                         │
+│                         │
+│                         │
+│                         │
+│                         │
+=%% *claude: s*  2:9  Sess=
+"Truncate long lines enabl"

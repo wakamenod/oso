@@ -318,7 +318,7 @@ impl Editor {
         let (_, _, mut wrap) = kept
             .filter(|(kept, width, _)| *kept == revision && *width == columns)
             .unwrap_or_else(|| {
-                let wrap = WrapMap::provisional(&display, Self::wrap_columns(columns));
+                let wrap = WrapMap::provisional(&display, Self::wrap_columns(columns), false);
                 (revision, columns, wrap)
             });
         wrap.refill();

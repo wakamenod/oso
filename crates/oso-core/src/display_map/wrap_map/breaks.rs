@@ -129,6 +129,8 @@ pub(super) struct RowEnd {
 pub(super) struct Rows<I> {
     clusters: I,
     width: usize,
+    /// The cells its rows are indented by, but the line's first.
+    indent: usize,
     /// The clusters read and not yet in a row, from the current row's start.
     pending: VecDeque<Cluster>,
     /// Where the line ends, past its last cluster, once the clusters have run out.
@@ -138,11 +140,14 @@ pub(super) struct Rows<I> {
 
 impl<I: Iterator<Item = Cluster>> Rows<I> {
     /// The rows of the clusters `clusters`, which run to the end of a logical line ending
-    /// at `line_end`, `width` cells each.
-    pub(super) fn new(clusters: I, width: usize, line_end: usize) -> Self {
+    /// at `line_end`, `width` cells each, of which `indent` are none of its on a row past the
+    /// line's first.
+    pub(super) fn new(clusters: I, (width, indent): (usize, usize), line_end: usize) -> Self {
+        let width = width.max(1);
         Self {
             clusters,
-            width: width.max(1),
+            width,
+            indent: indent.min(width - 1),
             pending: VecDeque::new(),
             line_end,
             done: false,
@@ -152,6 +157,14 @@ impl<I: Iterator<Item = Cluster>> Rows<I> {
     /// The start column of the current row, if a cluster of it has been read.
     fn row_column(&self) -> Option<usize> {
         self.pending.front().map(|cluster| cluster.column)
+    }
+
+    /// The cells the current row holds.
+    fn room(&self) -> usize {
+        match self.row_column() {
+            None | Some(0) => self.width,
+            Some(_) => self.width - self.indent,
+        }
     }
 
     /// Takes the first `count` pending clusters as the row, and says where it ends.
@@ -208,7 +221,7 @@ impl<I: Iterator<Item = Cluster>> Rows<I> {
         });
         if overflow > 0
             && over.class == Class::Space
-            && over.column - start == self.width
+            && over.column - start == self.room()
             && breaks_after
         {
             return overflow + 1;
@@ -217,9 +230,12 @@ impl<I: Iterator<Item = Cluster>> Rows<I> {
             // Wider than a whole row: a row of its own, cut at the edge.
             return 1;
         }
+        // Never before the column the next row stands at, so that it lines up there.
+        let may_break =
+            |kept: usize| at(kept).column >= self.indent && may_break(at(kept - 1), at(kept));
         let greedy = (1..=overflow)
             .rev()
-            .find(|&kept| may_break(at(kept - 1), at(kept)))
+            .find(|&kept| may_break(kept))
             .unwrap_or(overflow);
         if keeps_kinsoku(at(greedy - 1), at(greedy)) {
             return greedy;
@@ -227,9 +243,7 @@ impl<I: Iterator<Item = Cluster>> Rows<I> {
         (1..greedy)
             .rev()
             .take(KINSOKU_REACH)
-            .find(|&kept| {
-                may_break(at(kept - 1), at(kept)) && keeps_kinsoku(at(kept - 1), at(kept))
-            })
+            .find(|&kept| may_break(kept) && keeps_kinsoku(at(kept - 1), at(kept)))
             .unwrap_or(greedy)
     }
 }
@@ -257,6 +271,7 @@ impl<I: Iterator<Item = Cluster>> Iterator for Rows<I> {
         }
         // Read on until a cluster does not fit, or the line ends.
         let start = self.row_column().unwrap_or(0);
+        let room = self.room();
         let mut index = 0;
         loop {
             if index == self.pending.len() {
@@ -275,7 +290,7 @@ impl<I: Iterator<Item = Cluster>> Iterator for Rows<I> {
                 }
             }
             let cluster = self.pending[index];
-            if cluster.column - start + cluster.cells > self.width {
+            if cluster.column - start + cluster.cells > room {
                 // Whether a space may hang depends on what follows it.
                 if index + 1 == self.pending.len()
                     && let Some(next) = self.clusters.next()
@@ -316,7 +331,7 @@ mod tests {
             })
             .collect();
         let mut start = 0;
-        Rows::new(clusters.into_iter(), width, text.len())
+        Rows::new(clusters.into_iter(), (width, 0), text.len())
             .map(|row| {
                 let piece = text[start..row.end].to_owned();
                 start = row.end;

@@ -88,7 +88,7 @@ impl Editor {
         let columns = window.size().columns;
         let unspent = match (wraps, window.wrap_map().is_some()) {
             (true, false) => {
-                let mut wrap = WrapMap::provisional(&display, columns);
+                let mut wrap = WrapMap::provisional(&display, columns, buffer.is_native_session());
                 wrap.take_budget();
                 wrap.give_budget(budget);
                 window.set_wrap(Some(wrap), &display, revision);
@@ -315,9 +315,16 @@ impl Editor {
             .filter(|(_, region)| region.rows > 0 && region.columns > 0)
             .and_then(|((id, start), region)| {
                 let buffer = self.buffer(id).filter(|buffer| buffer.wraps())?;
-                Some((id, start, region, buffer.display(), buffer.revision()))
+                let hangs = buffer.is_native_session();
+                Some((
+                    id,
+                    start,
+                    region,
+                    buffer.display(),
+                    (buffer.revision(), hangs),
+                ))
             });
-        let Some((id, start, region, display, revision)) = wanted else {
+        let Some((id, start, region, display, (revision, hangs))) = wanted else {
             self.preview_wrap = None;
             return;
         };
@@ -328,7 +335,7 @@ impl Editor {
             id,
             revision,
             columns: region.columns,
-            wrap: WrapMap::provisional(&display, region.columns),
+            wrap: WrapMap::provisional(&display, region.columns, hangs),
         });
         kept.wrap.refill();
         kept.wrap.realize(&display, start, region.rows);
