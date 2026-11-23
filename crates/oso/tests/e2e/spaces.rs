@@ -306,8 +306,9 @@ pub(super) fn space_menu(app: &mut crate::harness::App, key: &str) {
     app.send_keys(key);
 }
 
-/// Answers the prompt labelled `label` with `text` once its list offers `text`: the host gives
-/// a listed prompt its list as the spaces change, which may come after the prompt opens.
+/// Answers the prompt labelled `label` with `text` once its list offers `text`. The prompt took
+/// the list as it was when it opened: one that opened before the host listed `text` never
+/// offers it, as [`switch_space`] says.
 fn answer_listed(app: &mut crate::harness::App, label: &str, text: &str) {
     app.wait_for(&format!("{label} offering {text}"), |state| {
         super::worktrees::asks(state).is_some_and(|prompt| prompt.starts_with(label))
