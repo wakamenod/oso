@@ -20,7 +20,7 @@
 //! - `bridge`: whether a connection is a hosted session's bridge.
 //! - `start`: getting a session ready and starting its terminal, on a thread of its own.
 //! - `worktree`: worktree sessions, their briefs, the list and safe removal.
-//! - `tools`: the agents' session tools: reach, questions, the loop guard and refusals.
+//! - `tools`: the agents' session tools: reach, questions and refusals.
 //! - `recap`: a session's one-line recap, from a rule's `recap` pattern or the title.
 //! - `attention`: when a session's state asks for the person's attention.
 //! - `list`: `*Spaces*`, grouped, nested and folded, rendered to a width; `width`: how wide

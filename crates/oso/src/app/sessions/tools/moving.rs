@@ -10,7 +10,7 @@
 //!   executable, as `oso mcp` does.
 //! - The agent names only the space; the conversation, its directory and its process are the
 //!   registry entry's of the bridge's parent, as it was when the connection came.
-//! - The loop guard and the person's refusals are kept by the conversation's id.
+//! - The person's refusals are kept by the conversation's id.
 
 use std::sync::{Mutex, PoisonError};
 use std::time::Instant;

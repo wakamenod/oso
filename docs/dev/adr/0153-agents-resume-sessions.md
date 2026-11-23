@@ -1,6 +1,6 @@
 # 0153. Agents resume sessions
 
-- Status: Accepted
+- Status: Accepted, amended by 0177
 - Date: 2026-11-17
 
 ## Context

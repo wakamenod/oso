@@ -165,7 +165,7 @@ fn agents_start_without_asking_and_its_limit() {
         loaded.settings.sessions.agents_start_limit(),
         StartLimit::Most(8)
     );
-    // No limit but the loop guard (ADR 0144).
+    // No limit at all (ADR 0144, ADR 0177).
     let loaded = f.parse("[sessions]\nagents_start_limit = \"none\"\n");
     assert_eq!(messages(&loaded), Vec::<String>::new());
     assert_eq!(

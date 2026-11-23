@@ -1,4 +1,4 @@
-//! The session tools' rules: the table of reach, the loop guard, the person's refusals, the
+//! The session tools' rules: the table of reach, the person's refusals, the
 //! questions' wording, and that `oso mcp` describes each tool as the table says.
 //!
 //! Must not depend on: the app or threads; the rules are plain data and functions.
@@ -9,8 +9,8 @@ use oso_core::command::Reach;
 
 use super::add_repo::AddDir;
 use super::{
-    Asks, Branch, Guard, MAX_CALLS, REFUSED_FOR, Refusal, Renamable, Resumable, StartLimit, TOOLS,
-    Unasked, add_dir, add_repo_question, add_repo_said, addable, quoted, renamable, rename_clash,
+    Asks, Branch, Guard, REFUSED_FOR, Refusal, Renamable, Resumable, StartLimit, TOOLS, Unasked,
+    add_dir, add_repo_question, add_repo_said, addable, quoted, renamable, rename_clash,
     rename_note, renamed_said, resumable, resume_question, resume_started, start_question,
     start_started, starts_without_asking, tool, worktree_question, worktree_started,
 };
@@ -26,7 +26,7 @@ fn session(n: u8) -> SessionId {
 fn the_tools_and_their_reach() {
     let table: Vec<_> = TOOLS
         .iter()
-        .map(|t| (t.name, t.reach, t.asks, t.counted(), t.outside))
+        .map(|t| (t.name, t.reach, t.asks, t.asks_or_changes(), t.outside))
         .collect();
     assert_eq!(
         table,
@@ -90,10 +90,9 @@ fn every_tool_keeps_the_rules_of_reach() {
     for t in &TOOLS {
         // No tool is the person's: those never reach the channel.
         assert_ne!(t.reach, Reach::Person, "{}", t.name);
-        // What changes or asks counts, and only it; only what reads, or asks each time, is
-        // open to outsiders.
+        // Only what reads, or asks each time, is open to outsiders.
         assert_eq!(
-            t.counted(),
+            t.asks_or_changes(),
             t.reach == Reach::Change || t.asks == Asks::Each
         );
         assert_eq!(t.read_only(), t.reach == Reach::Look && t.asks == Asks::No);
@@ -102,32 +101,31 @@ fn every_tool_keeps_the_rules_of_reach() {
             "{}",
             t.name
         );
-        assert!(!t.destructive || t.counted(), "{}", t.name);
+        assert!(!t.destructive || t.asks_or_changes(), "{}", t.name);
         assert_eq!(tool(t.name), Some(t));
     }
     assert!(tool("state").is_none());
 }
 
+/// No count of calls bounds a session (ADR 0177): only the person's refusal holds a call back.
 #[test]
-fn the_loop_guard_refuses_the_call_past_the_last_and_typing_resets_it() {
+fn a_session_may_make_any_number_of_calls() {
     let mut guard = Guard::default();
-    let (a, b) = (session(1), session(2));
+    let a = session(1);
     let now = Instant::now();
-    for n in 0..MAX_CALLS {
+    for n in 0..1000 {
+        assert_eq!(guard.admit(&a, "session_start", "same", now), Ok(()));
         assert_eq!(
             guard.admit(&a, "session_start", &n.to_string(), now),
             Ok(())
         );
     }
+    guard.refused(&a, "session_start", "same", now);
     assert_eq!(
-        guard.admit(&a, "session_start", "more", now),
-        Err(Refusal::Loop)
+        guard.admit(&a, "session_start", "same", now),
+        Err(Refusal::Person)
     );
-    assert_eq!(guard.calls(&a), MAX_CALLS, "a refused call is not counted");
-    // Another session has its own count.
-    assert_eq!(guard.admit(&b, "session_start", "x", now), Ok(()));
-    guard.person_typed(&a);
-    assert_eq!(guard.admit(&a, "session_start", "more", now), Ok(()));
+    assert_eq!(guard.admit(&a, "session_start", "other", now), Ok(()));
 }
 
 #[test]
@@ -151,9 +149,9 @@ fn a_refusal_holds_the_same_call_from_the_same_session_for_a_minute() {
     );
 }
 
-/// A resolved target, such as the branch git names, is looked up without counting a call.
+/// A resolved target, such as the branch git names, is looked up.
 #[test]
-fn a_refusal_is_seen_by_its_resolved_target_without_a_count() {
+fn a_refusal_is_seen_by_its_resolved_target() {
     let mut guard = Guard::default();
     let a = session(1);
     let now = Instant::now();
@@ -163,7 +161,6 @@ fn a_refusal_is_seen_by_its_resolved_target_without_a_count() {
     assert!(!guard.was_refused(&a, "start_worktree_session", "other", soon));
     assert!(!guard.was_refused(&session(2), "start_worktree_session", "main", soon));
     assert!(!guard.was_refused(&a, "start_worktree_session", "main", now + REFUSED_FOR));
-    assert_eq!(guard.calls(&a), 0, "looking counts nothing");
 }
 
 #[test]
