@@ -57,7 +57,8 @@ pub(in crate::app) struct Hosting {
     /// The baseline each new session takes, by its key, until it comes or the start is
     /// refused.
     baselines: HashMap<SessionKey, Baseline>,
-    /// A native resume's or fork's trust until it starts, taken back if its project's is.
+    /// A native resume's, fork's or adoption's trust until it starts, taken back if its
+    /// project's is.
     native_trusts: HashMap<SessionKey, crate::sessions::start::trust::Kept>,
     /// The sessions changed since the worker was last given them to remember.
     pub(in crate::app) unsaved: bool,

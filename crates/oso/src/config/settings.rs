@@ -77,9 +77,10 @@ pub struct Sessions {
     /// `agents_start_limit`: how many live sessions one caller may have started without asking,
     /// 1 to [`MAX_AGENTS_START_LIMIT`] or `"none"`; [`AGENTS_START_LIMIT`] unless set (ADR 0135).
     pub agents_start_limit: Option<StartLimit>,
-    /// `mode = "native"`: a new session in a trusted project runs `claude -p`, shown in oso's
-    /// own rows (ADR 0165); `"tui"`, the default, hosts Claude Code's TUI in a terminal.
-    pub native: bool,
+    /// `mode = "tui"`: a new session hosts Claude Code's TUI in a terminal; unless set, or
+    /// `"native"`, a new session in a trusted project runs `claude -p`, shown in oso's own rows
+    /// (ADR 0165, part 4e).
+    pub tui: bool,
 }
 
 impl Sessions {
@@ -316,7 +317,7 @@ pub(super) fn sessions(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Sessi
                 }
             }
             "agents_start_limit" => sessions.agents_start_limit = agents_start_limit(value, found),
-            "mode" => sessions.native = super::session_mode::native(value, found),
+            "mode" => sessions.tui = super::session_mode::tui(value, found),
             other => unknown(found, name.span().start, other, "[sessions]"),
         }
     }

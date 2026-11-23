@@ -1020,8 +1020,9 @@ read. See [ADR 0019](adr/0019-configuration.md).
   tool calls wait in `app/held_starts.rs`, in order, for at most five seconds, and language
   servers wait in `app/starts.rs`
   ([ADR 0173](adr/0173-starts-wait-for-the-configurations-first-look.md), ADR 0138). A
-  native resume or fork with no open buffer of its project waits there too, for the record
-  of trusted projects' first report, within the same bound (ADR 0165, part 4a).
+  native resume, a fork or an adoption with no open buffer of its project waits there too,
+  for the record of trusted projects' first report, within the same bound (ADR 0165, parts 4a
+  and 4e).
 - The record of trusted projects, `trusted-projects` beside the file, has a thread of its own
   (`config::TrustFile`, `oso-trust`): it reads the record with the file's checks, refusing a
   group too, and makes what `trust-project` and `untrust-project` changed in the file as it is

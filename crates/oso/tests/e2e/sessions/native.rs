@@ -65,7 +65,8 @@ impl Flow {
         );
         fs::set_permissions(&fake, fs::Permissions::from_mode(0o700)).unwrap();
         let config = format!(
-            "[terminal]\nshell = \"/bin/sh\"\nlogin = false\n\n[sessions]\nclaude = \"{}\"\nmode = \"native\"\n",
+            // No `mode`: native is the default in a trusted project (ADR 0165, part 4e).
+            "[terminal]\nshell = \"/bin/sh\"\nlogin = false\n\n[sessions]\nclaude = \"{}\"\n",
             fake.display()
         );
         let config = scratch.write("config.toml", config.as_bytes());
@@ -468,6 +469,7 @@ fn answer_after_quiet(app: &mut App, key: &str) {
     app.send_keys(key);
 }
 
+mod adopt;
 mod cards;
 mod compose;
 mod composed;

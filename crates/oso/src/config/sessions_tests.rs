@@ -232,21 +232,21 @@ fn pane_width_takes_24_to_80_columns_and_says_any_other() {
 }
 
 #[test]
-fn mode_is_native_or_the_tui() {
+fn mode_is_native_unless_the_tui_is_asked_for() {
     let f = Fixture::new();
-    assert!(!f.parse("").settings.sessions.native);
+    // Native is the default (ADR 0165, part 4e).
+    assert!(!f.parse("").settings.sessions.tui);
+    assert!(!f.parse("[sessions]\n").settings.sessions.tui);
     let loaded = f.parse("[sessions]\nmode = \"native\"\n");
     assert_eq!(messages(&loaded), Vec::<String>::new());
-    assert!(loaded.settings.sessions.native);
-    assert!(
-        !f.parse("[sessions]\nmode = \"tui\"\n")
-            .settings
-            .sessions
-            .native
-    );
-    for value in ["\"chat\"", "true"] {
+    assert!(!loaded.settings.sessions.tui);
+    let loaded = f.parse("[sessions]\nmode = \"tui\"\n");
+    assert_eq!(messages(&loaded), Vec::<String>::new());
+    assert!(loaded.settings.sessions.tui);
+    // A wrong value is said, and the default holds.
+    for value in ["\"chat\"", "\"TUI\"", "true"] {
         let loaded = f.parse(&format!("[sessions]\nmode = {value}\n"));
-        assert!(!loaded.settings.sessions.native, "{value}");
+        assert!(!loaded.settings.sessions.tui, "{value}");
         assert!(
             messages(&loaded)
                 .iter()

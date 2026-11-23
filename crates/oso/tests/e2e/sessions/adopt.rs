@@ -21,7 +21,7 @@ const STOPPED: &str = "1234abcd-0000-4000-8000-00000000aaaa";
 const LIVE: &str = "5678cdef-0000-4000-8000-00000000bbbb";
 
 /// Writes the transcript of `id`, which ran in `cwd`, as Claude Code keeps it.
-fn transcript(home: &Path, id: &str, cwd: &Path, title: Option<&str>) {
+pub(super) fn transcript(home: &Path, id: &str, cwd: &Path, title: Option<&str>) {
     let dir = home.join(".claude/projects/-elsewhere");
     fs::create_dir_all(&dir).unwrap();
     let mut text = String::new();
@@ -55,7 +55,7 @@ fn rows(state: &Value) -> Vec<String> {
 }
 
 /// Opens `session-adopt` once its list holds `name`, and picks it.
-fn adopt(app: &mut App, name: &str) {
+pub(super) fn adopt(app: &mut App, name: &str) {
     let deadline = Instant::now() + Duration::from_secs(20);
     loop {
         app.send_keys("C-c a a");
