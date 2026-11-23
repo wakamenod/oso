@@ -741,6 +741,11 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   never decoded, and nothing read is logged. A message shows as the person's only where the
   transcript marks it so. Rows that hold the conversation read only what follows the ids of
   their newest messages (part 5b), by the same rules.
+- A native session's replies are drawn without most of their Markdown's marks (ADR 0165, "The
+  look: Markdown"): what is hidden is marks, a fence's language of at most 16 bytes, and a
+  link's web address behind plain words, on a line of words alone, never other text; invisible and bidi characters show as anywhere. A line that could start as a row
+  of oso's keeps its marks, or is drawn behind a bar in code; a fence's code can still have a
+  tool row's colours, not its place. `w` copies the raw text, on the person's key.
 - A native session's control layer (ADR 0165, step 2c) writes only `initialize`,
   `interrupt`, `get_usage` (part 3a) and `set_permission_mode` (part 3b), and reads of an
   answer only its id, its success, its error, cut to 256 bytes and logged escaped,

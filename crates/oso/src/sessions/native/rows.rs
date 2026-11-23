@@ -9,7 +9,8 @@
 //!   grows with each delta; the whole message that follows finds the row again by its
 //!   message's id and its order, a tool call by its id, so a block has one row whether or not
 //!   its parts came. A reply that grows says from which line ([`RowChange::Grew`]), so that
-//!   only its last lines are drawn again; a folded row that shows nothing new says nothing.
+//!   only its last lines are drawn again, the last once more as it ends; a folded row that shows
+//!   nothing new says nothing.
 //! - A blank line sets a row apart from the one before (`Row::gap`), as it is added. A row whose
 //!   change came is open.
 //! - A tool call is found again by its id for the session's life: its result, a denial and a
@@ -22,6 +23,8 @@
 //!   path is known; once it is, a call that may not share leaves for a row of its own, or,
 //!   when rows came after, is marked so that its row says so. Each call in a row folds on its
 //!   own.
+//! - Where a streamed reply is drawn again from is `shown`'s to say: its lines are read once as
+//!   they end.
 //! - A message is the person's only when oso sent its text ([`Rows::sent`]) and the CLI
 //!   replayed it, or as a listed slash command, never replayed (step 2d). Any other replay is a note, or nothing when a command or hook wrapped it, so
 //!   no text from elsewhere is shown as the person's words.
@@ -33,6 +36,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 
+use super::shown::{self, LineStart};
 use super::wire::{
     Assistant, Block, BlockKind, Event, PartKind, Partial, Task, ToolInput, ToolResult, TurnResult,
     User,
@@ -158,16 +162,14 @@ pub struct Rows {
 }
 
 /// A block that started: its message's id, its index, its row and its place in the row; for
-/// a reply, where its last line starts and how many lines are before it as drawn, its gap
-/// among them.
+/// a reply, where its last line starts, its gap among the lines before it.
 #[derive(Debug)]
 struct Open {
     message_id: String,
     index: u64,
     row: usize,
     slot: usize,
-    last_line: usize,
-    lines: usize,
+    mark: LineStart,
 }
 
 impl Rows {
@@ -304,8 +306,7 @@ impl Rows {
                     index,
                     row,
                     slot,
-                    last_line: 0,
-                    lines: usize::from(self.rows[row].gap),
+                    mark: LineStart::after(usize::from(self.rows[row].gap)),
                 });
                 Some(change)
             }
@@ -328,16 +329,14 @@ impl Rows {
             } => {
                 let change = RowChange::Grew {
                     row: open.row,
-                    lines: open.lines,
-                    from: open.last_line,
+                    at: open.mark,
                 };
                 let start = shown.len();
                 let fit = grow(shown, text);
                 let newly_cut = !fit && !*cut;
                 *cut |= !fit;
-                for (at, _) in shown[start..].match_indices('\n') {
-                    open.lines += 1;
-                    open.last_line = start + at + 1;
+                if shown[start..].contains('\n') {
+                    open.mark = shown::walk(shown, open.mark, true, |_| {});
                 }
                 (shown.len() > start || newly_cut).then_some(change)
             }
@@ -401,8 +400,8 @@ impl Rows {
         Some(self.open.remove(at))
     }
 
-    /// Puts a reply's whole text in its open row: nothing changes when it is what streamed,
-    /// and only its last lines when it grew from it.
+    /// Puts a reply's whole text in its open row: only its last line, now ended, changes when
+    /// it is what streamed, and only its last lines when it grew from it.
     fn fill_reply(&mut self, open: Option<Open>, text: String, depth: u8) -> Option<RowChange> {
         let Some(open) = open else {
             let kind = Kind::Reply {
@@ -422,15 +421,14 @@ impl Rows {
         };
         *streaming = false;
         if *shown == text {
-            return None;
+            return ends(&open, shown);
         }
         let grew = text.starts_with(shown.as_str());
         *shown = text;
         Some(if grew {
             RowChange::Grew {
                 row: open.row,
-                lines: open.lines,
-                from: open.last_line,
+                at: open.mark,
             }
         } else {
             RowChange::Changed(open.row)
@@ -489,7 +487,14 @@ impl Rows {
     fn result(&mut self, result: TurnResult) -> Vec<RowChange> {
         let mut changes = Vec::new();
         for open in std::mem::take(&mut self.open) {
-            if close(&mut self.rows[open.row].kind) {
+            let kind = &mut self.rows[open.row].kind;
+            if let Kind::Reply {
+                text, streaming, ..
+            } = kind
+            {
+                *streaming = false;
+                changes.extend(ends(&open, text));
+            } else if close(kind) {
                 changes.push(RowChange::Changed(open.row));
             }
         }
@@ -517,14 +522,18 @@ impl Rows {
     }
 }
 
-/// Ends a row that streamed; whether it shows otherwise now.
+/// The reply of block `open`, now whole, whose text is `text`: its last line, drawn as written
+/// until it ended, changes.
+fn ends(open: &Open, text: &str) -> Option<RowChange> {
+    (open.mark.from < text.len()).then_some(RowChange::Grew {
+        row: open.row,
+        at: open.mark,
+    })
+}
+
+/// Ends a row of thinking that streamed; whether it shows otherwise now.
 fn close(kind: &mut Kind) -> bool {
     match kind {
-        // A reply shows the same whether it streams.
-        Kind::Reply { streaming, .. } => {
-            *streaming = false;
-            false
-        }
         Kind::Thinking { streaming, .. } if *streaming => {
             *streaming = false;
             true

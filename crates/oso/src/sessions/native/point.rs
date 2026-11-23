@@ -1,6 +1,6 @@
 //! What a native session's keys find at point (ADR 0165, ADR 0130's design): the call of an
-//! open row of several that a line is in, the row `n`/`p` and `]`/`[` go to, and the whole
-//! result `RET` shows in `*result: NAME*`.
+//! open row of several that a line is in, the row `n`/`p` and `]`/`[` go to, the
+//! Markdown `w` copies, and the whole result `RET` shows in `*result: NAME*`.
 //!
 //! Must not depend on: the editor or the UI; the host says which row point is in, with
 //! `Placed`.
@@ -114,6 +114,14 @@ pub fn call(row: &Row, slot: Option<usize>) -> Option<&Tool> {
     }
 }
 
+/// What `w` copies of `row`: a reply's text, as it came.
+pub fn markdown(row: &Row) -> Option<&str> {
+    match &row.kind {
+        Kind::Reply { text, .. } if !text.is_empty() => Some(text),
+        _ => None,
+    }
+}
+
 /// What `*result: NAME*` shows of `tool`: its line, then its whole result or change, as it
 /// came. `None` while it has none.
 pub fn whole(tool: &Tool, directory: &Path) -> Option<String> {
@@ -158,7 +166,7 @@ mod tests {
     use super::super::placed::Placed;
     use super::super::rows::{Kind, Row, Tool, ToolState};
     use super::super::wire::{Hunk, ToolInput, ToolResult, TurnResult};
-    use super::{Point, Wanted, call, first_line, point, slot, step, whole};
+    use super::{Point, Wanted, call, first_line, markdown, point, slot, step, whole};
     use crate::sessions::native::render::render;
 
     fn row(kind: Kind) -> Row {
@@ -280,6 +288,20 @@ mod tests {
         assert_eq!(call(&rows[4], Some(1)).and_then(text), Some("b".to_owned()));
         assert_eq!(call(&rows[2], None).map(|t| t.name.as_str()), Some("Bash"));
         assert_eq!(call(&rows[0], None), None);
+    }
+
+    #[test]
+    fn w_copies_a_reply_as_it_came() {
+        let reply = |text: &str| {
+            row(Kind::Reply {
+                text: text.to_owned(),
+                streaming: false,
+                cut: false,
+            })
+        };
+        assert_eq!(markdown(&reply("# a\n`b`")), Some("# a\n`b`"));
+        assert_eq!(markdown(&reply("")), None);
+        assert_eq!(markdown(&rows()[0]), None);
     }
 
     #[test]

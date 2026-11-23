@@ -152,7 +152,7 @@ proptest! {
                 prop_assert!(range.is_some(), "{:?} not drawn", change);
                 let range = range.unwrap_or_default();
                 let text = match change {
-                    RowChange::Grew { lines, from, .. } => tail(row, lines, from).text,
+                    RowChange::Grew { at, .. } => tail(row, at).text,
                     RowChange::Added(_) | RowChange::Changed(_) => render(row, directory, 80).text,
                 };
                 buffer.replace_range(range.clone(), &text);

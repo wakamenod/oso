@@ -1,6 +1,6 @@
 //! The keys of a native session's buffer (ADR 0165, step 1; ADR 0130's design): `TAB` folds
-//! the row at point, `RET` shows a call's whole result, `n`/`p` move between the person's
-//! messages and `]`/`[` between tool rows, and `C-c C-t`, from the composer too, opens or
+//! the row at point, `RET` shows a call's whole result, `w` copies a reply's Markdown, `n`/`p`
+//! move between the person's messages and `]`/`[` between tool rows, and `C-c C-t`, from the composer too, opens or
 //! folds the to-do strip (part 3e). Each asks the host, which knows where each row is.
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the host-owned state
@@ -33,6 +33,14 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: result,
+        state: None,
+    },
+    Command {
+        name: "native-session-copy-markdown",
+        doc: "Copy the reply at point of a native session's buffer as the Markdown Claude wrote, to the kill ring and the clipboard.\n\nThe buffer shows a reply with its Markdown's marks hidden, and `M-w` copies what is shown.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: copy_markdown,
         state: None,
     },
     Command {
@@ -113,6 +121,10 @@ fn result(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     at_point(ctx, NativeAction::Open)
 }
 
+fn copy_markdown(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    at_point(ctx, NativeAction::CopyMarkdown)
+}
+
 fn next_prompt(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
     at_point(ctx, NativeAction::Prompt(args.count()))
 }
@@ -167,6 +179,7 @@ mod tests {
         .unwrap();
         run(&mut editor, "native-session-toggle", Args::NONE).unwrap();
         run(&mut editor, "native-session-cycle-mode", Args::NONE).unwrap();
+        run(&mut editor, "native-session-copy-markdown", Args::NONE).unwrap();
         let at = |action| SessionRequest::Native {
             buffer: id,
             line: 1,
@@ -177,7 +190,8 @@ mod tests {
             [
                 at(NativeAction::Tool(-3)),
                 at(NativeAction::Toggle),
-                at(NativeAction::CycleMode)
+                at(NativeAction::CycleMode),
+                at(NativeAction::CopyMarkdown)
             ]
         );
     }

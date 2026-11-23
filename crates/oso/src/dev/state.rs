@@ -441,6 +441,7 @@ fn buffer_state(id: BufferId, buffer: &Buffer, shows_secret: bool) -> Value {
         // Whether any of its first runs is of a syntax class, as a review's side is once
         // highlighted (ADR 0122, step 9).
         "syntax": buffer.highlights().is_some_and(syntax::has_syntax),
+        "code": buffer.highlights().is_some_and(syntax::has_code),
         "loading": buffer.loading().map(|progress| json!({
             "read": size_shown.then_some(progress.read),
             "total": if size_shown { progress.total } else { None },
@@ -755,6 +756,7 @@ mod tests {
             "wrapped": false,
             "highlighted": false,
             "syntax": false,
+            "code": false,
         });
         assert_eq!(
             state,

@@ -37,7 +37,7 @@ impl Placed {
     }
 
     /// The bytes `change` replaces: none for a row added at the end, the whole row for one
-    /// that changed, and from its line `lines` for one that grew, `line(start, lines)` being
+    /// that changed, and from its mark's line for one that grew, `line(start, lines)` being
     /// the start of the line `lines` lines after `start` in the buffer. `None` for a change
     /// to a row not drawn, or one added past the end.
     pub fn range(
@@ -49,9 +49,9 @@ impl Placed {
         match change {
             RowChange::Added(_) => (at == self.ends.len()).then(|| self.end()..self.end()),
             RowChange::Changed(_) => (at < self.ends.len()).then(|| self.start(at)..self.ends[at]),
-            RowChange::Grew { lines, .. } => (at < self.ends.len()).then(|| {
+            RowChange::Grew { at: mark, .. } => (at < self.ends.len()).then(|| {
                 let (start, end) = (self.start(at), self.ends[at]);
-                line(start, lines).clamp(start, end)..end
+                line(start, mark.lines).clamp(start, end)..end
             }),
         }
     }

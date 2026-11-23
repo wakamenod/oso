@@ -3,6 +3,8 @@
 //!
 //! Must not depend on: threads, files or the UI; plain values.
 
+use crate::sessions::native::shown::LineStart;
+
 /// What changed with an event.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RowChange {
@@ -10,13 +12,9 @@ pub enum RowChange {
     Added(usize),
     /// The row at this index changed.
     Changed(usize),
-    /// The reply at `row` grew: its first `lines` lines as drawn stay, and what follows them
-    /// is [`render::tail`](crate::sessions::native::render::tail) from the text's byte `from`.
-    Grew {
-        row: usize,
-        lines: usize,
-        from: usize,
-    },
+    /// The reply at `row` grew: what it draws before `at` stays, and what follows is
+    /// [`render::tail`](crate::sessions::native::render::tail) from there.
+    Grew { row: usize, at: LineStart },
 }
 
 impl RowChange {

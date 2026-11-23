@@ -127,7 +127,8 @@ often, so it must rebuild within 2 s.
   `sessions/start/space_gate.rs`, from what `app/sessions/spaces/native.rs` judges (ADR 0176);
   its whole replies are highlighted as Markdown on the syntax threads, as
   documents no buffer owns, by `app/sessions/hosting/native/markdown.rs`, and their runs put
-  on each reply's row by `sessions/native/markdown.rs` (part 2g); its to-do strip is
+  on each reply's row by `sessions/native/markdown.rs` (part 2g) over what `sessions/native/shown.rs` draws of
+  its Markdown; its to-do strip is
   `native/todo.rs`, over `sessions/native/todo.rs` and `wire/todo.rs` (part 3e); its switch to
   the TUI, `session-switch-mode`, is `app/sessions/hosting/switch.rs`, over the rules in
   `sessions/native/switch.rs`, its side and its transcript set aside meanwhile `native/switching.rs`,

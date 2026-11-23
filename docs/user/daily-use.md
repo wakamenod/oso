@@ -731,7 +731,9 @@ a `│` at the left. Only oso's marks stand in the first two columns, so nothing
 for one. An edit shows open, its first 40 lines numbered, and an open result its first
 12 lines; each turn's time and cost is at the right. In the session's buffer, `TAB` folds
 or unfolds the row at point, `RET` shows a tool call's whole result in `*result: NAME*`, which
-agents cannot read, `n` and `p` move between your messages, and `]` and `[` between tool rows.
+agents cannot read, `w` copies a reply as the Markdown Claude wrote, `n` and `p` move between
+your messages, and `]` and `[` between tool rows. Replies show without their Markdown's marks;
+`M-w` copies what shows.
 Long lines wrap there, in the composer and in the results; `C-x x t` in one of them cuts them at
 the window's edge instead.
 The `C-c` keys of a session's terminal work there too, except `C-c +` and `C-c -`. Claude

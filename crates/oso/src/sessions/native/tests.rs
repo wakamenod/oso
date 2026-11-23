@@ -14,6 +14,7 @@ use oso_core::editor::Approval;
 
 use super::render::{Face, render, seconds, tail, tokens};
 use super::rows::{Kind, RowChange, Rows, ToolState};
+use super::shown::LineStart;
 use super::turns::target;
 use super::wire::{Event, MAX_LINE, MAX_TEXT, parse, user_message};
 use crate::sessions::state::Target;
@@ -235,8 +236,16 @@ fn a_turn_that_ends_closes_what_streams() {
         read(&mut rows, line);
     }
     let changes = read(&mut rows, r#"{"type":"result","subtype":"success"}"#);
-    // The reply shows the same once it stops streaming; the call does not.
-    assert_eq!(changes, vec![RowChange::Changed(0), RowChange::Added(2)]);
+    // The call is unfinished, and the reply's last line ended, after its blank line.
+    let at = LineStart::after(1);
+    assert_eq!(
+        changes,
+        vec![
+            RowChange::Changed(0),
+            RowChange::Grew { row: 1, at },
+            RowChange::Added(2)
+        ]
+    );
     assert!(
         matches!(&rows.rows()[0].kind, Kind::Tools(tools) if tools[0].state == ToolState::Unfinished)
     );
@@ -258,11 +267,11 @@ fn a_reply_that_grows_is_drawn_from_its_last_line() {
         let delta =
             serde_json::json!({"type": "stream_event", "api_message_id": "m", "event": event});
         for change in rows.apply(parse(delta.to_string().as_bytes())) {
-            let RowChange::Grew { row, lines, from } = change else {
+            let RowChange::Grew { row, at } = change else {
                 panic!("{change:?}")
             };
-            let kept: String = drawn.split_inclusive('\n').take(lines).collect();
-            drawn = kept + &tail(&rows.rows()[row], lines, from).text;
+            let kept: String = drawn.split_inclusive('\n').take(at.lines).collect();
+            drawn = kept + &tail(&rows.rows()[row], at).text;
         }
         assert_eq!(
             drawn,
@@ -273,7 +282,13 @@ fn a_reply_that_grows_is_drawn_from_its_last_line() {
     // A blank line ends in no space.
     assert_eq!(drawn, "  Hello\n  world\n\n\n  end\n");
     let whole = r#"{"type":"assistant","message":{"id":"m","content":[{"type":"text","text":"Hello\nworld\n\n\nend"}]}}"#;
-    assert!(read(&mut rows, whole).is_empty());
+    // Its last line ended: drawn again, as its marks are hidden now.
+    let at = match read(&mut rows, whole)[..] {
+        [RowChange::Grew { row: 0, at }] => at,
+        ref changes => panic!("{changes:?}"),
+    };
+    let kept: String = drawn.split_inclusive('\n').take(at.lines).collect();
+    assert_eq!(kept + &tail(&rows.rows()[0], at).text, drawn);
 }
 
 #[test]

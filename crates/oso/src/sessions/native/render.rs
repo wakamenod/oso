@@ -10,7 +10,8 @@
 //!   ends with one.
 //! - Only oso's marks stand in a row's first two columns, a nested row's [`GUIDE`] among them: every line of a reply, a note or a
 //!   tool's result is further in, whatever its text says, so none passes for a row of oso's.
-//! - A reply's text has no face of its own, so that Markdown's highlighting can lie over it.
+//! - A reply is drawn as its Markdown says, its marks hidden ([`super::shown`]), with faces no
+//!   row of oso's has; its code's own highlighting lies over it.
 //! - What comes from the model or a tool is shown as text, never read as anything: what is
 //!   shown on a row's one line (a tool's name and target, a reason, a progress line) has its
 //!   control characters turned to spaces, and is cut with `…`.
@@ -25,10 +26,13 @@ use std::path::Path;
 use oso_core::minibuffer::cells_of;
 
 mod queued;
+mod reply;
 mod runs;
 mod tools;
 
 pub use queued::queue_rows;
+pub(super) use reply::reply_lines;
+pub use reply::tail;
 #[cfg(test)]
 pub(super) use tools::{
     MAX_DIFF_LINE, MAX_DIFF_SHOWN, MAX_SHOWN_RESULT, RESULT_LINES, first_lines,
@@ -36,8 +40,9 @@ pub(super) use tools::{
 
 use super::capped;
 use super::rows::{Kind, Row, Tool};
+use super::shown::{LineStart, Style};
 use super::turns::interrupted;
-use super::wire::{MAX_TEXT, TurnResult};
+use super::wire::TurnResult;
 
 /// What stands in the first two columns of a nested row, a subagent's or an open row's call.
 pub(super) const GUIDE: &str = "│ ";
@@ -62,6 +67,8 @@ pub enum Face {
     Error,
     /// A call that waits for the person.
     Waiting,
+    /// Of a reply, by its Markdown.
+    Reply(Style),
     /// A permission card's frame and title: oso's words alone, never Claude's (ADR 0180).
     CardTitle,
     /// A key of a permission card, on its chip: oso's alone too.
@@ -122,7 +129,7 @@ impl Rendered {
 }
 
 /// The mark before a line: `mark`, or for an empty line, `mark` without the spaces at its end.
-pub(super) fn blank_mark(mark: &str, empty: bool) -> &str {
+fn blank_mark(mark: &str, empty: bool) -> &str {
     if empty {
         mark.trim_end_matches(' ')
     } else {
@@ -130,42 +137,10 @@ pub(super) fn blank_mark(mark: &str, empty: bool) -> &str {
     }
 }
 
-/// What each line of reply `row` starts with.
-pub(super) fn reply_indent(row: &Row) -> String {
-    GUIDE.repeat(usize::from(row.depth)) + "  "
-}
-
-/// What follows the first `lines` lines of a reply row as drawn, its gap among them, from its
-/// text's byte `from`, where a line starts: what
-/// [`RowChange::Grew`](super::rows::RowChange::Grew) says to draw again. Together they draw
-/// what [`render`] draws, from the last line only.
-pub fn tail(row: &Row, lines: usize, from: usize) -> Rendered {
-    let mut out = Rendered::default();
-    let Kind::Reply { text, cut, .. } = &row.kind else {
-        return out;
-    };
-    if lines == 0 && row.gap {
-        out.put("\n", None);
-    }
-    let from = text.floor_char_boundary(from.min(text.len()));
-    let rest = &text[from..];
-    let indent = reply_indent(row);
-    if !rest.is_empty() {
-        out.lines(rest, &indent, Some(Face::Dim), None);
-    }
-    if *cut {
-        out.put(
-            &format!("{indent}… cut at {} MiB\n", MAX_TEXT >> 20),
-            Some(Face::Dim),
-        );
-    }
-    out
-}
-
 /// `row` as it shows, its paths relative to `directory`, for a window `width` cells wide.
 pub fn render(row: &Row, directory: &Path, width: usize) -> Rendered {
     if matches!(row.kind, Kind::Reply { .. }) {
-        return tail(row, 0, 0);
+        return tail(row, LineStart::default());
     }
     let mut out = Rendered::default();
     if row.gap {
