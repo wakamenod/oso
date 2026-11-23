@@ -333,6 +333,15 @@ fn card(app: &mut App, what: &str) -> String {
     text(&state)
 }
 
+/// The card that says `what_it_says`, once point came to it: one that follows another at once has
+/// its place and name.
+fn card_saying(app: &mut App, what: &str, what_it_says: &str) -> String {
+    let state = app.wait_for(what, |state| {
+        state["buffer"]["name"] == "*card: proj*" && text(state).contains(what_it_says)
+    });
+    text(&state)
+}
+
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
 #[expect(
@@ -384,10 +393,9 @@ fn a_native_sessions_calls_are_asked_of_the_person_with_the_agent_channel_off() 
     assert!(first.contains("│ $ rm -rf build"), "{first}");
     assert!(first.contains("╰─  y  allow"), "{first}");
     answer_after_quiet(&mut app, "y");
-    // Answered, the card goes, and point with it, to the composer.
-    app.wait_for("the first card answered", in_composer);
-    let second = card(&mut app, "the second card");
-    assert!(second.contains("│ $ make"), "{second}");
+    // Answered, the card goes, and the call that waits behind it has its own, with point there as
+    // it appears (ADR 0180).
+    card_saying(&mut app, "the second card", "│ $ make");
     // `RET` shows the whole call in the card, and goes back.
     answer_after_quiet(&mut app, "RET");
     app.wait_for("the whole call", |state| {

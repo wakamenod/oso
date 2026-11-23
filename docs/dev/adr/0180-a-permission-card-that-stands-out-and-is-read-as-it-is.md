@@ -55,6 +55,8 @@ and the move at once; then that questions and plans grow and page, and the publi
   or in its composer with nothing written, and in the middle of nothing: no key sequence, prompt,
   search, jump, query-replace, menu, composition, keyboard macro or held mouse button, nor input held
   back for the clipboard or an undo. The card's window must show all of it, as before.
+- **From one card to the next:** an answered card gives point to the composer, and a call that waits
+  behind it has its card, and point, at once, with a quiet wait of its own.
 - **Otherwise it waits, as before:** point moves once none of that holds and 500 ms passed with no
   key. So clearing a draft is not the moment point goes away.
 - **The quiet wait stays:** a key answers the card only after 500 ms with no key and since

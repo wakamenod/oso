@@ -11,7 +11,9 @@ use serde_json::{Value, json};
 
 use super::super::super::harness::App;
 use super::super::super::worktrees::keys;
-use super::{Flow, MESSAGE, answer_after_quiet, card, in_composer, sent, text, wait_for_answers};
+use super::{
+    Flow, MESSAGE, answer_after_quiet, card, card_saying, in_composer, sent, text, wait_for_answers,
+};
 
 /// The fake: as the asking fake, but asks about the two calls `asks.jsonl` holds, the second
 /// once the flow writes `ask2`, and writes
@@ -151,10 +153,9 @@ fn a_question_card_answers_in_the_calls_input_and_a_plan_is_denied_with_a_note()
         text.contains("[x] Red") && text.contains("[x] Blue")
     });
     answer_after_quiet(&mut app, "RET");
-    app.wait_for("the questions answered", in_composer);
 
-    // The plan, as the request gives it, denied with a note.
-    let plan = card(&mut app, "the plan card");
+    // The plan, which waited behind them, as the request gives it, denied with a note.
+    let plan = card_saying(&mut app, "the plan card", "Claude's plan");
     assert!(
         plan.starts_with("╭─ Claude's plan, as its request gives it "),
         "{plan}"
