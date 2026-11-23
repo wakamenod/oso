@@ -156,8 +156,9 @@ impl App {
     }
 
     /// `import-terminals`: the masters of the terminals the import carried, in their order,
-    /// or, with `None`, word that they stay with the instance before. Only the parent may
-    /// bring them.
+    /// as the instance before has gone, or, with `None`, word that they stay with it. Only the
+    /// parent may bring them. With no terminal carried, a count of 0 takes none, and
+    /// `handover`'s `before_gone` resumes the native sessions named then (ADR 0165, part 4c).
     pub(in crate::app) fn import_terminals(
         &mut self,
         count: Option<usize>,

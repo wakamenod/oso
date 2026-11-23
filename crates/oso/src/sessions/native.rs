@@ -36,6 +36,8 @@
 //!   shows it (step 3, part 3e).
 //! - `choice`: the model and effort level the person chose with `/model` and `/effort`, once
 //!   the CLI says it took them (part 3c).
+//! - `switch`: `session-switch-mode`'s rules, and where each switch between native and the
+//!   TUI is, from the end of one mode's process to the other's start (part 4d).
 
 pub mod asks;
 pub mod card;
@@ -53,6 +55,7 @@ pub mod rows;
 pub mod slash;
 pub mod status;
 pub mod suggest;
+pub mod switch;
 pub mod todo;
 pub mod turns;
 pub mod usage;

@@ -199,6 +199,16 @@ impl Stream {
         }
     }
 
+    /// Kills the process's group at once if it is not reaped yet: its end was said with no
+    /// reap, as when its reader failed. Whether it was not.
+    pub fn kill_unreaped(&self) -> bool {
+        let unreaped = self.pid().is_some();
+        if unreaped {
+            self.kill();
+        }
+        unreaped
+    }
+
     /// Kills the process's group at once, as oso exits.
     pub fn kill(&self) {
         self.close_input();

@@ -154,12 +154,15 @@ impl Editor {
         }
     }
 
-    /// Renames the terminal buffer `id` to `base`, or `base<2>`, `base<3>` and on when another
-    /// buffer has that name, as [`Editor::add_terminal_buffer`] names a new one: a hosted
-    /// session's buffer after its session's rename (ADR 0155). Gives the name it took, or
-    /// `None` for a buffer that is not a terminal's, which keeps its name.
+    /// Renames the terminal buffer `id`, or a native session's (ADR 0165), to `base`, or
+    /// `base<2>`, `base<3>` and on when another buffer has that name, as
+    /// [`Editor::add_terminal_buffer`] names a new one: a hosted session's buffer after its
+    /// session's rename (ADR 0155), and a native session's transcript set aside while its
+    /// session runs in the TUI (ADR 0165, part 4d). Gives the name it took, or `None` for a
+    /// buffer that is neither, which keeps its name.
     pub fn rename_terminal_buffer(&mut self, id: BufferId, base: &str) -> Option<String> {
-        self.buffer(id).filter(|buffer| buffer.is_terminal())?;
+        self.buffer(id)
+            .filter(|buffer| takes_session_flags(buffer))?;
         let name = self.free_terminal_name(base, Some(id));
         self.buffer_mut(id)?.set_name(name.clone());
         Some(name)
@@ -213,6 +216,13 @@ mod tests {
             editor.rename_terminal_buffer(first, "*claude: api*"),
             Some("*claude: api*".into())
         );
+        // A native session's buffer too (ADR 0165, part 4d).
+        let native = editor.add_native_session_buffer("*claude: api*");
+        assert_eq!(
+            editor.rename_terminal_buffer(native, "*native: api*"),
+            Some("*native: api*".into())
+        );
+        assert_eq!(name(&editor, native), "*native: api*");
         let scratch = editor.window().buffer();
         let before = name(&editor, scratch);
         assert_eq!(editor.rename_terminal_buffer(scratch, "*claude: x*"), None);

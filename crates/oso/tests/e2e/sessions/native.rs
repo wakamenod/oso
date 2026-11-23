@@ -479,11 +479,13 @@ mod model;
 mod modes;
 mod plan;
 mod quit;
+mod restart;
 mod restart_wait;
 mod resume;
 mod slash;
 mod status;
 mod suggest;
+mod switch;
 mod todo;
 
 /// Whether the selected window is the composer docked under a session.

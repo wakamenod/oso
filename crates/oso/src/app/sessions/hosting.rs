@@ -2,7 +2,8 @@
 //! command, or at an agent's tool's (ADR 0153), the start thread's reports and the remembered
 //! set; `bridge`: the connections that hold a session; `naming`: a rename the person was asked
 //! about, and what Claude Code's registry calls oso's running sessions (ADR 0155); `shared`:
-//! the questions asked where another session runs. The work that touches files and processes
+//! the questions asked where another session runs; `switch`: `session-switch-mode` (ADR 0165,
+//! part 4d). The work that touches files and processes
 //! is on the start thread and the sessions worker; this only decides and carries out.
 //!
 //! Must not depend on: key presses or how a frame is drawn.
@@ -35,6 +36,7 @@ mod native;
 mod record;
 mod resume;
 mod shared;
+mod switch;
 mod terminal;
 mod trust;
 pub(in crate::app) use terminal::buffer_name;
@@ -348,9 +350,9 @@ impl App {
     /// What a session's start thread found.
     pub(in crate::app) fn session_start_reported(&mut self, report: Report) {
         if let Report::Ready(ready) = &report {
-            self.native_start_reported(ready.token);
+            self.start_thread_reported(ready.token);
         } else if let Report::Refused { token, .. } | Report::Live { token, .. } = &report {
-            self.native_start_reported(*token);
+            self.start_thread_reported(*token);
         }
         match report {
             Report::Ready(ready) => {

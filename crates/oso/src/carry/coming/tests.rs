@@ -72,6 +72,7 @@ fn pieces_go_to_the_ui_and_masters_before_a_state_are_refused() {
         post: ui.post(),
         generation: None,
         terminals: 0,
+        natives: false,
         masters: Vec::new(),
     };
     let fields = json!({ "export": 1, "item": 0, "offset": 0, "text": "ab" });
@@ -93,6 +94,7 @@ fn held_masters_are_taken_only_once_the_parent_has_gone() {
         post: ui.post(),
         generation: Some(4),
         terminals: 1,
+        natives: false,
         masters: vec![writer.into()],
     };
     let looks = Cell::new(0);
@@ -111,6 +113,7 @@ fn masters_are_given_up_if_none_came_or_when_told_to_stay() {
         post: ui.post(),
         generation: Some(4),
         terminals: 2,
+        natives: false,
         masters: Vec::new(),
     };
     coming.ended(10, || 1);
@@ -118,6 +121,7 @@ fn masters_are_given_up_if_none_came_or_when_told_to_stay() {
         post: ui.post(),
         generation: Some(4),
         terminals: 2,
+        natives: false,
         masters: Vec::new(),
     };
     coming.left();
@@ -125,4 +129,25 @@ fn masters_are_given_up_if_none_came_or_when_told_to_stay() {
         *ui.asked.borrow(),
         ["terminals None with 0", "left Some(4)"]
     );
+}
+
+#[test]
+fn named_native_sessions_resume_with_no_terminal_once_the_parent_has_gone() {
+    let ui = Ui::default();
+    let coming = |natives| Coming {
+        post: ui.post(),
+        generation: Some(4),
+        terminals: 0,
+        natives,
+        masters: Vec::new(),
+    };
+    // None named: nothing waits, nothing is asked.
+    coming(false).ended(10, || 10);
+    assert!(ui.asked.borrow().is_empty());
+    let looks = Cell::new(0);
+    coming(true).ended(10, || {
+        looks.set(looks.get() + 1);
+        if looks.get() < 2 { 10 } else { 1 }
+    });
+    assert_eq!(*ui.asked.borrow(), ["terminals Some(0) with 0"]);
 }

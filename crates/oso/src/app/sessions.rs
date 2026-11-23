@@ -210,6 +210,8 @@ impl App {
                 // Once oso knows its own, the others it may adopt.
                 self.hosting.adopting.recalled = true;
                 self.list_adoptable();
+                // Those a restart resumes, if the instance before has gone (ADR 0165, part 4c).
+                self.resume_natives_carried();
             }
             Out::Changed(key, change) => {
                 log::debug!("session {key}: {}", change.state);

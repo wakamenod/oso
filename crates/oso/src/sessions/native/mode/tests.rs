@@ -380,3 +380,26 @@ fn a_plan_approved_with_a_mode_is_the_persons_choice() {
     assert!(modes.said("auto"), "no approval asked for it");
     assert_eq!(modes.carried(), Some(Default));
 }
+
+#[test]
+fn a_session_an_oso_restart_resumes_starts_in_the_mode_carried_and_keeps_it() {
+    let mut modes = ModeState::restarted(Some(AcceptEdits));
+    assert_eq!(modes.for_start(), Some(AcceptEdits));
+    assert!(modes.said("acceptEdits"));
+    assert_eq!(
+        modes.carried(),
+        Some(AcceptEdits),
+        "the person's, before the restart"
+    );
+    // A mode that asks less, which the stream alone says, is not carried.
+    assert!(modes.said("auto"));
+    assert_eq!(modes.carried(), Some(Default));
+    let mut none = ModeState::restarted(None);
+    assert_eq!(
+        none.for_start(),
+        None,
+        "nobody switched it: the settings' mode"
+    );
+    assert!(none.said("auto"));
+    assert_eq!(none.carried(), None);
+}

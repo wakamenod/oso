@@ -1127,7 +1127,11 @@ interrupted, or while git or a file operation runs, `oso-restart` waits for it f
 ([ADR 0165](adr/0165-native-claude-sessions-the-route.md), part 4b): `Editor::restart_when_idle`
 holds the wait, so `C-g` and `C-x C-c` cancel it, and the host begins the restart once
 nothing has held it for 2 s (`app/restart/wait.rs`, with `IdleClock`). Terminals do
-not hold it, as they are carried.
+not hold it, as they are carried. The restart then stops each native session's process,
+waits for each end as an event, and names the sessions in the state (`carry::natives`); the
+new instance resumes them once the instance going has gone, which `import-terminals` says
+with no terminal too, and a restart that stays resumes them here (part 4c,
+`app/sessions/hosting/native/restarting.rs`).
 
 When the window gains focus, a thread of `carry::notice` looks at the binary's path off the UI
 thread. Once the file there is not the one this instance started from (device, inode,

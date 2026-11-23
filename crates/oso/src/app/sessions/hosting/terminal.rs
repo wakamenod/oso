@@ -71,6 +71,7 @@ impl App {
             ready: Box::new(move || {
                 ready.send(UserEvent::Terminal(buffer));
             }),
+            handed: None,
         }
     }
 

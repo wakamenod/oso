@@ -9,12 +9,14 @@
 //! - A brief, when one is given, comes after `--`, which ends the options.
 //! - A native session's (ADR 0165) starts with [`NATIVE`]: `claude -p` reading and writing
 //!   stream-json. It takes no brief on its line: its first message goes on standard input.
-//! - No permission option is ever given to a terminal's session: not `--permission-mode`, not
+//! - No permission option is given to a terminal's new session: not `--permission-mode`, not
 //!   `--dangerously-skip-permissions`, not `--allowedTools`. A session starts in the mode the
 //!   person's own settings give it, whoever asked for it. A native session's later processes
 //!   (a resume, an interrupt's resume, a fork) are given `--permission-mode`, the mode it was
 //!   in or the person switched it to, as `--resume` does not keep one (ADR 0165, part 3b):
-//!   only one of [`PermissionMode`]'s, which names neither mode that skips asking. Its line names
+//!   only one of [`PermissionMode`]'s, which names neither mode that skips asking. So is the
+//!   TUI a native session is handed to (part 4d), with the model and effort it held, and only
+//!   it: the caller gives a terminal's line none otherwise. A native session's line names
 //!   [`PERMISSION_TOOL`] as its `--permission-prompt-tool`, so that a call that would ask is
 //!   asked of the person in oso (ADR 0165, step 2), and its bridge is started with
 //!   `--permission`, which lists that tool.
@@ -90,11 +92,12 @@ pub struct Line<'a> {
     pub add_dirs: &'a [std::path::PathBuf],
     /// A native session's line (ADR 0165), which starts with [`NATIVE`] and takes no brief.
     pub native: bool,
-    /// `--permission-mode`, a native session's mode once it ran (part 3b); never a
-    /// terminal's.
+    /// `--permission-mode`, a native session's mode once it ran (part 3b), and that of the
+    /// TUI it is handed to (part 4d); never another terminal's.
     pub permission_mode: Option<PermissionMode>,
     /// `--model` and `--effort`, what the person chose in a native session with `/model` and
-    /// `/effort` once the CLI took it (part 3c); never a terminal's.
+    /// `/effort` once the CLI took it (part 3c), for its processes and the TUI it is handed
+    /// to; never another terminal's.
     pub model: Option<&'a str>,
     pub effort: Option<&'a str>,
 }
@@ -172,16 +175,18 @@ pub fn arguments(line: &Line<'_>) -> Result<Vec<OsString>, LineError> {
     args.push(format!("--mcp-config={config}").into());
     if line.native {
         args.push(format!("--permission-prompt-tool={PERMISSION_TOOL}").into());
-        if let Some(mode) = line.permission_mode {
-            args.push(format!("--permission-mode={}", mode.name()).into());
-        }
-        // One argument each, `=` joined, as the values are the person's.
-        if let Some(model) = line.model {
-            args.push(format!("--model={model}").into());
-        }
-        if let Some(effort) = line.effort {
-            args.push(format!("--effort={effort}").into());
-        }
+    }
+    // A native session's, or the TUI's it is handed to (part 4d): the caller gives a
+    // terminal's line none otherwise.
+    if let Some(mode) = line.permission_mode {
+        args.push(format!("--permission-mode={}", mode.name()).into());
+    }
+    // One argument each, `=` joined, as the values are the person's.
+    if let Some(model) = line.model {
+        args.push(format!("--model={model}").into());
+    }
+    if let Some(effort) = line.effort {
+        args.push(format!("--effort={effort}").into());
     }
     if let Some(settings) = line.settings {
         args.push(format!("--settings={settings}").into());
@@ -404,7 +409,7 @@ mod tests {
     }
 
     #[test]
-    fn a_native_line_takes_the_mode_it_is_given_and_a_terminals_none() {
+    fn a_line_takes_the_mode_model_and_effort_it_is_given() {
         use crate::channel::protocol::mode::PermissionMode;
         let a = id(1);
         let modes = |native: bool, mode: Option<PermissionMode>| {
@@ -423,7 +428,7 @@ mod tests {
             modes(true, Some(PermissionMode::AcceptEdits)),
             ["--permission-mode=acceptEdits"]
         );
-        // The model and effort chosen go beside it, a native line's alone (part 3c).
+        // The model and effort chosen go beside it (part 3c).
         let chosen = |native: bool| {
             let line = Line {
                 native,
@@ -441,15 +446,18 @@ mod tests {
             chosen(true),
             ["--model=claude-opus-5-5[1m]", "--effort=high"]
         );
-        assert!(chosen(false).is_empty());
+        // The TUI a native session is handed to takes what it held (part 4d); the caller
+        // gives another terminal's line none.
+        assert_eq!(chosen(false), chosen(true));
         assert_eq!(
             modes(true, Some(PermissionMode::Auto)),
             ["--permission-mode=auto"]
         );
         assert!(modes(true, None).is_empty(), "the settings' mode");
-        assert!(
-            modes(false, Some(PermissionMode::Plan)).is_empty(),
-            "never a terminal's"
+        assert!(modes(false, None).is_empty(), "the settings' mode");
+        assert_eq!(
+            modes(false, Some(PermissionMode::Plan)),
+            ["--permission-mode=plan"]
         );
     }
 

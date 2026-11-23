@@ -184,6 +184,19 @@ pub struct TerminalOrder {
     pub palette: Palette,
     /// Called from the terminal's thread whenever a snapshot is ready.
     pub ready: Box<dyn Fn() + Send>,
+    /// What the native session handed to this TUI held (ADR 0165, part 4d): its permission
+    /// mode, model and effort, `None` for any other terminal's start, which passes none.
+    pub handed: Option<Chosen>,
+}
+
+/// The permission mode, model and effort a native session held when it is handed to the TUI
+/// (ADR 0165, part 4d, the author's Q4-7 (a)), passed as `--permission-mode`, `--model` and
+/// `--effort`, as a native session's own processes are given them.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Chosen {
+    pub permission_mode: Option<crate::channel::protocol::mode::PermissionMode>,
+    pub model: Option<String>,
+    pub effort: Option<&'static str>,
 }
 
 /// A session whose terminal started.
@@ -440,6 +453,35 @@ fn root_kept(order: &Order) -> Result<(), String> {
     Ok(())
 }
 
+/// The permission mode, model and effort a session's line passes: a native session's own, or
+/// what a native session held for the TUI it is handed to (ADR 0165, part 4d), which is a
+/// resume; none for any other terminal's start.
+fn chosen_flags<'a>(
+    kind: &Kind,
+    runs: &'a Runs,
+) -> (
+    Option<crate::channel::protocol::mode::PermissionMode>,
+    Option<&'a str>,
+    Option<&'a str>,
+) {
+    match runs {
+        Runs::Native(native) => (
+            native.permission_mode,
+            native.model.as_deref(),
+            native.effort,
+        ),
+        Runs::Terminal(TerminalOrder {
+            handed: Some(handed),
+            ..
+        }) if matches!(kind, Kind::Resume(_)) => (
+            handed.permission_mode,
+            handed.model.as_deref(),
+            handed.effort,
+        ),
+        Runs::Terminal(_) => (None, None, None),
+    }
+}
+
 /// The program and arguments that start the session `id` as `order` says, in `shell`.
 fn launch_of(
     order: &Order,
@@ -462,10 +504,7 @@ fn launch_of(
         },
     )
     .map_err(|e| format!("The session did not start: {e}"))?;
-    let native = match &order.runs {
-        Runs::Native(native) => Some(native),
-        Runs::Terminal(_) => None,
-    };
+    let (permission_mode, model, effort) = chosen_flags(&order.kind, &order.runs);
     let line = Line {
         start,
         name: &order.name,
@@ -476,9 +515,9 @@ fn launch_of(
         settings: settings.as_deref(),
         add_dirs: &extra.add_dirs,
         native: order.runs.native(),
-        permission_mode: native.and_then(|native| native.permission_mode),
-        model: native.and_then(|native| native.model.as_deref()),
-        effort: native.and_then(|native| native.effort),
+        permission_mode,
+        model,
+        effort,
     };
     let args = command::arguments(&line).map_err(|e| format!("The session did not start: {e}"))?;
     launch::launch(shell, claude.as_ref(), args, order.project.as_deref())
@@ -532,6 +571,66 @@ mod tests {
         assert_eq!(get(SESSION_VARIABLE).as_deref(), Some(id.as_str()));
     }
 
+    /// A terminal's order for `buffer`, a TUI handed `handed`.
+    fn terminal_order(
+        buffer: oso_core::buffer::BufferId,
+        handed: Option<super::Chosen>,
+    ) -> super::TerminalOrder {
+        use oso_platform::process::pty::Size;
+        use oso_term::{Palette, Rgb};
+        super::TerminalOrder {
+            buffer,
+            settings: crate::terminal::shell::Settings::default(),
+            env: Vec::new(),
+            size: Size {
+                rows: 6,
+                columns: 40,
+                width: 0,
+                height: 0,
+            },
+            palette: Palette {
+                foreground: Rgb::default(),
+                background: Rgb::default(),
+                cursor: None,
+                ansi: [Rgb::default(); 16],
+            },
+            ready: Box::new(|| {}),
+            handed,
+        }
+    }
+
+    /// The TUI a native session is handed to passes what it held (ADR 0165, part 4d), and only
+    /// as a resume; any other terminal's start passes none of them.
+    #[test]
+    fn only_the_tui_a_native_session_is_handed_to_takes_what_it_held() {
+        use super::{Chosen, Kind, Runs, chosen_flags};
+        use crate::channel::protocol::mode::PermissionMode;
+        let mut editor = oso_core::editor::Editor::default();
+        let buffer = editor.add_terminal_buffer("*claude: test*");
+        let id = SessionId::from_random([7; 16]);
+        let chosen = Chosen {
+            permission_mode: Some(PermissionMode::AcceptEdits),
+            model: Some("opus".to_owned()),
+            effort: Some("high"),
+        };
+        let handed = Runs::Terminal(terminal_order(buffer, Some(chosen)));
+        assert_eq!(
+            chosen_flags(&Kind::Resume(id.clone()), &handed),
+            (
+                Some(PermissionMode::AcceptEdits),
+                Some("opus"),
+                Some("high")
+            )
+        );
+        for kind in [Kind::New, Kind::Fork(id.clone())] {
+            assert_eq!(chosen_flags(&kind, &handed), (None, None, None), "{kind:?}");
+        }
+        let plain = Runs::Terminal(terminal_order(buffer, None));
+        for kind in [Kind::New, Kind::Resume(id.clone()), Kind::Fork(id)] {
+            assert_eq!(chosen_flags(&kind, &plain), (None, None, None), "{kind:?}");
+        }
+    }
+
     /// A hosted session's start reports its `claude`'s process id: `Terminal::start` returns
     /// before the spawn, and a record with none took its own `claude` for another's.
     #[cfg(unix)]
@@ -539,10 +638,7 @@ mod tests {
     fn a_started_session_is_ready_with_its_childs_id() {
         use std::os::unix::fs::PermissionsExt;
 
-        use oso_platform::process::pty::Size;
-        use oso_term::{Palette, Rgb};
-
-        use super::{Kind, Order, Report, Runs, Started, TerminalOrder, spawn};
+        use super::{Kind, Order, Report, Runs, Started, spawn};
 
         let dir = std::fs::canonicalize(std::env::temp_dir())
             .unwrap()
@@ -567,24 +663,7 @@ mod tests {
             baseline: false,
             state: None,
             claude: Some(claude),
-            runs: Runs::Terminal(TerminalOrder {
-                buffer,
-                settings: crate::terminal::shell::Settings::default(),
-                env: Vec::new(),
-                size: Size {
-                    rows: 6,
-                    columns: 40,
-                    width: 0,
-                    height: 0,
-                },
-                palette: Palette {
-                    foreground: Rgb::default(),
-                    background: Rgb::default(),
-                    cursor: None,
-                    ansi: [Rgb::default(); 16],
-                },
-                ready: Box::new(|| {}),
-            }),
+            runs: Runs::Terminal(terminal_order(buffer, None)),
             brief: None,
             steer_worktrees: false,
             check_shared: false,
