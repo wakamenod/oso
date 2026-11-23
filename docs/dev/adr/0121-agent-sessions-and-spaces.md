@@ -5,7 +5,7 @@
   sessions, as amended" (2026-11-18); "An incomplete registry read refuses, as amended"
   (2026-11-22); "An unverifiable registry entry is busy, as amended" (2026-11-22); "Every
   incomplete registry read refuses, as amended" (2026-11-22); "Registry entries and
-  directories, as amended" (2026-11-22); "Composed text, as amended" (2026-11-22); "An
+  directories, as amended" (2026-11-22); "Composed text, as amended" (2026-11-22, 2026-11-23); "An
   agent's brief, as amended" (2026-11-22)
 - Date: 2026-11-12
 
@@ -1896,7 +1896,7 @@ Code reads two things in a message as more than text: a message that starts with
 command, and an `@PATH` at the text's start or after any whitespace puts that file in the
 context, with no tool asked (measured with `claude -p` on 2026-11-22, U+FEFF included; not after
 punctuation, a letter, a backslash, U+0001, NEL or U+200B). Text oso composed from what others wrote, a file's lines, a
-pull request's thread or an orchestrator's offer, could do either once the person sends it.
+pull request's thread, could do either once the person sends it.
 
 - **What every send pastes is escaped** at the one delivery path (`paste_into_session`, which
   `send_to_session` calls), once, on both routes: a leading `/` gets a space before it, and an
@@ -1908,9 +1908,12 @@ pull request's thread or an orchestrator's offer, could do either once the perso
   `session-mention`'s `@NAME`, a name other programs may choose, goes as `\@NAME`, in a
   terminal and in a native session's composer; elsewhere it is plain text and stays as it is. This changes Q17's
   "cleaned as 0120 cleans any paste": it is then cleaned so too. `session-send`'s notes, review
-  comments (ADR 0122), git drafts (ADR 0127), offers (ADR 0136) and a review's question
-  (ADR 0163) are all such text.
-- **Not escaped:** a kept image's `@PATH` (ADR 0142), oso's own reference, and what the person
+  comments (ADR 0122), git drafts (ADR 0127) and a review's question (ADR 0163) are all such
+  text.
+- **Not escaped:** a kept image's `@PATH` (ADR 0142), oso's own reference; a space's offer of
+  `/add-dir PATH` to its orchestrator (ADR 0136), oso's own command, made from the path of a
+  repository of the space the person trusts, only while that is one plain line (ADR 0165, part 2f, amended 2026-11-23), which the escape's
+  space would make no command; and what the person
   types into a terminal's input box or a native session's composer. A note `session-send` asks
   for is composed text too, as it goes with the rest.
 - **What the person sees:** the paste as escaped, in the input box, before pressing Enter; a

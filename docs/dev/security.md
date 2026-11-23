@@ -1030,7 +1030,12 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     the start of a word; the brief oso composes for an orchestrator's successor, of names agents
     choose, is escaped too. An image kept after the person left the session goes in without
     taking the selected window, and a composer a yank turned secret takes nothing. A kept image's `@PATH` is oso's own and
-    goes as it is, as does what the person types. Only `claude -p`'s reading was measured;
+    goes as it is, as does what the person types. So does the space's `/add-dir PATH` offer to
+    its orchestrator's terminal, oso's own command, which only `Command::add_dir` makes, from
+    a recorded repository the person trusts, while its path is absolute, in UTF-8 and one
+    plain line, with no blank but a space, none at its end and no `@` after one, the command
+    within 512 bytes; a native session is never given it (ADR 0165, part 2f, amended
+    2026-11-23). Only `claude -p`'s reading was measured;
     the TUI's is taken to be the same.
   - A native session's prompt suggestion is Claude's text, which a file Claude read can
     steer: `M-n` puts it into the composer escaped as composed text, unsent, so a suggested
