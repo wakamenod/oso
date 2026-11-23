@@ -925,6 +925,12 @@ tab, a line feed, VT, FF, NBSP, U+3000, U+2028 or U+FEFF, which is what Rust's
 letter, U+0001, NEL or U+200B. A message
 starting with `/` runs a command (part 2d); one starting with a space does not.
 
+Measured on the TUI on 2026-11-23, for part 4d (CLI 2.1.330, haiku, `--tools=`, the TUI driven
+only by writing to its pty): a bracketed paste of `@/outside/file …` and a carriage return
+attaches the file there too (the model read its word with no tools), and `\@/outside/file`
+does not, so the escape holds on the terminal route as well. The TUI's positional prompt and
+stream-json's standard input are still assumed to read text the same way.
+
 - **Escapes** (step 2's Q5 (a), now ADR 0121's "Composed text, as amended", on both routes,
   part 2f's Q2 (a)): what oso composed gets a space before a leading `/`, and a `\` before an
   `@` at the start or after whitespace (`sessions::send::for_claude`), once, at the one
@@ -1591,6 +1597,89 @@ The author's (a) on Q4-1: the restart waits without asking, and `C-g` cancels it
   app's own wiring (the queue held, a refusal once due) beside the end-to-end flows, as the app
   has no harness of its own.
 
+### Part 4d-1: a native session handed to the TUI
+
+The author's (a) on Q4-5 to Q4-8 of 2026-11-23, through the space's orchestrator, carrying out
+"One session, and the TUI as a hand-off" (Q3) one way; part 4d-2 takes the session back.
+
+- **`session-switch-mode`** (`Person`): `C-c a t`, the Agents menu's new head `t`, in its
+  "Session" group (Q4-8 (a)), which ADR 0143 had kept for ADR 0129's dictation; from the
+  transcript or its composer, whose `C-c C-t` stays the to-do strip's (part 3e). A TUI
+  session's terminal gets `C-c C-t` with part 4d-2, which takes a session back.
+- **When.** A native session switches while it is idle, done or stopped. It is refused while
+  its process starts, a turn is under way, it is being interrupted (step 2c), its permission
+  mode is being changed (part 3b), it asks the person (a card, a plan's edit among them), or
+  messages are queued, which the TUI would not send; and, as no resume could go, when it was
+  never given a message, its conversation moved to an id oso does not follow (part 2d), or a
+  resume is held (a stop asked, oso waiting to quit or restarting, an orchestrator being
+  replaced). The rules, and where each switch is, are a pure state machine,
+  `sessions::native::switch`: ending, then (once the process ended and was reaped) starting
+  the other mode, then over, one switch per session at a time.
+- **Never two writers.** The CLI does not refuse two processes writing one conversation (two
+  `-p --resume` of one id both ran and appended, measured 2026-11-23), so this is oso's alone:
+  the TUI starts only once the stream said the native process ended, which it says after the
+  reap, and its start is a resume, whose start thread reads Claude Code's registry and refuses
+  a live process of the conversation elsewhere, as every resume does (ADR 0121, "Restore and
+  the fork hazard"), with the second look 5 s later; a `-p` process is in that registry
+  (`entrypoint: sdk-cli`, measured 2026-11-23), so another instance's process of the
+  conversation refuses it too. The native process ends as a stop ends it: standard input
+  closed and `SIGTERM` to its group, `SIGKILL` after 5 s (an idle `-p` exits 0 in 0.8 s,
+  measured). A stream whose end comes with its process not reaped (its reader failed, the
+  security review's finding) has the process's group killed then, for any native session, and
+  a switch it ended is given up, the session staying stopped and native, as it is when a stop
+  was asked or made (the person's `k`, a space's close, a worktree's removal, the second
+  security pass's finding), an exit or a restart was asked, or an orchestrator's replacement,
+  while the process ended;
+  the transcript and the echo area say why. A switch under way holds `oso-restart` (part 4b),
+  so that the restart carries the TUI, not a session half way.
+- **The TUI** resumes the conversation in a new terminal, `*claude: NAME*`, made stopped and
+  started as `session-resume` starts a stopped terminal session, with `--resume ID` and what
+  the session held (Q4-7 (a), amending ADR 0121): `--permission-mode` with the mode its next
+  process would have started in (part 3b; none if nobody switched it and the CLI said one
+  that asks less, as part 3b carries a mode), and `--model` and `--effort` as chosen (part 3c).
+  A TUI resume of a `-p` conversation takes it up under the same id, its earlier turns shown,
+  and honours `--permission-mode` (measured 2026-11-23). No `--permission-prompt-tool`: the
+  TUI asks in its own screen. Claude Code's own trust question may show there, as `-p`
+  skipped it. ADR 0121's screen rules and the tracker's screen entry take over from its start,
+  and agents read the terminal only once the person lets them, as any session's (ADR 0120,
+  Q16): nothing of the transcript's leave is carried, as there is none. The record says
+  `tui` from the hand-off on, so oso's next start brings the session back as a stopped
+  terminal session. What the native session held goes to that first TUI start alone, kept
+  nowhere: a later resume of the TUI session, after a refused start, its exit or oso's next
+  start, starts as any TUI session does, in the mode the person's Claude Code settings give it
+  (ADR 0121), and `session-resume` of it turns the agent channel on, as any session's start
+  does.
+- **The transcript** (Q4-5 (a)) is set aside as `*native: NAME*`, its rows and composer kept,
+  whole, for part 4d-2 to resume in, with a row "In the TUI since here, in *claude: NAME*." It
+  stays read-only and withheld from agents, as every native transcript is, its modeline says
+  `in the TUI`, and its keys and its composer's, folding and moves among them, only say "This
+  session runs in the TUI now: its transcript sends nothing"; it is read as text (search,
+  scroll, copy). A draft left in its composer still refuses an `oso-restart` (part 2a), whose
+  question says to clear it. It goes when its buffer is killed, or once its session is gone,
+  and is neither carried over an `oso-restart` nor brought back at oso's next start, as no
+  native transcript's rows are: the session comes back a stopped TUI one.
+  `Editor::rename_terminal_buffer` now renames a native session's buffer too, which also gives
+  ADR 0155's rename of a native session its buffer's new name, which it kept before.
+- **A refused start.** A TUI start that is refused (its directory gone, the conversation live
+  elsewhere, which offers a fork as a resume does) leaves the session a stopped TUI session:
+  `session-resume` starts it again.
+- **New public items**, approved by the author through the orchestrator:
+  `SessionRequest::SwitchMode(BufferId)`, and `Editor::rename_terminal_buffer` taking a native
+  session's buffer (its signature unchanged).
+- **Built with:** `sessions/native/switch.rs` (the rules, pure, with their tests),
+  `app/sessions/hosting/switch.rs` (the command and the sequence), `native/switching.rs` (what
+  the rules are given, the end for the switch and the transcript set aside), the end of a native process in
+  `native/end.rs`, a `Handed` on `TerminalOrder` passed by `launch_of` (`sessions/start.rs`),
+  `sessions/command.rs` passing a mode, model and effort for any line it is given them for,
+  `kill_unreaped` on the stream, and the e2e flows `sessions::native::switch`: a `-p` fake
+  that ignores `SIGTERM` and takes 2 s to exit, and a TUI fake that records whether that exit
+  came before its start; the transcript set aside refusing its keys and its composer's send;
+  and a transcript killed while its `claude -p` ends, which starts no TUI and archives the
+  session.
+- **Not done:** a test of a switch given up as a reader failed or a stop was asked (rather than
+  made) while the process ended, as the app has no harness of its own beside the end-to-end
+  flows, which cover a stop made.
+
 ## Questions
 
 The author chose (a) on each, on 2026-11-21. The options are kept as they were put.
@@ -1653,7 +1742,13 @@ Each passage stays in its ADR as written; what holds now follows it.
   terminal": or a native session, `claude -p` in oso's buffers (this ADR). "For a session oso hosts,
   the screen is the authority": for a TUI session; a native session's state comes from its stream.
   "No permission flag is ever passed": a native session passes `--permission-mode` with the mode the
-  person chose (Q4), and `--permission-prompt-tool`; a TUI session still passes none.
+  person chose (Q4), and `--permission-prompt-tool`; a TUI session still passes none, but the TUI
+  a native session is handed to (part 4d-1, Q4-7 (a)), which passes the mode the native session
+  held, and its `--model` and `--effort`.
+- [ADR 0143](0143-agent-keys-on-c-c-a-and-an-agents-menu.md), "Keys planned elsewhere become
+  heads of this menu: … ADR 0129's dictation on `t`": `t` is `session-switch-mode`'s (part
+  4d-1, the author's Q4-8 (a)), and part 4d-2's `C-c C-t` in a session's terminal is too; ADR
+  0129's dictation, deferred, takes another head when it is decided.
 - [ADR 0133](0133-keeping-terminals-over-an-update.md), step 2, as built: "The host refuses
   as `check-handover` with terminals does …, then stops the agent channel and starts the
   `oso-restart` thread": while a native session has a turn under way, asks the person, is

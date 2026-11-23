@@ -5,7 +5,9 @@
 
 ## Context
 
-**Deferred.** On 2026-11-13 the author chose to decide dictation later. This ADR stays Proposed
+**Deferred.** On 2026-11-13 the author chose to decide dictation later. Its keys below, `C-c a t`
+and `C-c C-t` in a session, have been `session-switch-mode`'s since ADR 0165, part 4d: dictation
+takes others when it is decided. This ADR stays Proposed
 and its questions stay open; nothing here is built until they are answered.
 
 On 2026-11-13 the author asked for voice dictation into an agent's prompt or a terminal, recognised

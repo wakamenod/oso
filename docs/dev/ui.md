@@ -1190,6 +1190,12 @@ a switch made with its command stands until that setting changes in the file
   its directory, and asks whether to fork instead; `y` forks that session, whichever buffer is
   selected by then. `session-fork` copies the conversation into a
   new session and buffer.
+- `C-c a t` (`session-switch-mode`, ADR 0165, part 4d) hands an idle, done or stopped native
+  session to Claude Code's TUI: its `claude -p` ends, then the TUI resumes the conversation in
+  a terminal, `*claude: NAME*`, in the permission mode, with the model and effort it held; the
+  transcript is set aside as `*native: NAME*`, read-only, and sends nothing. It is refused during
+  a turn, a card, a start, an interrupt or a mode change, and with messages queued. A native
+  session's `C-c C-t` stays its to-do strip.
 - `C-x k` on a session's buffer archives the session: it is not brought back at the next start.
 - A session's buffer has session mode ([ADR 0132](adr/0132-a-session-mode-for-hosted-sessions.md)):
   its modeline says `Session` in place of `Terminal`, and `C-c C-<letter>` runs the Agents menu's

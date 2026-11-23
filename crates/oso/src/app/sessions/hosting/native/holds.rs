@@ -2,7 +2,9 @@
 //! whose process is starting, that is being interrupted, that has a turn under way, or that
 //! asks the person (a permission, question or plan card). The restart waits for them, as an
 //! exit that waits does for a turn (ADR 0133, step 5), and ends their processes only once
-//! they are idle. A stopped or failed session, with no process, holds nothing.
+//! they are idle. A stopped or failed session, with no process, holds nothing. So does one
+//! whose process is being ended for a switch to the TUI (part 4d), until it ended and the
+//! TUI's start, which holds it as any start does, began.
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 
@@ -11,7 +13,6 @@ use std::collections::HashSet;
 use oso_core::buffer::BufferId;
 
 use super::Native;
-use super::note::NativeState;
 use crate::app::App;
 
 /// What a native session is doing, as far as a restart is concerned.
@@ -28,23 +29,28 @@ struct Doing {
     turn: bool,
     /// The sessions' worker found it working or asking the person (ADR 0133's busy).
     busy: bool,
+    /// Its process is being ended for a switch to the TUI (part 4d), which starts once it
+    /// ended: the restart carries the TUI, not a session caught half way.
+    switching: bool,
 }
 
 impl Doing {
-    fn of(native: &Native, busy: bool) -> Self {
-        let starting = native.state == NativeState::Starting;
+    fn of(native: &Native, busy: bool, switching: bool) -> Self {
+        let starting = native.starting();
         Self {
             live: native.stream.is_some() || starting,
             starting,
             interrupting: native.interrupt.interrupting(),
             turn: native.composing.busy,
             busy,
+            switching,
         }
     }
 
     /// Whether it holds a restart back.
     fn holds(self) -> bool {
-        self.live && (self.starting || self.interrupting || self.turn || self.busy)
+        self.live
+            && (self.starting || self.interrupting || self.turn || self.busy || self.switching)
     }
 }
 
@@ -53,7 +59,9 @@ impl App {
     /// the look before each wait of the loop, while a restart waits. O(buffers + sessions).
     pub(in crate::app) fn natives_hold_restart(&self) -> bool {
         // A busy buffer runs (`Buffer::is_busy`), so it is a live session's.
-        (self.hosting.natives.map.values()).any(|native| Doing::of(native, false).holds())
+        let switches = &self.hosting.natives.switches;
+        (self.hosting.natives.map.iter())
+            .any(|(key, native)| Doing::of(native, false, switches.under_way(*key)).holds())
             || self.editor.busy_native_sessions().next().is_some()
     }
 
@@ -64,9 +72,13 @@ impl App {
             return Vec::new();
         }
         let busy: HashSet<BufferId> = self.editor.busy_native_sessions().collect();
-        let mut holding: Vec<BufferId> = (self.hosting.natives.map.values())
-            .filter(|native| Doing::of(native, busy.contains(&native.buffer)).holds())
-            .map(|native| native.buffer)
+        let switches = &self.hosting.natives.switches;
+        let mut holding: Vec<BufferId> = (self.hosting.natives.map.iter())
+            .filter(|(key, native)| {
+                let switching = switches.under_way(**key);
+                Doing::of(native, busy.contains(&native.buffer), switching).holds()
+            })
+            .map(|(_, native)| native.buffer)
             .collect();
         // Ids are given in the order buffers are made.
         holding.sort_unstable();
@@ -84,6 +96,7 @@ mod tests {
         interrupting: false,
         turn: false,
         busy: false,
+        switching: false,
     };
 
     #[test]
@@ -101,6 +114,11 @@ mod tests {
             Doing { turn: true, ..LIVE },
             // A card waits for the person: the worker finds it asking.
             Doing { busy: true, ..LIVE },
+            // Ended for a switch to the TUI, which is not started yet (part 4d).
+            Doing {
+                switching: true,
+                ..LIVE
+            },
         ];
         for doing in holding {
             assert!(doing.holds(), "{doing:?}");

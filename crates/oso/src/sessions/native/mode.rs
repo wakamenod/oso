@@ -239,6 +239,11 @@ impl ModeState {
         mode
     }
 
+    /// Whether a switch is under way: asked of the CLI, or a respawn for it.
+    pub fn switching(&self) -> bool {
+        self.switch.is_some()
+    }
+
     /// The process was stopped to resume in another mode: once it ends, it is resumed.
     pub fn respawns(&self) -> bool {
         matches!(self.switch, Some(Switch::Respawn(_)))

@@ -73,6 +73,12 @@ pub(in crate::app) struct Permissions {
 }
 
 impl App {
+    /// Whether native session `key` asks the person now: a card shown, a plan's edit among
+    /// them (part 3d).
+    pub(super) fn native_asks_person(&self, key: SessionKey) -> bool {
+        self.hosting.natives.permissions.asks.shown(key).is_some()
+    }
+
     /// Starts the sessions' socket on a thread of its own, unless it runs or starts: a native
     /// session's bridge asks there, with the agent channel off or on.
     pub(super) fn start_sessions_socket(&mut self) {

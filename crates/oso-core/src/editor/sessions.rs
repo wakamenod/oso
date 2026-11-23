@@ -86,6 +86,9 @@ pub enum SessionRequest {
     /// Copy the conversation of the session whose terminal is this buffer under a new id, in a
     /// new buffer (`session-fork`).
     Fork(BufferId),
+    /// Switch the session whose buffer this is, its terminal, its native transcript or its
+    /// composer, to its other mode (`session-switch-mode`, ADR 0165, part 4d).
+    SwitchMode(BufferId),
     /// Resume the conversation this `session-adopt` candidate names, which runs or ran outside
     /// oso, as a hosted session in a new buffer (`session-adopt`).
     Adopt(String),

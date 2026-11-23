@@ -420,6 +420,7 @@ mod tests {
         "claude",
         "session-adopt",
         "session-fork",
+        "session-switch-mode",
         // Every project's conversations, which no agent gets (ADR 0145).
         "session-search",
         "session-search-scope",

@@ -2435,6 +2435,7 @@ pub oso_core::editor::SessionRequest::Start::directory: core::option::Option<std
 pub oso_core::editor::SessionRequest::Start::name: core::option::Option<alloc::string::String>
 pub oso_core::editor::SessionRequest::StartShared
 pub oso_core::editor::SessionRequest::Switch(alloc::string::String)
+pub oso_core::editor::SessionRequest::SwitchMode(oso_core::buffer::BufferId)
 pub oso_core::editor::SessionRequest::Worktree
 pub oso_core::editor::SessionRequest::Worktree::base: core::option::Option<alloc::string::String>
 pub oso_core::editor::SessionRequest::Worktree::branch: alloc::string::String

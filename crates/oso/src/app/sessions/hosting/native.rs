@@ -24,6 +24,8 @@
 //!   to-do strip, `todo`'s (part 3e).
 //! - Its prompt suggestion is `suggesting`'s, and the recap of a turn that ended out of sight
 //!   `recap`'s (part 3f).
+//! - Its side of a switch to the TUI, and its transcript set aside meanwhile, are
+//!   `switching`'s (part 4d).
 //! - Its bridge asks the person's permission for its calls on the sessions' socket, in
 //!   `permissions` (step 2).
 //! - Its first message is its brief, if it was given one; else the person writes it in its
@@ -48,6 +50,7 @@ mod resume;
 mod slash;
 mod status;
 mod suggesting;
+mod switching;
 mod todo;
 
 use std::collections::HashMap;
@@ -91,6 +94,10 @@ pub(in crate::app) struct NativeSessions {
     slash_listed: Option<slash::Listed>,
     /// The replies highlighted as Markdown that wait or are open (part 2g).
     replies: markdown::Replies,
+    /// The transcripts set aside while their sessions run in the TUI (part 4d).
+    aside: HashMap<SessionKey, Native>,
+    /// The sessions switching between the modes, and where each switch is (part 4d).
+    pub(super) switches: crate::sessions::native::switch::Switches,
 }
 
 /// A native session's buffer, rows and process.
@@ -143,6 +150,14 @@ struct Native {
     /// the model and effort level the person chose (part 3c).
     mode: ModeState,
     choice: Choice,
+}
+
+impl Native {
+    /// Whether its process is being started: from its order, held or not (ADR 0173), until
+    /// the start thread reports.
+    fn starting(&self) -> bool {
+        self.state == NativeState::Starting
+    }
 }
 
 impl NativeSessions {

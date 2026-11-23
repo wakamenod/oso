@@ -12,7 +12,7 @@ use oso_core::buffer::BufferId;
 use crate::app::App;
 use crate::sessions::hosted::Run;
 use crate::sessions::start::trust::ByRecord;
-use crate::sessions::start::{Kind, NativeOrder, Order, Runs};
+use crate::sessions::start::{Chosen, Kind, NativeOrder, Order, Runs, TerminalOrder};
 use crate::sessions::worker::SessionKey;
 
 impl App {
@@ -50,6 +50,22 @@ impl App {
         &mut self,
         key: SessionKey,
         shown: bool,
+    ) -> Result<(), String> {
+        self.resume_hosted_with(key, shown, None)
+    }
+
+    /// [`App::resume_hosted`], a terminal session's TUI given `chosen`: the mode, model and
+    /// effort of the native session handed to it (ADR 0165, part 4d), which no other resume
+    /// passes.
+    ///
+    /// # Errors
+    ///
+    /// As [`App::resume_hosted`].
+    pub(in crate::app::sessions::hosting) fn resume_hosted_with(
+        &mut self,
+        key: SessionKey,
+        shown: bool,
+        chosen: Option<Chosen>,
     ) -> Result<(), String> {
         let Some(session) = self.hosting.table.get(key) else {
             return Err("That session is gone".into());
@@ -106,7 +122,10 @@ impl App {
                 trust,
                 ..self.resume_native_buffer(key, buffer, shown)
             }),
-            false => Runs::Terminal(self.session_terminal(key, &name, Some(buffer), shown)),
+            false => Runs::Terminal(TerminalOrder {
+                handed: chosen,
+                ..self.session_terminal(key, &name, Some(buffer), shown)
+            }),
         };
         self.order_session(Order {
             token: key,
