@@ -327,7 +327,7 @@ pub(super) fn sessions(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Sessi
 }
 
 /// `[sessions] agents_start_limit`: a whole number from 1 to [`MAX_AGENTS_START_LIMIT`], or
-/// `"none"` for no limit at all (ADR 0144, ADR 0177).
+/// `"none"` for no limit but the session tools' rate (ADR 0144, ADR 0177, ADR 0178).
 fn agents_start_limit(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Option<StartLimit> {
     let takes = format!(
         "[sessions] agents_start_limit takes a number from 1 to {MAX_AGENTS_START_LIMIT}, or \

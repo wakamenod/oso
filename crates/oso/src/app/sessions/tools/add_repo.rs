@@ -211,7 +211,7 @@ impl App {
             Instant::now(),
         );
         if refused {
-            return pending.answer(Err(Refusal::Person.why().into()));
+            return pending.answer(Err(Refusal::Person.why()));
         }
         let name = self.space_name(&space);
         let trusted = self.trusts(&member);

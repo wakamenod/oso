@@ -13,7 +13,8 @@
 //! - A tool that asks puts its question to the person once they are free, as the connection's
 //!   own question waits, and its reply waits for the answer and for what the answer starts.
 //! - A call that changes something is refused within a minute of the person's `n` to the same
-//!   call; no count of calls bounds a session (ADR 0177).
+//!   call, and past its session's 30 calls that ask or change in a minute (ADR 0178); no count
+//!   waits for the person (ADR 0177).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -333,8 +334,9 @@ impl App {
     }
 
     /// Lets a call of `tool` on `target` from `caller` through, or says why it is refused:
-    /// within a minute of the person's `n` to the same call, or, for a tool that asks, while
-    /// another agent's question waits. A start that may go ahead
+    /// within a minute of the person's `n` to the same call, past the caller's rate of calls
+    /// that ask or change (ADR 0178), or, for a tool that asks, while another agent's question
+    /// waits, which does not count toward the rate. A start that may go ahead
     /// without asking is not held back by another's question here; it is if it asks after all.
     fn admit_tool(&mut self, tool: &Tool, caller: &Caller, target: &str) -> Result<(), String> {
         let may_go_unasked = tool.asks == Asks::UnlessAllowed
@@ -352,7 +354,7 @@ impl App {
             .tools
             .guard
             .admit(&caller.id, tool.name, target, Instant::now())
-            .map_err(|refusal| refusal.why().to_owned())
+            .map_err(|refusal| refusal.why())
     }
 
     /// The trust `caller`'s worktree jobs run under: that of an open project whose root is the

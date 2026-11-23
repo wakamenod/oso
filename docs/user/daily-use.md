@@ -606,6 +606,11 @@ and what would start. `y` allows it, `n` or `C-g` refuses it, and `?` shows the 
 holds for the same request for a minute. To let sessions you started start sessions without the question, see
 [Session settings](#session-settings).
 
+To stop a session that runs away, each session makes at most 30 calls a minute of the tools
+that ask or change something. Past that, oso tells the agent how long to wait. Normal work,
+even an orchestrator's round over a whole space, stays well under it, and nothing you do is
+limited.
+
 Claude Code run in a plain `M-x terminal`, or outside oso, is not a session. If you gave it
 `oso mcp` as an MCP server yourself, it reaches oso only after `M-x agent-channel-start`, and
 each connection asks you first. Of the session tools, it gets the reading ones, and
@@ -676,10 +681,10 @@ through `start_worktree_session` and `session_start`, and a space's orchestrator
 session of its space through `session_resume`, without asking you, in a trusted project
 only, up to `agents_start_limit` running sessions each; past that it asks again. It also lets a
 space's orchestrator add a trusted repository oso already knows (one `space-add-repo` would
-offer) to its space through `space_add_repo`, with no limit; any other
+offer) to its space through `space_add_repo`, with no start limit; any other
 repository asks. With
 `agents_start_limit = "none"` no limit makes it ask: a session may start as many sessions as it
-asks for. A session started this way asks for its own. A session an
+asks for, within its 30 calls a minute of the tools that ask or change. A session started this way asks for its own. A session an
 agent starts, whether it asked or not, stays in the background: it appears in the pane and the
 modeline marks, and the window you are in keeps its buffer. Each start is said in the echo area
 and `*Messages*`, its row in `*Spaces*` says `unasked`, and `C-c a e` on it shows who started it
