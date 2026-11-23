@@ -732,7 +732,10 @@ for one. An edit shows open, its first 40 lines numbered, and an open result its
 12 lines; each turn's time and cost is at the right. In the session's buffer, `TAB` folds
 or unfolds the row at point, `RET` shows a tool call's whole result in `*result: NAME*`, which
 agents cannot read, `n` and `p` move between your messages, and `]` and `[` between tool rows.
-The `C-c` keys of a session's terminal work there too, except `C-c +` and `C-c -`.
+Long lines wrap there, in the composer and in the results; `C-x x t` in one of them cuts them at
+the window's edge instead.
+The `C-c` keys of a session's terminal work there too, except `C-c +` and `C-c -`. Claude
+Code's Remote Control is off in native sessions; in the TUI (`C-c a t`), your own settings decide.
 
 You write the next messages in the composer under the conversation, which agents cannot read.
 While it is empty it says in grey what it is and its keys. `i` goes there and `C-c C-o` back, `C-c C-c` sends, and `M-p` and `M-n` bring back what you
@@ -813,6 +816,18 @@ records and recognises your speech on your Mac. Turn on its API server in TypeWh
   `C-u s-d` is kept too, but never sent to Claude. It keeps at most 40 pairs, forgets one
   after 30 days unseen, and learns nothing from the minibuffer or a buffer that may hold
   secrets. `M-x dictation-forget-learned` forgets it all.
+- A pair learned three times over two days or more goes to TypeWhisper's own dictionary, so that
+  TypeWhisper gets it right itself: a term for a word it hears as kana, such as リアクト for React,
+  or a correction. oso keeps at most 40 entries there and removes one that no dictation
+  through oso used for 30 days. It never changes or removes an entry you added, and one of its
+  own that you change, disable or delete is yours: oso does not add it again. One limit:
+  TypeWhisper does not show oso entries you disabled, so a disabled entry for the same word is
+  replaced. `M-x dictation-forget-learned` also removes what oso added, the next time you dictate
+  if TypeWhisper is not running.
+- What was learned from `C-u s-d` alone never goes to TypeWhisper's dictionary. TypeWhisper's own
+  settings decide where its dictionary goes: a workflow that uses a cloud language model, a cloud
+  recogniser or its sync can take it, with what oso added, off your Mac.
+- `M-x dictation-learning-log` shows what was learned and added, and when, newest first.
 - If you changed that buffer's text meanwhile, or the place is gone, the text goes to the kill
   ring instead, and `C-y` yanks it. While an input method composes there, the text waits.
 - `M-x dictation-cancel` drops a dictation and its text.

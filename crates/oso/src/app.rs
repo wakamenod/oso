@@ -100,7 +100,9 @@ pub enum UserEvent {
     /// A dictation's fix answered, by its id: the fixes, or why none came (ADR 0175, step 2).
     DictationFix(u64, Result<crate::dictation::fix::Applied, String>),
     /// Dictation's learning was forgotten, or not (ADR 0175, step 3).
-    DictationForgot(bool),
+    DictationForgot(dictation::Forgot),
+    /// Dictation's learning log was read, or not, by how often it had been emptied (step 4).
+    DictationLog(Option<String>, u64),
     /// A whitespace scan ended (ADR 0113).
     Trim(oso_core::editor::TrimReport),
     /// isearch's worker found or counted something (ADR 0082).

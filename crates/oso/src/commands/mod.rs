@@ -309,6 +309,7 @@ mod tests {
         // their words, which is theirs to drop (ADR 0175).
         "dictation-cancel",
         "dictation-forget-learned",
+        "dictation-learning-log",
         "dictation-toggle",
         // Emergency copies.
         "emergency-copies-back",

@@ -306,8 +306,9 @@ pub(super) fn space_menu(app: &mut crate::harness::App, key: &str) {
     app.send_keys(key);
 }
 
-/// Answers the prompt labelled `label` with `text` once its list offers `text`: the host gives
-/// a listed prompt its list as the spaces change, which may come after the prompt opens.
+/// Answers the prompt labelled `label` with `text` once its list offers `text`. The prompt took
+/// the list as it was when it opened: one that opened before the host listed `text` never
+/// offers it, as [`switch_space`] says.
 fn answer_listed(app: &mut crate::harness::App, label: &str, text: &str) {
     app.wait_for(&format!("{label} offering {text}"), |state| {
         super::worktrees::asks(state).is_some_and(|prompt| prompt.starts_with(label))
@@ -316,6 +317,35 @@ fn answer_listed(app: &mut crate::harness::App, label: &str, text: &str) {
                 .is_some_and(|rows| rows.iter().any(|row| row.as_str() == Some(text)))
     });
     app.send_keys(&format!("{} RET", keys(text)));
+}
+
+/// `space-switch` to the space `name`: a prompt takes the list as it was when it opened, which
+/// after a start may be before the host listed the spaces, and then keeps it, so one that does
+/// not offer `name` is closed and opened again.
+pub(super) fn switch_space(app: &mut crate::harness::App, name: &str) {
+    let started = Instant::now();
+    loop {
+        app.send_keys("C-c a j");
+        let state = app.wait_for("the space prompt", |state| {
+            super::worktrees::asks(state).is_some_and(|prompt| prompt.starts_with("Space:"))
+        });
+        let offered = state["prompts"][0]["completion"]["rows"]
+            .as_array()
+            .is_some_and(|rows| rows.iter().any(|row| row.as_str() == Some(name)));
+        if offered {
+            break;
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(20),
+            "no space {name} is offered: {state}"
+        );
+        app.send_keys("C-g");
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    app.send_keys(&format!("{} RET", keys(name)));
+    app.wait_for("the space in front", |state| {
+        state["sessions"]["space"] == name
+    });
 }
 
 /// Waits until the spaces record on disk holds what `holds` looks for, in whichever state

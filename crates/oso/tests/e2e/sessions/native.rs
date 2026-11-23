@@ -156,6 +156,14 @@ fn stream() -> String {
     format!("{}\n", lines.join("\n"))
 }
 
+/// The text the selected window shows, its view rows one after the other, so that a wrapped
+/// line reads whole.
+fn joined(state: &Value) -> String {
+    (state["text"]["rows"].as_array().into_iter().flatten())
+        .filter_map(Value::as_str)
+        .collect()
+}
+
 fn text(state: &Value) -> String {
     state["text"]["rows"]
         .as_array()
@@ -166,6 +174,19 @@ fn text(state: &Value) -> String {
                 .join("\n")
         })
         .unwrap_or_default()
+}
+
+/// Whether a line's one `--settings` turns Remote Control off, as each native one's does
+/// (ADR 0165).
+pub(super) fn remote_control_off<S: AsRef<str>>(args: &[S]) -> bool {
+    let settings: Vec<&str> = (args.iter())
+        .filter_map(|arg| arg.as_ref().strip_prefix("--settings="))
+        .collect();
+    match settings[..] {
+        [one] => serde_json::from_str::<Value>(one)
+            .is_ok_and(|settings| settings["disableRemoteControl"] == true),
+        _ => false,
+    }
 }
 
 #[test]
@@ -209,6 +230,7 @@ fn a_native_session_starts_with_its_first_message_and_shows_its_stream() {
         args.iter().all(|arg| *arg != "--" && *arg != MESSAGE),
         "{args:?}"
     );
+    assert!(remote_control_off(&args), "{args:?}");
     let first: Value = serde_json::from_str(flow.wait_for_file("first.").trim()).unwrap();
     assert_eq!(first["type"], "user");
     assert_eq!(first["message"]["content"], MESSAGE);
@@ -495,6 +517,7 @@ mod cards;
 mod carried;
 mod compose;
 mod composed;
+mod follow;
 mod interrupt;
 mod markdown;
 mod model;
@@ -512,6 +535,7 @@ mod status;
 mod suggest;
 mod switch;
 mod todo;
+mod wrap;
 
 /// The selected window, if it is the composer docked under a session.
 fn selected_composer(state: &Value) -> Option<&Value> {

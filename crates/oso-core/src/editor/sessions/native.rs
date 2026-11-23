@@ -10,15 +10,24 @@
 //!   channel until the person lets agents read it, as a terminal's (ADR 0120, Q16).
 //! - It is listed and killed as a person's buffer is; the host learns of the kill as it does
 //!   of a terminal's.
-//! - A cursor at the end of the text stays at the end as rows come, so a window follows the
-//!   conversation unless the person moved away from its end.
+//! - A window whose cursor is at the end of the text follows the conversation, selected or not:
+//!   the cursor stays at the end as rows come, and the view goes with it. Any other window stays
+//!   where the person is in it. A window that never showed the buffer starts at its end, one
+//!   that left it at its end comes back there, and scrolling down to the last row goes there.
 
 use std::ops::Range;
 
 use super::super::Editor;
 use super::super::follow::Selected;
 use crate::buffer::{Buffer, BufferId, Mode, Replacement};
+use crate::rope::Rope;
+use crate::selection::SelectionSet;
 use crate::syntax::{Highlight, Highlights, Splice};
+use crate::window::{Place, Scroll};
+
+/// The longest new text whose edit wraps its rows within the budget; past it, the rows in view
+/// take it all, as the window goes to the text's end.
+const EDIT_WRAPS: usize = 16 * 1024;
 
 impl Editor {
     /// Adds an empty native session buffer, `name`, shown in no window yet: internal,
@@ -47,21 +56,45 @@ impl Editor {
             return;
         };
         let (start, end) = buffer.text().clip_range(range);
+        // What stays the same at its start is no edit, so that a window reading there stays.
+        // One drawn the same is put in again, for its runs.
+        let same = common_start(buffer.text(), start..end, text);
+        let same = if same == text.len() && same == end - start {
+            0
+        } else {
+            same
+        };
         let edits = [Replacement {
-            range: start..end,
-            text,
+            range: start + same..end,
+            text: &text[same..],
         }];
         let Some(staged) = buffer.stage_internal(&edits) else {
             return;
         };
         let old_len = buffer.text().len();
+        let mut following: Vec<usize> = (0..self.tiled_count())
+            .filter(|&index| self.windows[index].buffer() == id && self.follows_rows(index))
+            .collect();
+        // The one the person is in first, as in a command (ADR 0112).
+        let tiled = self.tiled_index();
+        following.sort_by_key(|&index| index != tiled);
         let moved = self.moved_selections(
             id,
             &staged.display(),
             staged.steps(),
             staged.changed(),
-            Selected::Logged,
+            Selected::Tail,
         );
+        // The edit spends the wraps' budget where the first window to follow is, but a long
+        // one leaves it all to the rows in view.
+        let budget = self.gather_wrap_budget();
+        let first = following
+            .first()
+            .and_then(|&at| self.windows[at].wrap_map_mut());
+        match first.filter(|_| text.len() - same <= EDIT_WRAPS) {
+            Some(wrap) => wrap.give_budget(budget),
+            None => self.wrap_pool = budget,
+        }
         let views = self.moved_views(id, &staged.display(), staged.steps(), staged.rewrap());
         // Nothing past this point can panic part way.
         if let Some(buffer) = self.buffer_mut(id) {
@@ -82,9 +115,84 @@ impl Editor {
             self.windows[index].selections = set;
         }
         self.commit_views(id, views);
-        if self.window().buffer() == id {
-            self.follow_cursor();
+        // Each within what is left of the command's wrap budget (ADR 0112), as no job may have
+        // wrapped the rows yet: its report follows too.
+        for index in following {
+            self.follow_window(index);
         }
+        self.pass_wrap_budget(tiled);
+    }
+
+    /// Whether the window at `index` shows a native session's transcript with its cursor at the
+    /// end.
+    pub(in crate::editor) fn at_native_end(&self, index: usize) -> bool {
+        let window = &self.windows[index];
+        let buffer = self.shown(window);
+        buffer.is_native_session() && window.selections.primary().cursor == buffer.text().len()
+    }
+
+    /// Whether the view of the window at `index`, which shows a transcript, goes with its cursor
+    /// as rows come: one at the end, and the selected one, whose cursor stays in view. Beneath a
+    /// preedit or a prompt the wheel leaves the cursor at the end and shows other rows: that
+    /// view stays, until a command takes it back (ADR 0069, ADR 0072).
+    fn follows_rows(&self, index: usize) -> bool {
+        if self.cursors_stay(index) {
+            return self.at_native_end(index) && self.end_in_view(index);
+        }
+        index == self.selected || self.at_native_end(index)
+    }
+
+    /// Whether the wheel left the cursor of the window at `index` at the end of its transcript
+    /// and shows other rows, beneath a preedit or a prompt: what wraps there does not take it
+    /// back.
+    pub(in crate::editor) fn wheeled_off_end(&self, index: usize) -> bool {
+        self.cursors_stay(index) && self.at_native_end(index) && !self.end_in_view(index)
+    }
+
+    /// Whether the last row of the window at `index` is in its view.
+    fn end_in_view(&self, index: usize) -> bool {
+        let window = &self.windows[index];
+        let display = self.shown(window).display();
+        let last = window.row_count(&display).saturating_sub(1);
+        crate::window::reaches(window.top_row(&display), window.size(), last)
+    }
+
+    /// The window at `index` was scrolled toward the end: in a transcript whose last row it
+    /// now shows, the cursor goes to the end, so that the window follows again, unless a
+    /// region shows or the person placed more cursors.
+    pub(in crate::editor) fn reach_native_end(&mut self, index: usize) {
+        let window = &self.windows[index];
+        let selections = &window.selections;
+        let placed = selections.mark_active().is_active() || selections.len() > 1;
+        let end = self.shown(window).text().len();
+        if self.shown(window).is_native_session() && !placed && self.end_in_view(index) {
+            self.windows[index].selections.move_primary(end);
+        }
+    }
+
+    /// The end of `buffer` as a place in it, if it is a native session's transcript.
+    pub(in crate::editor) fn native_end_place(&self, buffer: BufferId) -> Option<Place> {
+        let shown = self
+            .buffer(buffer)
+            .filter(|shown| shown.is_native_session())?;
+        Some(Place {
+            selections: SelectionSet::new(shown.text().len()),
+            scroll: Scroll::default(),
+            tail: true,
+        })
+    }
+
+    /// `place`, kept as a window left `buffer`: at the end it has now if it left a transcript
+    /// at its end, with its other cursors and its marks where they were.
+    pub(in crate::editor) fn native_place(&self, buffer: BufferId, mut place: Place) -> Place {
+        if place.tail
+            && let Some(end) = self.native_end_place(buffer)
+        {
+            place
+                .selections
+                .move_primary(end.selections.primary().cursor);
+        }
+        place
     }
 
     /// The native session buffers whose session has a turn under way or asks a question, in
@@ -102,6 +210,27 @@ impl Editor {
 /// terminal's, or a native session's.
 pub(in crate::editor) fn takes_session_flags(buffer: &Buffer) -> bool {
     buffer.is_terminal() || buffer.is_native_session()
+}
+
+/// How many bytes at the start of `text` are those at the start of `old`'s `range`, up to a
+/// character's start in both. O(the bytes).
+fn common_start(old: &Rope, range: Range<usize>, text: &str) -> usize {
+    let mut same = 0;
+    for chunk in old.chunks_in_range(range) {
+        let rest = &text.as_bytes()[same..];
+        let equal = (chunk.bytes().zip(rest))
+            .take_while(|(old, new)| old == *new)
+            .count();
+        same += equal;
+        if equal < chunk.len() {
+            break;
+        }
+    }
+    // Back to the start of a character the texts only start alike.
+    while !text.is_char_boundary(same) {
+        same -= 1;
+    }
+    same
 }
 
 #[cfg(test)]

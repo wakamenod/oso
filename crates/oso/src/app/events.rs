@@ -99,6 +99,7 @@ impl App {
             UserEvent::Dictation(generation, event) => self.dictation_event(generation, event),
             UserEvent::DictationFix(id, answer) => self.dictation_fixed(id, answer),
             UserEvent::DictationForgot(forgot) => self.dictation_forgot(forgot),
+            UserEvent::DictationLog(text, forgets) => self.show_dictation_log(text, forgets),
             UserEvent::Trim(report) => self.trim_reported(report),
             UserEvent::Search(report) => self.isearch_reported(report),
             UserEvent::Wrap(report) => self.wrap_reported(report),

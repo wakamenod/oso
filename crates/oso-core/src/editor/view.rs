@@ -377,10 +377,10 @@ impl Editor {
         let display = buffer.display();
         let before = window.scroll();
         // The cursor's row, then the rows in view once there, wrapped if provisional
-        // (ADR 0103); a top they moved is found again.
+        // (ADR 0103); a top they moved is found again, while the budget lasts.
         window.realize(&display, window.selections.primary().cursor, 0);
         follow_in(window, &display, preedit.as_ref());
-        if window.realize_view(&display) {
+        while window.realize_view(&display) {
             follow_in(window, &display, preedit.as_ref());
         }
         let moved = window.scroll() != before;
@@ -425,9 +425,7 @@ impl Editor {
         let Some(index) = self.tiled_window_index(id) else {
             return false;
         };
-        // The window beneath the prompts is the selected one while none is open.
-        let cursors_stay =
-            index == self.tiled_index() && (self.preedit.is_some() || !self.prompts.is_empty());
+        let cursors_stay = self.cursors_stay(index);
         // The wheel's budget, all of it for the window it scrolls (ADR 0112).
         self.refill_wraps();
         self.pass_wrap_budget(index);
@@ -461,7 +459,17 @@ impl Editor {
         if moved {
             self.wheel_pair(id, false);
         }
+        if moved && rows > 0 && !cursors_stay {
+            self.reach_native_end(index);
+        }
         moved
+    }
+
+    /// Whether the wheel leaves the cursors of the tiled window at `index` where they are, out
+    /// of view too: beneath a preedit or a prompt (ADR 0069, ADR 0072). The window beneath the
+    /// prompts is the selected one while none is open.
+    pub(super) fn cursors_stay(&self, index: usize) -> bool {
+        index == self.tiled_index() && (self.preedit.is_some() || !self.prompts.is_empty())
     }
 
     /// Scrolls the selected window by `lines` view rows, the text up, toward the end, if
@@ -494,6 +502,9 @@ impl Editor {
         }?;
         let moved = window.set_top(next, &display);
         window.realize_view(&display);
+        if moved && lines > 0 {
+            self.reach_native_end(self.selected);
+        }
         Ok(moved)
     }
 

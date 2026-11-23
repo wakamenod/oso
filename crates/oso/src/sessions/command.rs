@@ -86,7 +86,8 @@ pub struct Line<'a> {
     /// The first prompt, after `--` (ADR 0121 steps 4 and 6).
     pub brief: Option<&'a str>,
     /// `--settings`, the JSON of a session's own settings: the hook that steers Claude away
-    /// from its worktree tools (ADR 0121, Q15), when the person turns it on.
+    /// from its worktree tools (ADR 0121, Q15), when the person turns it on, and in a native
+    /// session, always, Remote Control turned off (ADR 0165).
     pub settings: Option<&'a str>,
     /// `--add-dir`, one for each: an orchestrator's trusted repositories (ADR 0136, step 3).
     pub add_dirs: &'a [std::path::PathBuf],

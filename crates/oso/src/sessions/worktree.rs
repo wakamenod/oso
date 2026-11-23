@@ -14,7 +14,8 @@
 //! - `brief`: the brief's header and hand-off facts.
 //! - `transcript`: the starting session's transcript, and the files it touched.
 //! - `include`: `.worktreeinclude`'s files, matched and copied.
-//! - `steer`: `oso hook deny-worktree`, and the `--settings` that installs it for a session.
+//! - `steer`: `oso hook deny-worktree`, and the `--settings` that installs it for a session
+//!   and turns Remote Control off in a native one.
 //! - `git`: git and `gh` for a repository and its linked worktrees.
 //! - `facts`: what a job reads of a repository once, for every worktree it looks at.
 //! - `merged`: whether a branch is merged (check 5).

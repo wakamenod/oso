@@ -409,6 +409,10 @@ impl App {
         }
         let buffer = native.buffer;
         let changed = !changes.is_empty();
+        // The rows in view wrap within a budget a batch, as within a command's (ADR 0103).
+        if changed {
+            self.editor.refill_wraps();
+        }
         let noted = noted || was_interrupting != interrupting(native);
         draw(&mut self.editor, native, changes);
         if suggested {
