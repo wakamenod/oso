@@ -51,7 +51,7 @@ fn write_private(state: &Path, name: &str, text: &str) {
 /// space's directory.
 fn seeded(test: &str) -> (Flow, PrivateRoot, PathBuf) {
     let flow = flow(test);
-    let root = PrivateRoot::new(test);
+    let root = PrivateRoot::new(&format!("{test}-root"));
     let config = fs::read_to_string(&flow.config).unwrap();
     let spaces = format!("\n[spaces]\nroot = \"{}\"\n", root.0.display());
     fs::write(&flow.config, config + &spaces).unwrap();
