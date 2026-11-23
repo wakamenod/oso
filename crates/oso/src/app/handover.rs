@@ -84,7 +84,7 @@ impl App {
         // What a native session's queue holds is lost by a restart: it is refused instead.
         self.refuse_unsent_queues()?;
         let reviews = self.reviews_to_hand_over();
-        carry::export(
+        let (mut state, exported) = carry::export(
             &self.editor,
             self.dispatcher.pending_to_carry(),
             self.frame(),
@@ -92,7 +92,10 @@ impl App {
             self.handover.exports + 1,
             terminals,
             &reviews,
-        )
+        )?;
+        // The native sessions the new instance resumes (ADR 0165, part 4c).
+        carry::natives::add(&mut state, &self.native_resumes());
+        Ok((state, exported))
     }
 
     /// Keeps `exported` for `export-text`, as the latest export, dropping the one before.

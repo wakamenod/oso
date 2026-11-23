@@ -25,7 +25,8 @@ often, so it must rebuild within 2 s.
   `terminals/adopt.rs` (the one coming) (ADR 0120, step 11). `restart` starts `oso-restart`
   and answers its threads, and says when a new binary is in place (ADR 0133); `restart/wait.rs`
   holds it while native sessions are busy, as `sessions/hosting/native/holds.rs` judges them
-  (ADR 0165, part 4b).
+  (ADR 0165, part 4b); `sessions/hosting/native/restarting.rs` stops them before the restart
+  and resumes them in the new instance, or here if it stays (part 4c).
 - `src/carry.rs` and `src/carry/` are the state a restart carries and both its transports'
   shared parts: the state's format, its texts in pieces, the terminals' entries, the
   descriptors (`fds`) and the requests (`op`). `oso dev`'s supervisor asks them over the dev
@@ -149,7 +150,8 @@ often, so it must rebuild within 2 s.
   and the commit list (ADR 0167). `review/saved.rs` is a
   saved review's file format (step 6), which `app/reviews/store.rs` reads and writes on
   `oso-review-store`, under the state directory, and `app/reviews/keep.rs` saves and brings
-  back; `carry/reviews.rs` names the reviews a restart opens again (`app/reviews/handed.rs`). A
+  back; `carry/reviews.rs` names the reviews a restart opens again (`app/reviews/handed.rs`),
+  and `carry/natives.rs` the native sessions it resumes (ADR 0165, part 4c). A
   review buffer's
   keys are listed in `commands::review::KEYS`, which `?` reads, and bound by
   `bindings/review.rs`.

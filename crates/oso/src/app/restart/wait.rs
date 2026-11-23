@@ -38,6 +38,8 @@ impl App {
     /// Before the loop waits: begins the restart that waits once nothing has held it for the
     /// hold.
     pub(in crate::app) fn restart_if_idle(&mut self, event_loop: &Loop<'_>) {
+        // A restart that ends its native sessions first is no longer waiting (part 4c).
+        self.restart_ending_due(Instant::now());
         let waits = self.editor.restart_when_idle();
         if !waits || self.is_leaving(event_loop) || self.restart_holds() {
             self.restart.wait.stop();
@@ -57,9 +59,16 @@ impl App {
         self.begin_restart();
     }
 
-    /// When the loop wakes for the restart that waits, if one does.
+    /// When the loop wakes for the restart that waits, if one does, or for one whose native
+    /// sessions are ending.
     pub(in crate::app) fn restart_wait_deadline(&self) -> Option<Instant> {
-        self.restart.wait.next_wake()
+        match (
+            self.restart.wait.next_wake(),
+            self.restart_ending_deadline(),
+        ) {
+            (Some(wait), Some(ending)) => Some(wait.min(ending)),
+            (wait, ending) => wait.or(ending),
+        }
     }
 
     /// Whether anything holds a restart back, with nothing allocated: a native session, a

@@ -26,8 +26,10 @@ pub enum Op {
     /// Give the masters of the terminals the latest export carries, if the generation is still
     /// this one; the exit that follows lets them go.
     HandOverTerminals { generation: u64 },
-    /// Take the masters of the terminals the import carried, in their order; `None` gives them
-    /// up, as the instance before kept them.
+    /// Take the masters of the terminals the import carried, in their order, as the instance
+    /// before has gone; `None` gives them up, as it kept them. Either says the same of the
+    /// native sessions the import named, which resume once it has gone (ADR 0165, part 4c):
+    /// with none of its terminals, `Some(0)`.
     ImportTerminals { count: Option<usize> },
     /// Take over from the instance that exported this state.
     ImportState(Box<State>),

@@ -10,10 +10,15 @@
 
 mod wait;
 
+use std::collections::HashSet;
+use std::time::{Duration, Instant};
+
 use super::idle_quit::IdleClock;
 use super::shell::Loop;
 use super::{App, UserEvent};
+use crate::carry::natives::NativeResume;
 use crate::carry::{self, Asked, Passed};
+use crate::sessions::worker::SessionKey;
 
 /// What a restart keeps on the UI thread.
 #[derive(Default)]
@@ -38,7 +43,24 @@ pub(super) struct Restart {
     /// Since when every native session has been idle, while a restart waits for them (ADR
     /// 0165, part 4b).
     pub(super) wait: IdleClock,
+    /// The native sessions a restart ends before its thread starts, until each has (part 4c).
+    ending: Option<Ending>,
+    /// The native sessions this instance ended for the restart under way, which the state
+    /// resumes in the new instance, or which resume here if it stays (part 4c).
+    ended: Vec<(SessionKey, NativeResume)>,
 }
+
+/// A restart that waits for the native sessions it ended to end, before its thread starts.
+struct Ending {
+    /// Those that have not ended yet.
+    waiting: HashSet<SessionKey>,
+    /// When the restart stays if one has still not ended.
+    by: Instant,
+    start: carry::going::Start,
+}
+
+/// How long the native sessions a restart ends may take: past the stop's `SIGKILL` at 5 s.
+const ENDING_TIME: Duration = Duration::from_secs(10);
 
 /// Who asked for the agent channel while a restart held it off.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -124,16 +146,17 @@ impl App {
     /// Whether a restart holds the agent channel off: while one is under way here, or this
     /// instance still takes over. `wanted` is who asked, for when it is over.
     pub(super) fn restart_holds_the_channel(&mut self, wanted: Wanted) -> bool {
-        let holds = self.restart.under_way || self.restart.taking_over;
+        let holds = self.restart_holds();
         if holds && self.restart.channel_wanted != Some(Wanted::Person) {
             self.restart.channel_wanted = Some(wanted);
         }
         holds
     }
 
-    /// Whether a restart is under way here, or this instance still takes over.
+    /// Whether a restart is under way here, ending the native sessions first or not, or this
+    /// instance still takes over.
     pub(in crate::app) fn restart_holds(&self) -> bool {
-        self.restart.under_way || self.restart.taking_over
+        self.restart.under_way || self.restart.ending.is_some() || self.restart.taking_over
     }
 
     /// Starts the agent channel if it was asked for while a restart held it off.
@@ -148,7 +171,7 @@ impl App {
     /// `oso-restart`: starts the restart's thread, if this instance may hand over, or waits
     /// for the native sessions to be idle first (ADR 0165, part 4b).
     pub(super) fn begin_restart(&mut self) {
-        let refused = if self.restart.under_way {
+        let refused = if self.restart.under_way || self.restart.ending.is_some() {
             Err("a restart is under way".to_owned())
         } else {
             self.check_handover(true, true).map(drop)
@@ -175,6 +198,83 @@ impl App {
         self.restart.channel_was_on = self.agent_channel_on();
         // An agent must not see or steer the restart (ADR 0133, T-agent).
         self.stop_agent_channel();
+        // The native sessions that run end first, and the new instance resumes them
+        // (ADR 0165, part 4c).
+        self.restart.ended = self.end_natives_for_restart();
+        if !self.restart.ended.is_empty() {
+            self.restart.ending = Some(Ending {
+                waiting: self.restart.ended.iter().map(|(key, _)| *key).collect(),
+                by: Instant::now() + ENDING_TIME,
+                start,
+            });
+            self.editor
+                .message("Restarting: the native sessions stop, to resume in the new oso…");
+            self.request_redraw();
+            return;
+        }
+        self.start_the_restart(start);
+        self.request_redraw();
+    }
+
+    /// Native session `key` ended: once each the restart ends has, the restart's checks run
+    /// again, as the person may have written meanwhile, and its thread starts.
+    pub(in crate::app) fn native_ended_for_restart(&mut self, key: SessionKey) {
+        let Some(ending) = &mut self.restart.ending else {
+            return;
+        };
+        ending.waiting.remove(&key);
+        if !ending.waiting.is_empty() {
+            return;
+        }
+        let Some(ending) = self.restart.ending.take() else {
+            return;
+        };
+        match self.check_handover(true, true) {
+            Ok(_) => self.start_the_restart(ending.start),
+            Err(why) => self.restart_stays(why),
+        }
+        self.request_redraw();
+    }
+
+    /// Before the loop waits: a restart whose native sessions have not all ended in
+    /// [`ENDING_TIME`] stays here.
+    pub(in crate::app) fn restart_ending_due(&mut self, now: Instant) {
+        if self
+            .restart
+            .ending
+            .as_ref()
+            .is_some_and(|ending| now >= ending.by)
+        {
+            self.restart.ending = None;
+            self.restart_stays(format!(
+                "a native session did not end in {} s",
+                ENDING_TIME.as_secs()
+            ));
+            self.request_redraw();
+        }
+    }
+
+    /// When the loop wakes for a restart's native sessions to have ended.
+    pub(in crate::app) fn restart_ending_deadline(&self) -> Option<Instant> {
+        self.restart.ending.as_ref().map(|ending| ending.by)
+    }
+
+    /// The native sessions the state resumes in the new instance: those ended for this
+    /// restart, and those that run still, which the exit ends (`oso dev`'s order).
+    pub(in crate::app) fn native_resumes(&self) -> Vec<NativeResume> {
+        let mut resumes: Vec<NativeResume> = (self.restart.ended.iter())
+            .map(|(_, resume)| resume.clone())
+            .collect();
+        for running in self.running_native_resumes() {
+            if resumes.iter().all(|resume| resume.id != running.id) {
+                resumes.push(running);
+            }
+        }
+        resumes
+    }
+
+    /// Starts the restart's thread.
+    fn start_the_restart(&mut self, start: carry::going::Start) {
         // The new instance reads the sessions, spaces and recent files as it starts, before this
         // one exits.
         self.flush_records();
@@ -186,7 +286,6 @@ impl App {
             }
             Err(e) => self.restart_stays(format!("cannot start the restart: {e}")),
         }
-        self.request_redraw();
     }
 
     /// What a thread of the restart asks.
@@ -229,6 +328,9 @@ impl App {
         self.restart.under_way = false;
         self.resume_terminals();
         self.forget_export();
+        // Before the channel comes back: an agent sees them resuming, never stopped by this.
+        let ended = std::mem::take(&mut self.restart.ended);
+        self.resume_natives_ended(ended.into_iter().map(|(key, _)| key).collect());
         if std::mem::take(&mut self.restart.channel_was_on) {
             self.start_agent_channel();
         }

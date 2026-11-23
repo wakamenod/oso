@@ -24,6 +24,8 @@
 //!   to-do strip, `todo`'s (part 3e).
 //! - Its prompt suggestion is `suggesting`'s, and the recap of a turn that ended out of sight
 //!   `recap`'s (part 3f).
+//! - Its process ended before `oso-restart`, and resumed by the new instance, is
+//!   `restarting`'s (part 4c).
 //! - Its bridge asks the person's permission for its calls on the sessions' socket, in
 //!   `permissions` (step 2).
 //! - Its first message is its brief, if it was given one; else the person writes it in its
@@ -44,6 +46,7 @@ mod mode;
 mod note;
 mod permissions;
 mod recap;
+mod restarting;
 mod resume;
 mod slash;
 mod status;
@@ -91,6 +94,8 @@ pub(in crate::app) struct NativeSessions {
     slash_listed: Option<slash::Listed>,
     /// The replies highlighted as Markdown that wait or are open (part 2g).
     replies: markdown::Replies,
+    /// In a new instance: the sessions the restart's state resumes (part 4c).
+    carried: restarting::Carried,
 }
 
 /// A native session's buffer, rows and process.
@@ -275,6 +280,8 @@ impl App {
             Out::Events(events) => self.native_events(key, events),
             Out::Ended { status, stderr } => {
                 self.native_ended(key, status, &stderr);
+                // The restart goes on once each session it ends has (part 4c).
+                self.native_ended_for_restart(key);
                 self.request_redraw();
             }
         }

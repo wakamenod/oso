@@ -282,7 +282,10 @@ pub fn hand_over<I: Instance>(
     }
     let imported = started.elapsed();
     let terminals = state["terminals"].as_array().map_or(0, Vec::len);
-    let replaced = stop_old(old, new, generation, terminals);
+    // Native sessions it names resume in the new instance once the old has gone (ADR 0165,
+    // part 4c).
+    let natives = (state["native_resumes"].as_array()).is_some_and(|named| !named.is_empty());
+    let replaced = stop_old(old, new, generation, Carried { terminals, natives });
     if matches!(replaced, Handover::Replaced(_)) {
         log::info!(
             "oso dev: checked {checked:?}, new window {:?}, export {:?}, import {:?}, \
@@ -296,38 +299,59 @@ pub fn hand_over<I: Instance>(
     replaced
 }
 
-/// Stops `old` once `new` has its state, and gives `new` the masters of the `terminals` it
-/// carried only once `old` has gone.
+/// What the state carried that the new instance takes only once the old has gone: how many
+/// terminals, and whether it named native sessions to resume.
+#[derive(Debug, Clone, Copy)]
+struct Carried {
+    terminals: usize,
+    natives: bool,
+}
+
+impl Carried {
+    /// Whether the new instance is to be told that the old has gone, or stays.
+    fn any(self) -> bool {
+        self.terminals > 0 || self.natives
+    }
+}
+
+/// Stops `old` once `new` has its state, and gives `new` the masters of the terminals it
+/// carried, and word to resume the native sessions it named, only once `old` has gone.
 fn stop_old<I: Instance>(
     old: &mut I,
     mut new: I,
     generation: u64,
-    terminals: usize,
+    carried: Carried,
 ) -> Handover<I> {
-    let masters = match take_masters(old, generation, terminals) {
+    let masters = match take_masters(old, generation, carried.terminals) {
         Ok(masters) => masters,
-        Err(reason) => return give_up_terminals(new, reason, terminals),
+        Err(reason) => return give_up_terminals(new, reason, carried),
     };
     match old.stop(generation) {
         Ok(()) => {
-            give_masters(&mut new, masters);
+            give_masters(&mut new, masters, carried);
             Handover::Replaced(new)
         }
-        Err(NotStopped::Refused(reason)) => give_up_terminals(new, reason, terminals),
+        Err(NotStopped::Refused(reason)) => give_up_terminals(new, reason, carried),
         // It may have agreed and be on its way out, and then the new one must be
         // there. Whichever goes first, the other is what remains. Its terminals are the new
         // one's only once it has gone; until then it may read them again.
-        // It agreed, so it let the terminals go: they are the new one's.
+        // It agreed, so it let the terminals go: they are the new one's. Its native sessions
+        // end as its event loop does, so the new one is told to resume them once it has gone;
+        // with terminals, the word goes with their masters whether it has or not, and the
+        // start thread's look in Claude Code's registry refuses a conversation still live.
         Err(NotStopped::Agreed(reason)) => {
-            give_masters(&mut new, masters);
+            let gone = !carried.natives || old.gone_within(MAY_YET_GO);
+            if gone || carried.terminals > 0 {
+                give_masters(&mut new, masters, carried);
+            }
             Handover::Beside { new, reason }
         }
         // Its answer did not come: it may have let the terminals go, and then they are the
         // new one's once it has gone, or it may read them again soon.
         Err(NotStopped::Unknown(reason)) => {
-            if terminals > 0 && old.gone_within(MAY_YET_GO) {
-                give_masters(&mut new, masters);
-            } else if terminals > 0 {
+            if carried.any() && old.gone_within(MAY_YET_GO) {
+                give_masters(&mut new, masters, carried);
+            } else if carried.any() {
                 abandon_terminals(&mut new);
             }
             Handover::Beside { new, reason }
@@ -357,9 +381,10 @@ fn take_masters<I: Instance>(
 }
 
 /// Gives the new instance the masters of the terminals it took over, now that the old one
-/// has gone. If it does not take them they close, and the terminals end.
-fn give_masters<I: Instance>(new: &mut I, masters: Vec<Fd>) {
-    if masters.is_empty() {
+/// has gone, and with them word to resume the native sessions it named, with no master if
+/// it took no terminal. If it does not take them they close, and the terminals end.
+fn give_masters<I: Instance>(new: &mut I, masters: Vec<Fd>, carried: Carried) {
+    if masters.is_empty() && !carried.natives {
         return;
     }
     let params = json!({ "count": masters.len() });
@@ -375,10 +400,10 @@ fn abandon_terminals<I: Instance>(new: &mut I) {
     }
 }
 
-/// [`give_up`], after the new instance was told that the `terminals` it took over stay with
-/// the old one.
-fn give_up_terminals<I: Instance>(mut new: I, reason: String, terminals: usize) -> Handover<I> {
-    if terminals > 0 {
+/// [`give_up`], after the new instance was told that the terminals it took over stay with
+/// the old one, and the native sessions it named with them.
+fn give_up_terminals<I: Instance>(mut new: I, reason: String, carried: Carried) -> Handover<I> {
+    if carried.any() {
         abandon_terminals(&mut new);
     }
     give_up(new, reason)
@@ -865,6 +890,48 @@ mod tests {
     /// Hands over with no instance beside the old one.
     fn handed_over(old: &mut Fake, new: Fake) -> Handover<Fake> {
         hand_over(old, &mut None, || Ok(new))
+    }
+
+    /// An instance whose export names a native session to resume (ADR 0165, part 4c).
+    fn with_natives(name: &'static str, log: &Log, stop: Result<(), NotStopped>) -> Fake {
+        Fake {
+            export: Ok(json!({
+                "version": 5, "generation": EXPORTED, "export": 3, "items": [],
+                "native_resumes": [{ "id": "0123abcd-0000-4000-8000-000000000001" }],
+            })),
+            stop,
+            ..Fake::new(name, log)
+        }
+    }
+
+    #[test]
+    fn named_native_sessions_resume_in_the_new_instance_once_the_old_one_has_stopped() {
+        let log = log();
+        let mut old = with_natives("old", &log, Ok(()));
+        let Handover::Replaced(new) = handed_over(&mut old, Fake::new("new", &log)) else {
+            panic!("not replaced");
+        };
+        assert_eq!(new.given, Some(0), "told with no master");
+        let log = log.borrow();
+        assert_eq!(log[log.len() - 2..], ["old stop 8", "new import-terminals"]);
+    }
+
+    #[test]
+    fn named_native_sessions_stay_stopped_while_the_old_one_stays_or_has_not_gone() {
+        let log = log();
+        let mut old = with_natives("old", &log, Err(NotStopped::Refused("refused".into())));
+        let Handover::Failed(_) = handed_over(&mut old, Fake::new("new", &log)) else {
+            panic!("not given up");
+        };
+        assert!(log.borrow().contains(&"new import-terminals".to_owned()));
+        // It agreed but has not gone: the new one is told nothing yet.
+        let log = self::log();
+        let agreed = Err(NotStopped::Agreed("going".into()));
+        let mut old = with_natives("old", &log, agreed);
+        let Handover::Beside { new, .. } = handed_over(&mut old, Fake::new("new", &log)) else {
+            panic!("not beside");
+        };
+        assert_eq!((new.given, new.abandoned), (None, false));
     }
 
     #[test]
