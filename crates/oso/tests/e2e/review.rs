@@ -306,8 +306,7 @@ fn a_comment_is_drafted_kept_edited_removed_and_yanked_back() {
     // `k` removes it at once, and `C-y` yanks it back as text elsewhere.
     app.send_keys("k");
     assert_eq!(app.state()["echo"], "Removed #0: C-y yanks it");
-    let seen = rows_until(&mut app, "+fn b() {}");
-    assert!(!seen.iter().any(|row| row.contains("You  #0")), "{seen:?}");
+    gone(&mut app, "You  #0");
     // `q` puts back the windows from before the review layout once the key ends, so the next
     // keys are sent as the person types them, after it (ADR 0160).
     app.send_keys("q");
@@ -577,6 +576,19 @@ fn seen(app: &mut App, row: &str) {
     );
 }
 
+/// Waits until no row holds `part`, failing if one still does after 5 s.
+fn gone(app: &mut App, part: &str) {
+    let mut shown = Vec::new();
+    for _ in 0..200 {
+        shown = rows(app, 20);
+        if !shown.iter().any(|row| row.contains(part)) {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    panic!("{part:?} still in {shown:?}");
+}
+
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
 fn an_edit_made_under_an_open_review_shows_with_the_cursor_kept_on_its_line() {
@@ -589,20 +601,18 @@ fn an_edit_made_under_an_open_review_shows_with_the_cursor_kept_on_its_line() {
     assert_eq!(cursor(&app.state()), (5, 0));
     // The agent puts a line in at the top, and no key is pressed: the review shows it.
     std::fs::write(&file, b"zero\none\n2\nthree\n").unwrap();
-    seen(&mut app, "+zero");
+    // A hunk new since the reading before says so until the cursor is in it. The text after the
+    // one that first shows the hunk says it, as the model has the hunk only once that is in.
+    const CHANGED: &str = "@@ -0,0 +1 @@  \u{b7} changed";
+    seen(&mut app, CHANGED);
     let shown = rows(&mut app, 20);
+    let header = shown.iter().position(|row| row == CHANGED).expect("it");
+    assert_eq!(shown[header + 1], "+zero", "its hunk: {shown:?}");
     let at = shown.iter().position(|row| row == "+2").expect("the line");
     assert_eq!(
         cursor(&app.state()).0,
         at as u64,
         "the cursor stays on +2: {shown:?}"
-    );
-    // A hunk new since the reading before says so until the cursor is in it.
-    assert!(
-        shown
-            .iter()
-            .any(|row| row.starts_with("@@ -0,0 +1 @@") && row.ends_with("changed")),
-        "{shown:?}"
     );
 }
 
