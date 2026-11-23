@@ -293,6 +293,11 @@ impl Keymaps {
     pub(super) fn user(&self) -> Option<&Keymap> {
         Some(&self.user).filter(|user| !user.is_empty())
     }
+
+    /// A native session's composer's keymap, whatever buffer is current.
+    pub(super) fn composer(&self) -> &Keymap {
+        self.modes.composer()
+    }
 }
 
 /// Whether the `lsp` layer is on in `buffer`: a server follows it, open with it, as the

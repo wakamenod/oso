@@ -1,6 +1,6 @@
 # 0170. Docked windows under a session's transcript
 
-- Status: Accepted, amended by 0180
+- Status: Accepted, amended by 0180; "An empty composer's placeholder, as amended" (2026-11-24)
 - Date: 2026-11-22
 
 ## Context
@@ -100,6 +100,9 @@ The facts it builds on (`frame`, `window`, `draw`):
   look) are part 2e-2's, and the strip's look step 3's.
 - **The cursor:** it is drawn in the selected window only, docked or not. The host's cursor
   shows hollow while the composer is selected, as any unselected window's does.
+  - Erratum (2026-11-24, as built): the cursor's style follows the window keys go to, not the
+    active modeline, which is the host's while its docked window is selected. As first built the
+    two were one, and the composer's cursor was the hollow one.
 
 ### Selecting and input
 
@@ -226,3 +229,25 @@ Once accepted:
   read-only transcript would need an editable tail.
 - **A float at the window's bottom edge** (ADR 0075 at the bottom): floats cover text, are not
   windows, and take no editing.
+
+## An empty composer's placeholder, as amended
+
+Amended on 2026-11-24, the author's choice: the mark and the background alone did not show the
+composer as a place to type. A rule above it and a stronger background were the other options, and
+neither was taken.
+
+- **While the composer is empty, it says what it is and its keys,** dim, on its first row:
+  `Write to Claude · C-c C-c sends · C-c C-o transcript`. The keys are the real ones: the shortest
+  that run the two commands in the composer's layers, the user's keys among them, or `M-x` and the
+  name. In a narrow window its last parts are left out, whole; `Write to Claude` is cut at the
+  window's edge at worst.
+- **It is drawn, and is no text:** no byte of it is in the buffer, so nothing that reads, sends,
+  moves over or searches the buffer meets it, nor does the agent channel.
+- **Its pane** is the composer's one more, in the prompt's face
+  ([ADR 0072](0072-floating-windows-the-minibuffer-and-questions.md)), and an exception to "a docked
+  window's panes are on the tiled layer" above: it is on a layer just over them and under every
+  float, so panes on one layer still never overlap. It has no background, so the current line's
+  band and the flash show behind it. It starts in the cell after the cursor's.
+- **When it shows:** whether the composer is selected or not, until the buffer holds anything or an
+  input method composes there. A composer that a yank turned secret, which sends nothing, shows
+  none.

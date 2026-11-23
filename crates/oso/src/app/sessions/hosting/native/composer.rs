@@ -14,9 +14,11 @@
 //! - What oso sends a native session is put into the composer, or a review's confirmed
 //!   question sent, by `composed` (part 2f).
 //! - A send while a dictation's fix runs waits for it, in `held` (ADR 0175, step 2).
+//! - What an empty composer's placeholder says is `placeholder`'s (ADR 0170).
 
 mod composed;
 mod held;
+mod placeholder;
 mod queued;
 
 use std::collections::VecDeque;

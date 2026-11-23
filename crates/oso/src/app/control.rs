@@ -408,7 +408,12 @@ impl App {
         let cells = &mut super::draw::Cells::default();
         let open_menu = self.dispatcher.menu();
         let capture = with_frame(
-            (&self.editor, &self.terminals.map, self.watch.pane_bands()),
+            (
+                &self.editor,
+                &self.terminals.map,
+                self.watch.pane_bands(),
+                self.hosting.natives.placeholder(),
+            ),
             open_menu.as_ref(),
             &statuses,
             cells,
