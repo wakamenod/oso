@@ -21,6 +21,9 @@ pub enum ClipboardEvent {
     Read(FromClipboard),
     /// The answer to an image read, for `session-yank-image` (ADR 0142).
     Image(ImageContents),
+    /// Whether the clipboard carries the type asked about, or `None` with no answer, for a
+    /// held `M-v` (ADR 0175).
+    HasType(Option<bool>),
     /// A read did not return, and the clipboard was started anew.
     NotAnswering,
 }
@@ -40,6 +43,7 @@ pub(super) fn start(source: Source, waker: Waker) -> Option<Clipboard> {
             },
             Event::Read(contents) => ClipboardEvent::Read(answer(contents)),
             Event::Image(contents) => ClipboardEvent::Image(contents),
+            Event::HasType(present) => ClipboardEvent::HasType(present),
             Event::NotAnswering => ClipboardEvent::NotAnswering,
         };
         waker.send(UserEvent::Clipboard(event));
@@ -102,6 +106,17 @@ impl App {
     /// what a yank did that was answered at once: with no clipboard, or for input from the dev
     /// socket, which never reads the system's.
     pub(super) fn sync_clipboard(&mut self) -> Effects {
+        let mut effects = self.sync_yank();
+        // An `M-v` held while a dictation's text is due waits for the clipboard too, and what it
+        // lets through may yank again (ADR 0175).
+        while let Some(more) = self.sync_paste_check() {
+            effects = effects.union(more).union(self.sync_yank());
+        }
+        effects
+    }
+
+    /// The yanks' part of [`Self::sync_clipboard`].
+    fn sync_yank(&mut self) -> Effects {
         self.write_clipboard();
         let mut effects = Effects::default();
         while let Some(from_socket) = self.dispatcher.take_clipboard_request() {
@@ -144,6 +159,7 @@ impl App {
                 self.apply(event_loop, effects);
             }
             ClipboardEvent::Image(contents) => self.clipboard_image(contents),
+            ClipboardEvent::HasType(present) => self.paste_checked(event_loop, present),
             ClipboardEvent::NotAnswering => {
                 self.editor.message("The clipboard is not answering");
                 self.request_redraw();

@@ -146,6 +146,8 @@ pub enum Face {
     DiffFiller,
     /// A session's mark that needs the person (ADR 0131): needs input or failed, in red.
     SessionAlert,
+    /// The modeline's `● REC` while a dictation records (ADR 0175), in the alert's red.
+    Dictation,
     /// A waiting session's mark and name on the lit beat of its blink (ADR 0140, as amended):
     /// in the text's background colour, on a fill in the alert's red, as inverse video.
     SessionAlertLit,

@@ -576,7 +576,7 @@ pub(crate) mod tests {
             // (ADR 0131).
             // ADR 0140 adds the pane's bands: a space's row, the front worktree's (the current
             // line's colour) and the row at point while the pane is selected.
-            Face::SessionAlert | Face::SessionDone => &[
+            Face::SessionAlert | Face::SessionDone | Face::Dictation => &[
                 (Face::Text, LABEL),
                 (Face::CurrentLine, LABEL),
                 (Face::Modeline, LABEL),

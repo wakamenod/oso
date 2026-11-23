@@ -7,7 +7,7 @@ use super::palettes::Name;
 use crate::pane::Face;
 
 /// Every face, in the order of [`index`], so that a theme keeps a table of them.
-pub(super) const FACES: [Face; 116] = [
+pub(super) const FACES: [Face; 117] = [
     Face::Text,
     Face::Escape,
     Face::Boxed,
@@ -124,6 +124,7 @@ pub(super) const FACES: [Face; 116] = [
     Face::DiffFiller,
     Face::ReviewDecided,
     Face::SessionAlertLit,
+    Face::Dictation,
 ];
 
 /// Where `face` is in [`FACES`]. A match with no wildcard, so that a new face does not
@@ -250,6 +251,7 @@ pub(super) const fn index(face: Face) -> usize {
         Face::DiffFiller => 113,
         Face::ReviewDecided => 114,
         Face::SessionAlertLit => 115,
+        Face::Dictation => 116,
     }
 }
 
@@ -366,6 +368,9 @@ pub(super) fn faces(face: Face) -> (Name, Name) {
         // A waiting row's mark and name on the lit beat of its blink (ADR 0140, as amended):
         // inverse video of the alert's red, the text's background on a fill of it.
         Face::SessionAlertLit => (BgMain, Terminal(9)),
+        // The modeline's `● REC` (ADR 0175) in the alert's red, as a session's that needs the
+        // person, so that the person sees the microphone is on.
+        Face::Dictation => (Terminal(9), BgMain),
         // A listing's names in a terminal's colours as `ls --color` gives them, which every
         // theme has apart from its text, even one with few syntax colours; its header as a
         // heading and its details as quiet as a session's (ADR 0134).

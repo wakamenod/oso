@@ -15,7 +15,7 @@ often, so it must rebuild within 2 s.
   in `src/bindings/`.
 - `src/app.rs` holds the app's state and what its concerns share, and `src/app/`
   the concerns: `shell` runs winit, or `native` oso's own layer (ADR 0070), `events` routes, `input`, `ime`, `draw`, `configuration`,
-  `loads`, `reloads`, `saves`, `idle_quit`, `copies`, `clipboard`, `searches`, `migemo`, `slices`, `walks`, `greps`, `wraps`, `flash`, `jumps`, `reviews`, `dired`, `vcs`, `terminals`, `recent_files` (the recent files' record, ADR 0148),
+  `loads`, `reloads`, `saves`, `idle_quit`, `copies`, `clipboard`, `searches`, `migemo`, `dictation` (ADR 0175), `slices`, `walks`, `greps`, `wraps`, `flash`, `jumps`, `reviews`, `dired`, `vcs`, `terminals`, `recent_files` (the recent files' record, ADR 0148),
   `starts` (what opening and saving start, and what waits for the person, ADR 0118) and
   `held_starts` (the starts that wait for the configuration's first look, ADR 0173, and native
   resumes, forks and adoptions for the record of trusted projects, ADR 0165 parts 4a and 4e,
@@ -73,7 +73,8 @@ often, so it must rebuild within 2 s.
   thread, before `y` applies them there (`servers/rename.rs`, `servers/rename/preview.rs`,
   `commands/rename.rs`, step 14), its keys in the same transient place. The fake server the tests run against is the dev-only binary
   `fake-lsp-server` (`tests/fake_lsp_server/`), which `just release-safety` keeps out of
-  release builds.
+  release builds, as it does `fake-typewhisper` (`tests/fake_typewhisper/`), the loopback
+  TypeWhisper dictation's flows run against (ADR 0175).
 - `src/sessions.rs` and `src/sessions/` are agent sessions (ADR 0121): the rules that read a
   hosted session's state from its screen, the tracker, the `oso-sessions` worker, and worktree
   sessions (`sessions/worktree/`), whose git and `gh` jobs run on `oso-sessions-git`, beside the

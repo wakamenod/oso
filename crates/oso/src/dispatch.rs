@@ -41,6 +41,8 @@ mod lossage;
 mod macros;
 mod menus;
 pub use menus::{Described, HeadNow, OpenMenu};
+mod paste_guard;
+pub use paste_guard::PasteGuard;
 mod prompts;
 mod reads;
 #[cfg(any(test, feature = "dev"))]
@@ -103,6 +105,8 @@ pub struct Dispatcher {
     publisher: Option<Publisher>,
     /// A command waiting for the OS clipboard, and the input held meanwhile (ADR 0074).
     waiting: Option<clipboard::Waiting>,
+    /// An `M-v` held while a dictation's text is due, and the input behind it (ADR 0175).
+    paste_guard: paste_guard::PasteHold,
     /// A command waiting for the host to list the project's branches (ADR 0121).
     branch_wait: Option<branches::BranchWait>,
     /// Keyboard macros: what a recording takes, and a replay's state here (ADR 0113).
@@ -186,6 +190,7 @@ impl Dispatcher {
             last: None,
             publisher: None,
             waiting: None,
+            paste_guard: paste_guard::PasteHold::default(),
             branch_wait: None,
             macros,
             held_during_all: hold_all::HeldDuringAll::default(),
@@ -442,6 +447,11 @@ impl Dispatcher {
             self.lossage_held(key);
             return Effects::default();
         }
+        // TypeWhisper's Command-V, while a dictation's text is due (ADR 0175).
+        if self.guard_takes(editor, key) {
+            self.lossage_held(key);
+            return Effects::default();
+        }
         // `describe-key` reads the sequence and runs nothing, in a terminal too.
         if self.describing() {
             self.macro_key(editor, key);
@@ -633,6 +643,8 @@ mod menu_close_tests;
 mod menu_tests;
 #[cfg(test)]
 mod motion_tests;
+#[cfg(test)]
+mod paste_guard_tests;
 #[cfg(test)]
 mod prefix_tests;
 #[cfg(test)]

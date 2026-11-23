@@ -20,6 +20,7 @@
 mod agent_rules;
 mod checked;
 mod defaults;
+mod dictation;
 mod git;
 mod in_force;
 mod indentation;
@@ -50,6 +51,7 @@ use crate::bindings;
 
 pub use agent_rules::RulesReport;
 pub use checked::read_checked;
+pub use dictation::Dictation;
 pub use git::GitSettings;
 pub use in_force::{AgentStarts, InForce, JUMP_TIMEOUT, Look};
 pub use lsp::{AlsoIn, Entry as LspEntry, InProject, Lsp, StartWhen};
@@ -234,6 +236,7 @@ fn apply(
             "spaces" => settings.spaces = spaces::spaces(value, found),
             "lsp" => settings.lsp = lsp::lsp(value, found),
             "git" => settings.git = git::git(value, found),
+            "dictation" => settings.dictation = dictation::dictation(value, found),
             other => found.at(
                 name.span().start,
                 format_args!("unknown table [{}], skipped", TableName(other)),
@@ -311,6 +314,35 @@ impl fmt::Display for TableName<'_> {
     }
 }
 
+/// A whole number within `range`; any other value is refused with `takes` and what it was.
+fn whole_in<T>(
+    value: &Spanned<DeValue<'_>>,
+    found: &mut Found,
+    range: std::ops::RangeInclusive<T>,
+    takes: &str,
+) -> Option<T>
+where
+    T: TryFrom<i64> + PartialOrd,
+{
+    let refuse = |found: &mut Found, what: &dyn std::fmt::Display| {
+        found.at(value.span().start, format_args!("{takes}, not {what}"));
+        None
+    };
+    let DeValue::Integer(n) = value.get_ref() else {
+        return refuse(found, &type_name(value.get_ref()));
+    };
+    let number = i64::from_str_radix(n.as_str(), n.radix())
+        .ok()
+        .and_then(|n| T::try_from(n).ok())
+        .filter(|number| range.contains(number));
+    match number {
+        Some(number) => Some(number),
+        None => refuse(found, &problems::cut(n)),
+    }
+}
+
+#[cfg(test)]
+mod dictation_tests;
 #[cfg(test)]
 mod jump_tests;
 #[cfg(test)]

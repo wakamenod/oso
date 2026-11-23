@@ -16,7 +16,7 @@ use toml::de::DeValue;
 use super::indentation::{Indent, Modes};
 use super::paths::user_path;
 use super::problems::{Found, cut, quoted};
-use super::{table, type_name, unknown};
+use super::{table, type_name, unknown, whole_in};
 use crate::sessions::tools::StartLimit;
 use crate::sessions::width;
 
@@ -49,6 +49,8 @@ pub struct Settings {
     pub lsp: super::lsp::Lsp,
     /// `[git]` (ADR 0127, step 1b).
     pub git: super::git::GitSettings,
+    /// `[dictation]` (ADR 0175).
+    pub dictation: super::dictation::Dictation,
 }
 
 /// `[sessions]`: how a hosted session's `claude` starts (ADR 0121).
@@ -354,33 +356,6 @@ fn pane_width(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Option<usize> 
     whole_in(value, found, width::WIDTHS, &takes)
 }
 
-/// A whole number within `range`; any other value is refused with `takes` and what it was.
-fn whole_in<T>(
-    value: &Spanned<DeValue<'_>>,
-    found: &mut Found,
-    range: std::ops::RangeInclusive<T>,
-    takes: &str,
-) -> Option<T>
-where
-    T: TryFrom<i64> + PartialOrd,
-{
-    let refuse = |found: &mut Found, what: &dyn std::fmt::Display| {
-        found.at(value.span().start, format_args!("{takes}, not {what}"));
-        None
-    };
-    let DeValue::Integer(n) = value.get_ref() else {
-        return refuse(found, &type_name(value.get_ref()));
-    };
-    let number = i64::from_str_radix(n.as_str(), n.radix())
-        .ok()
-        .and_then(|n| T::try_from(n).ok())
-        .filter(|number| range.contains(number));
-    match number {
-        Some(number) => Some(number),
-        None => refuse(found, &cut(n)),
-    }
-}
-
 /// `[sessions.notify]`: a switch for each kind; one left out or wrong keeps its default.
 fn notify(
     value: &Spanned<DeValue<'_>>,
@@ -412,29 +387,7 @@ fn notify(
 /// `[sessions] claude`: an absolute path on this computer, of at most [`MAX_CLAUDE_PATH`]
 /// bytes. Nothing is looked at on disk here; the session's start thread checks the file.
 fn claude_path(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Option<std::path::PathBuf> {
-    let at = value.span().start;
-    let DeValue::String(path) = value.get_ref() else {
-        found.at(
-            at,
-            format_args!(
-                "[sessions] claude takes the absolute path of claude, not {}",
-                type_name(value.get_ref())
-            ),
-        );
-        return None;
-    };
-    let elsewhere = path.starts_with("\\\\") || path.starts_with("//");
-    let why = if !std::path::Path::new(path.as_ref()).is_absolute() || elsewhere {
-        "takes an absolute path on this computer".to_owned()
-    } else if path.len() > MAX_CLAUDE_PATH {
-        format!("takes a path of at most {MAX_CLAUDE_PATH} bytes")
-    } else if path.contains('\0') {
-        "takes a path with no NUL character".to_owned()
-    } else {
-        return Some(std::path::PathBuf::from(path.as_ref()));
-    };
-    found.at(at, format_args!("[sessions] claude {why}"));
-    None
+    super::paths::program_path(value, "[sessions] claude", "claude", MAX_CLAUDE_PATH, found)
 }
 
 /// `env` of `table`, as `[sessions] env`: at most [`MAX_ENV_NAMES`] variables' names, each

@@ -20,6 +20,7 @@ mod configuration;
 #[cfg(feature = "dev")]
 mod control;
 mod copies;
+mod dictation;
 mod dired;
 mod draw;
 mod events;
@@ -94,6 +95,8 @@ pub enum UserEvent {
     Copies(CopiesEvent),
     /// The clipboard's threads wrote or read (ADR 0074).
     Clipboard(clipboard::ClipboardEvent),
+    /// The dictation of this generation's thread says how it goes (ADR 0175).
+    Dictation(u64, crate::dictation::state::Event),
     /// A whitespace scan ended (ADR 0113).
     Trim(oso_core::editor::TrimReport),
     /// isearch's worker found or counted something (ADR 0082).
@@ -254,6 +257,8 @@ pub struct App {
     ime: ime::ImeState,
     /// The OS clipboard's threads, or none if they could not start (ADR 0074).
     clipboard: Option<oso_platform::clipboard::Clipboard>,
+    /// The dictation under way, and text waiting for a composition to end (ADR 0175).
+    dictations: dictation::Dictations,
     /// isearch's worker (ADR 0082).
     searcher: searches::Searcher,
     /// The thread that reads migemo's dictionary, and what became of it (ADR 0116).
@@ -369,6 +374,10 @@ impl App {
     /// Loading threads and the clipboard report through `waker`, and `log_gate` is the
     /// installed logger's. It writes the theme chosen in `theme_directory`, and draws in the
     /// one `theme_read` brings, if it has by the time the window opens (ADR 0089).
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one line for each part of the app's state, which it starts"
+    )]
     pub fn new(
         waker: Waker,
         started: Instant,
@@ -388,7 +397,7 @@ impl App {
         let (grep, previewer) = (greps::grep(&waker), greps::previewer(&waker));
         let sessions = sessions::worker(&waker, theme_directory.as_deref());
         let mut editor = starting_editor();
-        let themes = theme_names();
+        let themes = configuration::theme_names();
         let configuration = configuration::Configuration::new(&themes);
         let remembered_theme = ShownTheme::first(configuration.default_theme());
         editor.set_themes(themes.clone(), 0);
@@ -421,6 +430,7 @@ impl App {
             next_statuses: Vec::new(),
             ime: ime::ImeState::default(),
             clipboard,
+            dictations: dictation::Dictations::default(),
             searcher: searches::Searcher::default(),
             migemo_reader: migemo::MigemoReader::default(),
             wrapper: wraps::Wrapper::default(),
@@ -578,18 +588,4 @@ fn starting_editor() -> Editor {
         editor.set_start_directory(directory);
     }
     editor
-}
-
-/// The renderer's themes, each a name and what it is, the default first (ADR 0089).
-fn theme_names() -> Vec<(&'static str, &'static str)> {
-    oso_render::theme::themes()
-        .iter()
-        .map(|theme| {
-            let kind = match theme.kind() {
-                oso_render::theme::Kind::Dark => "dark",
-                oso_render::theme::Kind::Light => "light",
-            };
-            (theme.name(), kind)
-        })
-        .collect()
 }

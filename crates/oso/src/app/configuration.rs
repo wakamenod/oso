@@ -89,6 +89,11 @@ impl Configuration {
         self.in_force.sessions.claude.as_deref()
     }
 
+    /// `[dictation]` in force, for the next dictation (ADR 0175).
+    pub(super) fn dictation(&self) -> &crate::config::Dictation {
+        &self.in_force.dictation
+    }
+
     /// `[sessions] mode` in force: whether a new session in a trusted project runs native
     /// (ADR 0165): unless `"tui"` opts out (part 4e).
     pub(super) fn native_sessions(&self) -> bool {
@@ -349,4 +354,18 @@ impl App {
             self.freer.free(old);
         }
     }
+}
+
+/// The renderer's themes, each a name and what it is, the default first (ADR 0089).
+pub(super) fn theme_names() -> Vec<(&'static str, &'static str)> {
+    oso_render::theme::themes()
+        .iter()
+        .map(|theme| {
+            let kind = match theme.kind() {
+                oso_render::theme::Kind::Dark => "dark",
+                oso_render::theme::Kind::Light => "light",
+            };
+            (theme.name(), kind)
+        })
+        .collect()
 }

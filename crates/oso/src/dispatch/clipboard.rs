@@ -34,8 +34,9 @@ use super::{Dispatcher, Step};
 /// within a bound, so this is reached only by a flood of keys from the socket.
 const MAX_HELD: usize = 4096;
 
-/// Input that came while a command waited, and whether it came through the dev socket.
-enum Held {
+/// Input that came while a command waited, or a held `M-v` was checked (`paste_guard`), and
+/// whether it came through the dev socket.
+pub(super) enum Held {
     Key(KeyPress, bool),
     Text(String, bool),
     Commit(String, bool),
@@ -171,7 +172,7 @@ impl Dispatcher {
             return Effects::default();
         };
         let spec = self.registry.get(waiting.id).map(|command| command.args);
-        let mut effects = if waiting.place != Place::of(editor) {
+        let effects = if waiting.place != Place::of(editor) {
             editor.message("Yank dropped: the window changed while the clipboard was read");
             Effects::default()
         } else if let Some(ArgSpec::KillEntry { prompt }) = spec {
@@ -194,15 +195,26 @@ impl Dispatcher {
                     .0
             })
         };
+        self.replay_held(editor, waiting.held, effects)
+    }
+
+    /// Handles `held`, input held while something waited, each as from where it came, after
+    /// `effects`, until something waits again, which keeps the rest. Returns what the host
+    /// should do.
+    pub(super) fn replay_held(
+        &mut self,
+        editor: &mut Editor,
+        mut held: VecDeque<Held>,
+        mut effects: Effects,
+    ) -> Effects {
         let before = self.from_socket;
-        let mut held = waiting.held;
         while let Some(input) = held.pop_front() {
             if effects.exit {
                 break;
             }
-            if let Some(again) = &mut self.waiting {
-                again.held.push_back(input);
-                again.held.append(&mut held);
+            if let Some(again) = self.held_queue() {
+                again.push_back(input);
+                again.append(&mut held);
                 break;
             }
             let more = match input {
@@ -228,6 +240,15 @@ impl Dispatcher {
         }
         self.from_socket = before;
         effects
+    }
+
+    /// Where input is held now: behind a yank that waits for the clipboard, else behind an
+    /// `M-v` being checked.
+    fn held_queue(&mut self) -> Option<&mut VecDeque<Held>> {
+        match &mut self.waiting {
+            Some(waiting) => Some(&mut waiting.held),
+            None => self.paste_guard.held(),
+        }
     }
 
     /// Holds a key while a command waits. Returns whether it was held.
@@ -256,11 +277,11 @@ impl Dispatcher {
     }
 
     fn hold(&mut self, input: impl FnOnce() -> Held) -> bool {
-        let Some(waiting) = &mut self.waiting else {
+        let Some(held) = self.held_queue() else {
             return false;
         };
-        if waiting.held.len() < MAX_HELD {
-            waiting.held.push_back(input());
+        if held.len() < MAX_HELD {
+            held.push_back(input());
         } else {
             // What it was stays out of the log, as typed text does (ADR 0028).
             log::warn!("input dropped while waiting for the clipboard");

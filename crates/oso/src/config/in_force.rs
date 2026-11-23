@@ -130,6 +130,8 @@ pub struct InForce {
     pub mode_indents: [(indent::Settings, indent::Origins); super::MODE_COUNT],
     /// How hosted sessions start (ADR 0121): read when one starts.
     pub sessions: super::settings::Sessions,
+    /// `[dictation]`, read when a dictation starts (ADR 0175).
+    pub dictation: super::Dictation,
     /// `[terminal]`, as the file gives it: it applies to the next terminal started (ADR 0120).
     pub terminal: super::Terminal,
     /// `[spaces]`: it applies to the next space made (ADR 0136).
@@ -166,6 +168,7 @@ impl InForce {
                 (super::MODES[index].1.default_indent(), Default::default())
             }),
             sessions: super::settings::Sessions::default(),
+            dictation: super::Dictation::default(),
             terminal: super::Terminal::default(),
             spaces: super::Spaces::default(),
             lsp: super::Lsp::default(),
@@ -206,6 +209,7 @@ impl InForce {
                 (mode.over(compiled.mode_indents[index].0), mode.origins())
             }),
             sessions: settings.sessions.clone(),
+            dictation: settings.dictation.clone(),
             terminal: settings.terminal.clone(),
             spaces: settings.spaces.clone(),
             lsp: settings.lsp.clone(),
@@ -344,6 +348,7 @@ mod tests {
                 mode_indents: crate::config::MODES
                     .map(|(_, mode)| (mode.default_indent(), indent::Origins::default())),
                 sessions: crate::config::settings::Sessions::default(),
+                dictation: crate::config::Dictation::default(),
                 terminal: crate::config::Terminal::default(),
                 spaces: crate::config::Spaces::default(),
                 lsp: crate::config::Lsp::default(),
@@ -403,6 +408,7 @@ mod tests {
                 mode_indents: crate::config::MODES
                     .map(|(_, mode)| (mode.default_indent(), indent::Origins::default())),
                 sessions: crate::config::settings::Sessions::default(),
+                dictation: crate::config::Dictation::default(),
                 terminal: crate::config::Terminal::default(),
                 spaces: crate::config::Spaces::default(),
                 lsp: crate::config::Lsp::default(),

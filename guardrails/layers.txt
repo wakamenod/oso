@@ -88,6 +88,9 @@ channel dired project review walk
 # the listed worktrees, and run text made safe to show (ADR 0127, as built), for `review`,
 # `sessions`, `vcs`, `commands` and `app`.
 git
+# `dictation` asks TypeWhisper for a dictation's text over its local API, through curl, and says
+# where the text goes (ADR 0175).
+dictation
 
 [oso-syntax]
 crate

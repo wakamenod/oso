@@ -582,10 +582,23 @@ mod tests {
             set,
             ClipboardOp::Set {
                 text: "hunter2".into(),
-                concealed: true
+                concealed: true,
+                types: Vec::new(),
             }
         );
         assert!(!format!("{set:?}").contains("hunter2"));
+        let marked = op(r#"{"text": "said", "types": ["com.typewhisper.SpeechTranscription"]}"#);
+        assert_eq!(
+            marked,
+            ClipboardOp::Set {
+                text: "said".into(),
+                concealed: false,
+                types: vec!["com.typewhisper.SpeechTranscription".into()],
+            }
+        );
+        assert!(
+            parse(r#"{"method": "clipboard", "params": {"text": "a", "types": [1]}}"#).is_err()
+        );
         assert!(parse(r#"{"method": "clipboard", "params": {"text": 1}}"#).is_err());
         assert!(parse(r#"{"method": "clipboard", "params": {"concealed": true}}"#).is_err());
 

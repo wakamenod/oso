@@ -1,5 +1,6 @@
 //! Tests of the clipboard's threads over the clipboard in memory and a slow backend:
-//! its own text, text from another app, images, the bounds and the read's time limit.
+//! its own text, text from another app, images, the types an app marks its text with, the
+//! bounds and the reads' time limits.
 //!
 //! Must not depend on: the system's clipboard, which a test must never touch.
 
@@ -145,6 +146,10 @@ impl Backend for Empty {
     fn read_image(&mut self, _: usize) -> ImageContents {
         ImageContents::Nothing
     }
+
+    fn has_type(&mut self, _: &str) -> Option<bool> {
+        Some(false)
+    }
 }
 
 /// A backend whose reads take as long as a test says.
@@ -167,6 +172,11 @@ impl Backend for Slow {
     fn read_image(&mut self, _: usize) -> ImageContents {
         let _ = self.0.recv();
         ImageContents::Nothing
+    }
+
+    fn has_type(&mut self, _: &str) -> Option<bool> {
+        let _ = self.0.recv();
+        Some(true)
     }
 }
 
@@ -246,6 +256,10 @@ impl Backend for Gate {
     fn read_image(&mut self, _: usize) -> ImageContents {
         ImageContents::Nothing
     }
+
+    fn has_type(&mut self, _: &str) -> Option<bool> {
+        Some(false)
+    }
 }
 
 #[test]
@@ -286,6 +300,7 @@ fn a_read_that_never_returns_is_left_behind_and_a_new_worker_takes_over() {
     let (tx, events) = mpsc::channel();
     let timing = Timing {
         answer: Duration::from_millis(50),
+        types: Duration::from_millis(50),
         give_up: Duration::from_millis(200),
     };
     let clipboard = over(Slow(wait), timing, move |event| {
@@ -359,6 +374,7 @@ fn an_image_read_waits_until_the_give_up_time_and_a_new_worker_takes_over() {
     let (tx, events) = mpsc::channel();
     let timing = Timing {
         answer: Duration::from_millis(50),
+        types: Duration::from_millis(50),
         give_up: Duration::from_millis(300),
     };
     let clipboard = over(Slow(wait), timing, move |event| {
@@ -398,4 +414,67 @@ fn debug_never_shows_an_image() {
     let shown = format!("{:?}", ImageContents::Image(image));
     assert!(!shown.contains("104"), "{shown}");
     assert!(shown.contains("len: 7"), "{shown}");
+}
+
+/// The marker an app pastes its text under, in the tests.
+const MARKER: &str = "com.example.Marker";
+
+fn has_type(clipboard: &Clipboard, events: &Receiver<Event>) -> Option<bool> {
+    clipboard.has_type(MARKER);
+    match next(events) {
+        Event::HasType(present) => present,
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn a_type_another_app_marked_its_text_with_is_seen_and_a_copy_drops_it() {
+    let (clipboard, events) = memory();
+    assert_eq!(has_type(&clipboard, &events), Some(false), "nothing there");
+    let memory = clipboard.memory().unwrap();
+    memory.set_marked("said".into(), false, vec![MARKER.into()]);
+    assert_eq!(has_type(&clipboard, &events), Some(true));
+    memory.set_marked("said".into(), false, vec!["other".into()]);
+    assert_eq!(has_type(&clipboard, &events), Some(false), "another type");
+    memory.set_marked("said".into(), false, vec![MARKER.into()]);
+    memory.set("copied".into(), false);
+    assert_eq!(
+        has_type(&clipboard, &events),
+        Some(false),
+        "a copy after it"
+    );
+    memory.set_marked("said".into(), false, vec![MARKER.into()]);
+    let _ = write(&clipboard, &events, 1, "mine");
+    assert_eq!(has_type(&clipboard, &events), Some(false), "its own write");
+}
+
+#[test]
+fn a_look_at_the_types_is_answered_within_its_own_time() {
+    let (release, wait) = mpsc::channel();
+    let (tx, events) = mpsc::channel();
+    let clipboard = over(Slow(wait), TIMING, move |event| {
+        let _ = tx.send(event);
+    });
+    let started = Instant::now();
+    assert_eq!(has_type(&clipboard, &events), None);
+    let waited = started.elapsed();
+    assert!(
+        waited >= TYPE_TIMEOUT && waited < READ_TIMEOUT,
+        "{waited:?}"
+    );
+    // The worker is still on it: a look and a read are answered at once.
+    assert_eq!(has_type(&clipboard, &events), None);
+    assert_eq!(read(&clipboard, &events), Contents::NoAnswer);
+    // The late answer goes nowhere; once it is in, the next look gets the backend's own.
+    release.send(()).unwrap();
+    release.send(()).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let present = loop {
+        match has_type(&clipboard, &events) {
+            None if Instant::now() < deadline => thread::yield_now(),
+            present => break present,
+        }
+    };
+    assert_eq!(present, Some(true));
+    assert!(events.try_recv().is_err(), "one answer for each look");
 }

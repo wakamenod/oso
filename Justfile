@@ -266,17 +266,22 @@ release-safety:
         fi
     done
 
-    # The fake language server is a binary of dev builds only (ADR 0138, step 3): a dev build
-    # makes it, and the release build makes no such executable.
+    # The fake language server and the fake TypeWhisper are binaries of dev builds only
+    # (ADR 0138, step 3; ADR 0175): a dev build makes them, and the release build makes no such
+    # executable.
     executables() {
         cargo build --locked --message-format=json-render-diagnostics "$@" \
             | sed -n 's|.*"executable":"\([^"]*\)".*|\1|p'
     }
-    grep -q '/fake-lsp-server$' <<<"$(executables -p oso --features dev)" \
-        || { echo "error: the dev build made no fake-lsp-server; fix this check"; exit 1; }
-    if grep '/fake-lsp-server$' <<<"$(executables --workspace --release)"; then
-        echo "error: the release build makes the fake language server (above)"; fail=1
-    fi
+    dev_executables=$(executables -p oso --features dev)
+    release_executables=$(executables --workspace --release)
+    for fake in fake-lsp-server fake-typewhisper; do
+        grep -q "/$fake\$" <<<"$dev_executables" \
+            || { echo "error: the dev build made no $fake; fix this check"; exit 1; }
+        if grep "/$fake\$" <<<"$release_executables"; then
+            echo "error: the release build makes $fake (above)"; fail=1
+        fi
+    done
 
     if [ "$fail" -eq 0 ]; then echo "release safety: ok ($release_bin)"; fi
     exit "$fail"

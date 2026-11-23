@@ -179,6 +179,8 @@ impl App {
         };
         state["ime"] = dev::ime_state(&self.editor, &facts);
         state["clipboard"] = json!({ "waiting": self.dispatcher.waits_for_clipboard() });
+        // An `M-v` held while a dictation's text is due (ADR 0175).
+        state["paste_held"] = json!(self.dispatcher.checks_paste());
         // Whether the agent's open question takes an answer yet, for flows that answer it.
         state["agent_question"] = json!({ "takes_answer": self.agent_question_takes_answer() });
         state["card"] = json!({
@@ -251,8 +253,12 @@ impl App {
                 Some((text, false)) => json!({ "text": text, "concealed": false }),
                 None => json!({ "text": null, "concealed": false }),
             },
-            dev::ClipboardOp::Set { text, concealed } => {
-                memory.set(text, concealed);
+            dev::ClipboardOp::Set {
+                text,
+                concealed,
+                types,
+            } => {
+                memory.set_marked(text, concealed, types);
                 json!({ "set": true })
             }
             dev::ClipboardOp::SetImage {

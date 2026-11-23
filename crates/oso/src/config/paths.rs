@@ -58,6 +58,39 @@ pub(super) fn user_path(
     None
 }
 
+/// `label`'s program, `name`, by an absolute path on this computer, of at most `max` bytes,
+/// with no NUL, as `[sessions] claude` and `[dictation] curl` take it. Nothing is looked at on
+/// disk here. A bad one is said and gives `None`.
+pub(super) fn program_path(
+    value: &Spanned<DeValue<'_>>,
+    label: &str,
+    name: &str,
+    max: usize,
+    found: &mut Found,
+) -> Option<std::path::PathBuf> {
+    let at = value.span().start;
+    let DeValue::String(path) = value.get_ref() else {
+        let kind = type_name(value.get_ref());
+        found.at(
+            at,
+            format_args!("{label} takes the absolute path of {name}, not {kind}"),
+        );
+        return None;
+    };
+    let elsewhere = path.starts_with("\\\\") || path.starts_with("//");
+    let why = if !Path::new(path.as_ref()).is_absolute() || elsewhere {
+        "takes an absolute path on this computer".to_owned()
+    } else if path.len() > max {
+        format!("takes a path of at most {max} bytes")
+    } else if path.contains('\0') {
+        "takes a path with no NUL character".to_owned()
+    } else {
+        return Some(std::path::PathBuf::from(path.as_ref()));
+    };
+    found.at(at, format_args!("{label} {why}"));
+    None
+}
+
 /// `written`, a path [`user_path`] took, with `~/` joined to `home`. `None` for `~/` with no
 /// home directory or a relative one, and for a path that is then on another computer.
 pub fn expand(written: &str, home: Option<&Path>) -> Option<std::path::PathBuf> {

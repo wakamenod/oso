@@ -14,6 +14,7 @@ mod buffers;
 mod complete;
 mod config;
 mod cursors;
+mod dictation;
 mod dired;
 mod dired_ops;
 mod editorconfig;

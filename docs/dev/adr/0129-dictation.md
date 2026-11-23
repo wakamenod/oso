@@ -1,6 +1,6 @@
 # 0129. Dictation
 
-- Status: Proposed
+- Status: Superseded by 0175
 - Date: 2026-11-13
 
 ## Context

@@ -449,9 +449,9 @@ item notes when it must be settled.
   turns `idle` when a turn ends, and that `SIGTERM` after an idle turn leaves the transcript
   whole. Step 1's flows use a fake `claude`
   ([ADR 0151](adr/0151-moving-a-session-into-a-space.md)).
-- Dictation: the author deferred it on 2026-11-13. [ADR 0129](adr/0129-dictation.md) stays
-  Proposed with its questions open (where recognition runs, the text, the key, the language, the
-  macOS microphone permission).
+- Dictation goes through TypeWhisper ([ADR 0175](adr/0175-dictation-through-typewhisper.md),
+  which supersedes 0129): step 1 is built; the fix by Claude, the learning record and
+  TypeWhisper's dictionary are its steps 2 to 4.
 
 ## Later
 

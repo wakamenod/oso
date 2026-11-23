@@ -257,6 +257,15 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   `sessions::images` keeps in a private file under the cache
   ([ADR 0142](adr/0142-attaching-the-clipboard-s-image-to-a-session.md)).
   macOS uses `NSPasteboard`; Linux and Windows have none until their window layers.
+- **Dictation** (`dictation`, [ADR 0175](adr/0175-dictation-through-typewhisper.md)) asks
+  TypeWhisper, on the person's Mac, for the text of their speech over its loopback API,
+  through curl on a dictation's thread (`dictation::state`), with the port and token from its
+  discovery file (`dictation::discovery`). `dictation-toggle` (`s-d`) asks the host through
+  the editor; `app/dictation.rs` takes the place at the start (`dictation::target`), shows
+  `● REC` then `…` in the modeline, and types the text there in one undo step, or keeps it in
+  the kill ring. While the text is due, the dispatcher holds an `M-v`
+  (`dispatch/paste_guard.rs`) and drops it when the clipboard's types-only look finds
+  TypeWhisper's marker, as TypeWhisper pastes the same text itself with Command-V.
 - **Modified state** compares content ids. Each edit gets a new id, undo and redo
   restore the stored one, and a buffer is modified when its id differs from the
   saved one. So undoing to the saved state is unmodified, and a buffer whose saved

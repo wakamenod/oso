@@ -13,6 +13,7 @@ mod commands;
 mod config;
 #[cfg(feature = "dev")]
 mod dev;
+mod dictation;
 mod dired;
 mod dispatch;
 mod emergency;
