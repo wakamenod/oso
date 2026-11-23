@@ -356,6 +356,9 @@ pub enum NativeAction {
     /// From the transcript or the composer (ADR 0165, part 3b): switch the session to its
     /// next permission mode.
     CycleMode,
+    /// From the transcript or the composer (step 3, part 3e): open the session's to-do strip
+    /// to its rows, or fold it back to one line.
+    Todo,
     /// From a plan's card (part 3d): edit the plan in `*plan: NAME*`, in place of the
     /// transcript.
     EditPlan,

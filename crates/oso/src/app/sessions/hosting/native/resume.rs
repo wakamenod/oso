@@ -76,6 +76,8 @@ impl App {
             super::draw(&mut self.editor, native, [change]);
         }
         self.draw_queue(key);
+        // Its to-do list is not read back: empty until its next to-do call (part 3e).
+        self.clear_todo(key);
         self.editor.set_running(buffer, true);
         self.set_native_state(key, NativeState::Starting);
         self.hosting.starting.insert(key, buffer);

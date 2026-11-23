@@ -107,8 +107,12 @@ impl App {
     }
 
     /// Starts a new hosted session that resumes `from`'s conversation under a new id: native
-    /// as a new start would be (ADR 0165, step 2), else in a terminal.
+    /// as a new start would be (ADR 0165, step 2), else in a terminal. Whole, once the
+    /// configuration's first look is done, as `[sessions] mode` chooses which (ADR 0173).
     fn fork_from(&mut self, from: ForkFrom) {
+        if self.starts_wait() {
+            return self.hold_start(move |app| app.fork_from(from));
+        }
         let ForkFrom {
             id: from,
             directory,

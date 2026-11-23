@@ -176,11 +176,25 @@ impl Drop for Reader {
 /// The thread: reads `file` at once, and again whenever it is found changed. A panic anywhere
 /// on it, as the loader and the saver catch theirs, is said, and ends it.
 fn run(file: &Path, rules: Option<RulesWatch>, shared: &Shared) {
+    dev_delay_first_look();
     if catch_unwind(AssertUnwindSafe(|| watch(file, rules, shared))).is_err() {
         let refused = Report::Refused("reading it failed".to_owned());
         let _ = catch_unwind(AssertUnwindSafe(|| deliver(shared, refused)));
     }
 }
+
+/// A dev build's end-to-end flow's delay of the first look, in ms (`OSO_DEV_CONFIG_DELAY_MS`,
+/// at most a minute), on this thread: what starts meanwhile waits for it (ADR 0173).
+#[cfg(feature = "dev")]
+fn dev_delay_first_look() {
+    let delay = std::env::var("OSO_DEV_CONFIG_DELAY_MS").ok();
+    if let Some(ms) = delay.and_then(|ms| ms.parse::<u64>().ok()) {
+        std::thread::sleep(std::time::Duration::from_millis(ms.min(60_000)));
+    }
+}
+
+#[cfg(not(feature = "dev"))]
+fn dev_delay_first_look() {}
 
 /// Reads `file` whenever it is found changed, or a look is asked for, and says what is new; and
 /// the agent rules file beside it, in the same way.

@@ -18,7 +18,7 @@
 //!   archived or forgotten, `end`'s; its interrupt, `interrupting`'s (step 2c); its slash
 //!   commands, `slash`'s (step 2d); its replies' Markdown highlighting, once each is whole,
 //!   `markdown`'s (part 2g); its status line, `status`'s (part 3a); its permission mode,
-//!   `mode`'s (part 3b).
+//!   `mode`'s (part 3b); its to-do strip, `todo`'s (part 3e).
 //! - Its prompt suggestion is `suggesting`'s, and the recap of a turn that ended out of sight
 //!   `recap`'s (part 3f).
 //! - Its bridge asks the person's permission for its calls on the sessions' socket, in
@@ -43,6 +43,7 @@ mod resume;
 mod slash;
 mod status;
 mod suggesting;
+mod todo;
 
 use std::collections::HashMap;
 use std::ops::Range;
@@ -129,6 +130,8 @@ struct Native {
     markdown: markdown::Marks,
     /// Its status line, and its process's `get_usage` (part 3a).
     status: status::StatusState,
+    /// Its to-do list and strip (part 3e).
+    todo: todo::TodoStrip,
     /// Its last turn ended out of the person's sight, and no recap said so yet (part 3f).
     unseen: bool,
     /// Its permission mode, as the CLI says it, and the person's switch of it (part 3b).
@@ -260,6 +263,15 @@ impl App {
         }
     }
 
+    /// Native session `key`'s control layer as if its process started now: its start waited
+    /// for the configuration's first look, and its `initialize` is not yet written (ADR 0173).
+    pub(super) fn native_control_from_now(&mut self, key: SessionKey) {
+        let native = self.hosting.natives.map.get_mut(&key);
+        if let Some(control) = native.and_then(|native| native.control.as_mut()) {
+            *control = Control::started(std::time::Instant::now());
+        }
+    }
+
     /// A native session buffer for session `key`, named `name`, running in `directory`, with
     /// its rows, and `first` as the message oso sent.
     fn add_native_buffer(
@@ -302,6 +314,7 @@ impl App {
             moved: false,
             status: status::StatusState::default(),
             mode: ModeState::default(),
+            todo: todo::TodoStrip::default(),
         };
         self.hosting.natives.map.insert(key, native);
         // Its composer, docked under it (ADR 0170).
@@ -446,6 +459,7 @@ impl App {
         };
         let mut changes = Changes::default();
         let mut targets = Vec::new();
+        let mut todo = false;
         let interrupting = |native: &Native| native.interrupt.interrupting();
         let was_interrupting = interrupting(native);
         let (mut noted, mut usage_id) = (false, None);
@@ -467,6 +481,7 @@ impl App {
                 native.composing.busy = !matches!(target, Target::Idle { .. });
                 targets.push(target);
             }
+            todo |= native.todo.list.apply(&event);
             for change in native.rows.apply(event) {
                 changes.add(change);
             }
@@ -484,6 +499,9 @@ impl App {
         }
         for follow in follows {
             self.follow(key, follow);
+        }
+        if todo {
+            self.draw_todo(key);
         }
         if usage_id.is_some() {
             self.ask_usage(key, usage_id);

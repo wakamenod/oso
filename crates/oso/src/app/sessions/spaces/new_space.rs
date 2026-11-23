@@ -31,6 +31,11 @@ impl App {
         member: Member,
         now: u64,
     ) {
+        // `[spaces] naming` and `root` are the person's (ADR 0173).
+        if self.starts_wait() {
+            let description = description.to_owned();
+            return self.hold_start(move |app| app.make_new_space(&description, member, now));
+        }
         let (slug, display) = fallback_names(description, &member.name());
         let naming = Naming {
             description: description.to_owned(),

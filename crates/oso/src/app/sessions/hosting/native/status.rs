@@ -5,7 +5,7 @@
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 //!
-//! - Answers reach it through the control layer (`interrupting::control_event`), as the
+//! - Answers reach it through the control layer (`control::control_event`), as the
 //!   interrupt's do: `initialize`'s models, and `get_usage`'s usage.
 //! - `get_usage` is asked once the process's stream is there to write it: the answer to
 //!   `initialize` may come before the start thread says the process started (step 2c).

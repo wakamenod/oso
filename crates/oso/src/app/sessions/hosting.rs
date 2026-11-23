@@ -14,7 +14,7 @@ use oso_core::buffer::{BufferId, Mode};
 use oso_core::minibuffer::PromptId;
 use oso_core::project::ProjectId;
 
-use super::super::{App, UserEvent};
+use super::super::App;
 use crate::git::TrustedRoot;
 use crate::sessions::hosted::{New, Run, Table};
 use crate::sessions::identity::Origin;
@@ -27,6 +27,7 @@ mod begin;
 mod bridge;
 mod carried;
 mod fork;
+mod held;
 mod moving;
 mod naming;
 mod native;
@@ -39,7 +40,7 @@ pub(in crate::app) use terminal::buffer_name;
 use fork::ForkFrom;
 
 pub(in crate::app) use adopt::Adopting;
-pub(in crate::app) use begin::Begin;
+pub(in crate::app) use begin::{Begin, Then};
 pub(in crate::app) use moving::{Moves, Moving};
 pub(in crate::app) use native::NativeSessions;
 
@@ -223,25 +224,18 @@ impl App {
         name: Option<String>,
         directory: Option<PathBuf>,
     ) {
-        self.begin_session(Begin {
+        let begin = Begin {
             name,
             directory,
             check_shared: true,
             ..Begin::default()
-        });
+        };
+        self.begin_session(begin, Then::Nothing);
     }
 
-    /// Starts a new session as `begin` says, and returns the key it starts under, unless it
-    /// was refused at once or waits for the person's answer.
-    pub(in crate::app) fn begin_session(&mut self, begin: Begin) -> Option<SessionKey> {
-        let directory = match begin.directory.clone() {
-            Some(directory) if !directory.is_absolute() => {
-                self.editor.message("Name the session's directory whole");
-                return None;
-            }
-            Some(directory) => directory,
-            None => self.session_directory_here()?,
-        };
+    /// Starts a new session as `begin` says in `directory`, whole, and returns the key it
+    /// starts under, unless it was refused at once or waits for the person's answer.
+    fn begin_in(&mut self, begin: Begin, directory: PathBuf) -> Option<SessionKey> {
         if begin.check_shared && self.hosting.table.runs_in(&directory) {
             self.ask_shared(begin);
             return None;
@@ -356,23 +350,14 @@ impl App {
     pub(in crate::app) fn start_shared(&mut self) {
         match self.hosting.shared.take() {
             Some(begin) => {
-                self.begin_session(Begin {
+                let begin = Begin {
                     check_shared: false,
                     ..begin
-                });
+                };
+                self.begin_session(begin, Then::Nothing);
             }
             None => self.editor.message("No session waits to start"),
         }
-    }
-
-    pub(super) fn order_session(&self, order: Order) {
-        let waker = std::sync::Mutex::new(self.waker.clone());
-        start::spawn(order, move |report| {
-            waker
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .send(UserEvent::SessionStart(report));
-        });
     }
 
     /// What a session's start thread found.

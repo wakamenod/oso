@@ -32,6 +32,8 @@
 //!   that ended out of sight (part 3f).
 //! - `mode`: the permission mode the CLI says, and the person's switch of it, from its request
 //!   to its fallback, a resume in the new mode (part 3b).
+//! - `todo`: the session's to-do list from its to-do tools' results, and the strip that
+//!   shows it (step 3, part 3e).
 
 pub mod asks;
 pub mod card;
@@ -48,6 +50,7 @@ pub mod rows;
 pub mod slash;
 pub mod status;
 pub mod suggest;
+pub mod todo;
 pub mod turns;
 pub mod usage;
 pub mod wire;

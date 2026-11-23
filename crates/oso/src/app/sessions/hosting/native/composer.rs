@@ -151,6 +151,7 @@ impl App {
             | NativeAction::Note
             | NativeAction::Choose(_)
             | NativeAction::Other
+            | NativeAction::Todo
             | NativeAction::EditPlan
             | NativeAction::Approve(_)
             | NativeAction::Confirmed => return false,

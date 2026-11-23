@@ -15,14 +15,15 @@
 //!   requests oso writes and the answers to them are `control`'s (tier 2, step 2c).
 //! - `messages` reads the messages' bodies, `tools` a tool call's input, `card` what a
 //!   permission card shows, `control` the control protocol's lines, `slash` the slash commands
-//!   listed and `status_line` what the status line reads of the answers (part 3a): with this
-//!   file, the only places that touch JSON.
+//!   listed, `status_line` what the status line reads of the answers (part 3a) and `todo` the
+//!   to-do tools' input and results (part 3e): with this file, the only places that touch JSON.
 
 pub mod card;
 pub mod control;
 mod messages;
 pub mod slash;
 pub mod status_line;
+pub mod todo;
 pub mod tools;
 
 use serde_json::{Map, Value};
@@ -201,6 +202,8 @@ pub struct User {
     /// The CLI wrote it itself, such as a compaction's summary.
     pub synthetic: bool,
     pub results: Vec<ToolResult>,
+    /// What a to-do tool gave back, for a message of one result (part 3e).
+    pub todo: Option<todo::Done>,
 }
 
 /// A tool's result.

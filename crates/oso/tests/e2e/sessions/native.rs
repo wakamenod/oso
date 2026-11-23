@@ -479,6 +479,7 @@ mod resume;
 mod slash;
 mod status;
 mod suggest;
+mod todo;
 
 /// Whether the selected window is the composer docked under a session.
 fn in_composer(state: &serde_json::Value) -> bool {
@@ -487,4 +488,31 @@ fn in_composer(state: &serde_json::Value) -> bool {
             .iter()
             .any(|window| window["selected"] == true && window["docked"]["slot"] == "composer")
     })
+}
+
+/// The tracker's state of the flow's one hosted session, as the dev state gives it: `working`
+/// from the replay of what was sent until the turn's result. oso ends the composer's turn as
+/// it reads the result, before it tells the tracker, so past `working` a send goes at once.
+fn tracked(state: &Value) -> String {
+    state["sessions"]["sessions"]
+        .as_array()
+        .and_then(|sessions| {
+            sessions
+                .iter()
+                .find(|session| session["key"].get("hosted").is_some())
+        })
+        .and_then(|session| session["state"].as_str())
+        .unwrap_or_default()
+        .to_owned()
+}
+
+/// Ends the turn the fake holds, by writing `release`: waits until the tracker says the turn
+/// works first, as it starts `idle`, so that its end is this turn's, not an earlier state.
+fn end_turn(flow: &Flow, app: &mut App, release: &str) {
+    app.wait_for("the turn under way", |state| tracked(state) == "working");
+    flow.scratch.write(release, b"");
+    app.wait_for("the turn's end", |state| {
+        let tracked = tracked(state);
+        !tracked.is_empty() && tracked != "working"
+    });
 }

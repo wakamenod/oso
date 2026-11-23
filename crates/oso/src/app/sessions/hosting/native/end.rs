@@ -118,7 +118,11 @@ impl App {
     /// resumes, in its buffer, as a resume does, under the trust judged now; or stays stopped,
     /// saying why.
     fn resume_at_once(&mut self, key: SessionKey) {
-        let Err(why) = self.resume_hosted(key, false) else {
+        // Its turn goes on: its to-do list stays (part 3e).
+        self.keep_todo(key, true);
+        let resumed = self.resume_hosted(key, false);
+        self.keep_todo(key, false);
+        let Err(why) = resumed else {
             return;
         };
         self.composer_ended(key);
@@ -155,6 +159,9 @@ impl App {
         if let Some(card) = native.card {
             self.editor.remove_internal_buffer(card);
         }
+        if let Some(strip) = native.todo.buffer {
+            self.editor.remove_internal_buffer(strip);
+        }
         self.editor.kill_buffer(native.buffer);
     }
 
@@ -169,6 +176,7 @@ impl App {
         self.sync_slash_commands();
         // After the sweep: nothing is opened for a session that is gone.
         self.sync_reply_markdown();
+        self.sync_todo_strips();
         self.sync_recaps();
     }
 
