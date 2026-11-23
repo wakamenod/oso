@@ -10,7 +10,7 @@ use oso_core::buffer::BufferId;
 
 use crate::app::App;
 use crate::carry::terminals::{SessionState, TerminalState};
-use crate::sessions::hosted::Run;
+use crate::sessions::hosted::{Run, TuiProcess};
 use crate::sessions::identity::{Origin, SessionId};
 use crate::sessions::record::Remembered;
 use crate::sessions::worker::Job;
@@ -98,6 +98,11 @@ impl App {
             };
             hosted.carried = true;
             hosted.started = terminal.started;
+            // Its `claude`, which a native resume waits to be gone for (ADR 0165, part 4d-2).
+            hosted.tui_process = terminal.pid.map(|pid| TuiProcess {
+                pid,
+                started: terminal.started,
+            });
             hosted.launched_as.clone_from(&session.launched_as);
         }
         // The worker judges only the sessions it was told of, as a start tells it: without

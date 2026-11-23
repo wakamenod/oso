@@ -62,6 +62,9 @@ impl App {
         self.sync_git(false, true);
         self.gits.by_agent = false;
         self.sync_terminals();
+        // After the terminals: a TUI's end is said as its handle is dropped, and its session
+        // is taken back natively only now (ADR 0165, part 4d-2), before its native sync.
+        self.take_back_due();
         self.sync_native_sessions();
         self.sync_servers();
         self.sync_pane_directory();

@@ -426,20 +426,26 @@ impl App {
             self.watch.hung_up.insert(key);
             return;
         }
-        let Some(buffer) = self.hosting.table().get(key).and_then(|s| s.buffer) else {
+        if !self.hang_up_terminal(key) {
             return self.editor.message("That session does not run");
-        };
-        let terminal = self
-            .terminals
-            .map
-            .get(buffer)
-            .and_then(|hosted| hosted.terminal.as_ref());
-        let Some(terminal) = terminal else {
-            return self.editor.message("That session does not run");
-        };
-        terminal.hang_up();
+        }
         // oso stopped it: its end by the signal is no failure (Q8).
         self.watch.hung_up.insert(key);
+    }
+
+    /// Sends the hang-up to session `key`'s terminal, if it has one that runs: whether it did.
+    /// Not noted as a stop: [`App::hang_up_session`] notes it, a switch back to native does not
+    /// (ADR 0165, part 4d-2).
+    pub(in crate::app) fn hang_up_terminal(&mut self, key: SessionKey) -> bool {
+        let buffer = self.hosting.table().get(key).and_then(|s| s.buffer);
+        let terminal = buffer
+            .and_then(|buffer| self.terminals.map.get(buffer))
+            .and_then(|hosted| hosted.terminal.as_ref());
+        let Some(terminal) = terminal else {
+            return false;
+        };
+        terminal.hang_up();
+        true
     }
 
     /// Drops a stop whose question closed without a yes, so that a later `k` asks again.

@@ -108,6 +108,7 @@ impl App {
             model,
             effort,
             past: None,
+            tui_to_end: None,
         }
     }
 

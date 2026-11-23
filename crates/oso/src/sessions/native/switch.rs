@@ -16,16 +16,44 @@
 //!   given a message has no conversation to resume, one whose conversation moved to an id oso
 //!   does not follow would resume the one before, and none switches while a resume is held: a
 //!   stop asked, oso waiting to quit or restarting, an orchestrator being replaced.
+//! - **Back from the TUI** (part 4d-2). A TUI session switches while its screen says it is
+//!   idle, done or ready for review, or while it is stopped; not while it works or a dialog
+//!   asks, nor while its state is not known yet, as a TUI just started is, nor while a resume
+//!   is held. Its `claude` is hung up first, and the native resume waits until that process
+//!   is gone.
+//! - **A TUI the hand-off started** that exits cleanly of itself, as `/exit` ends it, comes
+//!   back natively at once (the author's Q4-6 (a)): not one stopped by oso or the person, nor
+//!   one that failed.
 //! - **One at a time.** A session switches once until its switch is over: the other mode
 //!   started, or did not.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+
+use super::super::state::State;
 
 /// Which way a session switches.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Way {
     /// From native to the TUI (part 4d-1).
     ToTui,
+    /// From the TUI back to native (part 4d-2).
+    ToNative,
+}
+
+/// Where a TUI session is, as the caller knows it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TuiAt {
+    /// Its `claude` runs, or is being started.
+    pub runs: bool,
+    /// It is being started.
+    pub starting: bool,
+    /// What its screen says, once the tracker judged it.
+    pub state: Option<State>,
+    /// Its `claude`'s process id, once the start thread had it.
+    pub pid: Option<u32>,
+    /// A resume of it is held now: a stop asked, oso waiting to quit or restarting, or an
+    /// orchestrator being replaced.
+    pub held: bool,
 }
 
 /// Where a native session is, as the caller knows it.
@@ -67,6 +95,12 @@ pub enum Refusal {
     Unspoken,
     Moved,
     Held,
+    /// The TUI's screen says it is not idle.
+    Busy(State),
+    /// The TUI's state is not known yet.
+    Unknown,
+    /// The TUI's process id is not known, so its end could not be waited for.
+    NoProcess,
 }
 
 impl Refusal {
@@ -101,6 +135,16 @@ impl Refusal {
                 "Session {name} does not switch now: a stop is asked, or oso waits to quit or \
                  restart"
             ),
+            Self::Busy(state) => {
+                format!("Session {name} is {state}: it switches once its screen says idle")
+            }
+            Self::Unknown => format!(
+                "Session {name}'s state is not known yet: it switches once its screen says idle"
+            ),
+            Self::NoProcess => format!(
+                "Session {name}'s claude has no known process, so its end cannot be waited \
+                 for: stop it, then switch"
+            ),
         }
     }
 }
@@ -110,7 +154,8 @@ impl Refusal {
 pub enum Then {
     /// End the process, and say when it ended and was reaped ([`Switches::ended`]).
     End,
-    /// No process runs: start the other mode now.
+    /// No process runs: start the other mode, at once to the TUI, after the event to
+    /// native ([`Switches::take_due`]).
     Start,
 }
 
@@ -119,6 +164,9 @@ pub enum Then {
 enum Phase {
     /// The process of the mode the session was in is being ended.
     Ending,
+    /// It ended, and the other mode starts after the event (a TUI's terminal says its end
+    /// while it is being dropped).
+    Due,
     /// The other mode is being started.
     Starting,
 }
@@ -127,6 +175,8 @@ enum Phase {
 #[derive(Debug, Default)]
 pub struct Switches {
     map: HashMap<u64, (Way, Phase)>,
+    /// The TUI sessions a hand-off started, while their `claude` runs (Q4-6 (a)).
+    handed: HashSet<u64>,
 }
 
 impl Switches {
@@ -166,11 +216,63 @@ impl Switches {
         Ok(self.begin(key, Way::ToTui, at.runs))
     }
 
+    /// `session-switch-mode` for the TUI session `key`, which is `at`: back to native,
+    /// hanging up its `claude` first if it runs. Whether the project is trusted for a native
+    /// session is the caller's to judge first.
+    ///
+    /// # Errors
+    ///
+    /// Why it does not switch now.
+    pub fn hand_to_native(&mut self, key: u64, at: &TuiAt) -> Result<Then, Refusal> {
+        let refusal = if self.map.contains_key(&key) {
+            Some(Refusal::Already)
+        } else if at.held {
+            Some(Refusal::Held)
+        } else if at.starting {
+            Some(Refusal::Starting)
+        } else if !at.runs {
+            None
+        } else if at.pid.is_none() {
+            Some(Refusal::NoProcess)
+        } else {
+            match at.state {
+                None => Some(Refusal::Unknown),
+                Some(State::Idle | State::Done | State::ReadyForReview) => None,
+                Some(state) => Some(Refusal::Busy(state)),
+            }
+        };
+        if let Some(refusal) = refusal {
+            return Err(refusal);
+        }
+        self.handed.remove(&key);
+        Ok(self.begin(key, Way::ToNative, at.runs))
+    }
+
+    /// The TUI session `key` was started by a hand-off from native.
+    pub fn handed(&mut self, key: u64) {
+        self.handed.insert(key);
+    }
+
+    /// The TUI session `key`'s `claude` ended, of itself with status 0 if `clean`: whether it
+    /// comes back natively at once, as a TUI a hand-off started does (Q4-6 (a)). The caller
+    /// gives `clean` false for an end that oso or the person caused, or that failed. Either
+    /// way the TUI is no longer one a hand-off started; a session that comes back is
+    /// switching, its process ended, its native start due.
+    pub fn tui_exited(&mut self, key: u64, clean: bool) -> bool {
+        let handed = self.handed.remove(&key);
+        if !handed || !clean || self.map.contains_key(&key) {
+            return false;
+        }
+        self.map.insert(key, (Way::ToNative, Phase::Due));
+        true
+    }
+
     /// The switch begins: its process ends first if it `runs`.
     fn begin(&mut self, key: u64, way: Way, runs: bool) -> Then {
-        let (phase, then) = match runs {
-            true => (Phase::Ending, Then::End),
-            false => (Phase::Starting, Then::Start),
+        let (phase, then) = match (runs, way) {
+            (true, _) => (Phase::Ending, Then::End),
+            (false, Way::ToTui) => (Phase::Starting, Then::Start),
+            (false, Way::ToNative) => (Phase::Due, Then::Start),
         };
         self.map.insert(key, (way, phase));
         then
@@ -184,15 +286,36 @@ impl Switches {
         }
     }
 
-    /// Session `key`'s process ended and was reaped: if a switch ended it, the other mode
-    /// starts now, the way this gives.
+    /// Session `key`'s process ended: if a switch ended it, the other mode starts, the way
+    /// this gives: the TUI now, native after the event ([`Switches::take_due`]).
     pub fn ended(&mut self, key: u64) -> Option<Way> {
         let (way, phase) = self.map.get_mut(&key)?;
         if *phase != Phase::Ending {
             return None;
         }
-        *phase = Phase::Starting;
+        *phase = match way {
+            Way::ToTui => Phase::Starting,
+            Way::ToNative => Phase::Due,
+        };
         Some(*way)
+    }
+
+    /// The sessions whose native start is due, now being started, oldest key first.
+    pub fn take_due(&mut self) -> Vec<u64> {
+        let mut due: Vec<u64> = (self.map.iter_mut())
+            .filter(|(_, (_, phase))| *phase == Phase::Due)
+            .map(|(key, (_, phase))| {
+                *phase = Phase::Starting;
+                *key
+            })
+            .collect();
+        due.sort_unstable();
+        due
+    }
+
+    /// Whether any session is switching.
+    pub fn any(&self) -> bool {
+        !self.map.is_empty()
     }
 
     /// Which way session `key` switches while the other mode is being started.
@@ -213,11 +336,18 @@ impl Switches {
     pub fn under_way(&self, key: u64) -> bool {
         self.map.contains_key(&key)
     }
+
+    /// Session `key` is gone: nothing of it is kept.
+    pub fn forget(&mut self, key: u64) {
+        self.map.remove(&key);
+        self.handed.remove(&key);
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{NativeAt, Refusal, Switches, Then, Way};
+    use super::{NativeAt, Refusal, Switches, Then, TuiAt, Way};
+    use crate::sessions::state::{Reason, State};
 
     fn idle() -> NativeAt {
         NativeAt {
@@ -334,5 +464,114 @@ mod tests {
                 .message("api")
                 .contains("a queued message")
         );
+    }
+
+    /// A TUI session whose screen says `state`, its `claude` running as process 42.
+    fn tui(state: Option<State>) -> TuiAt {
+        TuiAt {
+            runs: true,
+            state,
+            pid: Some(42),
+            ..TuiAt::default()
+        }
+    }
+
+    #[test]
+    fn an_idle_tui_is_hung_up_then_taken_back_natively() {
+        for state in [State::Idle, State::Done, State::ReadyForReview] {
+            let mut switches = Switches::default();
+            assert_eq!(switches.hand_to_native(1, &tui(Some(state))), Ok(Then::End));
+            assert_eq!(switches.ending(1), Some(Way::ToNative));
+            assert_eq!(
+                switches.hand_to_native(1, &tui(Some(state))),
+                Err(Refusal::Already)
+            );
+            assert_eq!(switches.ended(1), Some(Way::ToNative));
+            assert_eq!(switches.starting(1), None, "due after the event");
+            assert_eq!(switches.take_due(), [1]);
+            assert_eq!(switches.starting(1), Some(Way::ToNative));
+            assert!(switches.take_due().is_empty());
+            assert_eq!(switches.over(1), Some(Way::ToNative));
+            assert!(!switches.any());
+        }
+        // A stopped one, whatever its last state, at once.
+        let mut switches = Switches::default();
+        let stopped = TuiAt {
+            runs: false,
+            pid: None,
+            ..tui(Some(State::Working))
+        };
+        assert_eq!(switches.hand_to_native(2, &stopped), Ok(Then::Start));
+        assert_eq!(switches.take_due(), [2]);
+        assert_eq!(switches.starting(2), Some(Way::ToNative));
+    }
+
+    #[test]
+    fn a_tui_that_is_not_idle_does_not_switch() {
+        let cases = [
+            (tui(Some(State::Working)), Refusal::Busy(State::Working)),
+            (
+                tui(Some(State::NeedsInput(Reason::Permission))),
+                Refusal::Busy(State::NeedsInput(Reason::Permission)),
+            ),
+            (tui(None), Refusal::Unknown),
+            (
+                TuiAt {
+                    pid: None,
+                    ..tui(Some(State::Idle))
+                },
+                Refusal::NoProcess,
+            ),
+            (
+                TuiAt {
+                    starting: true,
+                    ..tui(Some(State::Idle))
+                },
+                Refusal::Starting,
+            ),
+            (
+                TuiAt {
+                    held: true,
+                    runs: false,
+                    ..tui(None)
+                },
+                Refusal::Held,
+            ),
+        ];
+        for (at, refusal) in cases {
+            let mut switches = Switches::default();
+            assert_eq!(switches.hand_to_native(1, &at), Err(refusal), "{at:?}");
+            assert!(!switches.under_way(1), "{at:?}");
+            assert!(refusal.message("api").contains("api"));
+        }
+    }
+
+    #[test]
+    fn a_tui_the_hand_off_started_comes_back_when_it_exits_cleanly_of_itself() {
+        let mut switches = Switches::default();
+        switches.handed(1);
+        assert!(switches.tui_exited(1, true));
+        assert_eq!(switches.take_due(), [1]);
+        assert_eq!(switches.starting(1), Some(Way::ToNative));
+        switches.over(1);
+        // Once only: a later exit of a TUI resumed by hand is a TUI session's own.
+        assert!(!switches.tui_exited(1, true));
+        // Stopped, failed or never handed: it stays a TUI session.
+        switches.handed(2);
+        assert!(!switches.tui_exited(2, false));
+        assert!(!switches.tui_exited(2, true));
+        assert!(!switches.tui_exited(3, true));
+        // Switched back by the person meanwhile: that switch goes on, not a second one.
+        switches.handed(4);
+        assert_eq!(
+            switches.hand_to_native(4, &tui(Some(State::Idle))),
+            Ok(Then::End)
+        );
+        assert!(!switches.tui_exited(4, true));
+        assert_eq!(switches.ending(4), Some(Way::ToNative));
+        // A session gone keeps nothing.
+        switches.handed(5);
+        switches.forget(5);
+        assert!(!switches.tui_exited(5, true));
     }
 }
