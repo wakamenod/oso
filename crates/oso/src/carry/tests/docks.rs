@@ -89,4 +89,11 @@ fn a_composer_that_wraps_leaves_the_scratch_buffer_as_it_is() {
     let exported = export(&editor);
     assert_eq!(exported["buffers"][0]["wraps"], true);
     assert!(exported["buffers"][1].get("wraps").is_none());
+    // Nor does its entry, read after, take that setting away.
+    let mut taken = Editor::default();
+    let scratch = taken.window().buffer();
+    for entry in &crate::carry::parse(&exported).unwrap().buffers {
+        crate::carry::restore_wraps(&mut taken, scratch, entry.wraps);
+    }
+    assert!(taken.buffer(scratch).unwrap().wraps());
 }

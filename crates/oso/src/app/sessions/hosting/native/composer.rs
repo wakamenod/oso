@@ -87,7 +87,7 @@ impl Composing {
 
 /// A new composer of the session named `name`, docked under its transcript `transcript`. Its
 /// long lines wrap, as its window's height counts them (ADR 0170).
-fn dock(editor: &mut Editor, transcript: BufferId, name: &str) -> BufferId {
+fn new_docked_composer(editor: &mut Editor, transcript: BufferId, name: &str) -> BufferId {
     let name = format!("*compose: {name}*");
     let id = withheld_draft(editor, &name, Mode::Composer, "");
     editor.set_wraps(id, true);
@@ -99,7 +99,7 @@ impl App {
     /// Makes native session `key`'s composer, `*compose: NAME*`, and docks it under its
     /// transcript `transcript`.
     pub(super) fn dock_composer(&mut self, key: SessionKey, transcript: BufferId, name: &str) {
-        let id = dock(&mut self.editor, transcript, name);
+        let id = new_docked_composer(&mut self.editor, transcript, name);
         if let Some(native) = self.hosting.natives.map.get_mut(&key) {
             native.composing.buffer = Some(id);
         }

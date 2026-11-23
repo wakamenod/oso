@@ -727,6 +727,8 @@ under the conversation selected for your first message; a session you end before
 leaves nothing behind. In the session's buffer, `TAB` folds
 or unfolds the row at point, `RET` shows a tool call's whole result in `*result: NAME*`, which
 agents cannot read, `n` and `p` move between your messages, and `]` and `[` between tool rows.
+Long lines wrap there, in the composer and in the results; `C-x x t` in one of them cuts them at
+the window's edge instead.
 The `C-c` keys of a session's terminal work there too, except `C-c +` and `C-c -`.
 
 You write the next messages in the composer under the conversation, which agents cannot read.

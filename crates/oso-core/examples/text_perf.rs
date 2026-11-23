@@ -4,9 +4,8 @@
 //!
 //! Run with `cargo run --release -p oso-core --example text_perf`: per-query costs do not grow
 //! with file size or line length. CI's budgets are in `crates/oso/examples/perf`. A part's name
-//! (`words`, `cursors`, `trim`, `replace`, `highlights`, `wrap`, `screen`, `indent`, `undo` or
-//! `editorconfig`)
-//! runs only that part.
+//! (`words`, `cursors`, `trim`, `replace`, `highlights`, `wrap`, `screen`, `transcript`, `indent`,
+//! `undo` or `editorconfig`) runs only that part.
 
 // A benchmark that reports to stdout, not editor code (ADR 0038).
 #![expect(clippy::disallowed_macros, reason = "the benchmark prints its timings")]

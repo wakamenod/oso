@@ -26,7 +26,7 @@ use crate::sessions::worker::SessionKey;
 
 /// A new transcript buffer of the session named `name`, whose long lines wrap until the person
 /// truncates them there (ADR 0165).
-fn transcript(editor: &mut Editor, name: &str) -> BufferId {
+fn new_transcript(editor: &mut Editor, name: &str) -> BufferId {
     let id = editor.add_native_session_buffer(super::super::buffer_name(name));
     editor.set_wraps(id, true);
     id
@@ -140,7 +140,7 @@ impl App {
         directory: PathBuf,
         first: Option<&str>,
     ) -> BufferId {
-        let buffer = transcript(&mut self.editor, name);
+        let buffer = new_transcript(&mut self.editor, name);
         self.mark_session_buffer(key, buffer);
         let mut rows = Rows::new(directory);
         if let Some(first) = first {
@@ -211,12 +211,12 @@ impl App {
 mod tests {
     use oso_core::editor::Editor;
 
-    use super::transcript;
+    use super::new_transcript;
 
     #[test]
     fn a_transcript_wraps() {
         let mut editor = Editor::default();
-        let id = transcript(&mut editor, "s");
+        let id = new_transcript(&mut editor, "s");
         let buffer = editor.buffer(id).unwrap();
         assert!(buffer.is_native_session() && buffer.wraps());
     }

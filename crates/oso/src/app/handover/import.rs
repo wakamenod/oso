@@ -169,10 +169,7 @@ impl App {
                     }
                 }
             }
-            // Off when made; an entry that stands for `*scratch*` leaves its own as it is.
-            if wraps {
-                self.editor.set_wraps(buffer, true);
-            }
+            carry::restore_wraps(&mut self.editor, buffer, wraps);
             named.push(buffer);
         }
         // The terminals only once nothing can fail: their threads start here.

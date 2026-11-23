@@ -50,6 +50,8 @@ impl Editor {
                 self.follow_window(index);
             }
         }
+        // A docked composer takes as many rows as it shows (ADR 0170).
+        self.dock_edited(id);
         true
     }
 

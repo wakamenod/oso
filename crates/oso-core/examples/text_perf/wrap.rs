@@ -1,7 +1,7 @@
 //! Timings of soft wrap (ADR 0100): wrapping large buffers and long lines, the rewrap after
 //! typing in a wrapped 10 MB line, at one cursor and at a thousand, and what a window does on
 //! the UI thread when wrapping turns on, its width changes or a command types (ADR 0103), and
-//! building the rows a frame shows (ADR 0104).
+//! building the rows a frame shows (ADR 0104), and a native session's transcript (ADR 0165).
 //!
 //! Must not depend on: other workspace crates or crate internals; it uses only the public API.
 
@@ -9,13 +9,14 @@ use std::hint::black_box;
 use std::time::Instant;
 
 use oso_core::buffer::{Buffer, Replacement};
-use oso_core::display_map::wrap_map::{COMMAND_BUDGET, Splice, WrapSnapshot};
+use oso_core::display_map::wrap_map::{COMMAND_BUDGET, Splice, WrapJob, WrapSnapshot};
 use oso_core::display_map::{DisplayMap, Preedit, TabWidth};
 use oso_core::editor::Editor;
+use oso_core::frame::FrameSize;
 use oso_core::rope::Rope;
 use oso_core::selection::{Selection, SelectionSet};
 use oso_core::sum_tree::Bias;
-use oso_core::window::{Screen, Scroll, ViewSize};
+use oso_core::window::{DockSlot, Screen, Scroll, ViewSize};
 
 use super::{Lcg, MB, file_text, percentiles, time};
 
@@ -302,37 +303,41 @@ pub(super) fn screen_costs() {
     }
 }
 
-/// Times a native session's transcript of `rows` rows, half of them Japanese, in a window at
-/// its end, as the app draws a stream: 2,000 changes, each drawing the reply's last line again
-/// about `piece` bytes longer, a new line each 200, with its rewrap, the frame's rows and its
-/// job asked for, whose report comes back before the next. Then bringing it back into the
-/// window, and narrowing it.
+/// Times a native session's transcript of `rows` rows, half of them Japanese, at its end in a
+/// window, its composer docked under it and selected, as while a person waits: 2,000 batches of
+/// a stream, each drawing the reply's last line again about `piece` bytes longer, a new line
+/// each 200. A batch is what the app does on the UI thread: the wraps' budget, the change, the
+/// frame's rows and the jobs asked for; and apart from it, its job's report taken and the
+/// frame's rows again. Then the conversation's past put in at once, shown and empty before, and
+/// bringing the transcript back into the window and narrowing it.
 fn transcript(rows: usize, piece: usize, wraps: bool) {
-    let mut editor = Editor::default();
-    editor.set_view_size(ViewSize::new(60, COLUMNS));
-    let id = editor.add_native_session_buffer("*claude: perf*");
-    let mut rng = Lcg(17);
     let mut past = String::new();
+    let mut rng = Lcg(17);
     for row in 0..rows {
         let reply = varied_line(20 + rng.below(600), row % 2 == 0);
         past.push_str("● ");
         past.push_str(&reply);
         past.push('\n');
     }
-    editor.replace_native_rows(id, 0..0, &past, &[(past.len(), None)]);
+    let mut editor = Editor::default();
+    editor.set_frame_size(FrameSize {
+        rows: 64,
+        columns: COLUMNS,
+    });
+    let id = editor.add_native_session_buffer("*claude: perf*");
     editor.set_wraps(id, wraps);
-    let (_, shown) = time(|| editor.show(id));
-    editor.restore_positions(SelectionSet::new(past.len()), Scroll::default());
-    editor.follow_cursor();
-    let run_jobs = |editor: &mut Editor| {
-        for job in editor.take_wrap_jobs() {
-            if let Some(report) = job.run() {
-                editor.take_wrap_report(report);
-            }
-        }
-    };
-    run_jobs(&mut editor);
+    editor.show(id);
+    let host = editor.window().id();
+    let composer = editor.add_buffer(Buffer::from_text("*compose: perf*", ""));
+    editor.set_wraps(composer, wraps);
+    editor.set_dock(id, DockSlot::Composer, Some(composer));
+    editor.refill_wraps();
+    let (_, put) = time(|| editor.replace_native_rows(id, 0..0, &past, &[(past.len(), None)]));
+    if let Some(dock) = editor.dock_window(id, DockSlot::Composer) {
+        editor.select_window(dock);
+    }
     let mut screen = Screen::default();
+    let mut reports = Vec::new();
     let mut samples = Vec::new();
     let (mut line, mut len) = (past.len(), past.len());
     for step in 0..2000 {
@@ -345,22 +350,38 @@ fn transcript(rows: usize, piece: usize, wraps: bool) {
         let start = Instant::now();
         editor.refill_wraps();
         editor.replace_native_rows(id, line..len, &grown, &[(grown.len(), None)]);
-        editor.screen(black_box(&mut screen));
+        editor.screen_of(host, black_box(&mut screen));
+        let jobs = editor.take_wrap_jobs();
         samples.push(start.elapsed());
         len = line + grown.len();
         if ends {
             line = len;
         }
-        run_jobs(&mut editor);
+        for report in jobs.into_iter().filter_map(WrapJob::run) {
+            let start = Instant::now();
+            editor.take_wrap_report(report);
+            editor.screen_of(host, black_box(&mut screen));
+            reports.push(start.elapsed());
+        }
     }
     let (p50, p99) = percentiles(&mut samples);
+    let count = reports.len();
+    let (_, report) = match count {
+        0 => Default::default(),
+        _ => percentiles(&mut reports),
+    };
+    editor.select_window(host);
     let other = editor.add_buffer(Buffer::from_text("other", ""));
     editor.show(other);
     let (_, back) = time(|| editor.show(id));
-    let (_, narrower) = time(|| editor.set_view_size(ViewSize::new(60, COLUMNS - 20)));
+    let narrow = FrameSize {
+        rows: 64,
+        columns: COLUMNS - 20,
+    };
+    let (_, narrower) = time(|| editor.set_frame_size(narrow));
     let how = if wraps { "wrapped" } else { "truncated" };
     println!(
-        "transcript {rows:>6} rows +{piece:<4} {how:>9}  {:>5.1} MB  shown {shown:>9.2?}  streamed p50 {p50:>9.2?} p99 {p99:>9.2?}  back {back:>9.2?}  narrower {narrower:>9.2?}",
+        "transcript {rows:>6} rows +{piece:<4} {how:>9}  {:>5.1} MB  put in {put:>9.2?}  batch p50 {p50:>9.2?} p99 {p99:>9.2?}  {count:>4} reports p99 {report:>9.2?}  back {back:>9.2?}  narrower {narrower:>9.2?}",
         len as f64 / MB as f64,
     );
 }
@@ -368,8 +389,9 @@ fn transcript(rows: usize, piece: usize, wraps: bool) {
 /// The timings of a native session's transcript, alone (`text_perf -- transcript`), and after
 /// the rest of soft wrap's.
 pub(super) fn transcript_costs() {
-    // Lines of a few KiB, and of 64 KiB, the most a reply's row takes.
-    for (rows, piece) in [(100, 16), (10_000, 16), (10_000, 330)] {
+    // Lines that grow to a few KiB, to 64 KiB, the most Markdown highlights, and to 1 MiB, the
+    // most a reply keeps.
+    for (rows, piece) in [(100, 16), (10_000, 16), (10_000, 330), (100, 5200)] {
         for wraps in [false, true] {
             transcript(rows, piece, wraps);
         }

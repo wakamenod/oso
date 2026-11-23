@@ -8,7 +8,7 @@ use oso_core::editor::Editor;
 use oso_core::frame::FrameSize;
 use oso_core::window::{DockSlot, Screen};
 
-use super::dock;
+use super::new_docked_composer;
 
 /// An editor showing a transcript in a frame 40 columns wide, its composer selected.
 fn composing() -> (Editor, BufferId, BufferId) {
@@ -18,8 +18,9 @@ fn composing() -> (Editor, BufferId, BufferId) {
         columns: 40,
     });
     let transcript = editor.add_native_session_buffer("*claude: s*");
+    editor.set_wraps(transcript, true);
     editor.show(transcript);
-    let composer = dock(&mut editor, transcript, "s");
+    let composer = new_docked_composer(&mut editor, transcript, "s");
     let window = editor.dock_window(transcript, DockSlot::Composer).unwrap();
     editor.select_window(window);
     (editor, transcript, composer)

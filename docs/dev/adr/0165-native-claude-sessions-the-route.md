@@ -2074,12 +2074,17 @@ chose on 2026-11-24:
 - **`toggle-truncate-lines` still turns each off,** and what the person chose stays for as long
   as that buffer lives: a `*result*` shown again for another call keeps it.
 - **Not the card or the strip,** which oso draws to their window's width: a card that wraps takes
-  no answer (part 2e-2).
+  no answer (part 2e-2). Nor a plan's edit, `*plan: NAME*`, which was not asked for.
 - **The composer's rows** were counted as wrapped since [ADR 0170](0170-docked-windows-under-a-sessions-transcript.md),
-  so its window grew for text that it then cut; now they agree.
-- **A restart** makes these buffers again, wrapped. Their setting is not carried: a composer's
-  entry in the state stands for `*scratch*`, which it must not wrap, and an entry that does not
-  say it wraps leaves the buffer as it is.
+  so its window grew for text that it then cut. They agree now: a composer whose lines the person
+  truncates takes as many rows as its lines.
+- **A restart** makes a transcript and a composer again, wrapped, whatever the person chose there;
+  a result's buffer is made at the next `RET`. Transcripts and results are internal and never
+  carried. A composer's entry in the state stands for `*scratch*`, which it must not wrap, so it
+  says nothing of it, and an entry that does not say it wraps leaves the buffer as it is.
+- **The first text in an empty wrapped buffer,** as a fork's earlier turns or a yank into the
+  composer, is wrapped at once only within the budget, and otherwise provisional until the job
+  reports, as any edit; it was all wrapped on the UI thread.
 - **Measured** (`text_perf -- transcript`, a 60 by 100 window, M-series Mac): a change of the
   growing last line, its rewrap and the frame's rows take 0.19 ms at p50 and 0.31 ms at p99
   wrapped, 0.04 and 0.08 ms truncated, at 100 rows and at 10,000. On a line that grows to
@@ -2210,7 +2215,8 @@ Each passage stays in its ADR as written; what holds now follows it.
   turns it on by file name; modes do that from M3": except a native session's transcript, its
   composer and `*result: NAME*`, which wrap from when they are made ("Long lines, as built").
 - ADR 0100, "`oso dev` carries each buffer's setting to the instance that replaces it": not that
-  of a buffer whose entry stands for `*scratch*`, as a composer's.
+  of a buffer whose entry stands for `*scratch*`, as a composer's. ADR 0103's "a buffer that wraps
+  says `"wraps": true`" is the same.
 
 ## Consequences
 

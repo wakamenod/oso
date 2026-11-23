@@ -33,9 +33,9 @@
 //! leaves the new instance clean, and the old one is kept.
 
 use oso_core::buffer::{Buffer, BufferId, Verdict};
-use oso_core::editor::{Editor, SCRATCH};
+use oso_core::editor::Editor;
 
-use self::handed::{Handed, handed};
+use self::handed::{Handed, comes_back, handed};
 use oso_core::frame::Tiling;
 use oso_core::key::KeyPress;
 use oso_core::keymap::display_keys;
@@ -83,7 +83,7 @@ use layout::MAX_WINDOWS;
 pub use layout::Windows;
 pub(crate) use look::aids_state;
 pub use op::{Asked, Op, Passed};
-pub use restore::Restore;
+pub use restore::{Restore, restore_wraps};
 
 /// What the app answers an [`Op`] with: a JSON result or why not.
 pub type Reply = Result<Value, String>;
@@ -312,9 +312,8 @@ fn buffer_state(id: BufferId, buffer: &Buffer, items: &mut Vec<Item>) -> Result<
     }
     // What waits for the person, only when something does (ADR 0118, Q8).
     waits::export(buffer, &mut entry);
-    // Also only when true (ADR 0100), and only of a buffer that comes back: the entry of one
-    // with no path, such as a composer's, stands for `*scratch*`.
-    if buffer.wraps() && (path.is_some() || buffer.name() == SCRATCH) {
+    // Also only when true (ADR 0100), and of a buffer that comes back.
+    if buffer.wraps() && comes_back(buffer) {
         entry["wraps"] = Value::Bool(true);
     }
     Ok(entry)

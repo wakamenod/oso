@@ -25,6 +25,7 @@ fn rows(editor: &Editor, id: WindowId) -> usize {
 #[test]
 fn a_composer_takes_its_rows_under_the_host_and_grows_with_its_text() {
     let (mut editor, host, input) = docked(30, "");
+    editor.set_wraps(input, true);
     let composer = editor.dock_window(host, DockSlot::Composer).unwrap();
     let carrier = editor.window().id();
     assert_eq!(rows(&editor, composer), 1);
@@ -44,6 +45,11 @@ fn a_composer_takes_its_rows_under_the_host_and_grows_with_its_text() {
     editor.apply_edits(input, &[typed]).unwrap();
     assert_eq!(rows(&editor, composer), super::MAX_COMPOSER);
     assert_eq!(rows(&editor, carrier), host_rows + 1 - super::MAX_COMPOSER);
+    // Truncated, its one line is one row; wrapped again, as many as before.
+    editor.set_wraps(input, false);
+    assert_eq!(rows(&editor, composer), 1);
+    editor.set_wraps(input, true);
+    assert_eq!(rows(&editor, composer), super::MAX_COMPOSER);
 }
 
 #[test]

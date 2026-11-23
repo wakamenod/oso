@@ -10,7 +10,8 @@
 //!   host buffer and slot; the tree never holds it.
 //! - One window carries a host's docks: the one showing the host that was selected last, else
 //!   the first in the frame's order. None showing it hides them; they keep their state.
-//! - The composer is as many rows as its text wraps to, 1 to [`MAX_COMPOSER`]; the card and the
+//! - The composer is as many rows as its text wraps to, or its lines while it truncates them, 1
+//!   to [`MAX_COMPOSER`]; the card and the
 //!   strip as many as theirs, at most [`MAX_CARD`] and [`MAX_STRIP`]. The composer's rows are
 //!   given first, the card's next.
 
@@ -183,7 +184,12 @@ impl Editor {
         };
         let gutter = super::super::gutter::dock_gutter(slot);
         let width = columns.saturating_sub(gutter).max(1);
-        let rows = wrap_map::rows_at_most(&display, width, most).max(least);
+        let rows = match slot {
+            // As its window shows them: a person may truncate its lines (ADR 0165).
+            DockSlot::Composer if !self.shown(window).wraps() => display.row_count().min(most),
+            _ => wrap_map::rows_at_most(&display, width, most),
+        }
+        .max(least);
         DockAsk {
             window: window.id(),
             rows,

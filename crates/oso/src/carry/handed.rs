@@ -16,6 +16,12 @@ pub(super) enum Handed<'a> {
     Carried(Option<&'a str>),
 }
 
+/// Whether an entry for `buffer` is its own: of a file, or of `*scratch*`. Any other's, such as
+/// a composer's, only stands for `*scratch*`.
+pub(super) fn comes_back(buffer: &Buffer) -> bool {
+    buffer.path().is_some() || buffer.name() == SCRATCH
+}
+
 /// How `buffer` is handed over, or an error naming it and quoting none of its text if the
 /// new instance would not end up with the same text.
 pub(super) fn handed(buffer: &Buffer) -> Result<Handed<'_>, String> {
@@ -53,7 +59,7 @@ pub(super) fn handed(buffer: &Buffer) -> Result<Handed<'_>, String> {
             )
         })
     });
-    let scratch = path.is_none() && buffer.name() == SCRATCH;
+    let scratch = path.is_none() && comes_back(buffer);
     // An emptied `*scratch*` holds nothing to carry, though it counts as modified.
     let carried = if scratch {
         !buffer.text().is_empty()
