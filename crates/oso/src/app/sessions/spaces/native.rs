@@ -7,7 +7,9 @@
 //!
 //! - Only in a space's recorded directory, where no project's trust judges a session: the
 //!   directory holds no `.git`. Elsewhere, a native session's project's trust does, as before.
-//! - New starts there stay terminals; so does an adoption.
+//! - A new orchestrator oso starts there runs natively too, unless `[sessions] mode = "tui"`
+//!   (part O-3); its gate is the space's while that start is its space's. Any other new start
+//!   there stays a terminal; so does an adoption.
 //! - A session of the person's there is one oso made native there before, under this gate: a
 //!   fork, or a session handed from native to the TUI. One the record has as a terminal, as a
 //!   terminal fork of an agent's session or an adoption is, never counts.
@@ -19,7 +21,9 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use crate::app::App;
+use crate::app::sessions::hosting::Begin;
 use crate::sessions::identity::{Origin, SessionId};
+use crate::sessions::spaces::SpaceId;
 use crate::sessions::spaces::stored::same;
 use crate::sessions::start::space_gate::{self, ByGate, NotAdmitted, SpaceGate, Standing};
 use crate::sessions::worker::SessionKey;
@@ -30,11 +34,20 @@ pub(in crate::app) struct SpaceGates {
     kept: HashMap<SessionKey, Kept>,
 }
 
-/// A gate kept, and the conversation it was judged for.
+/// A gate kept, and whom it was judged for.
 #[derive(Debug)]
 struct Kept {
     gate: SpaceGate,
-    of: SessionId,
+    of: For,
+}
+
+/// Whom a gate is judged for.
+#[derive(Debug, Clone)]
+enum For {
+    /// A resume's own conversation, or the one a fork copies.
+    Of(SessionId),
+    /// Space `SpaceId`'s new orchestrator, its start the space's while it is under way.
+    New(SpaceId),
 }
 
 impl App {
@@ -70,21 +83,91 @@ impl App {
         })
     }
 
-    /// The gate of conversation `of` in `directory`, as the space whose recorded directory it
-    /// is has it now, with `[spaces] root` at `root`; `None` where no space has it.
+    /// The gate of `of` in `directory`, as the space whose recorded directory it is has it
+    /// now, with `[spaces] root` at `root`; `None` where no space has it. A new orchestrator's
+    /// is only for its own space.
     fn judge_space_gate(
         &self,
-        of: &SessionId,
+        of: &For,
         directory: &Path,
         root: Option<&Path>,
     ) -> Option<Result<SpaceGate, NotAdmitted>> {
         let at = self.space_at_directory(directory)?;
         let stored = self.watch.spaces().stored(at)?;
-        let standing = Standing {
-            id: of,
-            persons_there: self.persons_there(of, directory),
+        let standing = match of {
+            For::Of(id) => Standing::Of {
+                id,
+                persons_there: self.persons_there(id, directory),
+            },
+            For::New(space) if *space == stored.id => Standing::NewOrchestrator,
+            For::New(_) => return Some(Err(NotAdmitted::NotTheSpaces)),
         };
         Some(space_gate::judge(stored, root, directory, standing))
+    }
+
+    /// The gate new start `key`, `begin`, runs natively under in `directory` (part O-3): only
+    /// for a space's orchestrator, which `begin.space` says, in its space's recorded
+    /// directory, with `[sessions] mode` not `"tui"`. `None` where it starts as before: a
+    /// terminal there, whose own checks say why one is refused, or by its project's trust
+    /// elsewhere. While starts wait for the configuration's first look it waits too, and the
+    /// held order is judged again. What is kept takes it back until its start thread reports.
+    pub(in crate::app) fn new_orchestrator_gate(
+        &mut self,
+        key: SessionKey,
+        begin: &Begin,
+        directory: &Path,
+    ) -> Option<ByGate> {
+        if begin.space.is_none() || !self.configuration.native_sessions() {
+            return None;
+        }
+        let at = self.space_at_directory(directory)?;
+        let of = For::New(self.watch.spaces().stored(at)?.id.clone());
+        self.keep_space_gate(key, of, directory).ok()
+    }
+
+    /// The gate held new start `key`, `name`, runs under in `directory`, judged again now,
+    /// when it is a space's new orchestrator in its space's recorded directory; `None` for
+    /// any other start.
+    ///
+    /// # Errors
+    ///
+    /// Why it does not run natively there.
+    pub(in crate::app) fn held_orchestrator_gate(
+        &mut self,
+        key: SessionKey,
+        name: &str,
+        directory: &Path,
+    ) -> Option<Result<ByGate, String>> {
+        let space = self.hosting.spaces.starting.get(&key)?.clone();
+        self.space_at_directory(directory)?;
+        let kept = self.keep_space_gate(key, For::New(space), directory);
+        Some(kept.map_err(|why| refused_there(name, why)))
+    }
+
+    /// The gate start `key` of `of` runs under in `directory`, a space's recorded directory,
+    /// kept to be taken back until its start thread reports: waiting while starts wait for
+    /// the configuration's first look.
+    fn keep_space_gate(
+        &mut self,
+        key: SessionKey,
+        of: For,
+        directory: &Path,
+    ) -> Result<ByGate, NotAdmitted> {
+        if let Some(old) = self.hosting.spaces.gates.kept.remove(&key) {
+            old.gate.revoke();
+        }
+        if self.starts_wait() {
+            return Ok(ByGate::Waits);
+        }
+        let root = self.spaces_root_now();
+        let judged = self.judge_space_gate(&of, directory, root.as_deref());
+        let gate = judged.unwrap_or(Err(NotAdmitted::NotMade))?;
+        let kept = Kept {
+            gate: gate.clone(),
+            of,
+        };
+        self.hosting.spaces.gates.kept.insert(key, kept);
+        Ok(ByGate::Gate(gate))
     }
 
     /// The gate native start `key`, `name`, of conversation `of` (a resume's own, or the one a
@@ -104,29 +187,8 @@ impl App {
         directory: &Path,
     ) -> Option<Result<ByGate, String>> {
         self.space_at_directory(directory)?;
-        if let Some(old) = self.hosting.spaces.gates.kept.remove(&key) {
-            old.gate.revoke();
-        }
-        if self.starts_wait() {
-            return Some(Ok(ByGate::Waits));
-        }
-        let root = self.spaces_root_now();
-        Some(
-            match self.judge_space_gate(of, directory, root.as_deref())? {
-                Ok(gate) => {
-                    let kept = Kept {
-                        gate: gate.clone(),
-                        of: of.clone(),
-                    };
-                    self.hosting.spaces.gates.kept.insert(key, kept);
-                    Ok(ByGate::Gate(gate))
-                }
-                Err(why) => Err(format!(
-                    "Session {name} {}: it does not run natively there",
-                    why.reason()
-                )),
-            },
-        )
+        let kept = self.keep_space_gate(key, For::Of(of.clone()), directory);
+        Some(kept.map_err(|why| refused_there(name, why)))
     }
 
     /// Whether conversation `of` may run natively in `directory` now, when that is a space's
@@ -146,7 +208,8 @@ impl App {
             return Some(Ok(()));
         }
         let root = self.spaces_root_now();
-        Some((self.judge_space_gate(of, directory, root.as_deref())?).map(|_| ()))
+        let of = For::Of(of.clone());
+        Some((self.judge_space_gate(&of, directory, root.as_deref())?).map(|_| ()))
     }
 
     /// Start `key`'s start thread reported: its gate, if it had one, is forgotten.
@@ -167,7 +230,12 @@ impl App {
             .filter(|(key, kept)| {
                 let judged =
                     self.judge_space_gate(&kept.of, kept.gate.directory(), root.as_deref());
-                !self.hosting.start_under_way(**key) || !matches!(judged, Some(Ok(_)))
+                // A new orchestrator's start is its space's until it reports.
+                let its_space = match &kept.of {
+                    For::New(space) => self.hosting.spaces.starting.get(key) == Some(space),
+                    For::Of(_) => true,
+                };
+                !self.hosting.start_under_way(**key) || !its_space || !matches!(judged, Some(Ok(_)))
             })
             .map(|(key, _)| *key)
             .collect();
@@ -177,4 +245,13 @@ impl App {
             }
         }
     }
+}
+
+/// What the echo area says of session `name`, which does not run natively in a space's
+/// directory as `why` says.
+fn refused_there(name: &str, why: NotAdmitted) -> String {
+    format!(
+        "Session {name} {}: it does not run natively there",
+        why.reason()
+    )
 }

@@ -79,10 +79,14 @@ impl App {
                     (order.trusted, native.trust, native.gate) =
                         self.native_gate_or_trust(order.token, &of, name, directory, root)?;
                 }
-                Kind::New => {
-                    let judged = self.native_resume_trust(name, directory, root)?;
-                    (order.trusted, native.trust) = self.native_judged(order.token, judged);
-                }
+                // A space's new orchestrator by its space's gate (part O-3).
+                Kind::New => match self.held_orchestrator_gate(order.token, name, directory) {
+                    Some(gate) => native.gate = gate?,
+                    None => {
+                        let judged = self.native_resume_trust(name, directory, root)?;
+                        (order.trusted, native.trust) = self.native_judged(order.token, judged);
+                    }
+                },
             }
         }
         if order.space.is_some() {

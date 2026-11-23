@@ -3,7 +3,9 @@
 //! space's gate, reading the person's own settings alone (`--setting-sources=user`), and the
 //! TUI's line reads the directory's as before; a session an agent started there is refused.
 //! A repository trusted while it runs is given by a resume with it, at the person's `y`, and a
-//! review's question to it, stopped, resumes it and goes once it runs (part O-2).
+//! review's question to it, stopped, resumes it and goes once it runs (part O-2). A new
+//! orchestrator, by `space-orchestrator-start` or as a successor, starts natively there too
+//! (part O-3).
 //! The space and its sessions are a record written before oso starts, in the flow's own state
 //! directory, with the space's directory under a private root of the flow's.
 //!
@@ -326,6 +328,99 @@ fn a_reviews_question_resumes_a_stopped_native_orchestrator_and_goes_once_it_run
     });
     select(&mut app, "*claude: fix-login*");
     app.wait_for("its answer", |state| text(state).contains("reply 1.1"));
+    let _ = app.exchange("exit", None);
+    app.wait_for_exit();
+}
+
+/// The space's record, once its line holds what `holds` looks for.
+fn wait_for_space(flow: &Flow, what: &str, holds: impl Fn(&serde_json::Value) -> bool) {
+    let place = emergency_dir(&flow.project)
+        .parent()
+        .unwrap()
+        .join("spaces");
+    let started = std::time::Instant::now();
+    loop {
+        let text = fs::read_to_string(&place).unwrap_or_default();
+        let line = text
+            .lines()
+            .next()
+            .and_then(|l| serde_json::from_str(l).ok());
+        if line.as_ref().is_some_and(&holds) {
+            return;
+        }
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(20),
+            "no {what}: {text}"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+}
+
+/// Whether `native` is a native line of a new conversation, with the person's own settings
+/// alone and the space's prompt.
+fn new_in_space(native: &[String]) -> bool {
+    native.first().is_some_and(|arg| arg == "-p")
+        && flag(native, "resume").is_none()
+        && flag(native, "session-id").is_some()
+        && native.iter().any(|arg| arg == USER_ONLY)
+        && flag(native, "append-system-prompt").is_some()
+}
+
+/// Puts space `fix-login` in front.
+fn enter_space(app: &mut App) {
+    app.send_keys(&format!("C-c a j {} RET", keys("fix-login")));
+    app.wait_for("the space in front", |state| {
+        state["sessions"]["space"] == "fix-login"
+    });
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_new_orchestrator_starts_natively_in_its_spaces_directory() {
+    let (flow, _root, _) = seeded("native-space-new");
+    let mut app = flow.start();
+    enter_space(&mut app);
+    app.run_command("space-orchestrator-start", None).unwrap();
+    let native = args(&flow, 1);
+    assert!(new_in_space(&native), "{native:?}");
+    // With no message, the person writes the first one in its composer.
+    app.wait_for("the composer", in_composer);
+    app.send_keys(&keys("hello there"));
+    app.send_keys("C-c C-c");
+    app.send_keys("C-c C-o");
+    app.wait_for("the reply", |state| text(state).contains("reply 1.1"));
+    // It is the space's orchestrator now, the one before kept as an earlier one.
+    wait_for_space(&flow, "the new orchestrator", |space| {
+        space["orchestrator"]
+            .as_str()
+            .is_some_and(|id| id != ORCHESTRATOR)
+            && space["earlier"] == serde_json::json!([ORCHESTRATOR])
+    });
+    let _ = app.exchange("exit", None);
+    app.wait_for_exit();
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_successor_starts_natively_with_its_brief() {
+    let (flow, _root, directory) = seeded("native-space-successor");
+    fs::write(directory.join("handoff.md"), "Where things are.\n").unwrap();
+    let mut app = flow.start();
+    enter_space(&mut app);
+    app.run_command("space-orchestrator-replace", None).unwrap();
+    let native = args(&flow, 1);
+    assert!(new_in_space(&native), "{native:?}");
+    // Its brief is its first message, which the fake answers.
+    select(&mut app, "*claude: fix-login*");
+    app.wait_for("the reply", |state| text(state).contains("reply 1.1"));
+    let shown = text(&app.state());
+    assert!(shown.contains("You take over"), "{shown}");
+    wait_for_space(&flow, "the successor", |space| {
+        space["orchestrator"]
+            .as_str()
+            .is_some_and(|id| id != ORCHESTRATOR)
+            && space["earlier"] == serde_json::json!([ORCHESTRATOR])
+    });
     let _ = app.exchange("exit", None);
     app.wait_for_exit();
 }

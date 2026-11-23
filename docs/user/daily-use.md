@@ -104,8 +104,8 @@ check.command = "clippy"
 ## Agent sessions
 
 A session is Claude Code run by oso, in a buffer named `*claude: NAME*`. In a project you
-trust, it is a native session: its conversation shows as oso's own rows, and you write to it in
-a composer under them (see [Native sessions](#native-sessions)). In a restricted project, or
+trust, or a space's orchestrator, it is a native session: its conversation shows as oso's own
+rows, and you write to it in a composer under them (see [Native sessions](#native-sessions)). In a restricted project, or
 with `mode = "tui"` in [Session settings](#session-settings), it is Claude Code's own TUI in an
 oso terminal. oso tracks its state (needs input, working, done, stopped and so on), and gives
 it oso's own tools through `oso mcp`.
@@ -314,6 +314,16 @@ space's, and `RET` on the space's row shows it. A repository added to the space,
 while it runs is offered to it: `y` pastes `/add-dir PATH` into its prompt, not sent; a
 native orchestrator is resumed with it instead, once its turn ends. In
 Claude Code, `/permissions` and its Workspace tab list the directories it was given.
+
+A new orchestrator, whether `C-c a O`, `o` or `O` starts it, is a
+[native session](#native-sessions) unless `mode = "tui"` in
+[Session settings](#session-settings): with no message, its composer is selected for your
+first one, and a successor's brief is its first message. It asks no trust question, and it
+reads your own Claude Code settings alone: none of the space directory's `.claude/` settings,
+hooks, MCP servers, commands or `CLAUDE.md`, nor a `CLAUDE.md` in `~` or `~/spaces`, which a
+TUI orchestrator reads. Put what every orchestrator should know in the space's instructions
+(`i`) or your own settings. Its memory is the space's, as a TUI one's is. An orchestrator
+already running as Claude Code's TUI stays one until you switch it (`C-c C-t`) or replace it.
 
 The orchestrator works through sessions: its tools name a repository of the space with
 `repo`, and it sees the space's sessions only. A worker it starts belongs to the space, and
@@ -666,7 +676,7 @@ tools and points the agent to `start_worktree_session`, so its worktrees show in
 sessions from blinking; with both, the list runs no timer. `pane_width` is where the pane starts; `<` and `>` in it change it for this oso only.
 The `[sessions.notify]` values shown are the defaults.
 
-`mode = "tui"` starts new sessions, forks and adopted ones as Claude Code's TUI in a terminal,
+`mode = "tui"` starts new sessions, forks, adopted ones and new orchestrators as Claude Code's TUI in a terminal,
 as oso did before [native sessions](#native-sessions), the default. A session oso hosts keeps
 the mode it ran in when you resume it or move it into a space, and a TUI session carried over
 `oso-restart` stays one.
@@ -703,8 +713,8 @@ says the keys with your changes.
 
 ## Native sessions
 
-Unless `mode = "tui"`, a new session in a trusted project shows its conversation in
-`*claude: NAME*` as oso's own rows. In a restricted project it runs in a terminal, where Claude
+Unless `mode = "tui"`, a new session in a trusted project, or a space's new orchestrator,
+shows its conversation in `*claude: NAME*` as oso's own rows. In a restricted project it runs in a terminal, where Claude
 Code asks its own trust question. A start with no brief starts at once, with the composer
 under the conversation selected for your first message; a session you end before writing one
 leaves nothing behind. In the session's buffer, `TAB` folds

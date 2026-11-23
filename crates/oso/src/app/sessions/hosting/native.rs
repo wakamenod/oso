@@ -217,7 +217,8 @@ impl App {
     ///
     /// Only at the root of a project an open buffer says is trusted now, `directory`, or in a
     /// worktree just made, under its own trust: never under the trust of the agent's session
-    /// that starts it, which may be an outer project's or one taken back since.
+    /// that starts it, which may be an outer project's or one taken back since. A space's new
+    /// orchestrator is judged by its space's gate instead (`new_orchestrator_gate`, ADR 0176).
     pub(super) fn native_start(
         &self,
         begin: &Begin,
