@@ -186,6 +186,26 @@ impl App {
         self.sessions_touched();
     }
 
+    /// Session `key`, forgotten as it ended before it was given a message: if it was a space's
+    /// orchestrator, the one before it is again, as nothing is left of it to resume
+    /// (ADR 0176, the author's Q-O8 (a)).
+    pub(in crate::app) fn unspoken_orchestrator_forgotten(&mut self, key: SessionKey) {
+        let Some(id) = self
+            .hosting
+            .table
+            .get(key)
+            .map(|session| session.id.clone())
+        else {
+            return;
+        };
+        let spaces = self.watch.spaces_mut();
+        let Some(at) = spaces.orchestrated_by(&id) else {
+            return;
+        };
+        spaces.forget_orchestrator(at, &id, now_ms());
+        self.sessions_touched();
+    }
+
     /// What hosted session `key` starts with again, when it is a space's orchestrator: its
     /// space as it is now, as Claude Code keeps neither its `--add-dir`s nor its prompt. Another
     /// session in a space's directory gets the directory's checks alone.
@@ -216,15 +236,15 @@ impl App {
     /// The checks a session starting in `directory` passes when it is a space's directory,
     /// with no `--add-dir` and no prompt (ADR 0136: before every start there).
     pub(in crate::app) fn space_checks(&self, directory: &Path) -> Option<SpaceStart> {
-        let spaces = self.watch.spaces();
-        let space = spaces.iter().find(|space| {
-            (space.stored.directory.as_deref()).is_some_and(|its| same(its, directory))
-        })?;
+        let stored = self
+            .watch
+            .spaces()
+            .stored(self.space_at_directory(directory)?)?;
         Some(SpaceStart {
             in_space_directory: true,
             reads: Vec::new(),
-            made: space.stored.directory_identity,
-            members: space.stored.members.clone(),
+            made: stored.directory_identity,
+            members: stored.members.clone(),
             trusted: Vec::new(),
             prompt: String::new(),
             instructions: None,

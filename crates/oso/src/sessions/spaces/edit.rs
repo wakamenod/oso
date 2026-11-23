@@ -345,8 +345,6 @@ impl Spaces {
         order.into_iter().map(super::candidate).collect()
     }
 
-    /// Notes the orchestrator `id` of space `at`, the one before it kept as an earlier one,
-    /// at most [`MAX_EARLIER`](super::stored::MAX_EARLIER) of them.
     /// Space `at`'s orchestrator replaced: kept as an earlier one, and no session is its
     /// orchestrator until its successor starts (ADR 0136, step 5).
     pub fn retire_orchestrator(&mut self, at: usize, now: u64) {
@@ -384,6 +382,8 @@ impl Spaces {
         self.unsaved = true;
     }
 
+    /// Notes the orchestrator `id` of space `at`, the one before it kept as an earlier one,
+    /// at most [`MAX_EARLIER`](super::stored::MAX_EARLIER) of them.
     pub fn set_orchestrator(
         &mut self,
         at: usize,

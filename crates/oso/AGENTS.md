@@ -18,7 +18,8 @@ often, so it must rebuild within 2 s.
   `loads`, `reloads`, `saves`, `idle_quit`, `copies`, `clipboard`, `searches`, `migemo`, `slices`, `walks`, `greps`, `wraps`, `flash`, `jumps`, `reviews`, `dired`, `vcs`, `terminals`, `recent_files` (the recent files' record, ADR 0148),
   `starts` (what opening and saving start, and what waits for the person, ADR 0118) and
   `held_starts` (the starts that wait for the configuration's first look, ADR 0173, and native
-  resumes, forks and adoptions for the record of trusted projects, ADR 0165 parts 4a and 4e) do the
+  resumes, forks and adoptions for the record of trusted projects, ADR 0165 parts 4a and 4e,
+  and in a space's directory for its gate, ADR 0176) do the
   work, `control`
   answers the dev socket, and `handover` exports and imports the state of a restart, `oso dev`'s
   or `oso-restart`'s, the import in `handover/import.rs`; its terminals go in `terminals/carry.rs` (the instance going) and

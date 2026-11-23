@@ -15,7 +15,9 @@
 //! - A missing directory refuses before anything starts.
 //! - A native resume, fork or adoption judged by the record of trusted projects (ADR 0165,
 //!   parts 4a and 4e) is judged here by its root's path and identity, before the root's other
-//!   checks.
+//!   checks. One in an issue space's own directory runs under the space's gate instead, taken
+//!   once the space's checks passed (`space_gate`, ADR 0176), with the person's own settings
+//!   alone.
 //! - For a new or adopted session in a trusted project, the baseline is taken first (ADR 0122), waiting at most
 //!   [`BASELINE_WAIT`]; past that, the session starts and the baseline follows (`baseline`).
 //! - The shell is found as ADR 0120 has it, and `claude` on `PATH` when the shell is not one

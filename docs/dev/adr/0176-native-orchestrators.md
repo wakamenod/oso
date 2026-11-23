@@ -1,6 +1,6 @@
 # 0176. Native orchestrators
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-23
 
 ## Context
@@ -47,8 +47,10 @@ its own.
   `Stored::orchestrated_from` accepts: made by oso under `[spaces] root`, with the identity it
   had when made (ADR 0136, step 4a).
 - **Who (Q-O3 (a)):** the space's current orchestrator, an earlier one, or a session of the
-  person's there (no parent, started by the person): a fork of one of them is one. A fork is
-  judged by the session it copies. A session an agent started in the directory is refused.
+  person's there that oso made native there before (started by the person, with no parent,
+  and native, or handed from native to the TUI): a native fork of one of them is one. A fork is
+  judged by the session it copies. A session an agent started in the directory is refused, and
+  so is a terminal fork of it or an adoption there, which the record has as terminals.
 - **Its line** adds `--setting-sources=user`: the person's own settings alone, none of the
   directory's or its parents' (hooks, `.mcp.json`, commands, skills, agents, `CLAUDE.md`).
   The TUI's line in a space's directory stays as ADR 0136 has it, with Claude Code's own trust
@@ -105,9 +107,9 @@ its own.
   commands or `CLAUDE.md`; its auto memory is the space's still. A TUI one is unchanged.
 - **ADR 0161, "The `/add-dir` offer is the one oso already makes (Q6)":** a native orchestrator
   gets no paste; the reply says `next resume`, as above.
-- **ADR 0163, "Every send to a session is the person's bracketed paste":** a native
-  orchestrator takes a review's question in its composer, sent at once, as ADR 0165 part 2f has
-  it; a stopped one is refused until O-2.
+- **ADR 0163, "Stopped, with its terminal (Q6)":** a review's question to a native
+  orchestrator follows 0163's "A native session's question, as amended": sent once confirmed,
+  and refused while it is stopped, with no offer to resume it, until O-2 adds one (Q-O5 (a)).
 
 ## Consequences
 
@@ -122,8 +124,9 @@ its own.
   native orchestrator, which closes ADR 0136's "a session that writes hooks there gets them run
   by its successors" for native ones.
 - The gate trusts the space's record and the sessions' record, which agents' sessions can
-  write, as the session tools' roles already do (ADR 0136, step 4a): the directory's checks and
-  identity still bound where it runs.
+  write, as the session tools' roles already do (ADR 0136, step 4a): a forged orchestrator,
+  earlier orchestrator or native session of the person's there passes it. The directory's
+  checks and identity, and `--setting-sources=user`, still bound where and how it runs.
 - Follow-ups: O-2 (the flows above) and O-3 (the default, with the docs `ui.md`,
   `daily-use.md` and `native-sessions-ux.md`).
 

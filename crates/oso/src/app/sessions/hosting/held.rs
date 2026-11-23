@@ -30,7 +30,7 @@ impl App {
     /// Gives `order`, which waited, to its start thread, with the settings in force now;
     /// nothing if its session was forgotten meanwhile, and refused if its buffer was killed.
     fn order_held_session(&mut self, mut order: Order) {
-        if !self.hosting.starting.contains_key(&order.token) {
+        if !self.hosting.start_under_way(order.token) {
             self.hosting.shared.take_under_way(order.token);
             return;
         }

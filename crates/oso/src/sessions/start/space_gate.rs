@@ -22,6 +22,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use super::trust::ByRecord;
 use super::{Order, Runs};
 use crate::sessions::identity::SessionId;
 use crate::sessions::spaces::Stored;
@@ -33,7 +34,7 @@ pub enum NotAdmitted {
     Closed,
     /// `[spaces] root` is not known, or the directory is not where oso made it under the root
     /// with an identity kept.
-    Elsewhere,
+    NotMade,
     /// The session is neither the space's current orchestrator, nor an earlier one, nor a
     /// session of the person's there.
     NotTheSpaces,
@@ -44,7 +45,7 @@ impl NotAdmitted {
     pub fn reason(self) -> &'static str {
         match self {
             Self::Closed => "is in a closed space's directory",
-            Self::Elsewhere => {
+            Self::NotMade => {
                 "is in a space's directory that is not where oso made it under [spaces] root"
             }
             Self::NotTheSpaces => {
@@ -119,7 +120,7 @@ pub fn judge(
         return Err(NotAdmitted::Closed);
     }
     if !root.is_some_and(|root| stored.orchestrated_from(root, directory)) {
-        return Err(NotAdmitted::Elsewhere);
+        return Err(NotAdmitted::NotMade);
     }
     let theirs = stored.orchestrator.as_ref() == Some(standing.id)
         || stored.earlier.contains(standing.id)
@@ -162,7 +163,9 @@ pub(super) fn settle(order: &mut Order) -> Result<Option<SpaceGate>, String> {
     };
     let checked = (order.space.as_ref())
         .is_some_and(|space| space.in_space_directory && space.made == gate.made);
-    if !checked || order.directory != gate.directory || order.trusted.is_some() {
+    // Never both a project's trust and a space's: the gate's line reads other settings.
+    let trusted = order.trusted.is_some() || !matches!(native.trust, ByRecord::No);
+    if !checked || order.directory != gate.directory || trusted {
         return Err(
             "The session did not start: it is not in the space's directory it was judged in".into(),
         );

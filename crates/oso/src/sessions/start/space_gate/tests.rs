@@ -69,14 +69,14 @@ fn a_closed_space_or_a_directory_not_made_under_the_root_admits_none() {
     let other = Path::new(ROOT).join("elsewhere");
     assert_eq!(
         said(&space(), Some(&other), 1, false),
-        Err(NotAdmitted::Elsewhere)
+        Err(NotAdmitted::NotMade)
     );
-    assert_eq!(said(&space(), None, 1, false), Err(NotAdmitted::Elsewhere));
+    assert_eq!(said(&space(), None, 1, false), Err(NotAdmitted::NotMade));
     // A directory oso did not make where the system has identities.
     let mut unmade = space();
     unmade.directory_identity = None;
     let expected = if cfg!(unix) {
-        Err(NotAdmitted::Elsewhere)
+        Err(NotAdmitted::NotMade)
     } else {
         Ok(())
     };
@@ -168,4 +168,14 @@ fn a_gate_taken_back_refuses_the_start() {
     }
     let refused = settle(&mut order(gate, Some(checks(Some((1, 2)), true))));
     assert_eq!(refused.err().as_deref(), Some(super::TAKEN_BACK));
+}
+
+/// An order never runs under a project's trust and a space's gate at once.
+#[test]
+fn an_order_judged_by_the_record_too_is_refused() {
+    let mut both = order(gate(), Some(checks(Some((1, 2)), true)));
+    if let crate::sessions::start::Runs::Native(native) = &mut both.runs {
+        native.trust = crate::sessions::start::trust::ByRecord::Unread;
+    }
+    assert!(settle(&mut both).is_err());
 }

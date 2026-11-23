@@ -9,8 +9,9 @@
 //!
 //! - Only at a project's root trusted now (`trust`): by an open buffer of it, else by the
 //!   record of trusted projects, which the start thread judges by the root's identity too
-//!   (part 4a), and which looks at it again before the spawn; else a resume refuses, saying
-//!   why, and a fork runs in a terminal.
+//!   (part 4a), and which looks at it again before the spawn; or, in an issue space's own
+//!   directory, under its space's gate (ADR 0176, `spaces::native`); else a resume refuses,
+//!   saying why, and a fork runs in a terminal.
 //! - A resume takes no baseline: the session keeps the one it had.
 //! - A resume and a fork start in the mode the session was in (part 3b), as `--resume` keeps
 //!   none, and with the model and effort the person chose (part 3c): a fork, its source's.
