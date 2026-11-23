@@ -107,6 +107,7 @@ impl App {
             permission_mode,
             model,
             effort,
+            past: None,
         }
     }
 
@@ -163,6 +164,7 @@ impl App {
             mode: ModeState::default(),
             choice: Choice::default(),
             todo: todo::TodoStrip::default(),
+            notes_after_past: None,
         };
         self.hosting.natives.map.insert(key, native);
         // Its composer, docked under it (ADR 0170).

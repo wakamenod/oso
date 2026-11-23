@@ -664,6 +664,16 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   own record has as stopped native sessions, at most 64, in the record's directory and root,
   under the trust judged then, once the instance before has gone, and refused by the start
   thread while the registry has the conversation live.
+- A native session's earlier turns (ADR 0165, part 5a) are read from Claude Code's transcript
+  of its conversation once its process is spawned, before its stream: only a regular file of
+  this user's with one name under the transcripts' directory, in a project directory that is
+  not a link, opened without following a link, whose first line naming a directory names the
+  session's; at most its last 128 MiB and 131,072 lines, within 1 s on a thread the start
+  thread waits for no longer, lines over 16 MiB not read, and at most 8 MiB and 2000 lines of
+  it decoded. Attachment
+  lines, which hold the account's email and organisation ids, and the CLI's own records are
+  never decoded, and nothing read is logged. A message shows as the person's only where the
+  transcript marks it so.
 - A native session's control layer (ADR 0165, step 2c) writes only `initialize`,
   `interrupt`, `get_usage` (part 3a) and `set_permission_mode` (part 3b), and reads of an
   answer only its id, its success, its error, cut to 256 bytes and logged escaped,

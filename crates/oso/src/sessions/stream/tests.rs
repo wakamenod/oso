@@ -63,7 +63,7 @@ fn events_go_on_in_batches_then_the_end() {
         .iter()
         .map(|out| match out {
             Out::Events(events) => events.len(),
-            Out::Ended { .. } => 0,
+            Out::Ended { .. } | Out::Past(_) => 0,
         })
         .sum();
     assert_eq!(events, 3);
@@ -106,7 +106,7 @@ fn a_batch_holds_at_most_its_most() {
         .iter()
         .filter_map(|out| match out {
             Out::Events(events) => Some(events.len()),
-            Out::Ended { .. } => None,
+            Out::Ended { .. } | Out::Past(_) => None,
         })
         .collect();
     assert!(

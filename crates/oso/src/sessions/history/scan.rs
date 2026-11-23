@@ -124,7 +124,10 @@ fn string(value: &[u8]) -> Option<String> {
 /// only, each as a range of its bytes; a key named twice gives its last. Other values are
 /// skipped, never decoded. An object that is not whole, closed with nothing but blanks after
 /// it, or nested past [`MAX_DEPTH`], gives none.
-fn fields<const N: usize>(object: &[u8], wanted: [&str; N]) -> [Option<Range<usize>>; N] {
+pub(crate) fn fields<const N: usize>(
+    object: &[u8],
+    wanted: [&str; N],
+) -> [Option<Range<usize>>; N] {
     let none = [const { None }; N];
     if object.first() != Some(&b'{') {
         return none;

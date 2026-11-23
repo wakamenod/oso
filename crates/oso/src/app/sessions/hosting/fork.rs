@@ -135,6 +135,8 @@ impl App {
                     if let Some(trusted) = &trusted {
                         self.hosting.trusts.insert(key, trusted.clone());
                     }
+                    // It shows the turns it copies (ADR 0165, step 5).
+                    let order = self.native_fork_order(key, &from, &base, order);
                     (Runs::Native(order), trusted)
                 }
                 None => (

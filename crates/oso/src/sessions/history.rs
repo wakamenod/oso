@@ -40,12 +40,13 @@ use oso_core::project::{LineQuery, MAX_ROWS, row_text};
 use crate::sessions::identity::SessionId;
 use held::Conversation;
 pub use held::{About, Message};
+pub(crate) use held::{next_line_within, slug_of};
 pub use preview::place;
 
 mod held;
 mod preview;
 mod refresh;
-mod scan;
+pub(crate) mod scan;
 
 /// How long what was read is held with no search coming.
 pub const KEEP_FOR: Duration = Duration::from_secs(5 * 60);

@@ -468,6 +468,16 @@ pub fn read_whole(path: &Path) -> Option<Whole> {
 /// [`MAX_LINE`] bytes of it. Gives whether it ended with a line break, how many bytes were
 /// taken, and whether it was too long and is skipped.
 fn next_line(reader: &mut impl io::BufRead, line: &mut Vec<u8>) -> io::Result<(bool, u64, bool)> {
+    next_line_within(reader, line, MAX_LINE)
+}
+
+/// [`next_line`] keeping at most `max` bytes of a line: what a native session's earlier turns
+/// read (ADR 0165, step 5).
+pub(crate) fn next_line_within(
+    reader: &mut impl io::BufRead,
+    line: &mut Vec<u8>,
+    max: usize,
+) -> io::Result<(bool, u64, bool)> {
     let mut taken = 0u64;
     let mut skipped = false;
     loop {
@@ -480,7 +490,7 @@ fn next_line(reader: &mut impl io::BufRead, line: &mut Vec<u8>) -> io::Result<(b
             None => (buffer, false),
         };
         if !skipped {
-            if line.len() + part.len() > MAX_LINE {
+            if line.len() + part.len() > max {
                 skipped = true;
                 line.clear();
             } else {
