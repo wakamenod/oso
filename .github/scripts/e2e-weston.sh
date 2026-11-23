@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs a command, the e2e flows, under a headless Weston on its own socket, then says how
-# Weston ended. Used by e2e.yml's Wayland job and by e2e-weston-repeat.yml.
+# Weston ended. Used by e2e-wayland.yml and by e2e-weston-repeat.yml.
 #
 # Weston draws with WESTON_RENDERER, `gl` by default, on Mesa's surfaceless EGL. Its `pixman`
 # renderer keeps a pointer into a client's shared memory from when a buffer is attached, and
