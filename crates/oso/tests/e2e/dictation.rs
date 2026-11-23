@@ -197,6 +197,14 @@ fn dictate(app: &mut App) {
     app.send_keys("s-d");
 }
 
+/// [`dictate`], where the selected window has no modeline of its own, as a docked composer:
+/// the window it is docked under says `● REC`, and the echo area says how to stop.
+fn dictate_docked(app: &mut App) {
+    app.send_keys("s-d");
+    echo_has(app, "the dictation recording", "Dictating: s-d stops");
+    app.send_keys("s-d");
+}
+
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
 fn a_dictation_types_into_the_buffer_where_it_started_and_undoes_in_one_step() {
@@ -214,7 +222,7 @@ fn a_dictation_types_into_the_buffer_where_it_started_and_undoes_in_one_step() {
     );
     assert!(!state["modeline"].as_str().unwrap().contains("REC"));
     assert!(!state["modeline"].as_str().unwrap().contains('…'));
-    app.send_keys("C-/");
+    app.send_keys("C-z");
     app.wait_for("one undo", |state| text(state).starts_with("start"));
 
     let requests = fake.requests();
@@ -293,7 +301,7 @@ fn a_dictation_types_into_a_native_sessions_composer() {
     app.run_command("claude", None).unwrap();
     app.wait_for("the composer", in_composer);
     app.send_keys(&keys("ask: "));
-    dictate(&mut app);
+    dictate_docked(&mut app);
     app.wait_for("the text in the composer", |state| {
         in_composer(state) && text(state) == format!("ask: {SAID}")
     });
@@ -377,9 +385,10 @@ fn typewhispers_command_v_is_dropped_with_its_marker_and_the_persons_m_v_runs() 
         "the text kept",
         "Dictation kept in the kill ring: its text changed",
     );
-    app.send_keys("C-y");
+    // The person's M-v moved point: the yank goes at the end, after the `a`.
+    app.send_keys("M-> C-y");
     app.wait_for("the yank", |state| {
-        text(state).contains(&format!("a{SAID}"))
+        text(state).ends_with(&format!("a{SAID}"))
     });
 }
 
