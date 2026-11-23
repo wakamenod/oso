@@ -24,6 +24,8 @@
 //!   replayed it, or as a listed slash command, never replayed (step 2d). Any other replay is a note, or nothing when a command or hook wrapped it, so
 //!   no text from elsewhere is shown as the person's words.
 //! - Rows are kept for the session's life; each holds at most what `wire`'s limits let in.
+//! - A session's earlier turns, read from its transcript at its start, are folded in by
+//!   `past` before anything its process says (step 5).
 
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -34,6 +36,7 @@ use super::wire::{
 };
 
 mod calls;
+mod past;
 mod sent;
 
 use calls::new_call;
@@ -518,6 +521,14 @@ impl Rows {
                 changes.push(RowChange::Changed(open.row));
             }
         }
+        changes.extend(self.unfinish_turn());
+        changes.push(self.push(Kind::Result(result), 0, false));
+        changes
+    }
+
+    /// The calls of the turn that still stream or run are unfinished now: their rows changed.
+    fn unfinish_turn(&mut self) -> Vec<RowChange> {
+        let mut changes = Vec::new();
         for id in std::mem::take(&mut self.turn) {
             let Some(&(row, slot)) = self.calls.get(&id) else {
                 continue;
@@ -530,7 +541,6 @@ impl Rows {
                 changes.push(RowChange::Changed(row));
             }
         }
-        changes.push(self.push(Kind::Result(result), 0, false));
         changes
     }
 }

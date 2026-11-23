@@ -85,15 +85,17 @@ often, so it must rebuild within 2 s.
   `oso-session-adopt-list` thread (`adopt`). A session started outside oso that asks to move
   into a space (`moving`, ADR 0151) is found from the registry on `oso-session-move`, and its
   process and its registry entry are watched on `oso-session-move-wait`; once its turn
-  ended, its bridge stops its own parent (`channel/mcp/moving.rs`, step 2). A new space's names are asked of the person's `claude`, with no tool, on `oso-space-naming` (`spaces/summary`, ADR 0159). `session-search` alone reads what was said in
+  ended, its bridge stops its own parent (`channel/mcp/moving.rs`, step 2). A new space's names are asked of the person's `claude`, with no tool, on `oso-space-naming` (`spaces/summary`, ADR 0159). `session-search` reads what was said in
   them, prompts and replies only, held in memory on `oso-history` (`history`, ADR 0145); no
-  agent gets it, and none of it is logged. The clipboard's images a session is given
+  agent gets it, and none of it is logged. The only other reader of what was said is a native
+  session's start, for its earlier turns (`past`, ADR 0165, part 5a). The clipboard's images a session is given
   (`images`, ADR 0142) are written, converted by `sips` and removed on one `oso-images` thread,
   never the worker's. A native session's stream (ADR 0165) is read, folded into rows and
   rendered by pure functions (`native`); only `native/wire.rs` and its modules touch its JSON,
   the control layer's requests and answers included (`wire/control.rs`), the slash
   commands listed (`wire/slash.rs`) and what the status line reads of the answers
-  (`wire/status_line.rs`, part 3a), and its
+  (`wire/status_line.rs`, part 3a) and a transcript's lines (`wire/transcript.rs`, part 5a),
+  and its
   fixtures are recordings scrubbed of ids, paths and the person's setup. Its `claude -p` is
   started on the start thread, read on `oso-native-read`, `oso-native-batch` and
   `oso-native-err`, and written to on `oso-native-write` (`stream`);
@@ -121,7 +123,9 @@ often, so it must rebuild within 2 s.
   `sessions/native/switch.rs`, its side and its transcript set aside meanwhile `native/switching.rs`,
   and back from the TUI `switch/back.rs`, its start waiting for the TUI's `claude` to be gone
   (`sessions/start/gone.rs`)
-  (part 4d). `app/sessions.rs` and
+  (part 4d); its earlier turns, read from Claude Code's transcript on `oso-native-past`, which
+  the start thread waits for, by `sessions/past.rs`, chosen by `sessions/native/past.rs`, read by `wire/transcript.rs` and
+  drawn by `native/past.rs` (part 5a). `app/sessions.rs` and
   `app/sessions/` carry out what the worker, the jobs and the start thread find.
 - `src/review.rs` runs git and diffs for an agent review on `oso-review` (ADR 0122), only for
   a trusted project's root, and git only through `oso_platform::process`, with `src/git.rs`'s

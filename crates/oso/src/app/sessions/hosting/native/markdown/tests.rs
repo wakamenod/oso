@@ -96,6 +96,7 @@ pub(in crate::app::sessions::hosting::native) fn native(buffer: BufferId) -> Nat
         unseen: false,
         mode: Default::default(),
         choice: Default::default(),
+        notes_after_past: None,
     }
 }
 

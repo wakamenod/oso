@@ -38,6 +38,8 @@
 //!   the CLI says it took them (part 3c).
 //! - `switch`: `session-switch-mode`'s rules, and where each switch between native and the
 //!   TUI is, from the end of one mode's process to the other's start (part 4d).
+//! - `past`: which lines of a session's transcript its earlier turns show, and what is left
+//!   out (step 5).
 
 pub mod asks;
 pub mod card;
@@ -46,6 +48,7 @@ pub mod control;
 pub mod interrupt;
 pub mod markdown;
 pub mod mode;
+pub mod past;
 pub mod placed;
 pub mod point;
 pub mod queue;

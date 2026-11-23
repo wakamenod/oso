@@ -15,7 +15,8 @@
 //! - A resume and a fork start in the mode the session was in (part 3b), as `--resume` keeps
 //!   none, and with the model and effort the person chose (part 3c): a fork, its source's.
 //! - `claude -p --resume` writes no earlier turn on its stream (a probe of 2026-11-22): the
-//!   rows kept are the transcript.
+//!   rows kept are the transcript, and rows that hold none of it, as in a new instance, are
+//!   given its earlier turns from Claude Code's transcript (step 5, `past`).
 
 use std::path::Path;
 
@@ -24,6 +25,7 @@ use oso_core::buffer::BufferId;
 use super::note::NativeState;
 use crate::app::App;
 use crate::git::TrustedRoot;
+use crate::sessions::identity::SessionId;
 use crate::sessions::native::choice::Choice;
 use crate::sessions::native::mode::ModeState;
 use crate::sessions::start::NativeOrder;
@@ -82,7 +84,9 @@ impl App {
 
     /// Native session `key`'s `buffer` made ready to run again: a "Resumed" row, no turn under
     /// way, as no message is written yet, and a queue that ended waiting for an empty
-    /// `C-c C-c`; shown, with the composer selected, if `shown`. The start thread's order.
+    /// `C-c C-c`; shown, with the composer selected, if `shown`. The start thread's order,
+    /// which reads its earlier turns if its rows hold none of them, the "Resumed" row then
+    /// drawn after them (step 5).
     pub(in crate::app::sessions::hosting) fn resume_native_buffer(
         &mut self,
         key: SessionKey,
@@ -91,6 +95,12 @@ impl App {
     ) -> NativeOrder {
         // Its bridge asks the person's permission there (ADR 0165, step 2).
         self.start_sessions_socket();
+        let id = self
+            .hosting
+            .table
+            .get(key)
+            .map(|session| session.id.clone());
+        let past = id.filter(|_| self.native_wants_past(key));
         if let Some(native) = self.hosting.natives.map.get_mut(&key) {
             native.first = false;
             native.ended = None;
@@ -98,9 +108,8 @@ impl App {
             native.spoke = true;
             native.composing.busy = false;
             native.composing.resumed();
-            let change = native.rows.note("Resumed.");
-            super::draw(&mut self.editor, native, [change]);
         }
+        self.native_note_row(key, "Resumed.");
         self.draw_queue(key);
         // Its to-do list is not read back: empty until its next to-do call (part 3e).
         self.clear_todo(key);
@@ -111,7 +120,10 @@ impl App {
             self.editor.show(buffer);
             self.composer_go(key, true);
         }
-        self.native_order(key, buffer)
+        NativeOrder {
+            past,
+            ..self.native_order(key, buffer)
+        }
     }
 
     /// A refused start of native session `key`, which shows `buffer`: a resume's buffer, which
@@ -152,27 +164,26 @@ impl App {
         Some((order, trusted))
     }
 
-    /// Starts adopted conversation `key`, `name`, natively in a new buffer, as
+    /// Starts adopted conversation `key`, `id`, `name`, natively in a new buffer, as
     /// [`App::start_native_new`] does (part 4e). It has a conversation, which it may resume
-    /// again; one "Adopted" row says the turns before are not shown, as a resume writes none
-    /// of them, and the TUI showed them.
+    /// again; its earlier turns, which a resume writes none of and the TUI showed, are read
+    /// from its transcript (part 5a), and one "Adopted" row follows them.
     pub(in crate::app::sessions::hosting) fn start_native_adopt(
         &mut self,
         key: SessionKey,
+        id: &SessionId,
         name: &str,
         directory: &Path,
         root: &Path,
         shown: bool,
     ) -> Option<(NativeOrder, Option<TrustedRoot>)> {
-        let started = self.start_native_new(key, name, directory, Some(root), shown)?;
+        let (order, trusted) = self.start_native_new(key, name, directory, Some(root), shown)?;
         if let Some(native) = self.hosting.natives.map.get_mut(&key) {
             native.spoke = true;
-            let change = native
-                .rows
-                .note("Adopted. Its earlier turns are not shown here.");
-            super::draw(&mut self.editor, native, [change]);
         }
-        Some(started)
+        let past = self.native_wants_past(key).then(|| id.clone());
+        self.native_note_row(key, "Adopted.");
+        Some((NativeOrder { past, ..order }, trusted))
     }
 
     /// Starts `key`, `name`, natively in a new buffer, shown if `shown`, when `directory` is

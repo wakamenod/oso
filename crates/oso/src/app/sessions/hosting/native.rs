@@ -28,6 +28,8 @@
 //!   `restarting`'s (part 4c).
 //! - Its side of a switch to the TUI, and its transcript set aside meanwhile, are
 //!   `switching`'s (part 4d).
+//! - Its earlier turns, read from Claude Code's transcript at a start whose rows hold none of
+//!   them, are `past`'s (step 5).
 //! - Its bridge asks the person's permission for its calls on the sessions' socket, in
 //!   `permissions` (step 2).
 //! - Its first message is its brief, if it was given one; else the person writes it in its
@@ -46,6 +48,7 @@ mod keys;
 mod markdown;
 mod mode;
 mod note;
+mod past;
 mod permissions;
 mod recap;
 mod restarting;
@@ -155,6 +158,8 @@ struct Native {
     /// the model and effort level the person chose (part 3c).
     mode: ModeState,
     choice: Choice,
+    /// Its start reads its earlier turns (step 5): the notes said meanwhile, drawn after them.
+    notes_after_past: Option<Vec<String>>,
 }
 
 impl Native {
@@ -273,6 +278,8 @@ impl App {
     /// Native session `key` did not start: its buffer goes.
     pub(super) fn session_native_not_started(&mut self, key: SessionKey) {
         self.hosting.starting.remove(&key);
+        // No earlier turns come: what waited for them is said now (step 5).
+        self.native_past_given_up(key);
         // No process answers its control layer.
         if let Some(native) = self.hosting.natives.map.get_mut(&key) {
             native.control = None;
@@ -296,6 +303,7 @@ impl App {
     pub(in crate::app) fn native_reported(&mut self, key: SessionKey, out: Out) {
         match out {
             Out::Events(events) => self.native_events(key, events),
+            Out::Past(past) => self.native_past(key, *past),
             Out::Ended { status, stderr } => {
                 self.native_ended(key, status, &stderr);
                 // The restart goes on once each session it ends has (part 4c).
@@ -308,6 +316,10 @@ impl App {
     /// Adds a row of oso's saying `text` to native session `key`'s transcript, and asks for a
     /// frame when the row is in sight.
     fn native_note_row(&mut self, key: SessionKey, text: &str) {
+        // After its earlier turns, while they are read (step 5).
+        if self.native_note_waits(key, text) {
+            return;
+        }
         let Some(native) = self.hosting.natives.map.get_mut(&key) else {
             return;
         };

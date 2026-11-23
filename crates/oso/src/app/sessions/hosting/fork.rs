@@ -131,7 +131,10 @@ impl App {
         let forked = (self.hosting.table.iter())
             .find(|session| session.id == from)
             .and_then(|session| self.hosting.natives.forked(session.key));
-        let native = self.start_native_fork(key, &name, &directory, root.as_deref(), forked);
+        // It shows the turns it copies (ADR 0165, step 5).
+        let native = self
+            .start_native_fork(key, &name, &directory, root.as_deref(), forked)
+            .map(|(order, gate)| (self.native_fork_order(key, &from, &base, order), gate));
         let (runs, _, trusted) = self.native_or_terminal(key, &name, true, native);
         self.order_session(Order {
             token: key,

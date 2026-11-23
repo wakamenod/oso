@@ -11,12 +11,14 @@
 //! - A line is at most [`MAX_LINE`] bytes; the reader that splits the stream drops longer ones
 //!   as unreadable. Each text kept is cut to its own limit, so what an event holds is bounded
 //!   whatever the line.
-//! - The transcript format is not read here: only the stream. Of the control protocol, the
-//!   requests oso writes and the answers to them are `control`'s (tier 2, step 2c).
+//! - Of the control protocol, the requests oso writes and the answers to them are `control`'s
+//!   (tier 2, step 2c). A line of Claude Code's transcript of a conversation, read for a
+//!   session's earlier turns, is `transcript`'s (step 5).
 //! - `messages` reads the messages' bodies, `tools` a tool call's input, `card` what a
 //!   permission card shows, `control` the control protocol's lines, `slash` the slash commands
 //!   listed, `status_line` what the status line reads of the answers (part 3a) and `todo` the
-//!   to-do tools' input and results (part 3e): with this file, the only places that touch JSON.
+//!   to-do tools' input and results (part 3e): with this file and `transcript`, the only places
+//!   that touch JSON.
 
 pub mod card;
 pub mod control;
@@ -25,6 +27,7 @@ pub mod slash;
 pub mod status_line;
 pub mod todo;
 pub mod tools;
+pub mod transcript;
 
 use serde_json::{Map, Value};
 

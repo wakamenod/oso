@@ -385,7 +385,8 @@ The author answered step 1's questions on 2026-11-21, through the space's orches
 - An agent reads a native session's buffer only after the person allowed it, as a terminal's.
 - A tool result is as ADR 0130 has it: one folded row, `TAB` unfolds it, past 200 lines its
   first and last 50, `RET` shows it whole.
-- A resumed session's buffer starts with one line; its earlier turns are step 5's.
+- A resumed session's buffer starts with one line; its earlier turns are step 5's. Since part
+  5a, a resume whose rows hold none of its conversation shows its earlier turns before it.
 - Replies are plain text with the rows' faces in part 1b; Markdown highlighting moved to
   step 2, part 2g.
 
@@ -774,7 +775,8 @@ R1 as built, with the author's Q2 (a) and their choices of 2026-11-22:
 - **The stream on a resume:** `claude -p --resume` with `stream-json` writes only the new
   turn's events (init, the replay of the new message, its reply, its result), never the earlier
   conversation (a probe of 2026-11-22): the rows kept are the transcript, and a resume costs
-  the UI thread one row.
+  the UI thread one row. Rows that hold none of it, as in a new instance or a fork, are given
+  its earlier turns from Claude Code's transcript since part 5a.
 - **Baselines:** the start's order says whether to take one: a new session and an adopted one
   do (ADR 0122), a resume and a fork do not.
 - **A review's question** (ADR 0163) to a stopped native orchestrator is refused for now, as a
@@ -1668,8 +1670,9 @@ the restart; Q4-10 (a), the resume is judged by part 4a's trust.
   `oso dev`, an old instance that agreed to exit but has not gone while terminals go with it
   has the new one resume anyway, and the registry's look is then what refuses a process not
   yet ended.
-- **Not done:** the transcript's past rows (part 5); a mark while the sessions end, other
-  than the echo said once.
+- **Not done:** a mark while the sessions end, other than the echo said once. The
+  transcript's past rows are part 5a's: a session the new instance resumes shows its earlier
+  turns before "Resumed after oso-restart.".
 - **Tests.** The field's round trip, its refusals and its cap (`carry::natives`), and that a
   state that would not fit leaves it out; the new instance's wait for its parent with no
   terminal (`carry::coming`); the supervisor's word after a stop, and none while the old one
@@ -1875,7 +1878,8 @@ The author's Q4-9 (a), and two answers of 2026-11-23 through the orchestrator:
   new start's are, so its agent's worktree tools judge its project by it, where a terminal
   adoption's tools have none of their own. The row says that the earlier turns are not shown
   here, which the TUI showed: a person may otherwise go on with a conversation they cannot
-  read (the security review's finding). Which of the two it runs as depends on the configuration and the
+  read (the security review's finding). Since part 5a the earlier turns are shown, read from
+  the transcript, and the row says "Adopted." after them. Which of the two it runs as depends on the configuration and the
   record, so, as a fork does, an adoption now waits whole for the configuration's first look
   and the record's first report (ADR 0173, part 4a); before, its order waited. One that runs
   elsewhere is refused and offered a fork, as before. With no `mode`, a fork or an adoption
@@ -1898,6 +1902,97 @@ The author's Q4-9 (a), and two answers of 2026-11-23 through the orchestrator:
   `mode = "tui"` (the author's approval), so that a later step that trusts its project does
   not change what its numbers mean. A benchmark of native sessions, the default path now, is
   wanted in a change of its own.
+
+## Step 5, as built
+
+### Part 5a: earlier turns from the transcript
+
+The author's (a) on Q5-1 to Q5-5, Q5-7 and Q5-8, and the space's orchestrator's (a) on the
+technical Q5-6, Q5-9 and Q5-10, on 2026-11-23. A native start whose rows hold none of its
+conversation shows its earlier turns, read from Claude Code's transcript, with the row
+renderer and folding of live turns: a resume in a new instance, the person's or an agent's
+`session_resume`, `oso-restart`'s resume (part 4c), a fork, an adoption (part 4e), which says
+"Adopted." after them, and a switch back from the TUI with no transcript set aside, as after an
+oso restart (part 4d-2). A stopped buffer brought back at
+oso's start keeps its one row until it is resumed (Q5-1). A resume whose rows hold the
+conversation already, and a switch back into the transcript set aside, wait for part 5b.
+
+- **Where** (a probe of 2026-11-23, CLI 2.1.330, Haiku, in an empty directory with no oso
+  variables): `<config>/projects/<slug>/<id>.jsonl`, `<config>` being `$CLAUDE_CONFIG_DIR` or
+  `~/.claude`, the slug the CLI's directory as it resolved it (`/tmp` gave `-private-tmp-…`),
+  each character but an ASCII letter or digit a `-`, mode 0600. `--resume` appends to the same
+  file. oso looks under the slug of the session's directory as given, then as it resolves, then
+  in the first of at most 1024 project directories that holds `<id>.jsonl`.
+- **The format.** A line of the conversation starts `{"parentUuid":`; any other is the CLI's
+  own record (the account, requests, costs, modes, titles). A user or assistant line's `message`
+  is the stream's, with the same ids, one line a block as on the stream; it differs in
+  `toolUseResult` (the stream's `tool_use_result`), `thinkingDurationMs` and `compactMetadata`,
+  and has no `result` line. So `wire/transcript.rs` reads a line with `wire/messages`, the
+  stream's own reader. Attachments, also lines of the conversation, hold the account's email and
+  organisation ids and system prompts: they are placed by their top-level fields, read by
+  brackets and quotes without decoding (`history::scan`), and never decoded.
+- **Which lines** (Q5-6, `sessions::native::past`): the chain from the newest line that shows
+  anything, back through each line's `parentUuid`, and across a compaction its
+  `logicalParentUuid`, so that a branch a rewind left is not shown. A parent is found only
+  among the lines before its line, so the chain ends. Of it, the newest whole turns within
+  8 MiB of their lines and 2000 lines, the newest line whatever its length; a cut starts at a
+  message of the person's, and a note before the rows says how many turns are left out and that
+  `session-search` shows the whole conversation (Q5-2). A chain whose oldest line names a
+  parent not read, as one before the part of the file read or one that did not read, is cut
+  there too. At most 131,072 lines are placed, four times the longest transcript measured.
+- **Whose words** (Q5-3): a message is the person's where the transcript marks it: its
+  `promptSource` is `sdk` (oso's sends), `typed`, `queued` or `suggestion_accepted` (the TUI's),
+  it is not `isMeta`, and its `origin`, where it gives one, is `human`. Measured over 300 recent
+  transcripts, every other user line with text was the CLI's own, a task's notification, a
+  wrapped command or a message from another session. A message from another session is a note;
+  any other shows what the stream's replay of it would: a command's output a note, a wrapped
+  message nothing. As the file is the user's, which a session's own tools can write, the note
+  before the rows always says they are as Claude Code's transcript records them.
+- **Rows.** Replies, thinking and tool calls are rows as live ones, folded and grouped by the same
+  rules; a call whose result is not in the transcript is unfinished. A compaction is a
+  `Compacted` row. No turn has a result row, as the transcript keeps none (Q5-9). The notes oso
+  said meanwhile ("Resumed.", "Resumed after oso-restart.", "Forked from NAME.") are drawn after
+  the earlier turns; a start that does not run draws them at once. The rows added are drawn in
+  one change of the buffer. Whole replies are highlighted as live ones (part 2g), the newest
+  first.
+- **Subagents** (Q5-4): a subagent's lines are not in the main file but in
+  `<id>/subagents/agent-<agentId>.jsonl`; the main file has its `Agent` call and its result,
+  which is what is shown. Its own rows wait for step 5's subagent rows.
+- **A fork** (Q5-5): `--fork-session` writes its own file only at its first message, a copy of
+  the parent's lines under the same ids, then its own turn. A fork shows the turns it copies from
+  the parent's transcript, then "Forked from NAME.".
+- **Where it is read** (Q5-10): once the process is spawned and before its stream is read. The
+  plan read it on the start thread itself; the security review found that a transcript on a
+  mount that hangs would then hold the spawned process with no owner for as long, so it is read
+  on a thread of its own, `oso-native-past`, that the start thread waits for at most 1.25 s, so that a
+  transcript on a mount that hangs leaves the process unowned no longer; then nothing is shown,
+  and the thread is left. It is handed on first through the stream's own delivery
+  (`stream::Out::Past`), so it is drawn before anything the process says, and the read is hidden
+  under the CLI's start (0.24 to 0.57 s measured in step 1). At most the transcript's last 128 MiB are read, up to the
+  length it had when opened, lines over the stream's 16 MiB limit not read, within 1 s; then only
+  the lines shown are read again and decoded. Transcripts on the author's machine: a median of
+  1.1 MB, p90 6.2 MB, p99 26 MB, the largest 68 MB (32,000 lines, its longest 1.4 MB).
+- **Trust.** It is read only as a regular file of this user's with one name, opened without
+  following a link, in a project directory that is not a link, and only if the first line
+  naming a directory names the session's, as given or resolved; a transcript naming none is
+  not read. Nothing of it is logged; `Debug` gives counts.
+- **A missing or malformed file** (Q5-7): the session starts as it would have, and one note says
+  why none is shown (not found, not a regular file of this user's, another directory's or none's,
+  too slow, too many lines). A line that does not read, its fields or its whole, is left out,
+  and one note counts them; an attachment is never decoded, even to be left out.
+- **Tests.** `wire::transcript` (placing, the person's marks, side chains, compaction, attachments
+  left undecoded), `native::past` (the chain, a rewound branch, a compaction, the budget and its
+  cut, the notes, the recorded transcript's rows, an unfinished call), `sessions::past` (the slug,
+  the scan, another directory, a link, a second name, a partial and a bad line, the deadline), and
+  the fuzz target over the transcript's lines. The fixture `fixtures/2.1.330/transcript.jsonl` is
+  this probe's, scrubbed of ids, paths, attachments' contents and the account.
+- **Not done:** one reader of the transcripts' format and one way to find a transcript, shared
+  with `session-search` (ADR 0145) and the worktree brief: `history::scan`'s field reader and
+  `history::held`'s line reader and slug are used from there for now, and a third, narrower
+  lookup of `<id>.jsonl` sits in `sessions::past`. A measure of the UI thread's draw of 2000
+  rows. Part 5b, earlier turns after the rows a buffer keeps (by the newest kept line's
+  id, which the stream and the transcript share), for a resume in the same instance after turns
+  elsewhere and a switch back into the transcript set aside, whose TUI turns it lacks.
 - **New public items:** none.
 
 ## Questions
@@ -1949,7 +2044,8 @@ Each passage stays in its ADR as written; what holds now follows it.
 - [ADR 0031](0031-claude-code-integration.md), "**Not used:** the `-p` control protocol, the Agent
   SDK, ACP, transcript parsing for the primary view": a native session runs `claude -p` with
   stream-json, and writes the five control requests of "The route" with their fallbacks. The Agent
-  SDK and ACP stay unused. "The conversation UI is Claude Code's own TUI, not a native oso view.
+  SDK and ACP stay unused. A native session's earlier turns are read from its transcript once, at
+  a start whose rows hold none of them (part 5a); what it says live comes from its stream. "The conversation UI is Claude Code's own TUI, not a native oso view.
   Permission prompts and dialogs appear inside the TUI": only for a TUI session; a native session's
   conversation and questions are oso buffers.
 - [ADR 0085](0085-agent-channel-and-oso-mcp.md), "**Off by default.**" and "The channel answers

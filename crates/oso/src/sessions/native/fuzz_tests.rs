@@ -2,7 +2,8 @@
 //! stream's lines cut, spliced and reordered, from shapes that reach every branch of `wire`,
 //! and from arbitrary bytes. Whatever they are, reading never panics, the rows' changes name
 //! rows that exist, a buffer kept by the changes alone holds what rendering every row gives,
-//! and each row renders to text whose faces lie on its characters.
+//! and each row renders to text whose faces lie on its characters. A transcript's lines, read
+//! for a session's earlier turns (step 5), are folded the same way.
 //!
 //! Must not depend on: `app`, threads or a process; these tests drive the pure part only.
 //!
@@ -13,11 +14,12 @@ use proptest::prelude::*;
 
 use std::path::{Path, PathBuf};
 
+use super::past::Index;
 use super::placed::Placed;
 use super::render::{render, tail};
 use super::rows::{Changes, RowChange, Rows};
 use super::turns::target;
-use super::wire::parse;
+use super::wire::{parse, transcript};
 
 const RECORDED: &str = include_str!("fixtures/2.1.330/tools.jsonl");
 
@@ -146,5 +148,86 @@ proptest! {
                 prop_assert!(range.end <= rendered.text.len());
             }
         }
+    }
+}
+
+const TRANSCRIPT: &str = include_str!("fixtures/2.1.330/transcript.jsonl");
+
+/// A transcript's line: a recorded one, one cut short, one of a shape with odd values, or
+/// bytes.
+fn transcript_line() -> impl Strategy<Value = Vec<u8>> {
+    let lines: Vec<&'static str> = TRANSCRIPT.lines().collect();
+    let count = lines.len();
+    let cut_lines = lines.clone();
+    let id = prop_oneof![
+        Just("null".to_owned()),
+        (0..6u8).prop_map(|n| format!("\"u{n}\""))
+    ];
+    let value = prop_oneof![
+        Just("null".to_owned()),
+        Just("true".to_owned()),
+        Just("[]".to_owned()),
+        Just("\"sdk\"".to_owned()),
+        Just("\"peer\"".to_owned()),
+        "\"[a-z<>\\n]{0,20}\"",
+    ];
+    let shaped = (0..4usize, id.clone(), id, value).prop_map(|(kind, uuid, parent, v)| {
+        match kind {
+            0 => format!(r#"{{"parentUuid":{parent},"promptSource":{v},"turnOrigin":{v},"isMeta":{v},"type":"user","message":{{"content":{v}}},"uuid":{uuid}}}"#),
+            1 => format!(r#"{{"parentUuid":{parent},"type":"assistant","message":{{"id":{v},"content":[{{"type":"tool_use","id":{v},"name":"Read","input":{{"file_path":{v}}}}},{{"type":"text","text":{v}}}]}},"uuid":{uuid}}}"#),
+            2 => format!(r#"{{"parentUuid":{parent},"type":"user","message":{{"content":[{{"type":"tool_result","tool_use_id":{v},"content":{v}}}]}},"toolUseResult":{{"structuredPatch":{v}}},"uuid":{uuid}}}"#),
+            _ => format!(r#"{{"parentUuid":null,"logicalParentUuid":{parent},"type":"system","subtype":"compact_boundary","compactMetadata":{{"preTokens":{v}}},"uuid":{uuid}}}"#),
+        }
+    });
+    prop_oneof![
+        4 => (0..count).prop_map(move |at| lines[at].as_bytes().to_vec()),
+        2 => (0..count, any::<prop::sample::Index>()).prop_map(move |(at, cut)| {
+            let line = cut_lines[at].as_bytes();
+            line[..cut.index(line.len() + 1)].to_vec()
+        }),
+        3 => shaped.prop_map(String::into_bytes),
+        1 => prop::collection::vec(any::<u8>(), 0..200),
+    ]
+}
+
+proptest! {
+    #[test]
+    fn any_transcript_folds_and_renders(lines in prop::collection::vec(transcript_line(), 0..60)) {
+        let directory = Path::new("/work/probe");
+        let mut index = Index::default();
+        let mut whole = Vec::new();
+        for line in &lines {
+            let line: Vec<u8> = line.iter().copied().filter(|byte| *byte != b'\n').collect();
+            index.take(whole.len() as u64, &line);
+            whole.extend_from_slice(&line);
+            whole.push(b'\n');
+        }
+        let chosen = index.chosen();
+        prop_assert!(chosen.lines.len() <= lines.len());
+        let mut said = Vec::new();
+        for shown in &chosen.lines {
+            let at = usize::try_from(shown.at).unwrap_or(usize::MAX);
+            prop_assert!(at + shown.len <= whole.len());
+            if let Ok(Some(line)) = transcript::said(&whole[at..at + shown.len], shown.shows) {
+                said.push(line);
+            }
+        }
+        let mut rows = Rows::new(PathBuf::from(directory));
+        rows.note("Stopped.");
+        let mut buffer = render(&rows.rows()[0], directory).text;
+        let mut placed = Placed::default();
+        placed.put(0, 0..0, buffer.len());
+        for change in rows.past(said) {
+            let at = change.row();
+            prop_assert!(at < rows.rows().len());
+            let range = placed.range(change, |start, lines| line_start(&buffer, start, lines));
+            prop_assert!(range.is_some(), "{:?} not drawn", change);
+            let range = range.unwrap_or_default();
+            let text = render(&rows.rows()[at], directory).text;
+            buffer.replace_range(range.clone(), &text);
+            placed.put(at, range, text.len());
+        }
+        let shown: String = rows.rows().iter().map(|row| render(row, directory).text).collect();
+        prop_assert_eq!(&buffer, &shown);
     }
 }

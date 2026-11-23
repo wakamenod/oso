@@ -173,6 +173,10 @@ pub struct NativeOrder {
     /// person chose with `/model` and `/effort` in a process before; `None` for the settings'.
     pub model: Option<String>,
     pub effort: Option<&'static str>,
+    /// The conversation whose earlier turns are read from its transcript once its process is
+    /// spawned, and handed on before its stream (step 5): a resume's own, or the one a fork
+    /// copies; `None` when the rows hold them already, or for a new conversation.
+    pub past: Option<SessionId>,
     /// The session's TUI `claude`, which may still run: the start waits for it to be gone
     /// first (part 4d-2).
     pub tui_to_end: Option<super::hosted::TuiProcess>,

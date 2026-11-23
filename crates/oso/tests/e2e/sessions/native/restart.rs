@@ -20,7 +20,7 @@ use super::{Flow, in_composer, text};
 
 /// A flow on tier 2 whose session switched to `acceptEdits` and ended a turn, idle, with the
 /// composer selected. Its instance's restart stops short at `fail`, if any.
-fn idle_in_accept_edits(test: &str, fail: Option<&str>) -> (Flow, App) {
+pub(super) fn idle_in_accept_edits(test: &str, fail: Option<&str>) -> (Flow, App) {
     let flow = Flow::with(test, MODES_FAKE, "");
     flow.scratch.write("tier", b"2");
     // The fake says the new mode at once.
@@ -49,7 +49,7 @@ fn idle_in_accept_edits(test: &str, fail: Option<&str>) -> (Flow, App) {
 }
 
 /// The session id run 1 started with, `--session-id=ID`.
-fn session_id(flow: &Flow) -> String {
+pub(super) fn session_id(flow: &Flow) -> String {
     let run = flow.wait_for_file("run.1");
     run.lines()
         .find_map(|line| line.strip_prefix("arg --session-id="))
@@ -66,14 +66,14 @@ fn resumed_in_accept_edits(flow: &Flow, id: &str) {
 
 /// Shows the session's transcript, which the new instance does not show at first, as it
 /// comes back behind the file.
-fn show_transcript(app: &mut App) {
+pub(super) fn show_transcript(app: &mut App) {
     app.send_keys("C-x b");
     app.send_keys(&keys("*claude: proj*"));
     app.send_keys("RET");
 }
 
 /// Waits until `app`'s transcript says `row`.
-fn transcript_says(app: &mut App, row: &str) {
+pub(super) fn transcript_says(app: &mut App, row: &str) {
     app.send_keys("C-c C-o");
     app.wait_for(row, |state| {
         state["buffer"]["name"] == "*claude: proj*" && text(state).contains(row)

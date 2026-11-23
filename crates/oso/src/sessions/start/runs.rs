@@ -11,7 +11,8 @@ use oso_platform::process::{self, Sink, Source, Spawn};
 use oso_term::Terminal;
 
 use super::super::launch::{self, Launch};
-use super::super::stream::Stream;
+use super::super::past;
+use super::super::stream::{Out, Stream};
 use super::{NativeOrder, Runs, SPAWN_WAIT, Started};
 
 /// Starts the session as `runs` says: in its terminal, or a native session's `claude -p`.
@@ -54,7 +55,8 @@ pub(super) fn start_runs(
 
 /// Starts a native session's `claude -p` (ADR 0165): with the variables a terminal's would
 /// have, pipes for its stream, in a session of its own, and its first message, `brief`, on
-/// its standard input.
+/// its standard input. Once it is spawned, the earlier turns its order asks for are read and
+/// handed on first (step 5).
 fn start_native(
     launch: &Launch,
     directory: &Path,
@@ -85,6 +87,11 @@ fn start_native(
         // As a terminal's: its name, brief and instructions never reach the log.
         args_logged: false,
     })?;
-    let stream = Stream::run(child, brief.as_deref(), given.out)?;
+    let mut out = given.out;
+    // Its earlier turns go before anything its process says (ADR 0165, step 5).
+    if let Some(id) = &given.past {
+        out(Out::Past(Box::new(past::read(id, directory))));
+    }
+    let stream = Stream::run(child, brief.as_deref(), out)?;
     Ok((given.buffer, Started::Native(stream)))
 }

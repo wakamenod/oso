@@ -35,6 +35,12 @@ impl Rows {
             self.sent.drain(..=at);
             return Some(self.push(Kind::Prompt(text), 0, false));
         }
+        self.not_sent(text)
+    }
+
+    /// A message that is not the person's: a command's output is a note, as is any other
+    /// message, and one a command or hook wrapped is nothing.
+    pub(super) fn not_sent(&mut self, text: String) -> Option<RowChange> {
         let trimmed = text.trim();
         if let Some(output) = trimmed
             .strip_prefix(COMMAND_OUTPUT.0)

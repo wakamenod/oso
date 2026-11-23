@@ -291,7 +291,7 @@ impl App {
         self.hosting.adopting.pending.insert(key, adoption);
         self.turn_agent_channel_on_for_a_session();
         let shown = landing.as_ref().is_none_or(|landing| landing.shown);
-        let native = self.start_native_adopt(key, &name, &directory, &root, shown);
+        let native = self.start_native_adopt(key, &pick.id, &name, &directory, &root, shown);
         let (runs, buffer, gate) = self.native_or_terminal(key, &name, shown, native);
         let native = matches!(runs, Runs::Native(_));
         let trusted = match native {

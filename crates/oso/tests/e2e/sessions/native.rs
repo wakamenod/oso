@@ -477,6 +477,7 @@ mod interrupt;
 mod markdown;
 mod model;
 mod modes;
+mod past;
 mod plan;
 mod quit;
 mod restart;

@@ -159,7 +159,7 @@ fn a_native_session_stopped_before_its_first_message_is_forgotten() {
 
 /// Starts a native session in the flow's trusted project, from `notes.md`, has it answer one
 /// message and stops it.
-fn spoken_and_stopped(flow: &Flow) -> crate::harness::App {
+pub(super) fn spoken_and_stopped(flow: &Flow) -> crate::harness::App {
     let fake = flow.scratch.path().join("fake-claude");
     let script = RESUME_FAKE.replace("DIR", &flow.scratch.path().display().to_string());
     fs::write(&fake, script).unwrap();

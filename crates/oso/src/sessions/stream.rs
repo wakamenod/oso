@@ -21,6 +21,8 @@
 //!   same way, once the readers run, so that a process that writes before it reads never
 //!   waits on oso; its requests share the queue, in order with the messages (step 2c). If
 //!   anything fails once the process runs, its group is killed and it is reaped.
+//! - A start that reads the session's earlier turns (ADR 0165, part 5a) hands them on first,
+//!   as [`Out::Past`], through the same delivery, before these threads run.
 //! - An interrupt by signal (`SIGINT`) reaches the process alone: the CLI ends its own tools,
 //!   as a terminal's `C-c`, a byte, would have it do.
 //! - A stop closes standard input and sends the group `SIGTERM` at once, and `SIGKILL` after
@@ -74,6 +76,9 @@ pub enum Out {
     Events(Vec<Event>),
     /// The process ended, with its status if it exited, and the end of its standard error.
     Ended { status: Option<i32>, stderr: String },
+    /// The session's earlier turns, read from its transcript before its stream (step 5):
+    /// handed on first, by the start thread.
+    Past(Box<super::native::past::Past>),
 }
 
 /// What a native session's threads hand their reports to.
