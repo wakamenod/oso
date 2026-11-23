@@ -1356,6 +1356,45 @@ mod tests {
     }
 
     #[test]
+    fn a_prompt_opened_beside_a_file_not_judged_yet_stays_out_once_it_is_judged() {
+        let mut editor = Editor::default();
+        // Absolute on this system, as the recent files keep no other.
+        let root = if cfg!(windows) { r"C:\p" } else { "/p" };
+        let notes = PathBuf::from(root).join("notes.md");
+        editor.remember_recent_files([notes.clone()]);
+        let path = PathBuf::from("/p/plan.md");
+        let plan = editor.add_buffer(Buffer::visiting(path.clone()));
+        editor.show(plan);
+        let open = |editor: &mut Editor| {
+            let row = editor.recent_file_row(&notes);
+            let items = [oso_core::complete::Candidate::new(row, "", "file")];
+            let style = oso_core::editor::CompletionStyle {
+                preview: true,
+                ..Default::default()
+            };
+            editor
+                .open_completion_as("Switch to buffer:", "buffer", items.into(), style)
+                .unwrap();
+        };
+        open(&mut editor);
+        (editor.buffer_mut(plan).unwrap()).judge_secret(Some(&[path]));
+        assert!(!editor.shows_secret());
+        // The person has the prompt as any other: only the state withholds it.
+        let not_open = Some(oso_core::editor::Preview::NotOpen);
+        assert_eq!(editor.preview(), not_open);
+        let prompt = state(&editor, &[])["prompts"][0].clone();
+        for hidden in ["prompt", "text", "completion"] {
+            assert_eq!(prompt[hidden], json!(null), "{hidden}");
+        }
+        assert_eq!(prompt["kind"], "complete");
+        // One opened now is there.
+        editor.quit();
+        open(&mut editor);
+        let prompt = state(&editor, &[])["prompts"][0].clone();
+        assert_eq!(prompt["completion"]["preview_kind"], "not-open");
+    }
+
+    #[test]
     fn positions_come_back_with_an_ordinary_buffer_and_a_secret_one_in_another_window_stays_out() {
         let (mut editor, secret) = visiting("/p/.env", Some("/p/.env"), "ONE\n");
         let scratch = editor.buffers().next().unwrap().0;
