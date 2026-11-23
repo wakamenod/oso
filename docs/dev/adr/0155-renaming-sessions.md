@@ -1,6 +1,6 @@
 # 0155. Renaming sessions
 
-- Status: Accepted, amended by 0159
+- Status: Accepted, amended by 0159 and 0177
 - Date: 2026-11-18
 
 ## Context

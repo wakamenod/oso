@@ -1,6 +1,6 @@
 # 0177. No loop guard on the session tools
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-23
 
 ## Context
@@ -28,7 +28,7 @@ stops until the person comes back to oso to type in it.
 ## Decision
 
 The author decided on 2026-11-23, through the orchestrator session, to remove the loop guard
-entirely.
+entirely, and accepted this ADR the same day.
 
 - **No count of calls.** A session's session tools are not counted and not refused for how
   many calls it has made. `sessions::tools::MAX_CALLS`, `Refusal::Loop` and the per-session
@@ -130,6 +130,9 @@ Each passage stays in its ADR as written; what holds now follows it.
 - The code is smaller: `sessions::tools::Guard` keeps only the refusals.
 - Docs: `docs/dev/security.md`, `architecture.md`, `ui.md` and `docs/user/daily-use.md` drop
   the 20 calls.
+- **Follow-up (the author, 2026-11-23):** a per-session rate limit on calls that ask or change
+  (for example 30 a minute) that never needs the person to type, to bound runaway loops only,
+  in a separate PR with its own ADR.
 
 ## Alternatives considered
 

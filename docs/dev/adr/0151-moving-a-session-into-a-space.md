@@ -1,6 +1,6 @@
 # 0151. Moving a session into a space at its request
 
-- Status: Accepted, amended by 0159
+- Status: Accepted, amended by 0159 and 0177
 - Date: 2026-11-17
 
 ## Context
