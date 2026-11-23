@@ -11,7 +11,8 @@ use oso_core::buffer::BufferId;
 
 use crate::app::App;
 use crate::sessions::hosted::Run;
-use crate::sessions::start::{Kind, Order, Runs};
+use crate::sessions::start::trust::ByRecord;
+use crate::sessions::start::{Kind, NativeOrder, Order, Runs};
 use crate::sessions::worker::SessionKey;
 
 impl App {
@@ -86,9 +87,12 @@ impl App {
                  to resume: claude starts a new one"
             ));
         }
-        let trusted = match native {
-            true => Some(self.native_resume_trust(&name, &directory, root.as_deref())?),
-            false => None,
+        let (trusted, trust) = match native {
+            true => {
+                let judged = self.native_resume_trust(&name, &directory, root.as_deref())?;
+                self.native_judged(key, judged)
+            }
+            false => (None, ByRecord::No),
         };
         // An orchestrator's command line is made again from its space as it is now: the CLI
         // keeps neither its `--add-dir`s nor its prompt (ADR 0136, step 3).
@@ -98,7 +102,10 @@ impl App {
             session.run = Run::Starting;
         }
         let runs = match native {
-            true => Runs::Native(self.resume_native_buffer(key, buffer, shown)),
+            true => Runs::Native(NativeOrder {
+                trust,
+                ..self.resume_native_buffer(key, buffer, shown)
+            }),
             false => Runs::Terminal(self.session_terminal(key, &name, Some(buffer), shown)),
         };
         self.order_session(Order {

@@ -5,9 +5,10 @@
 //!
 //! Must not depend on: key presses or how a frame is drawn; the start thread starts the process.
 //!
-//! - Only at a project's root that an open buffer of it says is trusted now (`trust`), which
-//!   the start thread looks at again before the spawn; else a resume refuses, saying why, and
-//!   a fork runs in a terminal.
+//! - Only at a project's root trusted now (`trust`): by an open buffer of it, else by the
+//!   record of trusted projects, which the start thread judges by the root's identity too
+//!   (part 4a), and which looks at it again before the spawn; else a resume refuses, saying
+//!   why, and a fork runs in a terminal.
 //! - A resume takes no baseline: the session keeps the one it had.
 //! - A resume and a fork start in the mode the session was in (part 3b), as `--resume` keeps
 //!   none, and with the model and effort the person chose (part 3c): a fork, its source's.
@@ -20,11 +21,11 @@ use oso_core::buffer::BufferId;
 
 use super::note::NativeState;
 use crate::app::App;
-use crate::app::sessions::hosting::trust::NotTrusted;
 use crate::git::TrustedRoot;
 use crate::sessions::native::choice::Choice;
 use crate::sessions::native::mode::ModeState;
 use crate::sessions::start::NativeOrder;
+use crate::sessions::start::trust::{Judged, NotTrusted, TrustRecord};
 use crate::sessions::worker::SessionKey;
 
 /// What a native fork starts with of the session it copies (parts 3b and 3c).
@@ -44,7 +45,9 @@ impl Forked {
 }
 
 impl App {
-    /// The trust native session `name`, in `directory` of the project at `root`, resumes under.
+    /// Where the trust native session `name`, in `directory` of the project at `root`,
+    /// resumes under comes from: an open buffer of its project, else the record of trusted
+    /// projects, read or waited for (part 4a).
     ///
     /// # Errors
     ///
@@ -54,13 +57,13 @@ impl App {
         name: &str,
         directory: &Path,
         root: Option<&Path>,
-    ) -> Result<TrustedRoot, String> {
+    ) -> Result<Judged, String> {
         let fork = "session-fork continues it in a terminal";
-        self.native_trust_now(directory, root)
+        self.native_trust_listed(directory, root)
             .map_err(|why| match why {
                 NotTrusted::NotOpen => format!(
-                    "Session {name}'s project is not open: open a file of it to resume it \
-                 natively, or {fork}"
+                    "Session {name}'s project is not open, and the record of trusted projects \
+                     does not hold it: open a file of it to resume it natively, or {fork}"
                 ),
                 NotTrusted::Untrusted => {
                     format!("Session {name}'s project is not trusted now: {fork}")
@@ -68,6 +71,10 @@ impl App {
                 NotTrusted::NotAtRoot => {
                     format!("Session {name} runs below its project's root: {fork}")
                 }
+                NotTrusted::NoRecord => format!(
+                    "Session {name}'s project's trust is not known, as the record of trusted \
+                     projects is not read: {fork}"
+                ),
             })
     }
 
@@ -122,7 +129,8 @@ impl App {
     }
 
     /// Starts fork `key`, `name`, natively in a new buffer when `directory` is the root of a
-    /// project trusted now, under `mode = "native"`: its order and trust. `None` for a terminal.
+    /// project trusted now, by an open buffer of it or the record (part 4a), under
+    /// `mode = "native"`: its order and the trust an open buffer gave. `None` for a terminal.
     /// It starts with `forked`, what the native session it copies holds: its permission mode
     /// state, as that session's next process would (part 3b), and the model and effort chosen
     /// there (part 3c).
@@ -133,11 +141,16 @@ impl App {
         directory: &Path,
         root: Option<&Path>,
         forked: Option<Forked>,
-    ) -> Option<(NativeOrder, TrustedRoot)> {
+    ) -> Option<(NativeOrder, Option<TrustedRoot>)> {
         if !self.configuration.native_sessions() {
             return None;
         }
-        let trusted = self.native_trust_now(directory, root).ok()?;
+        // A record not read yet: `fork_waits_for_trust` held the fork until it was, or the
+        // wait ran out, so this runs in a terminal.
+        let (trusted, trust) = match self.native_trust_listed(directory, root).ok()? {
+            Judged::Waits => return None,
+            judged => self.native_judged(key, judged),
+        };
         let mut order = self.native_session_buffer(key, name, directory.to_path_buf(), true, None);
         if let (Some(forked), Some(native)) = (forked, self.hosting.natives.map.get_mut(&key)) {
             native.mode = forked.mode;
@@ -145,6 +158,19 @@ impl App {
             native.choice = forked.choice;
             (order.model, order.effort) = native.choice.for_start();
         }
-        Some((order, trusted))
+        Some((NativeOrder { trust, ..order }, trusted))
+    }
+
+    /// Whether a fork in `directory`, of the project at `root`, waits for the record of trusted
+    /// projects before it is judged native or not (part 4a), as a fork waits whole (ADR 0173).
+    pub(in crate::app::sessions::hosting) fn fork_waits_for_trust(
+        &self,
+        directory: &Path,
+        root: Option<&Path>,
+    ) -> bool {
+        // Judged only while the record is unread, which copies nothing of it.
+        self.configuration.native_sessions()
+            && matches!(self.trust_record(), TrustRecord::Unread)
+            && matches!(self.native_trust_listed(directory, root), Ok(Judged::Waits))
     }
 }

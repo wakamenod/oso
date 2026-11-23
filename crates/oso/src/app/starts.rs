@@ -24,6 +24,9 @@ pub(super) struct Starting {
     asked: bool,
     /// What starts once the configuration's first look is done (ADR 0173).
     pub(super) held: super::held_starts::Held,
+    /// The record of trusted projects' thread reported once, which a native resume with no
+    /// open buffer of its project waits for (ADR 0165, part 4a).
+    pub(super) trust_read: bool,
 }
 
 impl Starting {

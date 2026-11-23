@@ -262,6 +262,7 @@ impl App {
         let waker = self.waker.clone();
         NativeOrder {
             buffer,
+            trust: crate::sessions::start::trust::ByRecord::No,
             settings: self.terminal_settings(),
             env: self.configuration.session_env().to_vec(),
             out: Box::new(move |out| {

@@ -110,7 +110,7 @@ impl App {
     /// as a new start would be (ADR 0165, step 2), else in a terminal. Whole, once the
     /// configuration's first look is done, as `[sessions] mode` chooses which (ADR 0173).
     fn fork_from(&mut self, from: ForkFrom) {
-        if self.starts_wait() {
+        if self.starts_wait() || self.fork_waits_for_trust(&from.directory, from.root.as_deref()) {
             return self.hold_start(move |app| app.fork_from(from));
         }
         let ForkFrom {
@@ -132,8 +132,10 @@ impl App {
         let (runs, trusted) =
             match self.start_native_fork(key, &name, &directory, root.as_deref(), forked) {
                 Some((order, trusted)) => {
-                    self.hosting.trusts.insert(key, trusted.clone());
-                    (Runs::Native(order), Some(trusted))
+                    if let Some(trusted) = &trusted {
+                        self.hosting.trusts.insert(key, trusted.clone());
+                    }
+                    (Runs::Native(order), trusted)
                 }
                 None => (
                     Runs::Terminal(self.session_terminal(key, &name, None, true)),

@@ -648,8 +648,15 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
 - A native session's `claude -p` runs only in a trusted project, as Claude Code asks it no
   trust question of its own ([ADR 0165](adr/0165-native-claude-sessions-the-route.md), Q5): a
   new start at a trusted project's root, and a resume or a fork only at the root of a project
-  an open buffer says is trusted now, never under the trust the session started with, which
-  an untrust does not take back. The start thread looks at the root again before the spawn.
+  trusted now, never under the trust the session started with, which an untrust does not take
+  back. An open buffer of the project decides; with none open, the record of trusted projects
+  does, by the root's path on the UI thread and by its path and identity on the start thread,
+  as an issue space's member is (part 4a): a directory made again at the path, a link there
+  and a linked worktree (whose main repository the record holds) are refused. A record not
+  read yet is waited for, at most 5 s with ADR 0173's held starts, then nothing is trusted.
+  Until its start thread reports, the UI takes a resume's or fork's trust back once its
+  project is no longer trusted, and the look before the spawn refuses it.
+  The start thread looks at the root again before the spawn.
   The resume that follows an interrupt by signal is such a resume, judged again then, and none
   starts while the person is asked whether to stop the session, or oso waits to quit or
   restart (step 2c).

@@ -688,8 +688,9 @@ composer. `/clear` is refused there: start a new session instead. If the session
 stops, what is queued stays there: take a message back with `RET`, or drop it with `d`. oso does not
 restart while a composer or a queue holds a message: send, clear or drop it first. `M-x session-resume` takes
 a stopped session up again in its own buffer, and `M-x session-fork` copies it into a new one;
-both start at once, with the composer ready. They need a file of the project open, in a
-project you trust: otherwise the resume says what to do, and the fork runs in a terminal.
+both start at once, with the composer ready. They need a project you trust, though no file of
+it needs to be open (one in a git worktree still does). Otherwise the resume says why, and the
+fork runs in a terminal.
 
 When Claude asks to run something, a card opens between the conversation and the composer,
 and the cursor moves to it once you have stopped typing for a moment, unless you are writing

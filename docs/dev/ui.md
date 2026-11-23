@@ -1352,8 +1352,8 @@ a switch made with its command stands until that setting changes in the file
   is refused while a composer holds text or a queue holds messages. A send, a paste or `session-explain` to
   it from elsewhere says it takes none yet. `session-resume` resumes a stopped native session
   natively, in its own buffer, with a "Resumed" row and the composer selected, at the root of
-  a project an open buffer says is trusted now (else it says why: a file of the project to
-  open, or `session-fork`, which continues it in a terminal); `session-fork` forks a session
+  a project trusted now, by an open buffer of it or, with none open, by the record of trusted
+  projects (part 4a; else it says why, and that `session-fork` continues it in a terminal); `session-fork` forks a session
   natively there under `mode = "native"`, and in a terminal elsewhere. An agent's start with
   no brief, and a restricted project, keep the terminal. A call that asks the person's
   permission is asked on the session's card (step 2e-2), `*card: NAME*`, docked between the
