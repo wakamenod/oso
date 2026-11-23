@@ -1,4 +1,6 @@
-//! A worktree session's first prompt (ADR 0121, "Worktree sessions"): a header that says where
+//! The first prompt oso composes of a session started with a brief, and telling one by how it
+//! starts (ADR 0165, "The rows' colours"): of one started in a directory, oso's line and the
+//! brief; of a worktree session (ADR 0121, "Worktree sessions"): a header that says where
 //! the session is, the line that tells it whom to report back to, and to send again when a
 //! report finds no session while oso restarts it (ADR 0176, part O-2), the hand-off facts the
 //! starting session leaves behind, and the person's brief, together at most [`MAX_BRIEF`]
@@ -18,6 +20,18 @@ pub const MAX_BRIEF: usize = 64 * 1024;
 
 /// The most characters shown of one fact or one part of the header.
 const MAX_PART_CHARS: usize = 4096;
+
+/// How a worktree session's first prompt starts.
+const WORKTREE: &str = "You are in a git worktree of ";
+
+/// How the line on the directories a session also reads starts.
+const READS: &str = "You can also read: ";
+
+/// How the first prompt of a session started in a directory starts, and its first line ends.
+const STARTED: (&str, &str) = (
+    "Session ",
+    " started this session through oso, with this brief:",
+);
 
 /// The line above the facts.
 const FACTS: &str = "Hand-off facts from that session:";
@@ -225,7 +239,7 @@ pub fn compose(
     }
     let brief = brief.trim_end();
     let mut head = format!(
-        "You are in a git worktree of {} at {}, on branch {} from {}.",
+        "{WORKTREE}{} at {}, on branch {} from {}.",
         shown_path(header.repo),
         shown_path(header.path),
         clean(header.branch),
@@ -271,7 +285,44 @@ pub fn compose(
     Ok(out)
 }
 
-/// A path as text for the prompt.
+/// The first prompt of a session that session `by`, named as `sessions::tools::quoted` does,
+/// starts in a directory with `brief`: oso's line first, never the agent's text, so that no
+/// brief is read as a command of Claude Code's own (`/`, `!`, `#`).
+pub fn started(by: &str, reads: &[PathBuf], brief: &str) -> String {
+    let also = reads_line(reads).map_or(String::new(), |line| format!("{line}\n\n"));
+    let (start, end) = STARTED;
+    format!("{also}{start}{by}{end}\n\n{brief}")
+}
+
+/// How oso starts the first prompt of a session started with a brief.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Form {
+    /// One an agent's tool started in a directory.
+    Directory,
+    /// A worktree's, an agent's or the person's.
+    Worktree,
+}
+
+/// Whether `text` starts as oso starts the first prompt of a session with a brief.
+pub fn form(text: &str) -> Option<Form> {
+    let (start, end) = STARTED;
+    let mut lines = text.lines();
+    let mut line = lines.next().unwrap_or_default();
+    if line.starts_with(READS) {
+        line = lines.nth(1).unwrap_or_default();
+    }
+    if line.starts_with(start) && line.ends_with(end) {
+        Some(Form::Directory)
+    } else {
+        text.starts_with(WORKTREE).then_some(Form::Worktree)
+    }
+}
+
+/// Whose a brief is when its session is not known.
+pub fn unknown() -> String {
+    "another session".to_owned()
+}
+
 /// The line a brief's header gives the directories its session also reads (ADR 0136, step
 /// 4b); none for none.
 pub fn reads_line(reads: &[PathBuf]) -> Option<String> {
@@ -280,11 +331,12 @@ pub fn reads_line(reads: &[PathBuf]) -> Option<String> {
     }
     let shown: Vec<String> = reads.iter().map(|dir| shown_path(dir)).collect();
     Some(format!(
-        "You can also read: {} (added to your working directories).",
+        "{READS}{} (added to your working directories).",
         shown.join(", ")
     ))
 }
 
+/// A path as text for the prompt.
 fn shown_path(path: &Path) -> String {
     clean(&path.to_string_lossy())
 }

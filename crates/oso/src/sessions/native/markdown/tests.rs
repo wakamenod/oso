@@ -108,10 +108,10 @@ fn a_fence_s_code_is_its_language_s_or_in_code_s_face() {
     let at = |shown: &str| on_row.at(drawn.find(shown).expect("drawn"));
     assert_eq!(at("fn"), Some(Highlight::Keyword));
     assert_eq!(at("a\n"), None, "its language's plain text");
-    assert_eq!(at("b c"), Some(Highlight::String), "code's face");
+    assert_eq!(at("b c"), Some(Highlight::SessionCode), "code's face");
     // Not parsed yet, all of it is.
     let plain = laid(drawn.len(), &plain(&row).expect("a reply"));
-    assert_eq!(plain.at(2), Some(Highlight::String));
+    assert_eq!(plain.at(2), Some(Highlight::SessionCode));
 }
 
 #[test]

@@ -106,6 +106,39 @@ pub enum Highlight {
     SessionSpace,
     /// A repository's name in `*Spaces*` (ADR 0140).
     SessionRepository,
+    /// What the person said in a native session (ADR 0165, "The rows' colours"). Only the
+    /// host's transcripts give these and the 15 below; no parser does.
+    SessionPrompt,
+    /// What a line of the person's starts with, such as `〉`, which its band is drawn by.
+    SessionPromptMark,
+    /// What an agent wrote to start a native session.
+    SessionBrief,
+    /// What a line of it starts with, and who it is from, which its band is drawn by.
+    SessionBriefMark,
+    /// A tool's name on its row, which no reply's text is in.
+    SessionTool,
+    /// Inline code in a reply, and a fence's in no language oso reads.
+    SessionCode,
+    /// What stands for a bullet, a list's number, a quote or a rule in a reply.
+    SessionBullet,
+    /// The mark of a call or of thinking under way.
+    SessionRunning,
+    /// The badge of a tool that reads, drawn on a chip as the 7 below are.
+    SessionIconRead,
+    /// One that changes files.
+    SessionIconWrite,
+    /// One that runs commands.
+    SessionIconShell,
+    /// One that searches.
+    SessionIconSearch,
+    /// One that runs an agent.
+    SessionIconAgent,
+    /// One that reads the web.
+    SessionIconWeb,
+    /// One that keeps tasks.
+    SessionIconTask,
+    /// Any other.
+    SessionIconOther,
     /// A directory listing's header line, its path (ADR 0134). Only the host's listings give
     /// these seven; no parser does.
     DiredHeader,

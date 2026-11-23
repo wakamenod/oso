@@ -257,7 +257,7 @@ fn recorded_rows() -> (Rows, Vec<RowChange>) {
         })
         .collect();
     let mut rows = Rows::new(PathBuf::from("/w/proj"));
-    let changes = rows.past(said);
+    let changes = rows.past(said, true);
     (rows, changes)
 }
 
@@ -327,7 +327,7 @@ fn a_call_with_no_result_is_unfinished() {
         })
         .collect();
     let mut rows = Rows::new(PathBuf::from("/w"));
-    rows.past(said);
+    rows.past(said, true);
     let Kind::Tools(tools) = &rows.rows()[1].kind else {
         panic!("not a call");
     };
@@ -337,20 +337,23 @@ fn a_call_with_no_result_is_unfinished() {
 #[test]
 fn a_wrapped_prompt_and_a_commands_output_show_as_live_ones() {
     let mut rows = Rows::new(PathBuf::from("/w"));
-    rows.past(vec![
-        Said::Prompt {
-            text: "<command-name>/model</command-name>".into(),
-            uuid: None,
-        },
-        Said::Prompt {
-            text: "hello".into(),
-            uuid: None,
-        },
-        Said::Note {
-            text: "From another session".into(),
-            uuid: None,
-        },
-    ]);
+    rows.past(
+        vec![
+            Said::Prompt {
+                text: "<command-name>/model</command-name>".into(),
+                uuid: None,
+            },
+            Said::Prompt {
+                text: "hello".into(),
+                uuid: None,
+            },
+            Said::Note {
+                text: "From another session".into(),
+                uuid: None,
+            },
+        ],
+        true,
+    );
     let kinds: Vec<&Kind> = rows.rows().iter().map(|row| &row.kind).collect();
     assert_eq!(
         kinds,
@@ -535,4 +538,52 @@ fn rows_holding_the_conversation_hear_of_a_transcript_that_did_not_read() {
             "{notes:?}"
         );
     }
+}
+
+/// What an agent's tool started a session with is read back as a brief: the conversation's
+/// first message, when it starts as oso starts one; one of a worktree only where the session
+/// is known to be an agent's, as the person hands off to one too.
+#[test]
+fn an_agents_brief_is_read_back_as_one() {
+    let brief = "Session \"a\" started this session through oso, with this brief:\n\nGo";
+    let worktree = "You are in a git worktree of /r at /w, on branch b from main.\n\nGo";
+    let prompt = |text: &str| Said::Prompt {
+        text: text.to_owned(),
+        uuid: None,
+    };
+    let froms = |from: Option<&str>, texts: &[&str], first: bool| -> Vec<Option<String>> {
+        let mut rows = Rows::new(PathBuf::from("/w/proj"));
+        rows.note_started_by(from.map(str::to_owned));
+        rows.past(texts.iter().map(|text| prompt(text)).collect(), first);
+        (rows.rows().iter())
+            .filter_map(|row| match &row.kind {
+                Kind::Brief { from, .. } => Some(Some(from.clone())),
+                Kind::Prompt(_) => Some(None),
+                _ => None,
+            })
+            .collect()
+    };
+    let agents = Some("session a");
+    let by = |from: &str| Some(from.to_owned());
+    for text in [brief, worktree] {
+        let known = [by("session a"), None];
+        assert_eq!(froms(agents, &[text, text], true), known);
+        assert_eq!(froms(agents, &["Go", text], true), [None, None]);
+        // Not read from the conversation's start, or cut.
+        assert_eq!(froms(agents, &[text], false), [None]);
+        // A command before it is no message.
+        let command = "<command-name>/model</command-name>";
+        assert_eq!(froms(agents, &[command, text], true), [by("session a")]);
+    }
+    // As in a fork read again, which oso has as the person's.
+    assert_eq!(froms(None, &[brief], true), [by("another session")]);
+    assert_eq!(froms(None, &[worktree], true), [None]);
+    // The whole conversation again, as after a rewind elsewhere.
+    let mut rows = Rows::new(PathBuf::from("/w/proj"));
+    for _ in 0..2 {
+        rows.note_started_by(by("session a"));
+        rows.past(vec![prompt(worktree), prompt("Go on")], true);
+    }
+    let briefs = (rows.rows().iter()).filter(|row| matches!(row.kind, Kind::Brief { .. }));
+    assert_eq!(briefs.count(), 2);
 }

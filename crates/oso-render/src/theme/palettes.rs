@@ -109,6 +109,35 @@ pub(super) enum Name {
     BgCard,
     /// The band behind a pane's filler rows, neutral and faint.
     BgFiller,
+    /// A native session's rows (ADR 0165): the band behind the person's words and their mark, a
+    /// tool's name, inline code, a bullet and a running mark. A tool's name is in no hue a
+    /// reply's text has; inline code is in a string's.
+    BgSaid,
+    FgSaidMark,
+    FgTool,
+    FgInlineCode,
+    FgBullet,
+    FgRunning,
+    /// The band behind what an agent wrote to start a session, and its mark.
+    BgBrief,
+    FgBriefMark,
+    /// A badge and its chip, by what its tool does.
+    FgIconRead,
+    BgIconRead,
+    FgIconWrite,
+    BgIconWrite,
+    FgIconShell,
+    BgIconShell,
+    FgIconSearch,
+    BgIconSearch,
+    FgIconAgent,
+    BgIconAgent,
+    FgIconWeb,
+    BgIconWeb,
+    FgIconTask,
+    BgIconTask,
+    FgIconOther,
+    BgIconOther,
     /// A terminal's colour 0 to 15 (ADR 0120), from the theme's table of them: 0 black, 1 red,
     /// 2 green, 3 yellow, 4 blue, 5 magenta, 6 cyan, 7 light grey, and 8 to 15 their bright
     /// forms. 1 to 6 and 9 to 14 are read at 7:1 on the background, as highlighted text is.
@@ -143,6 +172,7 @@ const DUSK_TERMINAL: [u32; 16] = [
 ];
 
 /// Near-black, with a high-contrast foreground: the default.
+#[expect(clippy::too_many_lines, reason = "one arm for each colour")]
 pub(super) fn dark(name: Name) -> Color {
     use Name::*;
     match name {
@@ -221,11 +251,36 @@ pub(super) fn dark(name: Name) -> Color {
         FgCommentAgent => rgb(0xf2c2ff),
         BgCard => rgb(0x1d1b2a),
         BgFiller => rgb(0x17181e),
+        BgSaid => rgb(0x2c4020),
+        FgSaidMark => rgb(0xb9e08a),
+        BgBrief => rgb(0x33264a),
+        FgBriefMark => rgb(0xdcb6ff),
+        FgTool => rgb(0xff9ccf),
+        FgInlineCode => rgb(0xa1a7eb),
+        FgBullet => rgb(0xfd84bf),
+        FgRunning => rgb(0xa8e03c),
+        FgIconRead => rgb(0x8ab4ff),
+        BgIconRead => rgb(0x1c2740),
+        FgIconWrite => rgb(0x86cf86),
+        BgIconWrite => rgb(0x1a2c1a),
+        FgIconShell => rgb(0xc9a0ff),
+        BgIconShell => rgb(0x2a2140),
+        FgIconSearch => rgb(0x62d3c0),
+        BgIconSearch => rgb(0x12302d),
+        FgIconAgent => rgb(0xf0c45c),
+        BgIconAgent => rgb(0x33290f),
+        FgIconWeb => rgb(0x6fd0f5),
+        BgIconWeb => rgb(0x11303c),
+        FgIconTask => rgb(0xf0a060),
+        BgIconTask => rgb(0x38230f),
+        FgIconOther => rgb(0xb9bfce),
+        BgIconOther => rgb(0x272a33),
         Terminal(n) => terminal(&DARK_TERMINAL, n),
     }
 }
 
 /// Near-white, with a near-black foreground: `dark`'s pair.
+#[expect(clippy::too_many_lines, reason = "one arm for each colour")]
 pub(super) fn light(name: Name) -> Color {
     use Name::*;
     match name {
@@ -301,12 +356,37 @@ pub(super) fn light(name: Name) -> Color {
         FgCommentAgent => rgb(0x6a1b84),
         BgCard => rgb(0xf0eef8),
         BgFiller => rgb(0xefefeb),
+        BgSaid => rgb(0xd9eabb),
+        FgSaidMark => rgb(0x3a5c00),
+        BgBrief => rgb(0xeadcf8),
+        FgBriefMark => rgb(0x6a1b84),
+        FgTool => rgb(0xbf1a5e),
+        FgInlineCode => rgb(0x3837c0),
+        FgBullet => rgb(0x900636),
+        FgRunning => rgb(0x2e7a1c),
+        FgIconRead => rgb(0x1a46ad),
+        BgIconRead => rgb(0xdbe6fb),
+        FgIconWrite => rgb(0x1f6b1f),
+        BgIconWrite => rgb(0xdff0dc),
+        FgIconShell => rgb(0x6a2bb0),
+        BgIconShell => rgb(0xeadffa),
+        FgIconSearch => rgb(0x006458),
+        BgIconSearch => rgb(0xd3efe9),
+        FgIconAgent => rgb(0x6a4a00),
+        BgIconAgent => rgb(0xf6e8c0),
+        FgIconWeb => rgb(0x005a80),
+        BgIconWeb => rgb(0xd2ecf7),
+        FgIconTask => rgb(0x8f3f00),
+        BgIconTask => rgb(0xf9e0cd),
+        FgIconOther => rgb(0x4a5060),
+        BgIconOther => rgb(0xe4e6ec),
         Terminal(n) => terminal(&LIGHT_TERMINAL, n),
     }
 }
 
 /// The M2 steps' dark grey, with the float's colours as ADR 0075 and ADR 0076 picked them.
 /// Where those missed a floor, the nearest colour that meets it, its hue kept (ADR 0089).
+#[expect(clippy::too_many_lines, reason = "one arm for each colour")]
 pub(super) fn dusk(name: Name) -> Color {
     use Name::*;
     match name {
@@ -383,6 +463,30 @@ pub(super) fn dusk(name: Name) -> Color {
         FgCommentAgent => rgb(0xffbcf0),
         BgCard => rgb(0x35303f),
         BgFiller => rgb(0x36363f),
+        BgSaid => rgb(0x34400e),
+        FgSaidMark => rgb(0xd2f2a0),
+        BgBrief => rgb(0x38244d),
+        FgBriefMark => rgb(0xe4c0ff),
+        FgTool => rgb(0xffaade),
+        FgInlineCode => rgb(0xc4f2ff),
+        FgBullet => rgb(0xffd0f2),
+        FgRunning => rgb(0xa8f07c),
+        FgIconRead => rgb(0xc4d4ff),
+        BgIconRead => rgb(0x243156),
+        FgIconWrite => rgb(0xb4ecb0),
+        BgIconWrite => rgb(0x213822),
+        FgIconShell => rgb(0xe2c8ff),
+        BgIconShell => rgb(0x382859),
+        FgIconSearch => rgb(0x9eeadc),
+        BgIconSearch => rgb(0x18393a),
+        FgIconAgent => rgb(0xffe08a),
+        BgIconAgent => rgb(0x3f330c),
+        FgIconWeb => rgb(0xa5e2ff),
+        BgIconWeb => rgb(0x18374a),
+        FgIconTask => rgb(0xffcb9c),
+        BgIconTask => rgb(0x47290e),
+        FgIconOther => rgb(0xd8dbe6),
+        BgIconOther => rgb(0x2b2d36),
         Terminal(n) => terminal(&DUSK_TERMINAL, n),
     }
 }

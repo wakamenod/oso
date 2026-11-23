@@ -383,6 +383,25 @@ impl Table {
         self.sessions.iter()
     }
 
+    /// Whose words a start by `origin` sends first, as the session's rows say it (ADR 0165, "The
+    /// rows' colours"): the session `parent`'s, by its name now; `None` for the person's.
+    pub fn brief_from(&self, origin: Origin, parent: Option<&SessionId>) -> Option<String> {
+        if origin == Origin::Person {
+            return None;
+        }
+        let parent = parent.and_then(|id| self.iter().find(|session| &session.id == id));
+        Some(match parent {
+            Some(parent) => format!("session {}", parent.name),
+            None => "another session".to_owned(),
+        })
+    }
+
+    /// The same of the start of session `id`, `None` too if it is not here.
+    pub fn started_by(&self, id: &SessionId) -> Option<String> {
+        let session = self.iter().find(|session| &session.id == id)?;
+        self.brief_from(session.origin, session.parent.as_ref())
+    }
+
     /// The session whose terminal is `buffer`.
     pub fn by_buffer(&self, buffer: BufferId) -> Option<&Hosted> {
         self.sessions
@@ -477,6 +496,34 @@ mod tests {
     fn add(table: &mut Table, n: u8, directory: &str, base: &str) -> u64 {
         let (key, _) = table.reserve(Path::new(directory), base);
         table.add(key, new(n)).unwrap().key
+    }
+
+    #[test]
+    fn an_agents_start_says_whose_its_first_message_is() {
+        let mut table = Table::default();
+        let parent = add(&mut table, 1, "/p", "oso-2");
+        let parent = table.get(parent).unwrap().id.clone();
+        let gone = SessionId::from_random([9; 16]);
+        let name = Some("session oso-2".to_owned());
+        let other = Some("another session".to_owned());
+        for origin in [Origin::Answered, Origin::Unasked, Origin::Unknown] {
+            assert_eq!(table.brief_from(origin, Some(&parent)), name);
+            assert_eq!(table.brief_from(origin, Some(&gone)), other);
+            assert_eq!(table.brief_from(origin, None), other);
+            let (key, _) = table.reserve(Path::new("/q"), "child");
+            let child = New {
+                origin,
+                parent: Some(parent.clone()),
+                ..new(2)
+            };
+            let child = table.add(key, child).unwrap().id.clone();
+            assert_eq!(table.started_by(&child), name);
+            table.forget(key);
+        }
+        // The person's hand-off, which has a parent too.
+        assert_eq!(table.brief_from(Origin::Person, Some(&parent)), None);
+        assert_eq!(table.started_by(&parent), None);
+        assert_eq!(table.started_by(&gone), None);
     }
 
     fn remembered(n: u8, archived: bool) -> Remembered {

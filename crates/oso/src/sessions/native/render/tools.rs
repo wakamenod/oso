@@ -17,7 +17,7 @@ use std::path::Path;
 
 use oso_core::editor::Approval;
 
-use super::{Face, GUIDE, MAX_TARGET, Rendered, capped, one_line, target};
+use super::{Face, GUIDE, Icon, MAX_TARGET, Rendered, capped, one_line, target};
 use crate::sessions::native::rows::{Tool, ToolState};
 use crate::sessions::native::wire::{Hunk, MAX_TEXT, ToolResult};
 
@@ -44,7 +44,9 @@ pub(super) fn tool_row(
         .is_some_and(|result| !result.text.is_empty() || !result.patch.is_empty())
         || shown_input(tool).is_some();
     let (mark, face) = match (&tool.state, opens, folded) {
-        (ToolState::Streaming | ToolState::Running, ..) => ("… ", Face::Dim),
+        // The person's turn, not the call's.
+        (ToolState::Running, ..) if tool.waiting => ("… ", Face::Dim),
+        (ToolState::Streaming | ToolState::Running, ..) => ("… ", Face::Running),
         (ToolState::Failed | ToolState::Denied(_), ..) => ("✗ ", Face::Error),
         (_, false, _) => ("· ", Face::Dim),
         (_, true, true) => ("▸ ", Face::Dim),
@@ -82,23 +84,24 @@ pub(super) fn tool_row(
 fn head(out: &mut Rendered, indent: &str, (mark, face): (&str, Face), name: &str) {
     out.put(indent, Some(Face::Dim));
     out.put(mark, Some(face));
-    out.put(badge(name), Some(Face::Tool));
-    out.put(" ", Some(Face::Tool));
+    let (badge, icon) = badge(name);
+    out.put(badge, Some(Face::Icon(icon)));
     out.put(&one_line(name), Some(Face::Tool));
 }
 
-/// The badge of the tool `name`: one plain character, one cell wide.
-fn badge(name: &str) -> &'static str {
+/// The badge of the tool `name`, one plain character, one cell wide, with the
+/// space after it, which its chip is as wide as, and what the tool does.
+fn badge(name: &str) -> (&'static str, Icon) {
     match name {
-        "Read" => "≡",
-        "Edit" | "MultiEdit" | "Write" | "NotebookEdit" => "✎",
-        "Bash" => "$",
-        "Grep" | "Glob" => "/",
-        "Agent" | "Task" => "@",
-        "WebFetch" | "WebSearch" => "~",
-        "TodoWrite" | "TaskCreate" | "TaskUpdate" | "TaskList" | "TaskGet" => "☑",
-        "AskUserQuestion" => "?",
-        _ => "*",
+        "Read" => ("≡ ", Icon::Read),
+        "Edit" | "MultiEdit" | "Write" | "NotebookEdit" => ("✎ ", Icon::Write),
+        "Bash" => ("$ ", Icon::Shell),
+        "Grep" | "Glob" => ("/ ", Icon::Search),
+        "Agent" | "Task" => ("@ ", Icon::Agent),
+        "WebFetch" | "WebSearch" => ("~ ", Icon::Web),
+        "TodoWrite" | "TaskCreate" | "TaskUpdate" | "TaskList" | "TaskGet" => ("☑ ", Icon::Task),
+        "AskUserQuestion" => ("? ", Icon::Other),
+        _ => ("* ", Icon::Other),
     }
 }
 
@@ -133,10 +136,12 @@ pub(super) fn group_row(
 ) {
     let count = |is: fn(&Tool) -> bool| tools.iter().filter(|tool| is(tool)).count();
     let running = count(|t| matches!(t.state, ToolState::Streaming | ToolState::Running));
+    let waits = count(|t| t.waiting && t.state == ToolState::Running);
     let failed = count(|t| t.state == ToolState::Failed);
     let denied = count(|t| matches!(t.state, ToolState::Denied(_)));
     let mark = match (running > 0, failed + denied > 0, folded) {
-        (true, ..) => ("… ", Face::Dim),
+        (true, ..) if running == waits => ("… ", Face::Dim),
+        (true, ..) => ("… ", Face::Running),
         (_, true, _) => ("✗ ", Face::Error),
         (_, _, true) => ("▸ ", Face::Dim),
         (_, _, false) => ("▾ ", Face::Dim),
@@ -170,11 +175,7 @@ pub(super) fn group_row(
             "unfinished",
             None,
         ),
-        (
-            count(|t| t.waiting && t.state == ToolState::Running),
-            "waiting for you",
-            Some(Face::Waiting),
-        ),
+        (waits, "waiting for you", Some(Face::Waiting)),
     ] {
         if n > 0 {
             out.put(&format!(" · {n} {what}"), face);

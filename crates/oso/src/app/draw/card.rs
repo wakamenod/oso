@@ -12,6 +12,8 @@ use oso_core::syntax::Highlight;
 use oso_core::window::{DockSlot, Screen, WindowId};
 use oso_render::Face;
 
+use super::chip::chip;
+
 /// The face docked window `id` is drawn over, if it is one: a permission card's own, and the
 /// float's for the others (ADR 0170).
 pub(super) fn dock_face(editor: &Editor, id: WindowId) -> Option<Face> {
@@ -72,15 +74,8 @@ impl CardFills {
                     continue;
                 }
                 let column = |offset| display.offset_to_display_point(offset).column;
-                let from = column(bytes.start).saturating_sub(row.column);
-                let to = (column(bytes.end).saturating_sub(row.column)).min(text.columns);
-                if from < to {
-                    self.keys.push(CellRect {
-                        column: text.column + from,
-                        columns: to - from,
-                        ..on_row
-                    });
-                }
+                let columns = column(bytes.start)..column(bytes.end);
+                self.keys.extend(chip(text, screen, (index, row), columns));
             }
         }
     }
