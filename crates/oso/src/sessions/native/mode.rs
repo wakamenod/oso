@@ -112,6 +112,21 @@ pub struct Process {
     pub resumable: bool,
 }
 
+impl Process {
+    /// Why its process may not be stopped to resume at once, if it may not: while a turn
+    /// runs, before it was given a message, or while a resume is held. A mode change's tier-1
+    /// switch and a repository added to an orchestrator (ADR 0176, part O-2) respawn so.
+    pub fn respawn_refusal(self) -> Option<Refusal> {
+        if !self.idle {
+            return Some(Refusal::Busy);
+        }
+        if !self.spoke {
+            return Some(Refusal::Unspoken);
+        }
+        (!self.resumable).then_some(Refusal::Held)
+    }
+}
+
 /// A native session's permission mode, across its processes.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ModeState {
@@ -393,14 +408,8 @@ impl ModeState {
 
     /// Tier 1: the process resumed in `mode`, while idle, given a message, and free to resume.
     fn respawn(&mut self, mode: PermissionMode, process: Process) -> Result<Then, Refusal> {
-        if !process.idle {
-            return Err(Refusal::Busy);
-        }
-        if !process.spoke {
-            return Err(Refusal::Unspoken);
-        }
-        if !process.resumable {
-            return Err(Refusal::Held);
+        if let Some(refusal) = process.respawn_refusal() {
+            return Err(refusal);
         }
         self.switch = Some(Switch::Respawn(mode));
         Ok(Then::Respawn(mode))

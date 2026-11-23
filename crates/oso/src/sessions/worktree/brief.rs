@@ -1,5 +1,6 @@
 //! A worktree session's first prompt (ADR 0121, "Worktree sessions"): a header that says where
-//! the session is, the line that tells it whom to report back to, the hand-off facts the
+//! the session is, the line that tells it whom to report back to, and to send again when a
+//! report finds no session while oso restarts it (ADR 0176, part O-2), the hand-off facts the
 //! starting session leaves behind, and the person's brief, together at most [`MAX_BRIEF`]
 //! bytes, as one argument. Facts that do not fit are dropped, least useful first.
 //!
@@ -241,7 +242,8 @@ pub fn compose(
     if let Some(name) = handoff.and_then(|handoff| handoff.name) {
         let name = clean(name);
         head.push_str(&format!(
-            "\nThis work was handed to you by session {name}; report back with SendMessage (to: {name})."
+            "\nThis work was handed to you by session {name}; report back with SendMessage (to: {name}). \
+             If SendMessage finds no {name}, oso may be restarting it: send again in a minute."
         ));
     }
     // The header and the facts are text oso composed from names and paths others chose: escaped

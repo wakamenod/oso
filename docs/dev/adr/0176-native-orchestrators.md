@@ -82,15 +82,33 @@ its own.
   is the space's orchestrator again, as nothing is left of it to resume.
 - **Project commands from the composer:** the repository `space-use-repo` chose is used from a
   native orchestrator's transcript and from its composer, as from its terminal.
-- **`/add-dir` (O-1):** `claude -p` has no `/add-dir`. A native orchestrator is offered no
-  paste; `space_add_repo` answers `add_dir: "next resume"`, and its next resume is given the
-  repository with `--add-dir`. O-2 makes the offer an idle respawn with `--resume` and the new
-  `--add-dir` (Q-O4 (a)), with the row "Resumed with REPO added."
+- **`/add-dir` (O-1, O-2, Q-O4 (a)):** `claude -p` has no `/add-dir`. Each resume of a native
+  orchestrator is given its space's trusted repositories with `--add-dir`, as every resume is.
+  For a repository added or trusted while it runs, oso asks the person "Resume orchestrator
+  NAME with REPO added, once its turn ends? (y or n)", in place of the paste, from the recorded
+  path only while that is one plain line, as the paste's, and never over another question the
+  person may be answering, as its `y` stops a process. At `y`, the offer still holding, it is
+  stopped once idle and resumed with `--resume` and the new `--add-dir`, as a mode change's
+  respawn is (ADR 0165, part 3b), before its queue goes on; its rows say "Resuming with REPO
+  added: …", then, once the start thread reports, "Resumed with REPO added." for the
+  repositories that start passed (else "Resumed."). While a turn, an interrupt or a switch
+  runs, or a resume could not start (a stop asked, a quit or restart, a replacement), it waits,
+  several `y`s gathering into one resume; once it could go, each repository is judged again,
+  and one no longer a trusted member, or a session no longer the space's running orchestrator,
+  is given up, the echo area saying so. A resume that comes otherwise meanwhile, as an
+  interrupt's, gives the repositories too; a switch to the TUI does, by the TUI's resume.
+  `space_add_repo` answers `add_dir: "resume offered"` when oso asked, and `"next resume"`
+  when it could not ask now; its restricted note promises the resume, not a paste.
 - **A review's question (O-2, Q-O5 (a)):** to a running native orchestrator it is sent at once
-  (`send_confirmed`, ADR 0165 part 2f); to a stopped one it is refused until O-2 adds a resume
-  offer with the question held until it runs. O-2 also fixes the "resumes it in its terminal"
-  wording for a native one, and gives the worker brief a retry line for a message sent during
-  a restart (Q-O6 (a)).
+  (`send_confirmed`, ADR 0165 part 2f). To a stopped one oso offers the resume a terminal's
+  gets, "Orchestrator NAME is stopped: resume it and ask it then?", and the question is held,
+  at most ADR 0163's two minutes, until its process runs, then sent as to a running one; a
+  resume refused drops it, saying so. "`session-resume` in its terminal resumes it" says
+  "in its transcript" for a native one.
+- **A report during a restart (O-2, Q-O6 (a)):** `oso-restart` ends and resumes native
+  sessions, and Claude Code's `SendMessage` to a name with no live session fails, visibly to
+  the sender. The worker brief's report-back line goes on: "If SendMessage finds no NAME, oso
+  may be restarting it: send again in a minute."
 
 ## Changes to accepted ADRs
 
@@ -106,10 +124,13 @@ its own.
   is asked no trust question, and loads none of the directory's settings, hooks, MCP servers,
   commands or `CLAUDE.md`; its auto memory is the space's still. A TUI one is unchanged.
 - **ADR 0161, "The `/add-dir` offer is the one oso already makes (Q6)":** a native orchestrator
-  gets no paste; the reply says `next resume`, as above.
-- **ADR 0163, "Stopped, with its terminal (Q6)":** a review's question to a native
-  orchestrator follows 0163's "A native session's question, as amended": sent once confirmed,
-  and refused while it is stopped, with no offer to resume it, until O-2 adds one (Q-O5 (a)).
+  gets no paste, but the offer of a resume with the repository added; the reply says
+  `resume offered`, or `next resume` when oso could not ask, as above.
+- **ADR 0163, "Stopped, with its terminal (Q6)" and "A native session's question, as
+  amended":** a review's question to a stopped native orchestrator is offered its resume and
+  held until its process runs, as above; a stopped native session that is no orchestrator is
+  still refused.
+- **ADR 0121, "The brief":** the report-back line gains the retry sentence above.
 
 ## Consequences
 
@@ -127,7 +148,7 @@ its own.
   write, as the session tools' roles already do (ADR 0136, step 4a): a forged orchestrator,
   earlier orchestrator or native session of the person's there passes it. The directory's
   checks and identity, and `--setting-sources=user`, still bound where and how it runs.
-- Follow-ups: O-2 (the flows above) and O-3 (the default, with the docs `ui.md`,
+- Follow-up: O-3 (the default, with the docs `ui.md`,
   `daily-use.md` and `native-sessions-ux.md`).
 
 ## Alternatives considered

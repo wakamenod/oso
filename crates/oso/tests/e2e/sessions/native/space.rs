@@ -2,19 +2,26 @@
 //! resume, a fork of it and its switches to the TUI and back run natively there under the
 //! space's gate, reading the person's own settings alone (`--setting-sources=user`), and the
 //! TUI's line reads the directory's as before; a session an agent started there is refused.
+//! A repository trusted while it runs is given by a resume with it, at the person's `y`, and a
+//! review's question to it, stopped, resumes it and goes once it runs (part O-2).
 //! The space and its sessions are a record written before oso starts, in the flow's own state
 //! directory, with the space's directory under a private root of the flow's.
 //!
 //! Must not depend on: the app's internals. Driven by its control socket and the fake's pty
 //! alone; no real key event is posted.
 
+use std::ffi::OsStr;
 use std::fs;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
+use oso_platform::process::{Executable, Sink, Source, Spawn, spawn};
+
+use super::super::super::git_agent::echo;
+use super::super::super::git_status::{has, rows_until};
 use super::super::super::harness::{App, emergency_dir};
-use super::super::super::spaces::PrivateRoot;
-use super::super::super::worktrees::keys;
+use super::super::super::spaces::{PrivateRoot, trust_restricted};
+use super::super::super::worktrees::{asks, keys};
 use super::switch::{args, flag, flow, screen, switch_back};
 use super::{Flow, in_composer, text};
 
@@ -68,10 +75,14 @@ fn seeded(test: &str) -> (Flow, PrivateRoot, PathBuf) {
     ];
     write_private(&state, "sessions", &(sessions.join("\n") + "\n"));
     let project = fs::canonicalize(&flow.project).unwrap();
+    // The member with its identity, as oso records one, by which a trusted one is judged.
+    let member = fs::symlink_metadata(&project).unwrap();
     let space = format!(
-        r#"{{"id":"{}","name":"fix-login","description":"Fix login","title":"Fix login","issue":"","members":[{{"root":"{}"}}],"directory":"{}","directory_identity":[{},{}],"archived":false,"orchestrator":"{ORCHESTRATOR}","earlier":[],"worktrees":[],"created":1,"changed":1}}"#,
+        r#"{{"id":"{}","name":"fix-login","description":"Fix login","title":"Fix login","issue":"","members":[{{"root":"{}","identity":[{},{}]}}],"directory":"{}","directory_identity":[{},{}],"archived":false,"orchestrator":"{ORCHESTRATOR}","earlier":[],"worktrees":[],"created":1,"changed":1}}"#,
         "9".repeat(32),
         project.display(),
+        member.dev(),
+        member.ino(),
         directory.display(),
         made.dev(),
         made.ino(),
@@ -176,6 +187,145 @@ fn an_orchestrator_switches_to_the_tui_and_back_in_its_spaces_directory() {
     let back = args(&flow, 3);
     assert!(native_in_space(&back), "{back:?}");
     app.wait_for("the composer", in_composer);
+    let _ = app.exchange("exit", None);
+    app.wait_for_exit();
+}
+
+/// Runs `git` with `args` in `dir`, with no global config.
+fn git(dir: &Path, args: &[&str]) {
+    let git = Executable::from_path("git", None).expect("git is on PATH");
+    let args: Vec<std::ffi::OsString> = args.iter().map(Into::into).collect();
+    let child = spawn(&Spawn {
+        executable: &git,
+        args: &args,
+        cwd: Some(dir),
+        project: None,
+        inherit: &[],
+        stdin: Source::Closed,
+        stdout: Sink::Null,
+        stderr: Sink::Null,
+        own_process_group: false,
+        own_session: false,
+        set: &[("GIT_CONFIG_GLOBAL", OsStr::new("/dev/null"))],
+        terminal: None,
+        pass_fd: None,
+        args_logged: true,
+    })
+    .unwrap();
+    assert!(child.wait_with_output().unwrap().status.success());
+}
+
+/// Opens the project's `notes.md`, and trusts the project as a person does.
+fn trust_project(flow: &Flow, app: &mut App) {
+    app.open_file(&flow.project.join("notes.md"));
+    trust_restricted(app, "proj");
+    app.wait_for("the project trusted", |state| {
+        state["modeline"]
+            .as_str()
+            .is_some_and(|modeline| !modeline.contains("restricted"))
+    });
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_repository_trusted_while_a_native_orchestrator_runs_is_given_by_a_resume_with_it() {
+    let (flow, _root, _) = seeded("native-space-add-dir");
+    let mut app = flow.start();
+    let first = resumed(&flow, &mut app, 1);
+    assert!(native_in_space(&first), "{first:?}");
+    assert_eq!(flag(&first, "add-dir"), None, "{first:?}");
+
+    // The space's repository trusted while it runs: no paste, but a resume with it.
+    trust_project(&flow, &mut app);
+    app.wait_for("the offer", |state| {
+        asks(state).is_some_and(|prompt| prompt.starts_with("Resume orchestrator fix-login with "))
+    });
+    app.send_keys("y");
+    let second = args(&flow, 2);
+    assert!(native_in_space(&second), "{second:?}");
+    let project = fs::canonicalize(&flow.project).unwrap();
+    assert_eq!(flag(&second, "add-dir"), project.to_str(), "{second:?}");
+    select(&mut app, "*claude: fix-login*");
+    let added = format!("Resumed with {} added.", project.display());
+    // The row is cut at the narrow window's edge: it starts the text it says.
+    app.wait_for("the row", |state| {
+        text(state)
+            .lines()
+            .map(str::trim)
+            .any(|row| row.starts_with("Resumed with /") && added.starts_with(row))
+    });
+    let _ = app.exchange("exit", None);
+    app.wait_for_exit();
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_reviews_question_resumes_a_stopped_native_orchestrator_and_goes_once_it_runs() {
+    let (flow, _root, _) = seeded("native-space-ask");
+    for args in [
+        &["add", "-A"][..],
+        &[
+            "-c",
+            "user.name=e2e",
+            "-c",
+            "user.email=e2e@example.invalid",
+            "commit",
+            "-q",
+            "--no-gpg-sign",
+            "-m",
+            "base",
+        ],
+    ] {
+        git(&flow.project, args);
+    }
+    fs::write(flow.project.join("notes.md"), "notes\nchanged\n").unwrap();
+    let mut app = flow.start();
+    trust_project(&flow, &mut app);
+    app.send_keys(&format!("C-c a j {} RET", keys("fix-login")));
+    app.wait_for("the space in front", |state| {
+        state["sessions"]["space"] == "fix-login"
+    });
+    app.open_file(&flow.project.join("notes.md"));
+    // Its project is found off the UI thread; the review menu needs it.
+    app.wait_for("notes.md in its project", |state| {
+        state["buffer"]["name"] == "notes.md"
+            && state["modeline"]
+                .as_str()
+                .is_some_and(|line| line.contains("  proj  "))
+    });
+    app.send_keys("C-u C-x v r");
+    app.wait_for("review-start's menu", |state| {
+        state["menu"] == "review-start"
+    });
+    app.send_keys(".");
+    app.wait_for("the review menu", |state| state["menu"] == "review");
+    app.send_keys("w");
+    app.wait_for("the review", |state| {
+        state["buffer"]["name"] == "*review: uncommitted proj*"
+    });
+    rows_until(&mut app, |rows| has(rows, "+changed"));
+
+    // `Q` to the stopped native orchestrator offers its resume, and the question waits.
+    app.send_keys("M-< n C-n Q");
+    app.wait_for("the question's prompt", |state| {
+        asks(state).is_some_and(|prompt| prompt.starts_with("Ask about this"))
+    });
+    app.send_keys(&format!("{} RET", keys("Why")));
+    app.wait_for("the resume offer", |state| {
+        asks(state).is_some_and(|prompt| {
+            prompt.starts_with("Orchestrator fix-login is stopped: resume it and ask it then?")
+        })
+    });
+    app.send_keys("y");
+    let native = args(&flow, 1);
+    assert!(native_in_space(&native), "{native:?}");
+
+    // Once it runs, the question goes, and the fake answers it.
+    app.wait_for("the question sent", |state| {
+        echo(state).starts_with("Asked fix-login, sent")
+    });
+    select(&mut app, "*claude: fix-login*");
+    app.wait_for("its answer", |state| text(state).contains("reply 1.1"));
     let _ = app.exchange("exit", None);
     app.wait_for_exit();
 }

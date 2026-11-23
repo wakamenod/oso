@@ -4,7 +4,8 @@
 //! asked, or it goes without asking by ADR 0135's rules, past no limit; one oso does not trust
 //! always asks, and joins restricted. At the person's `y` the repository is looked at again, and
 //! must be the same, by its real path, device and inode. Once added and trusted, oso offers the
-//! person to paste `/add-dir` into the orchestrator, as for any repository added while it runs.
+//! person to paste `/add-dir` into the orchestrator, or to resume a native one with it
+//! (ADR 0176, part O-2), as for any repository added while it runs.
 //!
 //! Must not depend on: key presses or how a frame is drawn. Nothing here touches the disk.
 
@@ -26,8 +27,9 @@ use crate::sessions::worker::SessionKey;
 /// What `?` shows of an add, after the question.
 const ADD_DETAILS: &str = "The repository is listed in the space. Once oso trusts it, the \
 orchestrator may start workers in its worktrees and give them it to read, and oso offers to \
-paste /add-dir PATH into the orchestrator's input, not sent: Claude Code then loads that \
-repository's CLAUDE.md, skills, commands and subagents into it. One oso does not trust stays \
+paste /add-dir PATH into the orchestrator's input, not sent, or to resume a native one with \
+it: Claude Code then loads that repository's CLAUDE.md, skills, commands and subagents into a \
+terminal's, and none of them into a native one, which reads the person's own settings alone. One oso does not trust stays \
 restricted until you trust it with trust-project.";
 
 /// An agent's look at the repository its call names, on a thread of its own.
@@ -284,7 +286,7 @@ impl App {
         let name = (self.watch.spaces().member_names(at).into_iter())
             .find(|(_, member)| same(member, &root))
             .map(|(name, _)| name);
-        let note = add_dir.note(&path);
+        let note = add_dir.note(&path, native);
         let note = if pending.unasked {
             format!("{note} Added without asking, as the person's config.toml allows.")
         } else {

@@ -1,6 +1,6 @@
 # 0121. Agent sessions and spaces
 
-- Status: Accepted, amended by 0126, 0128, 0131, 0132, 0135, 0136, 0138, 0140, 0141, 0143, 0145, 0151, 0153, 0155, 0160, 0161, 0162, 0163, 0165, 0170, 0173 and 0177;
+- Status: Accepted, amended by 0126, 0128, 0131, 0132, 0135, 0136, 0138, 0140, 0141, 0143, 0145, 0151, 0153, 0155, 0160, 0161, 0162, 0163, 0165, 0170, 0173, 0176 and 0177;
   "Merged work is not ready for review, as amended" (2026-11-17); "Removal archives its
   sessions, as amended" (2026-11-18); "An incomplete registry read refuses, as amended"
   (2026-11-22); "An unverifiable registry entry is busy, as amended" (2026-11-22); "Every
@@ -346,7 +346,8 @@ fetched.
 - **The brief** gets a header and hand-off facts, as the previous setup's:
   - "You are in a git worktree of REPO at PATH, on branch B from BASE. This work was handed to you by
     session NAME; report back with SendMessage (to: NAME)." The report-back line appears only when
-    the starting session is live and has a name.
+    the starting session is live and has a name. It goes on "If SendMessage finds no NAME, oso
+    may be restarting it: send again in a minute." (ADR 0176, part O-2).
   - The starting session's transcript path, its plan files if any, and `git status --porcelain` of
     its uncommitted changes, which did not come along.
   - The files it touched, read from its transcript on the worker, when the transcript parses; else

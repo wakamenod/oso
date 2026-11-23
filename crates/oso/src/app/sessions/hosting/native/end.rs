@@ -4,8 +4,9 @@
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 //!
-//! - A session interrupted with a signal, or stopped while idle to change its mode (part 3b),
-//!   ends as asked, and resumes at once, as a resume does (step 2c), in the mode it was in or
+//! - A session interrupted with a signal, or stopped while idle to change its mode (part 3b)
+//!   or to be given a repository added to its space (ADR 0176, part O-2), ends as asked, and
+//!   resumes at once, as a resume does (step 2c), in the mode it was in or
 //!   is changed to; its queue waits as the interrupt left it.
 //! - A session never given a message left Claude Code no conversation, and `--resume` of it
 //!   fails ("No conversation found", a probe of 2026-11-22; step 2). It is forgotten, its line
@@ -30,6 +31,7 @@ impl App {
         self.drop_permissions_of(key);
         let in_table = self.hosting.table.get(key).is_some();
         let held = self.native_resume_held(key);
+        let for_dir = self.stopped_for_dir(key);
         let Some(native) = self.hosting.natives.map.get_mut(&key) else {
             return;
         };
@@ -53,7 +55,8 @@ impl App {
         native.control = None;
         let interrupted =
             std::mem::replace(&mut native.interrupt, Interrupt::new(SIGNALS)).resumes();
-        let resumes = (interrupted || native.mode.respawns()) && native.spoke && !hung_up && !held;
+        let respawns = native.mode.respawns() || for_dir;
+        let resumes = (interrupted || respawns) && native.spoke && !hung_up && !held;
         // Ended other than to resume at once: its conversation may go on elsewhere (part 5b).
         native.may_have_gone_on = !resumes;
         // A switch it was stopped for that does not resume is over, and says so.
@@ -62,6 +65,12 @@ impl App {
             draw(&mut self.editor, native, [change]);
         }
         let buffer = native.buffer;
+        if !resumes {
+            self.adding_over(key);
+        }
+        let Some(native) = self.hosting.natives.map.get_mut(&key) else {
+            return;
+        };
         let status = if hung_up || resumes { Some(0) } else { status };
         let unspoken = !native.spoke && native.composing.queued() == 0;
         // A clean end with nothing said or written: nothing is left to keep.
@@ -79,21 +88,7 @@ impl App {
             return;
         };
         if status != Some(0) {
-            let end = stderr.trim();
-            let end = &end[end.floor_char_boundary(end.len().saturating_sub(MAX_ERR_SHOWN))..];
-            let said = match status {
-                Some(code) => format!("claude exited with status {code}"),
-                None => "claude ended by a signal".to_owned(),
-            };
-            let mut changes = vec![native.rows.note(&said)];
-            if !end.is_empty() {
-                changes.push(
-                    native
-                        .rows
-                        .note(&format!("claude's standard error:\n{end}")),
-                );
-            }
-            draw(&mut self.editor, native, changes);
+            failed_rows(&mut self.editor, native, status, stderr);
         }
         self.editor.set_running(buffer, false);
         let Some(exit) = self.hosting.table.ended(key, status, now_ms()) else {
@@ -142,6 +137,7 @@ impl App {
             return;
         };
         self.composer_ended(key);
+        self.adding_over(key);
         // Stopped now, it may be resumed elsewhere (part 5b).
         self.native_may_have_gone_on(key, true);
         if let Some(native) = self.hosting.natives.map.get_mut(&key) {
@@ -192,6 +188,8 @@ impl App {
         self.sync_sessions_socket();
         self.sweep_killed_natives();
         self.sweep_aside();
+        // Before the queue: a resume with a repository added goes once its session is idle.
+        self.sweep_adding_dirs();
         // After the sweep: no message goes to a session whose buffer was just killed.
         self.send_waiting_queues();
         self.sync_slash_commands();
@@ -269,4 +267,29 @@ impl App {
     pub(in crate::app::sessions::hosting) fn native_spoke(&self, key: SessionKey) -> bool {
         (self.hosting.natives.map.get(&key)).is_some_and(|native| native.spoke)
     }
+}
+
+/// Draws in `native`'s rows how its process failed, with `status`, and the end of what it wrote
+/// on standard error, `stderr`.
+fn failed_rows(
+    editor: &mut oso_core::editor::Editor,
+    native: &mut Native,
+    status: Option<i32>,
+    stderr: &str,
+) {
+    let end = stderr.trim();
+    let end = &end[end.floor_char_boundary(end.len().saturating_sub(MAX_ERR_SHOWN))..];
+    let said = match status {
+        Some(code) => format!("claude exited with status {code}"),
+        None => "claude ended by a signal".to_owned(),
+    };
+    let mut changes = vec![native.rows.note(&said)];
+    if !end.is_empty() {
+        changes.push(
+            native
+                .rows
+                .note(&format!("claude's standard error:\n{end}")),
+        );
+    }
+    draw(editor, native, changes);
 }
