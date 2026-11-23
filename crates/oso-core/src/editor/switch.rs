@@ -110,8 +110,11 @@ impl Editor {
             self.windows[index].way_back_mut().clear();
         }
         self.note_secret_shown();
-        // A buffer it never showed starts where another window left it (ADR 0112).
-        let elsewhere = if self.windows[index].has_shown(buffer) {
+        // A transcript it never showed starts at its end, any other buffer where another window
+        // left it (ADR 0112, ADR 0165).
+        let elsewhere = if let Some(end) = self.native_end_place(buffer) {
+            Some(end)
+        } else if self.windows[index].has_shown(buffer) {
             None
         } else {
             self.place_elsewhere(index, buffer)
@@ -119,7 +122,15 @@ impl Editor {
         // The wrap it drops gives back what is left of the command's budget.
         let budget = self.gather_wrap_budget();
         self.wrap_pool = budget;
-        if let Some(place) = self.windows[index].show(buffer).or(elsewhere) {
+        let tail = self.at_native_end(index);
+        self.windows[index].set_tail(tail);
+        let kept = self.windows[index].show(buffer);
+        self.windows[index].set_tail(false);
+        // One left at the end of a transcript comes back to its end; showing the buffer it
+        // shows changes nothing.
+        let place = kept.map(|place| self.native_place(buffer, place));
+        let elsewhere = elsewhere.filter(|_| before != buffer);
+        if let Some(place) = place.or(elsewhere) {
             // Its wrap first, for the top to stay where the place says (ADR 0103).
             self.sync_wrap(index);
             self.restore_place(index, place);
@@ -158,6 +169,7 @@ impl Editor {
         Some(Place {
             selections: primary.with_ring(*selections.mark_ring()),
             scroll,
+            tail: false,
         })
     }
 
@@ -166,6 +178,7 @@ impl Editor {
         let Place {
             mut selections,
             scroll,
+            tail: _,
         } = place;
         let (window, shown) = self.window_mut(index);
         // The text may have changed since, by a reload or an edit elsewhere. A cursor that
@@ -274,12 +287,18 @@ impl Editor {
         if buffer.verdict().is_withheld() {
             return Some(Preview::Withheld);
         }
-        let window = &self.windows[self.tiled_index()];
+        // The window `C-x b` shows it in, not the docked or the side window selected.
+        let window = &self.windows[self.tree_index()];
         let (selections, scroll) = if window.buffer() == id {
             (&window.selections, window.scroll())
         } else {
             let place = window.places().find(|(other, _)| *other == id);
+            let end = buffer.text().len();
             match place {
+                // Where it will show: its end, if it never showed this transcript or left it
+                // there (ADR 0165).
+                Some((_, place)) if place.tail => return self.buffer_preview_at(id, end),
+                None if buffer.is_native_session() => return self.buffer_preview_at(id, end),
                 Some((_, place)) => (&place.selections, place.scroll),
                 None => {
                     return Some(Preview::Buffer {

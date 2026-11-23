@@ -1,6 +1,6 @@
 # 0165. Native Claude sessions: the route
 
-- Status: Accepted, amended by 0170, 0173 and 0176
+- Status: Accepted, amended by 0170, 0173 and 0176; "Following the end, as amended" (2026-11-24)
 - Date: 2026-11-21
 
 ## Context
@@ -2105,6 +2105,42 @@ The author chose (a) on each, on 2026-11-21. The options are kept as they were p
    delays the restart as ADR 0133's quit-wait does; passing the pipes over comes later if wanted.
    (b) Pass the pipe fds to the new oso from the start (ADR 0133's fd passing).
 
+## Following the end, as amended
+
+Amended on 2026-11-24 (the author's): part 1b-1's "a cursor at the end follows new rows". Only the
+selected window's cursor stayed at the end, so nothing followed behind the composer, a card or a
+prompt, or in another window; a window that first showed a transcript started at its top, and a
+selected cursor in a row drawn again went to that row's end. What holds now:
+
+- **Which windows follow:** each whose primary cursor is at the end of the text, selected or not.
+  Its cursor stays at the end as rows come and its view goes with it at once. Any other window is
+  not moved: its cursor and its top follow as markers, also in the selected window, as a change of
+  a row begins where its text first differs; a cursor that a change above it takes out of view is
+  kept in view as any is (ADR 0112). Point says it, so whatever moves point off the end stops it;
+  selecting the composer or a card, or a card that appears, moves no point. Point on a queued
+  message's row stays on that message as the queue is drawn again, or goes to the end with it
+  gone. Beneath a preedit or a prompt, where the wheel leaves the cursor (ADR 0069, ADR 0072), the
+  view follows rows and their wrapping only while its last row shows; a frame laid out again
+  still shows the cursor.
+- **Where a window starts:** one that never showed the transcript at its end, not where another
+  window is in it; one that left it at its end, behind another buffer or in a window tree kept
+  behind the frame, at the end it has now; any other where it left it. `C-x b`'s preview shows
+  what would, in the window that would. `C-g` in an isearch begun at the end goes back to the end
+  it has now. A split keeps the place.
+- **What starts it again:** point at the end; the wheel or `C-v` that moves the view down to where
+  the last row shows, which puts point at the end unless a region shows or there are several
+  cursors; and a message
+  sent or queued, which puts the window that carries the composer at the end.
+- **The bottom of the screen:** the end is the empty row after the last one, the queue's rows
+  included. The view moves by the fewest view rows, in the rows its docks leave it: a dock that
+  changes lays the frame out again, and a wrap's report follows too.
+- **Cost:** a changed row costs its own text and, for each window on its buffer, O(log n) and what
+  it wraps in view, within one wrap budget for each batch of the stream, which the selected window
+  has first; nothing is done per row of the transcript. A hidden window costs nothing: it keeps
+  one flag. In release, a row added with three windows on the transcript and the composer
+  selected takes 4 µs at 100, 10,000 and 100,000 rows, and wrapped 13 µs at 100 and 10,000 (p50,
+  with the tests' small wrap budget).
+
 ## Changes to accepted ADRs
 
 Each passage stays in its ADR as written; what holds now follows it.
@@ -2161,6 +2197,14 @@ Each passage stays in its ADR as written; what holds now follows it.
   `quit-when-idle` also cancel a restart that waits, and `oso-restart`, waiting or beginning,
   cancels an exit that waits and resets its guard, so that only one of the two waits (part
   4b).
+- [ADR 0112](0112-window-splits.md), "An edit in one window moves the others' cursors and tops as
+  markers": in a native session's transcript a cursor at the end stays there in every window, and
+  the view goes with it. "A buffer a window never showed starts where the window selected most
+  recently that showed it left it, or its start": a transcript starts at its end ("Following the
+  end, as amended").
+- [ADR 0040](0040-buffers-loading-motion-and-scrolling.md), "moves cursors into view": in a native
+  session's transcript, the wheel or `C-v` down to where the last row shows puts point at the end
+  ("Following the end, as amended").
 - [ADR 0130](0130-agent-chat.md): superseded. Its buffer design holds by reference
   ("The buffers"); its route, its sidecar and its two views do not. "`claude` starts a TUI
   session as before; `C-u C-x a c` asks for the mode; `[sessions] mode = "chat"` makes chat
