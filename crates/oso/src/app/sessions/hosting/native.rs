@@ -193,9 +193,10 @@ impl NativeSessions {
 }
 
 impl App {
-    /// Whether `begin` starts a native session (ADR 0165): `[sessions] mode = "native"`, in a
-    /// trusted project (Q5). A person's start with no brief starts at once, the person writing
-    /// in its composer (step 2, the author's choice); an agent's with none starts a terminal.
+    /// Whether `begin` starts a native session (ADR 0165): unless `[sessions] mode = "tui"`
+    /// (part 4e), in a trusted project (Q5). A person's start with no brief starts at once,
+    /// the person writing in its composer (step 2, the author's choice); an agent's with none
+    /// starts a terminal.
     ///
     /// Only at the root of a project an open buffer says is trusted now, `directory`, or in a
     /// worktree just made, under its own trust: never under the trust of the agent's session

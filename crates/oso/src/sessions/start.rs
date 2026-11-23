@@ -13,8 +13,9 @@
 //!   `claude` may still run waits for it to be gone (`gone`, ADR 0165, part 4d-2).
 //! - A TUI's `claude`'s start time is read just after its spawn, for that wait.
 //! - A missing directory refuses before anything starts.
-//! - A native resume or fork judged by the record of trusted projects (ADR 0165, part 4a) is
-//!   judged here by its root's path and identity, before the root's other checks.
+//! - A native resume, fork or adoption judged by the record of trusted projects (ADR 0165,
+//!   parts 4a and 4e) is judged here by its root's path and identity, before the root's other
+//!   checks.
 //! - For a new or adopted session in a trusted project, the baseline is taken first (ADR 0122), waiting at most
 //!   [`BASELINE_WAIT`]; past that, the session starts and the baseline follows (`baseline`).
 //! - The shell is found as ADR 0120 has it, and `claude` on `PATH` when the shell is not one

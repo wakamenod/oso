@@ -222,7 +222,8 @@ rule that only the person writes to a session are ADR 0130's.
 ### One session, and the TUI as a hand-off (Q3)
 
 - **A session has a mode, `native` or `tui`** (ADR 0130's `chat` renamed). New sessions are native
-  once step 4 below lands; until then `[sessions] mode = "native"` opts in.
+  once step 4 below lands; until then `[sessions] mode = "native"` opts in. Since part 4e they
+  are, and `[sessions] mode = "tui"` opts out.
 - **The TUI stays as a hand-off,** as ECC's `ecc-tui-open` does and ADR 0130's
   `session-switch-mode` describes: while a session is idle, stopped or done, oso ends the `-p`
   process, starts the TUI in a terminal with `--resume`, and takes the session back the same way.
@@ -1845,6 +1846,63 @@ of "One session, and the TUI as a hand-off" (Q3).
   of trust taken back while the TUI ends, as the app has no harness of its own beside the
   end-to-end flows.
 
+### Part 4e: native is the default
+
+The author's Q4-9 (a), and two answers of 2026-11-23 through the orchestrator:
+
+- **The default.** With no `[sessions] mode`, or `mode = "native"`, a session runs native
+  wherever it did under `mode = "native"` before: a new start in a trusted project (the
+  person's `claude`, `session-worktree`, an agent's `session_start` and
+  `start_worktree_session` with a brief) and a fork; and now an adoption, below. `mode = "tui"`
+  opts out: each of them hosts Claude Code's TUI in a terminal, as before step 1. A restricted
+  project, a directory below a project's root, and an agent's start with no brief keep the
+  terminal (Q5). A space's orchestrator keeps it too, only because a space's directory has no
+  `.git` yet and so is no project oso trusts: nothing else excludes it. The author wants
+  orchestrators native as well; that needs the space's trust, its directory and the
+  orchestrator's tools and flows, and is a follow-up of its own. The configuration keeps
+  `Sessions::tui` in place of `Sessions::native`, so a configuration not read in time, or
+  none, gives native too.
+- **A wrong value** (`"chat"`, `"TUI"`, `true`) is said as a problem of the configuration, and
+  the default, native, holds, as a wrong value of any other key leaves its default (the
+  author's answer). Before this part it kept the TUI.
+- **Adopting** (`session-adopt`, and `move_to_space`'s resume of a conversation from outside
+  oso, which adopts it): native as a fork is, at the root of a project trusted now, by an open
+  buffer of it or by the record of trusted projects (part 4a), in a new buffer, with the
+  composer selected when it is shown, and one "Adopted." row for the turns before, which
+  `-p --resume` does not write. Its conversation is there, so it may be resumed again. It still
+  takes its own baseline (ADR 0121) only where an open buffer gave its trust, as a terminal's
+  does, and at its gate, the root the start thread looks at again, so that taking the
+  project's trust back stops that run as it stops the start (the security review's finding:
+  a second root from the same project would have kept it running); one the record judged
+  takes none. Its gate is its tools' trust too (`hosting.trusts`), as a native fork's and a
+  new start's are, so its agent's worktree tools judge its project by it, where a terminal
+  adoption's tools have none of their own. The row says that the earlier turns are not shown
+  here, which the TUI showed: a person may otherwise go on with a conversation they cannot
+  read (the security review's finding). Since part 5a the earlier turns are shown, read from
+  the transcript, and the row says "Adopted." after them. Which of the two it runs as depends on the configuration and the
+  record, so, as a fork does, an adoption now waits whole for the configuration's first look
+  and the record's first report (ADR 0173, part 4a); before, its order waited. One that runs
+  elsewhere is refused and offered a fork, as before. With no `mode`, a fork or an adoption
+  right after oso starts, with no buffer of its project open, so waits for the record's first
+  report too, within the held starts' 5 s; under the TUI before, a fork did not.
+- **What keeps its mode** (the author's (b) on whether a resume follows the default): a
+  session the record holds resumes as it ran, a stopped TUI session in its terminal and a
+  native one natively, under `session-resume`, an orchestrator's `session_resume` and
+  `move_to_space` of a session oso hosts. Only a session with no mode yet follows the default.
+  A TUI session carried over `oso-restart` stays one (ADR 0133). `session-switch-mode`
+  moves one by hand, either way (parts 4d-1 and 4d-2).
+- **Tests.** The setting's values and wrong values (`config::sessions_tests`). End to end,
+  every native flow now runs with no `mode`, and the TUI flows' configurations (in
+  `sessions`, `worktrees` and `starts_wait`) say `mode = "tui"`, so their behaviour does not
+  change; `sessions::native::adopt` adopts a conversation in a terminal at a restricted
+  project's root, natively once it is trusted, and in a terminal below its root. No test
+  covers an adoption that waits whole, at the app's level or end to end.
+- **The benchmark** (`examples/perf/bench/sessions.rs`) measures terminal sessions. Its project
+  is never trusted, so they stayed terminals with no mode, but its configuration now says
+  `mode = "tui"` (the author's approval), so that a later step that trusts its project does
+  not change what its numbers mean. A benchmark of native sessions, the default path now, is
+  wanted in a change of its own.
+
 ## Step 5, as built
 
 ### Part 5a: earlier turns from the transcript
@@ -1853,8 +1911,9 @@ The author's (a) on Q5-1 to Q5-5, Q5-7 and Q5-8, and the space's orchestrator's 
 technical Q5-6, Q5-9 and Q5-10, on 2026-11-23. A native start whose rows hold none of its
 conversation shows its earlier turns, read from Claude Code's transcript, with the row
 renderer and folding of live turns: a resume in a new instance, the person's or an agent's
-`session_resume`, `oso-restart`'s resume (part 4c), a fork, and a switch back from the TUI with
-no transcript set aside, as after an oso restart (part 4d-2). A stopped buffer brought back at
+`session_resume`, `oso-restart`'s resume (part 4c), a fork, an adoption (part 4e), which says
+"Adopted." after them, and a switch back from the TUI with no transcript set aside, as after an
+oso restart (part 4d-2). A stopped buffer brought back at
 oso's start keeps its one row until it is resumed (Q5-1). A resume whose rows hold the
 conversation already, and a switch back into the transcript set aside, wait for part 5b.
 
@@ -1902,8 +1961,10 @@ conversation already, and a switch back into the transcript set aside, wait for 
 - **A fork** (Q5-5): `--fork-session` writes its own file only at its first message, a copy of
   the parent's lines under the same ids, then its own turn. A fork shows the turns it copies from
   the parent's transcript, then "Forked from NAME.".
-- **Where it is read** (Q5-10): once the process is spawned and before its stream is read, on a
-  thread of its own, `oso-native-past`, that the start thread waits for at most 1.25 s, so that a
+- **Where it is read** (Q5-10): once the process is spawned and before its stream is read. The
+  plan read it on the start thread itself; the security review found that a transcript on a
+  mount that hangs would then hold the spawned process with no owner for as long, so it is read
+  on a thread of its own, `oso-native-past`, that the start thread waits for at most 1.25 s, so that a
   transcript on a mount that hangs leaves the process unowned no longer; then nothing is shown,
   and the thread is left. It is handed on first through the stream's own delivery
   (`stream::Out::Past`), so it is drawn before anything the process says, and the read is hidden
@@ -1931,8 +1992,7 @@ conversation already, and a switch back into the transcript set aside, wait for 
   lookup of `<id>.jsonl` sits in `sessions::past`. A measure of the UI thread's draw of 2000
   rows. Part 5b, earlier turns after the rows a buffer keeps (by the newest kept line's
   id, which the stream and the transcript share), for a resume in the same instance after turns
-  elsewhere and a switch back into the transcript set aside, whose TUI turns it lacks; a native
-  adopt, part 4e's, once it lands.
+  elsewhere and a switch back into the transcript set aside, whose TUI turns it lacks.
 - **New public items:** none.
 
 ## Questions
@@ -2001,6 +2061,12 @@ Each passage stays in its ADR as written; what holds now follows it.
   person chose (Q4), and `--permission-prompt-tool`; a TUI session still passes none, but the TUI
   a native session is handed to (part 4d-1, Q4-7 (a)), which passes the mode the native session
   held, and its `--model` and `--effort`.
+  "**`claude` (`Person`)** starts a session … The session's terminal is a buffer named
+  `*claude: NAME*`", and "Adopting a session started outside oso, as built", "oso resumes the
+  same id as a hosted session": at a trusted project's root, a new session, a fork and an
+  adopted conversation, one `move_to_space` brings in among them, are native sessions in
+  `*claude: NAME*`, unless `[sessions] mode = "tui"`; elsewhere, and for a TUI session resumed
+  or carried over a restart, the terminal stays (part 4e).
 - [ADR 0143](0143-agent-keys-on-c-c-a-and-an-agents-menu.md), "Keys planned elsewhere become
   heads of this menu: … ADR 0129's dictation on `t`": `t` is `session-switch-mode`'s (part
   4d-1, the author's Q4-8 (a)), and part 4d-2's `C-c C-t` in a session's terminal is too; ADR
@@ -2027,13 +2093,25 @@ Each passage stays in its ADR as written; what holds now follows it.
   cancels an exit that waits and resets its guard, so that only one of the two waits (part
   4b).
 - [ADR 0130](0130-agent-chat.md): superseded. Its buffer design holds by reference
-  ("The buffers"); its route, its sidecar and its two views do not.
+  ("The buffers"); its route, its sidecar and its two views do not. "`claude` starts a TUI
+  session as before; `C-u C-x a c` asks for the mode; `[sessions] mode = "chat"` makes chat
+  the default (Q8)", Q8 (a), "The TUI; chat with `C-u C-x a c` or `[sessions] mode = "chat"`",
+  and "the TUI by default": native is the default in a trusted project, and `[sessions] mode = "tui"` keeps the TUI; `"chat"` is no
+  value, and no key asks for the mode (part 4e).
 - [ADR 0173](0173-starts-wait-for-the-configurations-first-look.md), "Until the
-  configuration's first look is done, every start above waits": and a native resume or fork
-  with no open buffer of its project waits for the record of trusted projects' first report
-  too, within the same 5 s bound (part 4a). "`*Messages*` says once: \"The
+  configuration's first look is done, every start above waits": and a native resume, a fork
+  or an adoption with no open buffer of its project waits for the record of trusted projects'
+  first report too, within the same 5 s bound (parts 4a and 4e). "`*Messages*` says once: \"The
   configuration was not read in 5 s…\"": only when the configuration was not read; a wait for
   the record alone says nothing there, and its refusal says why.
+- [ADR 0173](0173-starts-wait-for-the-configurations-first-look.md), "**A resume or adoption**,
+  native or in a terminal: … in its start order only. Whether it is native comes from the
+  session's record", and "A resume or adoption makes its buffer at once and marks the session
+  starting, as before. Only its start order waits": for a resume only. An adoption chooses
+  native or the TUI by `[sessions] mode` and its project's trust, as a fork does, and so waits
+  whole as a fork does, before its key is reserved and its buffer made; a second adoption of a
+  conversation whose adoption waits is held too, and says "That conversation is being
+  adopted" once it goes (part 4e).
 
 ## Consequences
 

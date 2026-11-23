@@ -1,7 +1,9 @@
-//! A native session's resume and fork (ADR 0165, step 2, R1 and the author's Q2 (a)): a
-//! stopped native session resumes natively, in its own buffer, keeping its rows with one
-//! "Resumed" row; a fork of a session at a trusted project's root under `mode = "native"` is
-//! native, in a new buffer. Each starts at once, and the person writes in its composer. `resume_hosted` and `fork_from` order them.
+//! A native session's resume, fork and adoption (ADR 0165, step 2, R1 and the author's Q2 (a);
+//! part 4e): a stopped native session resumes natively, in its own buffer, keeping its rows
+//! with one "Resumed" row; a fork of a session, or a conversation adopted, at a trusted
+//! project's root under `[sessions] mode`'s native is native, in a new buffer. Each starts at
+//! once, and the person writes in its composer. `resume_hosted`, `fork_from` and `adopt_into`
+//! order them.
 //!
 //! Must not depend on: key presses or how a frame is drawn; the start thread starts the process.
 //!
@@ -23,6 +25,7 @@ use oso_core::buffer::BufferId;
 use super::note::NativeState;
 use crate::app::App;
 use crate::git::TrustedRoot;
+use crate::sessions::identity::SessionId;
 use crate::sessions::native::choice::Choice;
 use crate::sessions::native::mode::ModeState;
 use crate::sessions::start::NativeOrder;
@@ -139,12 +142,10 @@ impl App {
         true
     }
 
-    /// Starts fork `key`, `name`, natively in a new buffer when `directory` is the root of a
-    /// project trusted now, by an open buffer of it or the record (part 4a), under
-    /// `mode = "native"`: its order and the trust an open buffer gave. `None` for a terminal.
-    /// It starts with `forked`, what the native session it copies holds: its permission mode
-    /// state, as that session's next process would (part 3b), and the model and effort chosen
-    /// there (part 3c).
+    /// Starts fork `key`, `name`, natively in a new buffer, as [`App::start_native_new`]
+    /// does. It starts with `forked`, what the native session it copies holds: its permission
+    /// mode state, as that session's next process would (part 3b), and the model and effort
+    /// chosen there (part 3c).
     pub(in crate::app::sessions::hosting) fn start_native_fork(
         &mut self,
         key: SessionKey,
@@ -153,28 +154,67 @@ impl App {
         root: Option<&Path>,
         forked: Option<Forked>,
     ) -> Option<(NativeOrder, Option<TrustedRoot>)> {
-        if !self.configuration.native_sessions() {
-            return None;
-        }
-        // A record not read yet: `fork_waits_for_trust` held the fork until it was, or the
-        // wait ran out, so this runs in a terminal.
-        let (trusted, trust) = match self.native_trust_listed(directory, root).ok()? {
-            Judged::Waits => return None,
-            judged => self.native_judged(key, judged),
-        };
-        let mut order = self.native_session_buffer(key, name, directory.to_path_buf(), true, None);
+        let (mut order, trusted) = self.start_native_new(key, name, directory, root, true)?;
         if let (Some(forked), Some(native)) = (forked, self.hosting.natives.map.get_mut(&key)) {
             native.mode = forked.mode;
             order.permission_mode = native.mode.for_start();
             native.choice = forked.choice;
             (order.model, order.effort) = native.choice.for_start();
         }
+        Some((order, trusted))
+    }
+
+    /// Starts adopted conversation `key`, `id`, `name`, natively in a new buffer, as
+    /// [`App::start_native_new`] does (part 4e). It has a conversation, which it may resume
+    /// again; its earlier turns, which a resume writes none of and the TUI showed, are read
+    /// from its transcript (part 5a), and one "Adopted" row follows them.
+    pub(in crate::app::sessions::hosting) fn start_native_adopt(
+        &mut self,
+        key: SessionKey,
+        id: &SessionId,
+        name: &str,
+        directory: &Path,
+        root: &Path,
+        shown: bool,
+    ) -> Option<(NativeOrder, Option<TrustedRoot>)> {
+        let (order, trusted) = self.start_native_new(key, name, directory, Some(root), shown)?;
+        if let Some(native) = self.hosting.natives.map.get_mut(&key) {
+            native.spoke = true;
+        }
+        let past = self.native_wants_past(key).then(|| id.clone());
+        self.native_note_row(key, "Adopted.");
+        Some((NativeOrder { past, ..order }, trusted))
+    }
+
+    /// Starts `key`, `name`, natively in a new buffer, shown if `shown`, when `directory` is
+    /// the root of a project trusted now, by an open buffer of it or the record (part 4a),
+    /// unless `[sessions] mode = "tui"`: its order, and the trust an open buffer gave. `None`
+    /// for a terminal: a fork's or an adoption's.
+    fn start_native_new(
+        &mut self,
+        key: SessionKey,
+        name: &str,
+        directory: &Path,
+        root: Option<&Path>,
+        shown: bool,
+    ) -> Option<(NativeOrder, Option<TrustedRoot>)> {
+        if !self.configuration.native_sessions() {
+            return None;
+        }
+        // A record not read yet: `native_waits_for_trust` held the start until it was, or the
+        // wait ran out, so this runs in a terminal.
+        let (trusted, trust) = match self.native_trust_listed(directory, root).ok()? {
+            Judged::Waits => return None,
+            judged => self.native_judged(key, judged),
+        };
+        let order = self.native_session_buffer(key, name, directory.to_path_buf(), shown, None);
         Some((NativeOrder { trust, ..order }, trusted))
     }
 
-    /// Whether a fork in `directory`, of the project at `root`, waits for the record of trusted
-    /// projects before it is judged native or not (part 4a), as a fork waits whole (ADR 0173).
-    pub(in crate::app::sessions::hosting) fn fork_waits_for_trust(
+    /// Whether a fork or an adoption in `directory`, of the project at `root`, waits for the
+    /// record of trusted projects before it is judged native or not (parts 4a and 4e), as a
+    /// fork waits whole (ADR 0173).
+    pub(in crate::app::sessions::hosting) fn native_waits_for_trust(
         &self,
         directory: &Path,
         root: Option<&Path>,

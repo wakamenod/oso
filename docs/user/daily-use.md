@@ -103,9 +103,12 @@ check.command = "clippy"
 
 ## Agent sessions
 
-A session is Claude Code running in an oso terminal, in a buffer named `*claude: NAME*`. oso
-tracks its state (needs input, working, done, stopped and so on), and gives it oso's own tools
-through `oso mcp`.
+A session is Claude Code run by oso, in a buffer named `*claude: NAME*`. In a project you
+trust, it is a native session: its conversation shows as oso's own rows, and you write to it in
+a composer under them (see [Native sessions](#native-sessions)). In a restricted project, or
+with `mode = "tui"` in [Session settings](#session-settings), it is Claude Code's own TUI in an
+oso terminal. oso tracks its state (needs input, working, done, stopped and so on), and gives
+it oso's own tools through `oso mcp`.
 
 `C-c a` opens the Agents menu, in every buffer and in every terminal. Press the key of a head;
 `q` closes the menu, and `C-u` before `C-c a`, or inside the menu, goes to the head you press.
@@ -157,17 +160,19 @@ the head's letter with Control, `C-c C-n` for `n`:
 | `C-c C-z` | Zoom the selected window. |
 | `C-c C-v` | The review layout, as `C-x v r`: from the layout's slot, back to the review. `C-c a D` reviews what changed in its project since its baseline. |
 | `C-c @` | Insert a session's name as `@NAME`. |
-| `C-c +`, `C-c -` | Let the agent channel read its screen, or take that back. |
+| `C-c +`, `C-c -` | Let the agent channel read a TUI session's screen, or take that back. |
 | `C-c C-u` | A prefix argument for the next key, as `C-u` elsewhere: `C-c C-u C-c a m` sends the place only. |
-| `C-c C-y` | Attach the image on the clipboard: oso keeps it in a private file and pastes `@` and its path into the prompt, for you to press Enter. A TIFF is converted to PNG. macOS only for now. |
+| `C-c C-y` | Attach the image on the clipboard: oso keeps it in a private file and pastes `@` and its path into the prompt, or a native session's composer, for you to send. A TIFF is converted to PNG. macOS only for now. |
 | `C-c ?` | Say these keys in the echo area. |
 
 The other heads have no such key, as the terminal or Emacs keeps theirs: `C-c a c` starts another
 session, `C-c a m` sends, `C-c a j` switches spaces, and `C-c a K`, `C-c a P`, `C-c a A` and `C-c a R` stop,
 pin, archive and rename this session.
 
-`C-c C-c` sends Claude Code a `Ctrl-C`, and `C-c C-k` switches char mode, where every key goes to
-Claude Code. Any other `C-c` key that is not listed here sends nothing. To change these keys, see
+In a native session, `C-c C-c` sends your message and `C-c C-k` interrupts the turn (see
+[Native sessions](#native-sessions)). In a TUI session's terminal, `C-c C-c` sends Claude Code
+a `Ctrl-C`, and `C-c C-k` switches char mode, where every key goes to Claude Code. Any other
+`C-c` key that is not listed here sends nothing. To change these keys, see
 [Session settings](#session-settings). `C-z` would suspend
 Claude Code with nothing to resume it, so oso keeps it back; `C-q C-z` sends it. Every other key
 Claude Code uses reaches it as you type it, but `C-x` and `C-y`, which stay oso's: `C-q C-x C-e`
@@ -187,8 +192,9 @@ together) reads as `C-M-s-` and an upper-case letter:
 A session's buffer belongs to the project its session runs in, so `C-x v r`, `C-x p f` and
 `C-c a w` work from it.
 
-A session starts in the mode your own Claude Code settings give it: oso passes no permission
-option. It starts the agent channel, which its tools need.
+A TUI session starts in the permission mode your own Claude Code settings give it: oso passes
+it no permission option. A native session shows its mode in the modeline, and `S-TAB` in its
+buffer or composer changes it. A session starts the agent channel, which its tools need.
 
 ### The spaces pane
 
@@ -258,7 +264,7 @@ session's buffer stops and archives the session.
 
 `R` renames a session in oso and its buffer at once, to a name no other session or space has. A
 running Claude Code keeps the name other sessions message it by until you resume it; type
-`/rename NEW` in its terminal to change that now. A space's orchestrator keeps the space's slug,
+`/rename NEW` in a TUI session's terminal to change that now. A space's orchestrator keeps the space's slug,
 which never changes; `space-rename` changes the name you see.
 
 ### Spaces
@@ -343,8 +349,9 @@ may hold secrets.
 ### Adopt a session started elsewhere
 
 `C-c a a` lists the Claude Code sessions oso does not host: those still running elsewhere, then
-those of the last 30 days. Pick one, and oso resumes it in a new session buffer. Stop it in the
-other program first: oso cannot move a running process, so it refuses a live one and offers a
+those of the last 30 days. Pick one, and oso resumes it in a new session buffer: natively if
+it ran at the root of a project you trust, as a new session starts, else in a terminal. Stop it
+in the other program first: oso cannot move a running process, so it refuses a live one and offers a
 fork instead. If the session was in the middle of a turn when it stopped, ask it to go on.
 
 ## Worktree sessions
@@ -613,9 +620,9 @@ if the space does not have it yet. The repository must be one oso trusts.
 
 On `y`, the session ends its turn and stops by itself where it runs. If it does not (on
 Windows, or when its turn does not end, as at a permission prompt), type `/exit` there. Once
-that process has ended, oso resumes the conversation in the same directory, in that space, with
-your own
-settings: flags the outside run had, such as `--model` or a permission mode, are not carried.
+that process has ended, oso resumes the conversation in the same directory, in that space, as
+`session-adopt` does (natively at the root of a project you trust), with your own settings:
+flags the outside run had, such as `--model` or a permission mode, are not carried.
 While oso waits, a buffer `*moving: NAME*` says so; kill it with `C-x k` to cancel. If the
 process still runs after 5 minutes, or you close the space or stop trusting the repository
 meanwhile, oso resumes nothing; use `session-adopt` once it has stopped.
@@ -644,7 +651,7 @@ blink = false                        # keep waiting sessions in *Spaces* still (
 agents_start_without_asking = true   # let your sessions start sessions, and add known repositories, with no question (off by default)
 agents_start_limit = 4               # how many such sessions each may run at once, 1 to 8, or "none"
 pane_width = 52                      # the *Spaces* pane's columns, 24 to 80 (44 by default)
-mode = "native"                      # new sessions in trusted projects show their conversation in oso's own rows ("tui" by default)
+mode = "tui"                         # new sessions host Claude Code's TUI in a terminal ("native" by default, in trusted projects)
 
 [sessions.notify]                    # which states ask for your attention
 needs_input = true
@@ -659,8 +666,46 @@ tools and points the agent to `start_worktree_session`, so its worktrees show in
 sessions from blinking; with both, the list runs no timer. `pane_width` is where the pane starts; `<` and `>` in it change it for this oso only.
 The `[sessions.notify]` values shown are the defaults.
 
-With `mode = "native"`, a new session in a trusted project shows its conversation in
-`*claude: NAME*` as oso's own rows. A start with no brief starts at once, with the composer
+`mode = "tui"` starts new sessions, forks and adopted ones as Claude Code's TUI in a terminal,
+as oso did before [native sessions](#native-sessions), the default. A session oso hosts keeps
+the mode it ran in when you resume it or move it into a space, and a TUI session carried over
+`oso-restart` stays one.
+
+`agents_start_without_asking` lets a session you started, with a key or a `y`, start sessions
+through `start_worktree_session` and `session_start`, and a space's orchestrator resume a stopped
+session of its space through `session_resume`, without asking you, in a trusted project
+only, up to `agents_start_limit` running sessions each; past that it asks again. It also lets a
+space's orchestrator add a trusted repository oso already knows (one `space-add-repo` would
+offer) to its space through `space_add_repo`, with no limit but the 20 calls; any other
+repository asks. With
+`agents_start_limit = "none"` no limit makes it ask, but a session can still start at most 20
+sessions each time you type in it. A session started this way asks for its own. A session an
+agent starts, whether it asked or not, stays in the background: it appears in the pane and the
+modeline marks, and the window you are in keeps its buffer. Each start is said in the echo area
+and `*Messages*`, its row in `*Spaces*` says `unasked`, and `C-c a e` on it shows who started it
+and its brief, until oso
+restarts. `M-x agent-starts-ask` brings the question back until oso restarts, and
+`M-x agent-starts-allow` takes that back. The setting is read when oso starts, so a change applies
+from the next start, and it does not apply from a file other users in a group can change. Each new
+session still asks you for its own permissions, as your Claude Code settings say.
+
+`[keys.session]` changes the keys of a session's own buffer, as `[keys.global]` does elsewhere:
+
+```toml
+[keys.session]
+"C-c g" = "sessions"                 # C-c g shows the list
+"C-c C-p" = false                    # C-c C-p does nothing
+"C-c R" = { menu = "review" }        # C-c R opens the review menu
+```
+
+Only keys that start with `C-c` reach it, and `C-c C-c` and `C-c C-k` stay as they are. `C-c ?`
+says the keys with your changes.
+
+## Native sessions
+
+Unless `mode = "tui"`, a new session in a trusted project shows its conversation in
+`*claude: NAME*` as oso's own rows. In a restricted project it runs in a terminal, where Claude
+Code asks its own trust question. A start with no brief starts at once, with the composer
 under the conversation selected for your first message; a session you end before writing one
 leaves nothing behind. In the session's buffer, `TAB` folds
 or unfolds the row at point, `RET` shows a tool call's whole result in `*result: NAME*`, which
@@ -716,36 +761,6 @@ session its to-do tools only when you turn them on, in `~/.claude/settings.json`
 ```json
 { "env": { "CLAUDE_CODE_ENABLE_TODO_TOOLS": "1" } }
 ```
-
-`agents_start_without_asking` lets a session you started, with a key or a `y`, start sessions
-through `start_worktree_session` and `session_start`, and a space's orchestrator resume a stopped
-session of its space through `session_resume`, without asking you, in a trusted project
-only, up to `agents_start_limit` running sessions each; past that it asks again. It also lets a
-space's orchestrator add a trusted repository oso already knows (one `space-add-repo` would
-offer) to its space through `space_add_repo`, with no limit but the 20 calls; any other
-repository asks. With
-`agents_start_limit = "none"` no limit makes it ask, but a session can still start at most 20
-sessions each time you type in it. A session started this way asks for its own. A session an
-agent starts, whether it asked or not, stays in the background: it appears in the pane and the
-modeline marks, and the window you are in keeps its buffer. Each start is said in the echo area
-and `*Messages*`, its row in `*Spaces*` says `unasked`, and `C-c a e` on it shows who started it
-and its brief, until oso
-restarts. `M-x agent-starts-ask` brings the question back until oso restarts, and
-`M-x agent-starts-allow` takes that back. The setting is read when oso starts, so a change applies
-from the next start, and it does not apply from a file other users in a group can change. Each new
-session still asks you for its own permissions, as your Claude Code settings say.
-
-`[keys.session]` changes the keys of a session's own buffer, as `[keys.global]` does elsewhere:
-
-```toml
-[keys.session]
-"C-c g" = "sessions"                 # C-c g shows the list
-"C-c C-p" = false                    # C-c C-p does nothing
-"C-c R" = { menu = "review" }        # C-c R opens the review menu
-```
-
-Only keys that start with `C-c` reach it, and `C-c C-c` and `C-c C-k` stay as they are. `C-c ?`
-says the keys with your changes.
 
 ## Developing beside it
 

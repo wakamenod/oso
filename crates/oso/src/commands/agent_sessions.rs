@@ -85,7 +85,7 @@ pub fn is_adopt_prompt(prompt: &oso_core::minibuffer::Prompt) -> bool {
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "claude",
-        doc: "Start a Claude Code session in a terminal buffer, `*claude: NAME*`.\n\nIt runs in the selected buffer's project root, else the directory the buffer stands in, as a new terminal does (from a terminal, the one it started in), else the directory oso started in. In `*Spaces*`, it runs where the row at point is: a project's main checkout, a worktree, or a session's worktree (`c`). It is named after that directory, then `-2`, `-3` for more there. With `C-u`, a directory is read first, then a name. oso gives the session its id, its name and an `oso` MCP server for this instance, and no permission option: it starts in the mode your own Claude Code settings give it. It runs as your login shell would, or `[sessions] claude` names the executable. It turns the agent channel on, as the session's tools need it.",
+        doc: "Start a Claude Code session in a buffer, `*claude: NAME*`.\n\nAt the root of a project you trust, it is a native session: its conversation shows as oso's own rows, with a composer under them, and Claude Code asks it no trust question. Elsewhere, or with `[sessions] mode = \"tui\"`, it is Claude Code's TUI in a terminal. It runs in the selected buffer's project root, else the directory the buffer stands in, as a new terminal does (from a terminal, the one it started in), else the directory oso started in. In `*Spaces*`, it runs where the row at point is: a project's main checkout, a worktree, or a session's worktree (`c`). It is named after that directory, then `-2`, `-3` for more there. With `C-u`, a directory is read first, then a name. oso gives the session its id, its name and an `oso` MCP server for this instance, and, in a terminal, no permission option: it starts in the mode your own Claude Code settings give it. It runs as your login shell would, or `[sessions] claude` names the executable. It turns the agent channel on, as the session's tools need it.",
         args: ArgSpec::DirectoryAndTextOnPrefix {
             directory: "Session in directory:",
             directory_history: "session-directory",
@@ -98,7 +98,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "session-resume",
-        doc: "Resume the stopped session whose buffer this is, in the same buffer.\n\nA native session resumes natively, keeping its rows, with its composer selected, only at the root of a project an open buffer says is trusted now; else it says why, and `session-fork` continues it in a terminal. It is refused while Claude Code's registry has a live process for the same conversation, which it names, and it then offers `session-fork`. Five seconds after it resumes, the registry is read again, and two live processes for one conversation give a warning.",
+        doc: "Resume the stopped session whose buffer this is, in the same buffer.\n\nA session resumes as it ran: a TUI one in its terminal, and a native one natively, keeping its rows, with its composer selected, only at the root of a project trusted now; else it says why, and `session-fork` continues it in a terminal. It is refused while Claude Code's registry has a live process for the same conversation, which it names, and it then offers `session-fork`. Five seconds after it resumes, the registry is read again, and two live processes for one conversation give a warning.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: session_resume,
@@ -106,7 +106,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "session-fork",
-        doc: "Copy the conversation of the session whose buffer this is under a new id, and run the copy in a new buffer.\n\nThe copy runs beside the original, which goes on as it was. With `[sessions] mode = \"native\"`, at the root of a project an open buffer says is trusted now, the copy is a native session, which Claude Code asks no trust question of; elsewhere it runs in a terminal.",
+        doc: "Copy the conversation of the session whose buffer this is under a new id, and run the copy in a new buffer.\n\nThe copy runs beside the original, which goes on as it was. At the root of a project trusted now, the copy is a native session, which Claude Code asks no trust question of; elsewhere, or with `[sessions] mode = \"tui\"`, it runs in a terminal.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: session_fork,
@@ -122,7 +122,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "session-adopt",
-        doc: "Bring a Claude Code session started outside oso under oso: resume it in a new terminal buffer, `*claude: NAME*`, read with completion.
+        doc: "Bring a Claude Code session started outside oso under oso: resume it in a new buffer, `*claude: NAME*`, read with completion.\n\nAt the root of a project trusted now, it resumes as a native session, as a new one starts; elsewhere, or with `[sessions] mode = \"tui\"`, in a terminal.
 
 The list holds the sessions oso does not host: those Claude Code's registry says run, then those that stopped in the last 30 days, newest first, each with its directory and age. A session that runs elsewhere must be stopped there first: oso cannot move a live process, and resuming it twice would fork its conversation silently, so it refuses and offers `session-fork`. If the session was working when it stopped, its last turn may be cut short: ask it to go on. Of a transcript, oso reads only the session's id, its name, when it changed and its directory.",
         args: ArgSpec::Listed {

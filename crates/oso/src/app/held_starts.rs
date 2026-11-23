@@ -5,9 +5,9 @@
 //! space's naming and directory, and an agent's session tool call that changes something. Each
 //! waits here and runs, in the order they came, once that look is done. Nothing is said of it:
 //! each just starts a moment later. With no look [`WAIT`] after the first, they run with the
-//! settings in force, `*Messages*` says so, and nothing waits from then on. A native resume
-//! or fork with no open buffer of its project also waits here for the record of trusted
-//! projects' first report, within the same bound (ADR 0165, part 4a): it is let go once the
+//! settings in force, `*Messages*` says so, and nothing waits from then on. A native resume,
+//! a fork or an adoption with no open buffer of its project also waits here for the record of trusted
+//! projects' first report, within the same bound (ADR 0165, parts 4a and 4e): it is let go once the
 //! record is read, and one kept again as the configuration's look lets it go keeps the
 //! deadline it had.
 //!

@@ -12,10 +12,11 @@ use oso_core::buffer::BufferId;
 
 use super::adopt::Adoption;
 use crate::app::App;
+use crate::git::TrustedRoot;
 use crate::sessions::hosted::Hosted;
 use crate::sessions::identity::SessionId;
 use crate::sessions::registry::shown_directory;
-use crate::sessions::start::{Kind, Order, Runs};
+use crate::sessions::start::{Kind, NativeOrder, Order, Runs};
 use crate::sessions::worker::SessionKey;
 
 /// The conversation a fork copies: a hosted session's, or one being adopted, whose name is only
@@ -110,7 +111,8 @@ impl App {
     /// as a new start would be (ADR 0165, step 2), else in a terminal. Whole, once the
     /// configuration's first look is done, as `[sessions] mode` chooses which (ADR 0173).
     fn fork_from(&mut self, from: ForkFrom) {
-        if self.starts_wait() || self.fork_waits_for_trust(&from.directory, from.root.as_deref()) {
+        if self.starts_wait() || self.native_waits_for_trust(&from.directory, from.root.as_deref())
+        {
             return self.hold_start(move |app| app.fork_from(from));
         }
         let ForkFrom {
@@ -123,27 +125,17 @@ impl App {
         // A fork in a space's directory passes its checks (ADR 0136).
         let space = self.space_checks(&directory);
         self.turn_agent_channel_on_for_a_session();
-        // Native in a trusted project under `mode = "native"`, as a new start (ADR 0165), in
+        // Native in a trusted project unless `mode = "tui"`, as a new start (ADR 0165), in
         // the permission mode, model and effort of the native session it copies (parts 3b and
         // 3c).
         let forked = (self.hosting.table.iter())
             .find(|session| session.id == from)
             .and_then(|session| self.hosting.natives.forked(session.key));
-        let (runs, trusted) =
-            match self.start_native_fork(key, &name, &directory, root.as_deref(), forked) {
-                Some((order, trusted)) => {
-                    if let Some(trusted) = &trusted {
-                        self.hosting.trusts.insert(key, trusted.clone());
-                    }
-                    // It shows the turns it copies (ADR 0165, step 5).
-                    let order = self.native_fork_order(key, &from, &base, order);
-                    (Runs::Native(order), trusted)
-                }
-                None => (
-                    Runs::Terminal(self.session_terminal(key, &name, None, true)),
-                    None,
-                ),
-            };
+        // It shows the turns it copies (ADR 0165, step 5).
+        let native = self
+            .start_native_fork(key, &name, &directory, root.as_deref(), forked)
+            .map(|(order, gate)| (self.native_fork_order(key, &from, &base, order), gate));
+        let (runs, _, trusted) = self.native_or_terminal(key, &name, true, native);
         self.order_session(Order {
             token: key,
             kind: Kind::Fork(from),
@@ -161,6 +153,28 @@ impl App {
             check_shared: false,
             space,
         });
+    }
+
+    /// What new session `key`, `name`, a fork or an adoption, runs in, shown if `shown`, with
+    /// its buffer and its gate: `native`'s start, whose gate its tools take too, else a
+    /// terminal.
+    pub(super) fn native_or_terminal(
+        &mut self,
+        key: SessionKey,
+        name: &str,
+        shown: bool,
+        native: Option<(NativeOrder, Option<TrustedRoot>)>,
+    ) -> (Runs, BufferId, Option<TrustedRoot>) {
+        if let Some((order, gate)) = native {
+            if let Some(gate) = &gate {
+                self.hosting.trusts.insert(key, gate.clone());
+            }
+            let buffer = order.buffer;
+            return (Runs::Native(order), buffer, gate);
+        }
+        let terminal = self.session_terminal(key, name, None, shown);
+        let buffer = terminal.buffer;
+        (Runs::Terminal(terminal), buffer, None)
     }
 
     /// The start `token` was refused as its conversation may run elsewhere, as process `pid`

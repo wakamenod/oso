@@ -1,6 +1,6 @@
 # 0173. Starts wait for the configuration's first look
 
-- Status: Accepted, amended by [0165](0165-native-claude-sessions-the-route.md) (part 4a)
+- Status: Accepted, amended by [0165](0165-native-claude-sessions-the-route.md) (parts 4a and 4e)
 - Date: 2026-11-23
 
 ## Context

@@ -1,7 +1,8 @@
 //! `session-adopt` in the app (ADR 0121, "Adopting a session started outside oso"): keeping the
 //! list it completes over, made on a thread of its own when the person may want it, and
 //! resuming the conversation picked through the same start thread as `session-resume`, whose
-//! check refuses a live one and offers a fork.
+//! check refuses a live one and offers a fork. Native at a trusted project's root, as a fork
+//! is, unless `[sessions] mode = "tui"` (ADR 0165, part 4e).
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 //!
@@ -249,8 +250,6 @@ impl App {
                 .message("oso cannot tell where that session ran, so it cannot resume it");
             return;
         };
-        let base = base_of(pick.name.as_deref(), &directory);
-        let (key, name) = self.hosting.table.reserve(&directory, &base);
         // The open project that holds the directory: the session is placed in its space, and
         // `claude` is never looked for on `PATH` inside it.
         let project = self.project_holding(&directory);
@@ -258,6 +257,13 @@ impl App {
             .and_then(|id| self.editor.project(id))
             .map(|project| project.root().to_path_buf())
             .unwrap_or_else(|| directory.clone());
+        // Native or in a terminal, as `[sessions] mode` and the project's trust choose: whole,
+        // once both are read, as a fork waits (ADR 0173; ADR 0165, part 4e).
+        if self.starts_wait() || self.native_waits_for_trust(&directory, Some(&root)) {
+            return self.hold_start(move |app| app.adopt_into(pick, landing));
+        }
+        let base = base_of(pick.name.as_deref(), &directory);
+        let (key, name) = self.hosting.table.reserve(&directory, &base);
         // Its own baseline, for ready for review, only at a trusted project's root: what it
         // changed before oso hosted it stays in the project's review.
         let trusted = project
@@ -285,7 +291,13 @@ impl App {
         self.hosting.adopting.pending.insert(key, adoption);
         self.turn_agent_channel_on_for_a_session();
         let shown = landing.as_ref().is_none_or(|landing| landing.shown);
-        let terminal = self.session_terminal(key, &name, None, shown);
+        let native = self.start_native_adopt(key, &pick.id, &name, &directory, &root, shown);
+        let (runs, buffer, gate) = self.native_or_terminal(key, &name, shown, native);
+        let native = matches!(runs, Runs::Native(_));
+        let trusted = match native {
+            true => self.adopted_gate(key, gate),
+            false => trusted.map(|(_, root)| root),
+        };
         if let Some(landing) = landing {
             // It asked, and the person said `y` (ADR 0151, Q4).
             self.hosting.origins.insert(key, (Origin::Answered, None));
@@ -294,7 +306,7 @@ impl App {
             if !landing.shown
                 && let Some(at) = spaces.find(&landing.space)
             {
-                spaces.showed(at, Some(terminal.buffer), None);
+                spaces.showed(at, Some(buffer), None);
             }
         }
         self.order_session(Order {
@@ -303,16 +315,31 @@ impl App {
             name,
             directory,
             project: Some(root),
-            trusted: trusted.map(|(_, root)| root),
-            baseline: true,
+            // A native session's gate, which is the baseline's root too; else the root an
+            // open buffer trusts.
+            trusted,
+            baseline: !native || self.hosting.baselines.contains_key(&key),
             state: crate::app::reviews::state(),
             claude: self.configuration.session_claude().map(Path::to_path_buf),
-            runs: Runs::Terminal(terminal),
+            runs,
             brief: None,
             steer_worktrees: self.configuration.steer_worktrees(),
             check_shared: false,
             space: None,
         });
+    }
+
+    /// Native adopted session `key`'s `gate`, which its baseline is taken at, so that taking
+    /// the project's trust back stops that run as it stops the start (ADR 0122): only where an
+    /// open buffer gave it, as for a terminal's; one the record judged takes none.
+    fn adopted_gate(&mut self, key: SessionKey, gate: Option<TrustedRoot>) -> Option<TrustedRoot> {
+        match (&gate, self.hosting.baselines.get_mut(&key)) {
+            (Some(gate), Some(baseline)) => baseline.root = gate.clone(),
+            _ => {
+                self.hosting.baselines.remove(&key);
+            }
+        }
+        gate
     }
 
     /// The deepest open project whose root holds `directory`.

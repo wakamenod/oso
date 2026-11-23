@@ -104,8 +104,10 @@ fn fake(dir: &TempDir, scratch: &Path) -> Result<std::path::PathBuf, String> {
             .map_err(|e| format!("{}: {e}", fake.display()))?;
     }
     let config = dir.file("config.toml");
+    // Terminal sessions, which these benchmarks measure, wherever the project's trust would
+    // make them native (ADR 0165, part 4e).
     let text = format!(
-        "[terminal]\nshell = \"/bin/sh\"\nlogin = false\n\n[sessions]\nclaude = \"{}\"\n",
+        "[terminal]\nshell = \"/bin/sh\"\nlogin = false\n\n[sessions]\nclaude = \"{}\"\nmode = \"tui\"\n",
         fake.display()
     );
     std::fs::write(&config, text).map_err(|e| format!("{}: {e}", config.display()))?;

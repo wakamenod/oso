@@ -61,7 +61,7 @@ impl Flow {
         let shell = executable(&scratch, "fake-shell", &SHELL.replace("DIR", &dir));
         let config = format!(
             "[terminal]\nshell = \"{}\"\nlogin = false\n\n\
-             [sessions]\nclaude = \"{}\"\nenv = [\"OSO_E2E_PASSED\"]\n",
+             [sessions]\nclaude = \"{}\"\nenv = [\"OSO_E2E_PASSED\"]\nmode = \"tui\"\n",
             shell.display(),
             fake.display()
         );
