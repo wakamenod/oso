@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use oso_core::project::TrustList;
 
-use super::{Judged, Listed, NotTrusted, Record, judge};
+use super::{Judged, Listed, NotTrusted, TrustRecord, judge};
 use crate::git::TrustedRoot;
 
 #[cfg(not(windows))]
@@ -42,7 +42,7 @@ fn record(path: &Path, identity: Option<(u64, u64)>) -> TrustList {
 /// What `judge` says at `ROOT`, as a word.
 fn said(
     open: Option<Option<TrustedRoot>>,
-    record: Option<Record<'_>>,
+    record: Option<TrustRecord<'_>>,
     may_wait: bool,
 ) -> Result<&'static str, NotTrusted> {
     judge(true, Path::new(ROOT), open, record, may_wait).map(|judged| match judged {
@@ -58,10 +58,10 @@ fn an_open_buffer_of_the_project_decides_whatever_the_record_says() {
     let none = TrustList::default();
     for record in [
         None,
-        Some(Record::Read(&listed)),
-        Some(Record::Read(&none)),
-        Some(Record::Unread),
-        Some(Record::Refused),
+        Some(TrustRecord::Read(&listed)),
+        Some(TrustRecord::Read(&none)),
+        Some(TrustRecord::Unread),
+        Some(TrustRecord::Refused),
     ] {
         assert_eq!(said(Some(Some(open())), record, true), Ok("open"));
         assert_eq!(
@@ -82,16 +82,20 @@ fn an_open_buffer_of_the_project_decides_whatever_the_record_says() {
 #[test]
 fn with_none_open_the_record_decides_by_the_roots_path() {
     let listed = record(Path::new(ROOT), Some((1, 2)));
-    assert_eq!(said(None, Some(Record::Read(&listed)), true), Ok("listed"));
+    assert_eq!(
+        said(None, Some(TrustRecord::Read(&listed)), true),
+        Ok("listed")
+    );
     let other = record(Path::new(OTHER), Some((1, 2)));
     assert_eq!(
-        said(None, Some(Record::Read(&other)), true),
-        Err(NotTrusted::Untrusted)
+        said(None, Some(TrustRecord::Read(&other)), true),
+        Err(NotTrusted::NotOpen),
+        "not held: a buffer of it open may still trust it, as a linked worktree's"
     );
     let below = record(Path::new(PARENT), Some((1, 2)));
     assert_eq!(
-        said(None, Some(Record::Read(&below)), true),
-        Err(NotTrusted::Untrusted),
+        said(None, Some(TrustRecord::Read(&below)), true),
+        Err(NotTrusted::NotOpen),
         "a trusted parent trusts no project below it"
     );
     assert_eq!(
@@ -103,13 +107,13 @@ fn with_none_open_the_record_decides_by_the_roots_path() {
 
 #[test]
 fn a_record_not_read_waits_only_while_starts_may_wait_and_then_fails_closed() {
-    assert_eq!(said(None, Some(Record::Unread), true), Ok("waits"));
+    assert_eq!(said(None, Some(TrustRecord::Unread), true), Ok("waits"));
     assert_eq!(
-        said(None, Some(Record::Unread), false),
+        said(None, Some(TrustRecord::Unread), false),
         Err(NotTrusted::NoRecord)
     );
     assert_eq!(
-        said(None, Some(Record::Refused), true),
+        said(None, Some(TrustRecord::Refused), true),
         Err(NotTrusted::NoRecord),
         "a refused record is read: nothing waits for it"
     );
@@ -120,8 +124,8 @@ fn below_its_root_it_never_runs_natively() {
     let listed = record(Path::new(ROOT), Some((1, 2)));
     for (open, record) in [
         (Some(Some(open())), None),
-        (None, Some(Record::Read(&listed))),
-        (None, Some(Record::Unread)),
+        (None, Some(TrustRecord::Read(&listed))),
+        (None, Some(TrustRecord::Unread)),
     ] {
         assert_eq!(
             judge(false, Path::new(ROOT), open, record, true).unwrap_err(),
@@ -155,7 +159,7 @@ fn identity(path: &Path) -> Option<(u64, u64)> {
 
 /// The start thread's look at `root` as the record `list` holds it.
 fn look(list: &TrustList, root: &Path) -> Option<TrustedRoot> {
-    match judge(true, root, None, Some(Record::Read(list)), false) {
+    match judge(true, root, None, Some(TrustRecord::Read(list)), false) {
         Ok(Judged::Listed(listed)) => listed.look(),
         other => panic!("not judged by the record: {other:?}"),
     }
@@ -207,10 +211,75 @@ fn a_listed_root_carries_the_record_as_read() {
     let Ok(Judged::Listed(Listed {
         list: carried,
         root,
-    })) = judge(true, Path::new(ROOT), None, Some(Record::Read(&list)), true)
+        ..
+    })) = judge(
+        true,
+        Path::new(ROOT),
+        None,
+        Some(TrustRecord::Read(&list)),
+        true,
+    )
     else {
         panic!("not listed");
     };
     assert_eq!(carried, list);
     assert_eq!(root, Path::new(ROOT));
+}
+
+#[test]
+fn a_start_under_way_stays_trusted_only_as_its_project_is_now() {
+    use super::still_trusted;
+    let root = Path::new(ROOT);
+    let listed = record(root, Some((1, 2)));
+    let none = TrustList::default();
+    assert!(still_trusted(
+        root,
+        Some(Some(open())),
+        TrustRecord::Read(&none)
+    ));
+    assert!(!still_trusted(root, Some(None), TrustRecord::Read(&listed)));
+    let revoked = open();
+    revoked.revoke();
+    assert!(!still_trusted(
+        root,
+        Some(Some(revoked)),
+        TrustRecord::Read(&listed)
+    ));
+    assert!(still_trusted(root, None, TrustRecord::Read(&listed)));
+    assert!(
+        !still_trusted(root, None, TrustRecord::Read(&none)),
+        "untrusted since"
+    );
+    assert!(!still_trusted(root, None, TrustRecord::Refused));
+    assert!(
+        still_trusted(root, None, TrustRecord::Unread),
+        "judged again"
+    );
+}
+
+#[test]
+fn what_the_ui_keeps_takes_back_the_root_the_start_thread_makes() {
+    let scratch = scratch("revoke");
+    let root = scratch.0.join("proj");
+    std::fs::create_dir(&root).unwrap();
+    let list = record(&root, identity(&root));
+    let judged = judge(true, &root, None, Some(TrustRecord::Read(&list)), false).unwrap();
+    let kept = judged.kept().expect("kept");
+    assert_eq!(kept.root(), root);
+    let Judged::Listed(listed) = judged else {
+        panic!("not listed");
+    };
+    // Taken back after the start thread made its root: the look before the spawn sees it.
+    let made = listed.look().expect("trusted");
+    assert!(!made.revoked());
+    kept.revoke();
+    assert!(made.revoked());
+    // Taken back before: the start thread makes none.
+    assert!(listed.look().is_none());
+    // A start an open buffer judged: its root is taken back too.
+    let trusted = open();
+    let kept = Judged::Open(trusted.clone()).kept().unwrap();
+    kept.revoke();
+    assert!(trusted.revoked());
+    assert!(Judged::Waits.kept().is_none());
 }

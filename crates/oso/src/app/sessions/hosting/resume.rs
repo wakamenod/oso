@@ -88,7 +88,10 @@ impl App {
             ));
         }
         let (trusted, trust) = match native {
-            true => (self.native_resume_trust(&name, &directory, root.as_deref())?).into_order(),
+            true => {
+                let judged = self.native_resume_trust(&name, &directory, root.as_deref())?;
+                self.native_judged(key, judged)
+            }
             false => (None, ByRecord::No),
         };
         // An orchestrator's command line is made again from its space as it is now: the CLI

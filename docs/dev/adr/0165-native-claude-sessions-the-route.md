@@ -1312,17 +1312,32 @@ The author's Q4-10 (a), part 2b's follow-up:
   trust now is the answer, as in part 2b: open and not trusted, or its trust taken back,
   refuses whatever the record says.
 - **With none open, the record decides,** in two looks. The UI thread asks whether the record
-  holds the root's path, and the order carries a copy of the record (a few lines) to the start
-  thread. There, before the root's other checks, the root's identity is read (not following
+  holds the root's path (if not, the resume says, as in part 2b, that the project is not open
+  and the record does not hold it: open a file of it, or fork), and the order carries a copy of the record to the start thread (a
+  few lines; at the file's 256 KiB cap about 14 000, a copy of about 1 MiB, once per resume or
+  fork, as oso-core gives no line of it alone). There, before the root's other checks, the root's identity is read (not following
   a link; a directory) and judged by path and identity as an issue space's member is (`TrustedRoot::of_member`, ADR 0136, step 4): a directory made again at the path,
   a link there, a file or nothing is refused, "the record of trusted projects does not hold the
-  directory at its project's root now". The usual look again before the spawn follows. The
+  directory at its project's root now". The usual look again before the spawn follows.
+- **Taken back until it starts** (the security review's finding): the start thread's checks
+  before the spawn can take seconds (the registry, a worker's reads with git), so the UI keeps
+  each native resume's or fork's trust until its start thread reports, and after each event
+  takes it back once its project is no longer trusted, by an open buffer of it or by the
+  record's path. The root the start thread makes from the record shares that revocation, as
+  an open buffer's does, so the look before the spawn refuses it. This also closes the same
+  window for a resume or fork an open buffer judged, which part 2b left open. A start that
+  waited is judged again with the record as it is when it goes.
+- **Another spelling of the root:** an open project whose identity the record pairs with the
+  session's root, as on a case-folding file system, decides as the one spelled so would: open
+  and restricted refuses. The
   record holds no worktree claim (ADR 0114), so a session in a linked worktree still needs a
   buffer of it open. Only at the project's root, as before.
 - **A record not read yet** waits, as ADR 0173's held starts do: a resume makes its buffer and
   is marked starting at once, and its order waits; a fork waits whole. Each goes once the
   record's thread has reported, unless what waits still waits for the configuration, and is
-  judged again then. Five seconds after it began to wait, it is judged with what is known:
+  judged again then. Within the held starts' one bound, five seconds after the first start
+  that waited (one kept again as the configuration's look lets it go keeps that deadline), it
+  is judged with what is known:
   a record still unread trusts nothing, and the resume says "the record of trusted projects is
   not read" (a fork runs in a terminal). `*Messages*`' "The configuration was not read in 5 s"
   is said only when the configuration was the one not read. A record refused or broken, or no
@@ -1404,7 +1419,7 @@ Each passage stays in its ADR as written; what holds now follows it.
 - [ADR 0173](0173-starts-wait-for-the-configurations-first-look.md), "Until the
   configuration's first look is done, every start above waits": and a native resume or fork
   with no open buffer of its project waits for the record of trusted projects' first report
-  too, at most 5 s from when it begins to wait (part 4a). "`*Messages*` says once: \"The
+  too, within the same 5 s bound (part 4a). "`*Messages*` says once: \"The
   configuration was not read in 5 s…\"": only when the configuration was not read; a wait for
   the record alone says nothing there, and its refusal says why.
 

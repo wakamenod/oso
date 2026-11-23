@@ -5,7 +5,11 @@
 //! space's naming and directory, and an agent's session tool call that changes something. Each
 //! waits here and runs, in the order they came, once that look is done. Nothing is said of it:
 //! each just starts a moment later. With no look [`WAIT`] after the first, they run with the
-//! settings in force, `*Messages*` says so, and nothing waits from then on.
+//! settings in force, `*Messages*` says so, and nothing waits from then on. A native resume
+//! or fork with no open buffer of its project also waits here for the record of trusted
+//! projects' first report, within the same bound (ADR 0165, part 4a): it is let go once the
+//! record is read, and one kept again as the configuration's look lets it go keeps the
+//! deadline it had.
 //!
 //! Must not depend on: processes or the channel's wire. What waits is carried out by the code
 //! that would have carried it out at once.
@@ -73,6 +77,15 @@ impl<T> Holding<T> {
         self.held.drain(..).map(|(_, item)| item).collect()
     }
 
+    /// Keeps `until`, the deadline before a release, for what was kept again while it ran, as
+    /// a native resume that still waits for the record of trusted projects is (ADR 0165, part
+    /// 4a): it waits no longer than what waited before it.
+    pub(super) fn keep_deadline(&mut self, until: Option<Instant>) {
+        if let (Some(before), Some(now)) = (until, self.until) {
+            self.until = Some(before.min(now));
+        }
+    }
+
     /// Whether the wait ends at `now`, with something kept.
     pub(super) fn due(&self, now: Instant) -> bool {
         self.until.is_some_and(|until| until <= now)
@@ -133,6 +146,7 @@ impl App {
     /// Runs what waited, in the order it came: the configuration's first look is done, or
     /// the wait ran out.
     pub(super) fn release_held_starts(&mut self) {
+        let until = self.starting.held.deadline();
         let held = self.starting.held.take();
         // Nothing starts in an instance that is going: it would be lost with it (ADR 0133).
         if self.leaving.is_under_way() {
@@ -141,6 +155,7 @@ impl App {
         for run in held {
             run(self);
         }
+        self.starting.held.keep_deadline(until);
     }
 
     /// Runs what waited with the settings in force once the wait ran out with no look, which
@@ -204,6 +219,23 @@ mod tests {
         assert_eq!(holding.deadline(), Some(now + WAIT));
         assert!(!holding.due(now + WAIT - Duration::from_millis(1)));
         assert!(holding.due(now + WAIT));
+    }
+
+    #[test]
+    fn what_is_kept_again_in_a_release_keeps_the_deadline_before_it() {
+        let mut holding = Holding::default();
+        let now = Instant::now();
+        holding.hold(None, "resume", now);
+        let until = holding.deadline();
+        assert_eq!(holding.take(), ["resume"]);
+        // Kept again 4 s later, as a resume that still waits for the record.
+        holding.hold(None, "resume", now + Duration::from_secs(4));
+        holding.keep_deadline(until);
+        assert_eq!(holding.deadline(), Some(now + WAIT));
+        // Nothing kept again: nothing to wait for.
+        let mut empty: Holding<&str> = Holding::default();
+        empty.keep_deadline(until);
+        assert_eq!(empty.deadline(), None);
     }
 
     #[test]

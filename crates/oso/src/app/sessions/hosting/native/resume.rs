@@ -19,10 +19,9 @@ use oso_core::buffer::BufferId;
 
 use super::note::NativeState;
 use crate::app::App;
-use crate::app::sessions::hosting::trust::NotTrusted;
 use crate::git::TrustedRoot;
 use crate::sessions::start::NativeOrder;
-use crate::sessions::start::trust::Judged;
+use crate::sessions::start::trust::{Judged, NotTrusted, TrustRecord};
 use crate::sessions::worker::SessionKey;
 
 impl App {
@@ -43,8 +42,8 @@ impl App {
         self.native_trust_listed(directory, root)
             .map_err(|why| match why {
                 NotTrusted::NotOpen => format!(
-                    "Session {name}'s project is not open: open a file of it to resume it \
-                 natively, or {fork}"
+                    "Session {name}'s project is not open, and the record of trusted projects \
+                     does not hold it: open a file of it to resume it natively, or {fork}"
                 ),
                 NotTrusted::Untrusted => {
                     format!("Session {name}'s project is not trusted now: {fork}")
@@ -126,7 +125,7 @@ impl App {
         // wait ran out, so this runs in a terminal.
         let (trusted, trust) = match self.native_trust_listed(directory, root).ok()? {
             Judged::Waits => return None,
-            judged => judged.into_order(),
+            judged => self.native_judged(key, judged),
         };
         let order = self.native_session_buffer(key, name, directory.to_path_buf(), true, None);
         Some((NativeOrder { trust, ..order }, trusted))
@@ -139,7 +138,9 @@ impl App {
         directory: &Path,
         root: Option<&Path>,
     ) -> bool {
+        // Judged only while the record is unread, which copies nothing of it.
         self.configuration.native_sessions()
+            && matches!(self.trust_record(), TrustRecord::Unread)
             && matches!(self.native_trust_listed(directory, root), Ok(Judged::Waits))
     }
 }

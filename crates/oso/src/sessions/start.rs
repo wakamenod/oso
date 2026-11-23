@@ -10,6 +10,8 @@
 //!   its process and directory, and the person is offered a fork. Five seconds after the
 //!   resume, the registry is read again, and two live processes with the id give a warning.
 //! - A missing directory refuses before anything starts.
+//! - A native resume or fork judged by the record of trusted projects (ADR 0165, part 4a) is
+//!   judged here by its root's path and identity, before the root's other checks.
 //! - For a new or adopted session in a trusted project, the baseline is taken first (ADR 0122), waiting at most
 //!   [`BASELINE_WAIT`]; past that, the session starts and the baseline follows.
 //! - The shell is found as ADR 0120 has it, and `claude` on `PATH` when the shell is not one

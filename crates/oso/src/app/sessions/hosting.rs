@@ -55,6 +55,8 @@ pub(in crate::app) struct Hosting {
     /// The baseline each new session takes, by its key, until it comes or the start is
     /// refused.
     baselines: HashMap<SessionKey, Baseline>,
+    /// A native resume's or fork's trust until it starts, taken back if its project's is.
+    native_trusts: HashMap<SessionKey, crate::sessions::start::trust::Kept>,
     /// The sessions changed since the worker was last given them to remember.
     pub(in crate::app) unsaved: bool,
     /// The "fork it instead?" questions of refused resumes, and the conversation each is
@@ -120,6 +122,7 @@ impl Hosting {
             directory,
             starting: HashMap::new(),
             baselines: HashMap::new(),
+            native_trusts: HashMap::new(),
             unsaved: false,
             fork_offered: Vec::new(),
             adopting: Adopting::default(),
@@ -436,6 +439,7 @@ impl App {
         revoke_untrusted(&mut self.hosting.baselines, |project| {
             editor.project_trusted(project)
         });
+        self.revoke_untrusted_native_starts();
     }
 
     /// The trust and root new session `key` starts under in `directory`, natively if

@@ -654,6 +654,8 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   as an issue space's member is (part 4a): a directory made again at the path, a link there
   and a linked worktree (whose main repository the record holds) are refused. A record not
   read yet is waited for, at most 5 s with ADR 0173's held starts, then nothing is trusted.
+  Until its start thread reports, the UI takes a resume's or fork's trust back once its
+  project is no longer trusted, and the look before the spawn refuses it.
   The start thread looks at the root again before the spawn.
   The resume that follows an interrupt by signal is such a resume, judged again then, and none
   starts while the person is asked whether to stop the session, or oso waits to quit or

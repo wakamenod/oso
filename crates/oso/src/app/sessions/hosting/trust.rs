@@ -15,8 +15,8 @@ use std::path::Path;
 
 use crate::app::App;
 use crate::git::TrustedRoot;
-pub(in crate::app::sessions::hosting) use crate::sessions::start::trust::NotTrusted;
-use crate::sessions::start::trust::{self, Judged, Record};
+use crate::sessions::start::trust::{self, ByRecord, Judged, NotTrusted, TrustRecord};
+use crate::sessions::worker::SessionKey;
 
 impl App {
     /// The trust of the project at `root` as an open buffer of it has it now: `None` when no
@@ -63,22 +63,80 @@ impl App {
         let root = root.unwrap_or(directory);
         let record = by_record.then(|| self.trust_record());
         let may_wait = !self.starting.held.waited_out();
-        trust::judge(
-            root == directory,
-            root,
-            self.open_root_trust(root),
-            record,
-            may_wait,
-        )
+        let open = (self.open_root_trust(root)).or_else(|| self.open_same_root(root, record?));
+        trust::judge(root == directory, root, open, record, may_wait)
+    }
+
+    /// The trust of an open project at `root` under another spelling, as a case-folding file
+    /// system lets one be found, which the record pairs with `root` by its identity: it decides
+    /// as the one spelled so would.
+    fn open_same_root(&self, root: &Path, record: TrustRecord<'_>) -> Option<Option<TrustedRoot>> {
+        let TrustRecord::Read(list) = record else {
+            return None;
+        };
+        let id = (self.editor.buffers())
+            .filter_map(|(_, buffer)| buffer.project())
+            .find(|&id| {
+                self.editor.project(id).is_some_and(|project| {
+                    project.identity().is_some()
+                        && list.trusts(&oso_core::project::RootIdentity {
+                            path: root.to_owned(),
+                            identity: project.identity(),
+                        })
+                })
+            })?;
+        Some(TrustedRoot::of(&self.editor, id))
+    }
+
+    /// The order's `trusted` and its start thread's judgement by the record, for native
+    /// session `key` judged so; what is kept takes its trust back until it starts.
+    pub(in crate::app::sessions::hosting) fn native_judged(
+        &mut self,
+        key: SessionKey,
+        judged: Judged,
+    ) -> (Option<TrustedRoot>, ByRecord) {
+        match judged.kept() {
+            Some(kept) => self.hosting.native_trusts.insert(key, kept),
+            None => self.hosting.native_trusts.remove(&key),
+        };
+        judged.into_order()
+    }
+
+    /// Takes back the trust of each native resume or fork under way whose project is no
+    /// longer trusted, by an open buffer of it or the record: its start thread refuses it at
+    /// its look before the spawn. What started or was refused is forgotten. After each event.
+    pub(in crate::app) fn revoke_untrusted_native_starts(&mut self) {
+        if self.hosting.native_trusts.is_empty() {
+            return;
+        }
+        let starting = &self.hosting.starting;
+        self.hosting
+            .native_trusts
+            .retain(|key, _| starting.contains_key(key));
+        let gone: Vec<SessionKey> = (self.hosting.native_trusts.iter())
+            .filter(|(_, kept)| {
+                let root = kept.root();
+                let record = self.trust_record();
+                let open =
+                    (self.open_root_trust(root)).or_else(|| self.open_same_root(root, record));
+                !trust::still_trusted(root, open, record)
+            })
+            .map(|(key, _)| *key)
+            .collect();
+        for key in gone {
+            if let Some(kept) = self.hosting.native_trusts.remove(&key) {
+                kept.revoke();
+            }
+        }
     }
 
     /// The record of trusted projects as the editor holds it: unread until its thread reported
     /// once; with no thread, as with no configuration directory, there is none to read.
-    fn trust_record(&self) -> Record<'_> {
+    pub(in crate::app::sessions::hosting) fn trust_record(&self) -> TrustRecord<'_> {
         match self.editor.trust_list() {
-            Some(list) => Record::Read(list),
-            None if self.trust_file.is_some() && !self.starting.trust_read => Record::Unread,
-            None => Record::Refused,
+            Some(list) => TrustRecord::Read(list),
+            None if self.trust_file.is_some() && !self.starting.trust_read => TrustRecord::Unread,
+            None => TrustRecord::Refused,
         }
     }
 }

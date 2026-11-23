@@ -18,6 +18,8 @@
 //!   buffer: the record holds the main repository, not the worktree.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use oso_core::project::TrustList;
 
@@ -27,8 +29,9 @@ use crate::git::TrustedRoot;
 /// Why a native session does not run natively where it runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NotTrusted {
-    /// No buffer of a project at its root is open, so its trust is not known now: a new
-    /// start's only.
+    /// No buffer of a project at its root is open, so its trust is not known now: for a
+    /// resume or a fork, and the record does not hold its root either, as for a linked
+    /// worktree's, whose main repository it holds.
     NotOpen,
     /// The project at its root is not trusted now.
     Untrusted,
@@ -41,7 +44,7 @@ pub enum NotTrusted {
 
 /// The record of trusted projects as the UI holds it.
 #[derive(Debug, Clone, Copy)]
-pub enum Record<'a> {
+pub enum TrustRecord<'a> {
     Read(&'a TrustList),
     /// Its thread has not reported yet.
     Unread,
@@ -65,6 +68,34 @@ pub enum Judged {
 pub struct Listed {
     list: TrustList,
     root: PathBuf,
+    /// Shared with what the UI keeps of the start ([`Kept`]), which takes it back once the
+    /// project is no longer trusted, and with the root the start thread makes.
+    revoked: Arc<AtomicBool>,
+}
+
+/// What the UI keeps of a native resume or fork until its start thread reports, to take its
+/// trust back once its project is no longer trusted: the start thread's look again before the
+/// spawn then refuses it.
+#[derive(Debug, Clone)]
+pub struct Kept {
+    root: PathBuf,
+    open: Option<TrustedRoot>,
+    revoked: Arc<AtomicBool>,
+}
+
+impl Kept {
+    /// The root it was judged at.
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    /// Takes its trust back.
+    pub fn revoke(&self) {
+        if let Some(open) = &self.open {
+            open.revoke();
+        }
+        self.revoked.store(true, Ordering::SeqCst);
+    }
 }
 
 /// What a native order's trust is judged by on the start thread, besides `Order::trusted`.
@@ -91,7 +122,7 @@ pub fn judge(
     at_root: bool,
     root: &Path,
     open: Option<Option<TrustedRoot>>,
-    record: Option<Record<'_>>,
+    record: Option<TrustRecord<'_>>,
     may_wait: bool,
 ) -> Result<Judged, NotTrusted> {
     if !at_root {
@@ -102,19 +133,54 @@ pub fn judge(
         (Some(Some(trusted)), _) if trusted.revoked() => Err(NotTrusted::Untrusted),
         (Some(Some(trusted)), _) => Ok(Judged::Open(trusted)),
         (None, None) => Err(NotTrusted::NotOpen),
-        (None, Some(Record::Read(list))) if list.paths().any(|path| path == root) => {
+        (None, Some(TrustRecord::Read(list))) if list.paths().any(|path| path == root) => {
             Ok(Judged::Listed(Listed {
                 list: list.clone(),
                 root: root.to_owned(),
+                revoked: Arc::default(),
             }))
         }
-        (None, Some(Record::Read(_))) => Err(NotTrusted::Untrusted),
-        (None, Some(Record::Unread)) if may_wait => Ok(Judged::Waits),
-        (None, Some(Record::Unread | Record::Refused)) => Err(NotTrusted::NoRecord),
+        // Not trusted, or a linked worktree, which an open buffer of it may trust (ADR 0114).
+        (None, Some(TrustRecord::Read(_))) => Err(NotTrusted::NotOpen),
+        (None, Some(TrustRecord::Unread)) if may_wait => Ok(Judged::Waits),
+        (None, Some(TrustRecord::Unread | TrustRecord::Refused)) => Err(NotTrusted::NoRecord),
+    }
+}
+
+/// Whether a native start judged at `root` is still trusted, as an open buffer of its project
+/// (`open`) or else `record` has it now: by path alone, as the UI has no identity to look at.
+/// A record not read yet keeps it, as its order waits for it and is judged again.
+pub fn still_trusted(
+    root: &Path,
+    open: Option<Option<TrustedRoot>>,
+    record: TrustRecord<'_>,
+) -> bool {
+    match (open, record) {
+        (Some(open), _) => open.is_some_and(|trusted| !trusted.revoked()),
+        (None, TrustRecord::Read(list)) => list.paths().any(|path| path == root),
+        (None, TrustRecord::Unread) => true,
+        (None, TrustRecord::Refused) => false,
     }
 }
 
 impl Judged {
+    /// What the UI keeps of the start, to take its trust back: `None` while it waits.
+    pub fn kept(&self) -> Option<Kept> {
+        match self {
+            Judged::Open(trusted) => Some(Kept {
+                root: trusted.path().to_owned(),
+                open: Some(trusted.clone()),
+                revoked: Arc::default(),
+            }),
+            Judged::Listed(listed) => Some(Kept {
+                root: listed.root.clone(),
+                open: None,
+                revoked: Arc::clone(&listed.revoked),
+            }),
+            Judged::Waits => None,
+        }
+    }
+
     /// The order's `trusted` and what its start thread judges by the record.
     pub fn into_order(self) -> (Option<TrustedRoot>, ByRecord) {
         match self {
@@ -132,14 +198,19 @@ pub fn waits(order: &Order) -> bool {
 
 impl Listed {
     /// The root, if the record trusts the directory there now by its path and identity: not
-    /// following a link, and a directory. It looks at the disk.
+    /// following a link, and a directory, and not taken back since. Its revocation is the one
+    /// the UI holds. It looks at the disk.
     fn look(&self) -> Option<TrustedRoot> {
+        if self.revoked.load(Ordering::SeqCst) {
+            return None;
+        }
         let metadata = std::fs::symlink_metadata(&self.root).ok()?;
         if !metadata.is_dir() {
             return None;
         }
         let identity = crate::git::identity(&metadata);
         TrustedRoot::of_member(&self.list, &self.root, identity)
+            .map(|root| root.revoked_by(Arc::clone(&self.revoked)))
     }
 }
 
@@ -158,8 +229,8 @@ pub(super) fn settle(order: &mut Order) -> Result<(), String> {
         ByRecord::Judge(listed) => {
             order.trusted = Some(listed.look().ok_or_else(|| {
                 "The session did not start: the record of trusted projects does not hold the \
-                 directory at its project's root now; trust-project trusts the one there now, \
-                 if it is yours"
+                 directory at its project's root now, or it is no longer trusted; \
+                 trust-project trusts the one there now, if it is yours"
                     .to_owned()
             })?);
             Ok(())

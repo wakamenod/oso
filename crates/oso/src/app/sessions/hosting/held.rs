@@ -70,7 +70,7 @@ impl App {
         if let Runs::Native(native) = &mut order.runs {
             let (name, directory) = (&order.name, &order.directory);
             let judged = self.native_resume_trust(name, directory, order.project.as_deref())?;
-            (order.trusted, native.trust) = judged.into_order();
+            (order.trusted, native.trust) = self.native_judged(order.token, judged);
         }
         if order.space.is_some() {
             order.space = self.orchestrator_start_for(order.token)?;
