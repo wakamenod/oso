@@ -729,8 +729,8 @@ or unfolds the row at point, `RET` shows a tool call's whole result in `*result:
 agents cannot read, `n` and `p` move between your messages, and `]` and `[` between tool rows.
 The `C-c` keys of a session's terminal work there too, except `C-c +` and `C-c -`.
 
-You write the next messages in the composer under the conversation, which agents cannot read:
-`i` goes there and `C-c C-o` back, `C-c C-c` sends, and `M-p` and `M-n` bring back what you
+You write the next messages in the composer under the conversation, which agents cannot read.
+While it is empty it says in grey what it is and its keys. `i` goes there and `C-c C-o` back, `C-c C-c` sends, and `M-p` and `M-n` bring back what you
 sent. After a turn, Claude's guess at your next message shows dim at the end of the
 conversation as `Suggested: …`; `M-n` in an empty composer puts it in for you to edit or send,
 with a leading `/` or an `@` escaped as below. When you come back to a session that finished

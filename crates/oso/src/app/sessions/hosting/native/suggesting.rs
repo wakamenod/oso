@@ -11,10 +11,9 @@
 //!   nothing unless the person edits it so. Only a composer that takes composed text takes it,
 //!   as `compose_into`'s.
 
-use oso_core::buffer::{Buffer, Mode};
-
 use super::Native;
 use crate::app::App;
+use crate::app::sessions::empty_composer;
 use crate::sessions::native::suggest;
 use crate::sessions::native::turns;
 use crate::sessions::native::wire::Event;
@@ -40,12 +39,6 @@ pub(super) fn suggestion_event(native: &mut Native, event: &Event) -> bool {
     before && native.composing.suggestion.is_none()
 }
 
-/// Whether composer `buffer` takes the suggestion: empty, still a composer, and not turned
-/// secret by a yank, as `compose_into` asks.
-fn takes(buffer: &Buffer) -> bool {
-    buffer.mode() == Mode::Composer && !buffer.is_secret() && buffer.text().is_empty()
-}
-
 impl App {
     /// `M-n` past the newest message sent: native session `key`'s suggestion, escaped, into
     /// its composer if that is empty, still a composer and not turned secret. Whether it was
@@ -59,7 +52,7 @@ impl App {
         let Some(id) = self.composer(key) else {
             return false;
         };
-        let takes = self.editor.buffer(id).is_some_and(takes);
+        let takes = self.editor.buffer(id).is_some_and(empty_composer);
         if takes {
             self.set_composer_text(key, &send::for_claude(&text, None));
         }
@@ -69,6 +62,8 @@ impl App {
 
 #[cfg(test)]
 mod tests {
+    use oso_core::buffer::{Buffer, Mode};
+
     use oso_core::editor::Editor;
 
     use super::*;
@@ -136,12 +131,18 @@ mod tests {
             buffer.set_mode(mode);
             buffer
         };
-        assert!(takes(&composer("", Mode::Composer)));
-        assert!(!takes(&composer("draft", Mode::Composer)), "a draft");
-        assert!(!takes(&composer("", Mode::Fundamental)), "not a composer");
+        assert!(empty_composer(&composer("", Mode::Composer)));
+        assert!(
+            !empty_composer(&composer("draft", Mode::Composer)),
+            "a draft"
+        );
+        assert!(
+            !empty_composer(&composer("", Mode::Fundamental)),
+            "not a composer"
+        );
         let mut secret = Buffer::visiting(std::path::PathBuf::from("/tmp/.env"));
         secret.set_mode(Mode::Composer);
         assert!(secret.is_secret() && secret.text().is_empty());
-        assert!(!takes(&secret), "turned secret");
+        assert!(!empty_composer(&secret), "turned secret");
     }
 }

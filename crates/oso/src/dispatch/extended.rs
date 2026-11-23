@@ -114,6 +114,17 @@ impl Dispatcher {
         self.where_is_in(&layers, name)
     }
 
+    /// [`Dispatcher::where_is`] in the layers a native session's composer has, for the
+    /// placeholder it shows whichever window is selected (ADR 0170).
+    pub fn where_is_in_composer(&self, name: &str) -> String {
+        let layers = Layers {
+            major: Some(self.keymaps.composer()),
+            user: self.keymaps.user(),
+            ..Layers::global(&self.keymaps.global)
+        };
+        self.where_is_in(&layers, name)
+    }
+
     /// The shortest keys of the command named `name` in `layers`, through the menus they open,
     /// else `M-x` and the name.
     fn where_is_in(&self, layers: &Layers<'_>, name: &str) -> String {

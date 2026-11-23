@@ -3,7 +3,8 @@
 //!
 //! Must not depend on: key presses or commands. Before a frame it takes in what
 //! has loaded and fits the gutter to it, as a load is no input, and sets `*Spaces*`' modeline
-//! note for whether the side window is selected (ADR 0140), as any key may have changed that;
+//! note for whether the side window is selected (ADR 0140), as any key may have changed that,
+//! and names the keys of an empty composer's placeholder (ADR 0170);
 //! otherwise a frame only reads the editor's state.
 //!
 //! Whatever changes the modeline or the echo area gets a frame in one place
@@ -84,13 +85,23 @@ pub(super) fn with_panes<R>(
 ) -> R {
     let terminals = Terminals::default();
     let bands = SpaceBands::default();
-    with_frame((editor, &terminals, &bands), None, statuses, cells, draw)
+    let shown = (editor, &terminals, &bands, None);
+    with_frame(shown, None, statuses, cells, draw)
 }
+
+/// What [`with_frame`] reads: the editor, the terminals, `*Spaces*`' bands, and an empty
+/// composer's placeholder, the whole of it and its shorter forms, once it is known (ADR 0170).
+type Shows<'a> = (
+    &'a Editor,
+    &'a Terminals,
+    &'a SpaceBands,
+    Option<&'a [String; 3]>,
+);
 
 /// As [`with_panes`], with the open menu's float over the tiled panes, if one is open
 /// (ADR 0117).
 pub(super) fn with_frame<R>(
-    (editor, terminals, bands): (&Editor, &Terminals, &SpaceBands),
+    (editor, terminals, bands, hint): Shows<'_>,
     open_menu: Option<&OpenMenu<'_>>,
     statuses: &[(WindowId, Status)],
     cells: &mut Cells,
@@ -102,17 +113,10 @@ pub(super) fn with_frame<R>(
     fill_float_screens(editor, cells);
     let empty = Status::default();
     let status = tiled::tiled_status(editor, statuses).unwrap_or(&empty);
-    let echo = [
-        Span {
-            text: status.echo_warnings(),
-            face: Face::Warning,
-        },
-        Span {
-            text: &status.echo[..],
-            face: Face::Text,
-        },
-    ];
+    let echo = echo_spans(status);
     let echo = [&echo[..]];
+    let placeholder = hint.map(tiled::placeholder::rows);
+    let placeholder = (placeholder.as_ref()).map(|rows| rows.each_ref().map(std::slice::from_ref));
     let mut room = std::mem::take(&mut cells.room);
     let windows = editor.frame().windows();
     let spans = tiled::spans_of(windows, statuses, &cells.windows, &empty, &mut room);
@@ -128,6 +132,7 @@ pub(super) fn with_frame<R>(
         modelines: &rows.0,
         gutters: &rows.1,
         statuses,
+        placeholder: placeholder.as_ref().map_or(&[], |rows| &rows[..]),
         flash: cells.flash,
     };
     // A prompt's float goes over the tiled panes.
@@ -180,6 +185,15 @@ pub(super) fn with_frame<R>(
     tiled::give_back_spans(&mut room, spans);
     cells.room = room;
     result
+}
+
+/// What the echo area says, its warnings first.
+fn echo_spans(status: &Status) -> [Span<'_>; 2] {
+    let span = |text, face| Span { text, face };
+    [
+        span(status.echo_warnings(), Face::Warning),
+        span(&status.echo, Face::Text),
+    ]
 }
 
 /// The rows the floats over the windows show into `cells`: a prompt's preview with the matches
@@ -358,6 +372,7 @@ impl App {
         // Sessions' ages move on with a frame drawn anyway (ADR 0121, Q4).
         self.age_sessions();
         self.note_pane_focus();
+        self.note_placeholder();
         // A load, a reload or a key may have given the line count another digit (ADR 0097).
         self.editor.fit_gutter();
         let Some(view) = self.view.as_mut() else {
@@ -388,13 +403,11 @@ impl App {
         let cells = &mut view.cells;
         cells.flash = self.flash.strength(Instant::now());
         let open_menu = self.dispatcher.menu();
-        let result = with_frame(
-            (&self.editor, &self.terminals.map, self.watch.pane_bands()),
-            open_menu.as_ref(),
-            &self.statuses,
-            cells,
-            |panes| render_state.render(panes, &window_size),
-        );
+        let (bands, hint) = (self.watch.pane_bands(), self.hosting.natives.placeholder());
+        let shown = (&self.editor, &self.terminals.map, bands, hint);
+        let result = with_frame(shown, open_menu.as_ref(), &self.statuses, cells, |panes| {
+            render_state.render(panes, &window_size)
+        });
         // Recovering from a surface error can configure it to a new size before
         // `Resized` says so, and panes stop at their regions, so the editor catches
         // up now.
@@ -444,7 +457,7 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use oso_core::buffer::Buffer;
+    use oso_core::buffer::{Buffer, Mode, Replacement};
     use oso_core::editor::AgentChannel;
     use oso_core::frame::{self, FrameSize};
     use oso_core::minibuffer::Kind;
@@ -496,10 +509,9 @@ mod tests {
         )
     }
 
-    /// A docked composer (ADR 0170) is drawn as a window inside its host's rect: its text over
-    /// the float's face, its mark in its gutter, and no modeline of its own.
-    #[test]
-    fn a_docked_composer_is_drawn_inside_its_host_with_no_modeline() {
+    /// An editor on a session's buffer with a composer docked under it that holds `text`, and
+    /// the composer's window.
+    fn composer(text: &str) -> (Editor, WindowId) {
         use oso_core::window::DockSlot;
         let mut editor = Editor::with_buffer(Buffer::from_text("*claude: s*", "one\n"));
         editor.set_frame_size(FrameSize {
@@ -507,9 +519,19 @@ mod tests {
             columns: 80,
         });
         let host = editor.window().buffer();
-        let input = editor.add_buffer(Buffer::from_text("*compose: s*", "hi"));
+        let mut input = Buffer::from_text("*compose: s*", text);
+        input.set_mode(Mode::Composer);
+        let input = editor.add_buffer(input);
         editor.set_dock(host, DockSlot::Composer, Some(input));
         let docked = editor.dock_window(host, DockSlot::Composer).unwrap();
+        (editor, docked)
+    }
+
+    /// A docked composer (ADR 0170) is drawn as a window inside its host's rect: its text over
+    /// the float's face, its mark in its gutter, and no modeline of its own.
+    #[test]
+    fn a_docked_composer_is_drawn_inside_its_host_with_no_modeline() {
+        let (editor, docked) = composer("hi");
         let regions = *editor.regions(docked).unwrap();
         with_panes(
             &editor,
@@ -540,6 +562,141 @@ mod tests {
                 assert!(unique, "each pane its own id");
             },
         );
+    }
+
+    /// The cursor's style in the text pane of `window`, as drawn.
+    fn cursor_style(editor: &Editor, window: WindowId) -> oso_render::CursorStyle {
+        with_panes(editor, &statuses(editor), &mut Cells::default(), |panes| {
+            panes
+                .iter()
+                .find(|pane| pane.id == tiled::pane_id(window, tiled::Part::Text))
+                .map(|pane| match &pane.content {
+                    PaneContent::Text(view) => view.cursor_style,
+                    _ => panic!("a text pane"),
+                })
+                .unwrap()
+        })
+    }
+
+    /// The cursor is filled in the window keys go to, docked or not, though a docked window's
+    /// host has the active modeline (ADR 0170).
+    #[test]
+    fn a_selected_dock_has_the_filled_cursor_and_its_host_the_hollow_one() {
+        use oso_render::CursorStyle;
+        let (mut editor, docked) = composer("");
+        let host = editor.window().id();
+        assert_eq!(cursor_style(&editor, host), CursorStyle::Box);
+        assert_eq!(cursor_style(&editor, docked), CursorStyle::Hollow);
+        editor.select_window(docked);
+        assert_eq!(cursor_style(&editor, host), CursorStyle::Hollow);
+        assert_eq!(cursor_style(&editor, docked), CursorStyle::Box);
+        let status = statuses(&editor);
+        let active = status.iter().find(|(id, _)| *id == host).unwrap();
+        assert!(active.1.selected, "the host's modeline speaks for the dock");
+        // Beneath a prompt neither is selected.
+        editor.ask("Exit?", "keyboard-quit").unwrap();
+        assert_eq!(cursor_style(&editor, host), CursorStyle::Hollow);
+        assert_eq!(cursor_style(&editor, docked), CursorStyle::Hollow);
+    }
+
+    /// The placeholder's pane of a frame of `editor`: where it is, over which background, and
+    /// its text and face.
+    fn placeholder(editor: &Editor, window: WindowId, hint: [&str; 3]) -> Option<Shown> {
+        let (terminals, bands) = (Terminals::default(), SpaceBands::default());
+        let hint = hint.map(str::to_owned);
+        let shown = (editor, &terminals, &bands, Some(&hint));
+        let statuses = statuses(editor);
+        with_frame(shown, None, &statuses, &mut Cells::default(), |panes| {
+            let id = tiled::pane_id(window, tiled::Part::Placeholder);
+            let pane = panes.iter().find(|pane| pane.id == id)?;
+            assert!(pane.layer > Layer::TILED && pane.layer < Layer::FLOAT);
+            let PaneContent::Lines(lines) = &pane.content else {
+                panic!("a placeholder of lines");
+            };
+            let spans = lines[0].iter();
+            let spans = spans.map(|span| (span.text.to_owned(), span.face));
+            Some((pane.region, pane.background, spans.collect()))
+        })
+    }
+
+    /// An empty composer says what it is for after its cursor, selected or not, over the band,
+    /// and nothing of it is in the buffer (ADR 0170).
+    #[test]
+    fn an_empty_composer_shows_its_placeholder_until_anything_is_typed() {
+        let type_in = |editor: &mut Editor, range, text| {
+            let id = editor.window().buffer();
+            let edit = Replacement { range, text };
+            let _ = editor.apply_edits(id, &[edit]);
+        };
+        let (mut editor, docked) = composer("");
+        let hint = ["Write to Claude"; 3];
+        let text = editor.regions(docked).unwrap().text;
+        let region = CellRect {
+            column: text.column + 1,
+            columns: text.columns - 1,
+            ..text
+        };
+        let wanted = (region, None, vec![(hint[0].to_owned(), Face::Prompt)]);
+        let shown = placeholder(&editor, docked, hint);
+        assert_eq!(shown, Some(wanted.clone()), "not selected");
+        let host = editor.window().id();
+        assert_eq!(placeholder(&editor, host, hint), None, "the transcript");
+
+        editor.select_window(docked);
+        assert_eq!(placeholder(&editor, docked, hint), Some(wanted.clone()));
+        assert!(editor.current().1.text().is_empty());
+        // An input method's text, and the person's.
+        editor.set_preedit(Some(oso_core::display_map::Preedit::new("か".into(), None)));
+        assert_eq!(placeholder(&editor, docked, hint), None, "composing");
+        editor.set_preedit(None);
+        assert_eq!(placeholder(&editor, docked, hint), Some(wanted.clone()));
+        type_in(&mut editor, 0..0, "x");
+        assert_eq!(placeholder(&editor, docked, hint), None, "typed");
+        type_in(&mut editor, 0..1, "");
+        assert_eq!(placeholder(&editor, docked, hint), Some(wanted));
+    }
+
+    /// A narrow window leaves the placeholder's last parts out, whole; the first is cut.
+    #[test]
+    fn a_narrow_windows_placeholder_leaves_whole_parts_out() {
+        let (mut editor, docked) = composer("");
+        let forms = ["Write · a b · c", "Write · a b", "Write"];
+        let mut at = |columns: usize| {
+            // The mark's two cells and the cursor's come before it.
+            let columns = columns + 3;
+            editor.set_frame_size(FrameSize { rows: 24, columns });
+            let (region, _, spans) = placeholder(&editor, docked, forms).unwrap();
+            assert_eq!(region.columns, columns - 3);
+            spans[0].0.clone()
+        };
+        assert_eq!(at(15), "Write · a b · c");
+        assert_eq!(at(14), "Write · a b");
+        assert_eq!(at(11), "Write · a b");
+        assert_eq!(at(10), "Write");
+        assert_eq!(at(4), "Write", "cut by its pane");
+    }
+
+    /// Nothing is said over an empty composer that turned secret, as it sends nothing, nor over a
+    /// buffer docked in its place that is no composer.
+    #[test]
+    fn no_placeholder_in_a_secret_composer_or_another_buffer() {
+        let (mut editor, docked) = composer("");
+        assert!(placeholder(&editor, docked, ["hint"; 3]).is_some());
+        let host = editor.window().buffer();
+        let plain = editor.add_buffer(Buffer::from_text("plain", ""));
+        editor.set_dock(host, oso_core::window::DockSlot::Composer, Some(plain));
+        assert_eq!(
+            placeholder(&editor, docked, ["hint"; 3]),
+            None,
+            "no composer"
+        );
+        // As `suggesting`'s test makes one.
+        let mut secret = Buffer::visiting(std::path::PathBuf::from("/tmp/.env"));
+        secret.set_mode(Mode::Composer);
+        assert!(secret.is_secret() && secret.text().is_empty());
+        let secret = editor.add_buffer(secret);
+        editor.set_dock(host, oso_core::window::DockSlot::Composer, Some(secret));
+        assert_eq!(placeholder(&editor, docked, ["hint"; 3]), None, "secret");
     }
 
     #[test]
@@ -615,8 +772,9 @@ mod tests {
         let [left, right] = [first, second].map(|id| *editor.regions(id).unwrap());
         let ids: Vec<_> = panes.iter().map(|pane| pane.0.0).collect();
         // The texts, the selected one's last, then the gutters, the modelines, the divider and
-        // the echo area. Each window has five ids, the fifth for its sign column.
-        assert_eq!(ids, [21, 16, 17, 22, 18, 23, 19, ECHO.0]);
+        // the echo area. Each window has six ids, the fifth for its sign column and the
+        // last for a composer's placeholder.
+        assert_eq!(ids, [22, 16, 17, 23, 18, 24, 19, ECHO.0]);
         assert_eq!(panes[0].1, right.text);
         assert_eq!(panes[0].3, "Hollow", "the other");
         assert_eq!(panes[1].1, left.text);
@@ -639,7 +797,7 @@ mod tests {
         // Deleted, the first gives its cells to the second, which keeps its ids.
         editor.delete_window().unwrap();
         let ids: Vec<_> = split_panes(&editor).iter().map(|pane| pane.0.0).collect();
-        assert_eq!(ids, [21, 22, 23, ECHO.0]);
+        assert_eq!(ids, [22, 23, 24, ECHO.0]);
     }
 
     #[test]
@@ -656,7 +814,7 @@ mod tests {
         let panes = split_panes(&editor);
         let tiled: Vec<_> = panes.iter().filter(|pane| pane.0.0 >= 16).collect();
         // The window the prompt came from, the first, has its text last.
-        assert_eq!((tiled[0].0.0, tiled[1].0.0), (21, 16));
+        assert_eq!((tiled[0].0.0, tiled[1].0.0), (22, 16));
         assert_eq!(tiled[0].3, "Hollow");
         assert_eq!(tiled[1].3, "Hollow");
         assert_eq!(tiled[4].2, Some(Face::ModelineInactive));
