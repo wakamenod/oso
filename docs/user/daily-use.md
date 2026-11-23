@@ -616,6 +616,11 @@ and what would start. `y` allows it, `n` or `C-g` refuses it, and `?` shows the 
 holds for the same request for a minute. To let sessions you started start sessions without the question, see
 [Session settings](#session-settings).
 
+To stop a session that runs away, each session makes at most 30 calls a minute of the tools
+that ask or change something. Past that, oso tells the agent how long to wait. Normal work,
+even an orchestrator's round over a whole space, stays well under it, and nothing you do is
+limited.
+
 Claude Code run in a plain `M-x terminal`, or outside oso, is not a session. If you gave it
 `oso mcp` as an MCP server yourself, it reaches oso only after `M-x agent-channel-start`, and
 each connection asks you first. Of the session tools, it gets the reading ones, and
@@ -686,10 +691,10 @@ through `start_worktree_session` and `session_start`, and a space's orchestrator
 session of its space through `session_resume`, without asking you, in a trusted project
 only, up to `agents_start_limit` running sessions each; past that it asks again. It also lets a
 space's orchestrator add a trusted repository oso already knows (one `space-add-repo` would
-offer) to its space through `space_add_repo`, with no limit; any other
+offer) to its space through `space_add_repo`, with no start limit; any other
 repository asks. With
 `agents_start_limit = "none"` no limit makes it ask: a session may start as many sessions as it
-asks for. A session started this way asks for its own. A session an
+asks for, within its 30 calls a minute of the tools that ask or change. A session started this way asks for its own. A session an
 agent starts, whether it asked or not, stays in the background: it appears in the pane and the
 modeline marks, and the window you are in keeps its buffer. Each start is said in the echo area
 and `*Messages*`, its row in `*Spaces*` says `unasked`, and `C-c a e` on it shows who started it
@@ -781,6 +786,16 @@ records and recognises your speech on your Mac. Turn on its API server in TypeWh
   composer. The modeline says `● REC` while it records. `s-d` again stops it; the modeline says
   `…` until the text comes, and the text goes in where you started, at each cursor, in one
   undo step.
+- Then Claude fixes what TypeWhisper misheard, such as a technical term written in kana. The
+  text shows on a tinted band and the modeline says `fix` until the fix lands, as one more
+  undo step: `C-z` once brings back what TypeWhisper heard. Fixes Claude is less sure of are
+  only shown in the echo area. If you edit the dictated text meanwhile, the fix is skipped.
+  `C-u s-d` types the text plain, with no fix. In a session's composer, `C-c C-c` while the
+  modeline says `fix` waits for the fix and then sends the fixed text; `C-c C-k` drops the
+  wait, and so does editing the message meanwhile.
+- The fix runs your own `claude` (`[sessions] claude`), which sends the dictated text, a few
+  lines around it and TypeWhisper's dictionary to Anthropic. It never runs for the minibuffer
+  or a buffer that may hold secrets. `M-x dictation-cancel` stops a fix under way.
 - If you changed that buffer's text meanwhile, or the place is gone, the text goes to the kill
   ring instead, and `C-y` yanks it. While an input method composes there, the text waits.
 - `M-x dictation-cancel` drops a dictation and its text.
@@ -803,6 +818,13 @@ curl = "/usr/bin/curl"
 # workflow = "0F3C2B1A-1234-4ABC-9DEF-0123456789AB"
 # The longest a dictation records, in seconds: 5 to 1800, 120 unless set.
 max_seconds = 300
+# The fix's model and effort, `sonnet` and `low` unless set.
+fix_model = "sonnet"
+fix_effort = "low"
+# The lines on each side of the text the fix sees: 0 to 20, 3 unless set.
+fix_context_lines = 3
+# The least confidence a fix is made with: low, medium or high, medium unless set.
+fix_min_confidence = "low"
 ```
 
 ## Developing beside it

@@ -441,6 +441,19 @@ network features.
   commands are `Person`, refused in keyboard macros. A stale file with another local process on
   its port would get the token and type what it answers. TypeWhisper itself puts dictated text
   on the clipboard, unmarked, also from a buffer that may hold secrets.
+- A dictation's fix (ADR 0175, step 2) sends the dictated text, `[dictation]
+  fix_context_lines` lines on each side (3 unless set, at most 20, and at most 4 KiB a side),
+  the mode's name and TypeWhisper's dictionary, capped, to Anthropic through the person's
+  `claude -p`, as one JSON object on its standard input that the system prompt calls data. It
+  runs in untrusted projects too: `claude` reads nothing of the project, though the text sent
+  is the project's. `claude` runs with no tool, no MCP server, no project setting and no
+  session kept, in a new private directory, killed at 30 s; a stop before it starts holds.
+  Its answer can only replace text inside the span, while the span still holds exactly what
+  was sent, in one undo step, at most 1024 replacements; a `right` with a control, an
+  invisible or bidi character or a noncharacter, or much longer than its `wrong`, is dropped.
+  Nothing of a buffer that may hold secrets is sent, checked at the start and again at the
+  answer, and the minibuffer's text is never fixed. The report of a fix is shown in the echo
+  area alone, withheld from the dev socket and agents, and never in `*Messages*` or the log.
 - The environment is sanitized and every spawn is logged in a visible buffer.
 
 ### Dependencies (T2, T8)
@@ -898,14 +911,14 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     ([ADR 0161](adr/0161-an-orchestrator-adds-a-repository-to-its-space.md)) adds a
     repository's main checkout to its own space, under every check of `space-add-repo`, the
     path also naming it with no link or `..` on the way, and looked at again at the person's
-    `y`. It asks as a start does, past no limit, and goes without asking only for a trusted
+    `y`. It asks as a start does, past no start limit (only the rate below and 16 members), and goes without asking only for a trusted
     repository oso knew before the call, by device and inode; one oso does not trust always
     asks and joins restricted. A running orchestrator reads it only after the person's `/add-dir` paste,
     or, run natively, after their `y` to its resume with it, which oso judges again at each
     event until the session is idle ([ADR 0176](adr/0176-native-orchestrators.md), part O-2).
   - `session_rename` ([ADR 0155](adr/0155-renaming-sessions.md)) asks nothing, as it changes
-    metadata only, and nothing bounds how many it makes
-    ([ADR 0177](adr/0177-no-loop-guard-on-the-session-tools.md)). An agent
+    metadata only, and only the session tools' rate bounds how many it makes
+    ([ADR 0178](adr/0178-a-rate-limit-on-the-session-tools.md)). An agent
     renames itself, the sessions it started and, as a current orchestrator, its space's
     sessions; never an orchestrator, whose name is the address its workers message. A rename
     takes no name another session, a space or an earlier orchestrator has, nor one another
@@ -916,13 +929,18 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     `worktree_list` runs git and `gh` without a question; both need a trusted project.
   - The person's `n` refuses the same call from a session for 60 s. It is kept by session, so a
     new connection does not reset it, and a branch's refusal by the name git resolved it to.
-    No count of calls bounds a session ([ADR 0177](adr/0177-no-loop-guard-on-the-session-tools.md)).
-    What holds a runaway agent: the questions, one at a time; the refusals, which only a
+    No count of calls waits for the person ([ADR 0177](adr/0177-no-loop-guard-on-the-session-tools.md)),
+    but a session makes at most 30 calls that ask or change in any 60 s, a sliding window kept
+    by session; past that, each call is refused with how long to wait ([ADR 0178](adr/0178-a-rate-limit-on-the-session-tools.md)). Only a call
+    the guard lets through counts, even one a later check or job refuses, so a failing removal's
+    git and `gh` and a rename's probe of names run at most 30 times a minute per session.
+    What else holds a runaway agent: the questions, one at a time; the refusals, which only a
     question's `n` records, so a tool that asks nothing is never refused; `agents_start_limit`
     where set, which caps the unasked sessions running at once, not those started over time;
     and the channel's 30 requests a second per connection, each session's bridge being one.
     A session that changes its target each time asks again after every `n`. With
-    `agents_start_limit = "none"`, unasked starts have no limit at all.
+    `agents_start_limit = "none"`, unasked starts have no limit but the rate. The rate is per
+    session: sessions that run away together each get their own.
   - A tool's worktree jobs take the trust of the session's open project as it is at the call,
     and again at the person's `y`, so a project the person no longer trusts runs nothing.
   - `move_to_space` ([ADR 0151](adr/0151-moving-a-session-into-a-space.md)) is the one tool

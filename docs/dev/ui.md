@@ -1527,12 +1527,13 @@ a switch made with its command stands until that setting changes in the file
   that has needed input longest, `C-c a d` the one done longest, `C-c a e` explains the shown
   session's state in `*Session explain*`.
 - With `[sessions] agents_start_without_asking`, a session the person started starts sessions with
-  no question in a trusted project, up to `agents_start_limit` each, or with no limit at all for
-  `"none"` ([ADR 0135](adr/0135-agents-start-sessions-without-asking.md),
+  no question in a trusted project, up to `agents_start_limit` each, or with no limit but the
+  session tools' 30 calls a minute for `"none"` ([ADR 0135](adr/0135-agents-start-sessions-without-asking.md),
   [ADR 0144](adr/0144-agent-starts-with-no-limit-and-in-the-background.md),
-  [ADR 0177](adr/0177-no-loop-guard-on-the-session-tools.md)), and a space's
+  [ADR 0177](adr/0177-no-loop-guard-on-the-session-tools.md),
+  [ADR 0178](adr/0178-a-rate-limit-on-the-session-tools.md)), and a space's
   orchestrator adds a trusted repository oso already knew to its space with no question and no
-  limit ([ADR 0161](adr/0161-an-orchestrator-adds-a-repository-to-its-space.md)). A session an agent's
+  limit but the rate and 16 members ([ADR 0161](adr/0161-an-orchestrator-adds-a-repository-to-its-space.md)). A session an agent's
   tool starts, asked or not, starts in the background: the selected window keeps its buffer. Once its start is under way, the
   echo area says `Agent: session "repo" is starting a session in a new worktree … without asking
   (brief: 1 line; C-c a e explains)`, the row's place ends in `· unasked` (alone under its worktree in the tree), and

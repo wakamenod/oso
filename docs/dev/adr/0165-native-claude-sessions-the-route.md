@@ -687,7 +687,9 @@ part 2a-1). The author chose (a) on Q1 and on each of Q1a to Q1e:
   messages sent, at most the last 100.
 - **Sending:** `C-c C-c` writes the composer's text as the person's message, at most 64 KiB,
   through the session's writer thread (`oso-native-write`, at most 16 lines waiting): a send
-  never waits on the process, and a process that does not read refuses it.
+  never waits on the process, and a process that does not read refuses it. While a
+  dictation's fix runs, a send waits for it ([ADR 0175](0175-dictation-through-typewhisper.md),
+  step 2).
 - **The queue (Q1a–Q1e (a)):** oso writes to the session only while it is idle. A message sent
   while a turn runs, oso's or one it did not start, as a peer's, waits in oso's queue, at most
   20: grey rows at the transcript's end, under the last row, `Queued (N)` and each message's

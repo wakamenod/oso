@@ -291,7 +291,7 @@ impl App {
                         Instant::now(),
                     )
                 {
-                    return pending.answer(Err(rules::Refusal::Person.why().into()));
+                    return pending.answer(Err(rules::Refusal::Person.why()));
                 }
                 let target = branch.clone();
                 let from = start.as_ref().map(|(_, name)| name.as_str());

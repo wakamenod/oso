@@ -181,6 +181,8 @@ impl App {
         state["clipboard"] = json!({ "waiting": self.dispatcher.waits_for_clipboard() });
         // An `M-v` held while a dictation's text is due (ADR 0175).
         state["paste_held"] = json!(self.dispatcher.checks_paste());
+        // The dictation fixes under way (ADR 0175, step 2).
+        state["dictation"] = json!({ "fixes": self.dictation_fixes() });
         // Whether the agent's open question takes an answer yet, for flows that answer it.
         state["agent_question"] = json!({ "takes_answer": self.agent_question_takes_answer() });
         state["card"] = json!({

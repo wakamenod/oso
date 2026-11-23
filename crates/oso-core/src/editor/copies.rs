@@ -168,6 +168,7 @@ impl Editor {
         if !removable {
             return None;
         }
+        self.forget_dictation_spans(id);
         if self.windows.iter().any(|window| window.buffer() == id) {
             let list = self.copies_buffer();
             self.window_moves_on();
@@ -356,6 +357,8 @@ impl Editor {
             buffer.commit_recovery(staged, opening, after, verdict);
         }
         self.commit_views(target, views);
+        // A dictation's spans marked text that is gone.
+        self.forget_dictation_spans(target);
         for window in &mut self.windows {
             if window.buffer() == target {
                 window.selections = start.clone();

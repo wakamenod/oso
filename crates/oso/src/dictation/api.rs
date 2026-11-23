@@ -74,6 +74,10 @@ pub enum Call {
     /// `GET /v1/dictation/transcription?id=ID`: where the dictation is, and its text once it is
     /// done.
     Transcription(DictationId),
+    /// `GET /v1/dictionary/terms`: the person's terms, for a fix (step 2).
+    Terms,
+    /// `GET /v1/dictionary/corrections`: the person's corrections, for a fix.
+    Corrections,
 }
 
 impl Call {
@@ -92,6 +96,8 @@ impl Call {
             Self::Transcription(DictationId(id)) => {
                 ("GET", format!("/v1/dictation/transcription?id={id}"), None)
             }
+            Self::Terms => ("GET", "/v1/dictionary/terms".to_owned(), None),
+            Self::Corrections => ("GET", "/v1/dictionary/corrections".to_owned(), None),
         }
     }
 
@@ -99,7 +105,9 @@ impl Call {
     pub fn limit(&self) -> Duration {
         match self {
             Self::Start { .. } => Duration::from_secs(10),
-            Self::Stop | Self::Transcription(_) => Duration::from_secs(3),
+            Self::Stop | Self::Transcription(_) | Self::Terms | Self::Corrections => {
+                Duration::from_secs(3)
+            }
         }
     }
 }
@@ -404,6 +412,20 @@ mod tests {
         assert_eq!(DictationId::of("../x"), None);
         assert_eq!(DictationId::of(&ID.replace('-', "")), None);
         assert_eq!(DictationId::of(&format!("{ID}&x=1")), None);
+    }
+
+    #[test]
+    fn the_dictionarys_reads_are_gets_with_a_short_limit() {
+        for (call, path) in [
+            (Call::Terms, "/v1/dictionary/terms"),
+            (Call::Corrections, "/v1/dictionary/corrections"),
+        ] {
+            let config = config(&found(), &call);
+            assert!(config.contains(&format!("url = \"http://127.0.0.1:8978{path}\"")));
+            assert!(config.contains("request = \"GET\""));
+            assert!(config.contains("max-time = 3"));
+            assert!(!config.contains("data"));
+        }
     }
 
     #[test]

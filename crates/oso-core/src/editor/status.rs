@@ -52,6 +52,8 @@ const AGENT: &str = "Agent  ";
 const RECORDING: &str = "● REC  ";
 /// Says that a dictation stopped recording and waits for its text (ADR 0175).
 const WAITING: &str = "…  ";
+/// Says that Claude fixes a dictation's text (ADR 0175, step 2).
+const FIXING: &str = "fix  ";
 /// Says that a keyboard macro is being recorded (ADR 0113).
 const DEFINING: &str = "  Def";
 /// What a terminal that hosts an agent session calls its mode (ADR 0132).
@@ -87,8 +89,8 @@ pub struct Status {
     pub agent: &'static str,
     /// An agent is connected, so the host draws [`Self::agent`] bright.
     pub agent_connected: bool,
-    /// `● REC` while a dictation records, then `…` while it waits for its text, with a gap
-    /// after it, after [`Self::agent`], or nothing (ADR 0175).
+    /// `● REC` while a dictation records, then `…` while it waits for its text, and `fix`
+    /// while Claude fixes one, with a gap after it, after [`Self::agent`], or nothing (ADR 0175).
     pub dictation: &'static str,
     /// Agent sessions that need the person, after [`Self::agent`] (ADR 0121): `⚠ 2  ` while
     /// two need input, then `● 3  ` while three are done or ready for review, or as many
@@ -459,6 +461,7 @@ impl Editor {
             super::DictationMark::Off => "",
             super::DictationMark::Recording => RECORDING,
             super::DictationMark::Waiting => WAITING,
+            super::DictationMark::Fixing => FIXING,
         };
         status.sessions.clear();
         if frame_segments {
@@ -674,6 +677,8 @@ mod tests {
         assert!(shown.modeline().starts_with("● REC  -- notes.md"));
         editor.set_dictation_mark(crate::editor::DictationMark::Waiting);
         assert_eq!(status(&editor).dictation, "…  ");
+        editor.set_dictation_mark(crate::editor::DictationMark::Fixing);
+        assert_eq!(status(&editor).dictation, "fix  ");
         let other = editor.window().id();
         editor.split_window(crate::frame::Way::Down, true).unwrap();
         let mut theirs = Status::default();

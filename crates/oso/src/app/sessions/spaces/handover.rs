@@ -241,7 +241,7 @@ impl App {
         if spaces.asked_names.remove(&id).is_some()
             && let Some(running) = spaces.summary_run.take()
         {
-            crate::sessions::spaces::summary::stop(&running);
+            crate::sessions::oneshot::stop(&running);
         }
         spaces.replacing.retain(|_, next| next.space != id);
         spaces.start_after.remove(&id);

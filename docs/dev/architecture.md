@@ -261,9 +261,12 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   TypeWhisper, on the person's Mac, for the text of their speech over its loopback API,
   through curl on a dictation's thread (`dictation::state`), with the port and token from its
   discovery file (`dictation::discovery`). `dictation-toggle` (`s-d`) asks the host through
-  the editor; `app/dictation.rs` takes the place at the start (`dictation::target`), shows
-  `● REC` then `…` in the modeline, and types the text there in one undo step, or keeps it in
-  the kill ring. While the text is due, the dispatcher holds an `M-v`
+  the editor; `app/dictation.rs` takes the place at the start (the editor's
+  `dictation_target`), shows `● REC` then `…` in the modeline, and types the text there in one
+  undo step, or keeps it in the kill ring. The text typed is a provisional span, kept by the
+  editor and drawn in its own face, until `app/dictation/fix.rs` has the person's `claude -p`
+  fix it (`dictation::fix`, through `sessions::oneshot` as a space's naming is) and makes the
+  fixes inside the span, in one more undo step; `C-u s-d` types it plain. While the text is due, the dispatcher holds an `M-v`
   (`dispatch/paste_guard.rs`) and drops it when the clipboard's types-only look finds
   TypeWhisper's marker, as TypeWhisper pastes the same text itself with Command-V.
 - **Modified state** compares content ids. Each edit gets a new id, undo and redo
@@ -911,7 +914,8 @@ The UI thread never blocks on I/O or parsing:
     waits for the clipboard (`dispatch/branches.rs`); `app/sessions/worktrees.rs` asks for them
     (`sync_branch_wait`), and the listing goes ahead of other jobs.
 - The agents' session tools ([ADR 0121](adr/0121-agent-sessions-and-spaces.md) step 6): the
-  rules are `sessions::tools` (reach, refusals, the questions' wording), and
+  rules are `sessions::tools` (reach, refusals, the rate of
+  [ADR 0178](adr/0178-a-rate-limit-on-the-session-tools.md), the questions' wording), and
   `app/sessions/tools/` carries a call out with the hosted table, the start thread and the
   worktree jobs; `draft_set` is handed on to `app/vcs/draft.rs` (ADR 0127, step 6a). A call
   that asks is looked at first by a job (`worktree::prepare`), then its

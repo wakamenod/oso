@@ -14,9 +14,10 @@ use std::sync::Arc;
 use crate::app::App;
 use crate::app::sessions::spaces::printable;
 use crate::config::SpacesNaming;
+use crate::sessions::oneshot::Running;
 use crate::sessions::spaces::edit::Naming;
 use crate::sessions::spaces::stored::{fallback_names, now_ms};
-use crate::sessions::spaces::summary::{Ask, Running};
+use crate::sessions::spaces::summary::Ask;
 use crate::sessions::spaces::{Member, SpaceId};
 use crate::sessions::worker::{Job, SpaceJob};
 
@@ -111,20 +112,6 @@ impl App {
         self.hosting.spaces.asked_names.insert(id.clone(), fallback);
         self.hosting.spaces.summary_run = Some(running);
         true
-    }
-
-    /// Leaves a space's naming run out of the registry's `live` sessions: it is oso's own, in
-    /// its state directory, and no session of the person's (ADR 0159).
-    pub(in crate::app) fn leave_out_naming_runs(
-        &self,
-        live: &mut Vec<crate::sessions::worker::externals::External>,
-    ) {
-        if let Some(state) = self.hosting.state_directory() {
-            let naming = state.join(crate::sessions::spaces::summary::DIRECTORY);
-            live.retain(|external| {
-                !(external.directory.as_deref()).is_some_and(|dir| dir.starts_with(&naming))
-            });
-        }
     }
 
     /// The person's `claude` named space `id`, or said why not: the space takes the names that

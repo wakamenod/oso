@@ -97,6 +97,8 @@ pub enum UserEvent {
     Clipboard(clipboard::ClipboardEvent),
     /// The dictation of this generation's thread says how it goes (ADR 0175).
     Dictation(u64, crate::dictation::state::Event),
+    /// A dictation's fix answered, by its id: the fixes, or why none came (ADR 0175, step 2).
+    DictationFix(u64, Result<crate::dictation::fix::Applied, String>),
     /// A whitespace scan ended (ADR 0113).
     Trim(oso_core::editor::TrimReport),
     /// isearch's worker found or counted something (ADR 0082).
