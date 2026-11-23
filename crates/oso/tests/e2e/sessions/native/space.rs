@@ -410,9 +410,13 @@ fn a_successor_starts_natively_with_its_brief() {
     app.run_command("space-orchestrator-replace", None).unwrap();
     let native = args(&flow, 1);
     assert!(new_in_space(&native), "{native:?}");
-    // Its brief is its first message, which the fake answers.
-    select(&mut app, "*claude: fix-login*");
-    app.wait_for("the reply", |state| text(state).contains("reply 1.1"));
+    // Its brief is its first message, which the fake answers, in its buffer, shown as it
+    // starts: the old one's transcript keeps its buffer's name.
+    app.wait_for("the reply", |state| {
+        (state["buffer"]["name"].as_str())
+            .is_some_and(|name| name.starts_with("*claude: fix-login"))
+            && text(state).contains("reply 1.1")
+    });
     let shown = text(&app.state());
     assert!(shown.contains("You take over"), "{shown}");
     wait_for_space(&flow, "the successor", |space| {
