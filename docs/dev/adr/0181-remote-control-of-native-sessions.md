@@ -1,6 +1,6 @@
 # 0181. Remote Control of native sessions
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-24
 
 ## Context
@@ -51,7 +51,8 @@ it.
 
 The author answered six questions on 2026-11-24, through the orchestrator session, and approved
 the parts RC-0 to RC-3: what the phone does (1), its mode changes (2), how it is turned on (3),
-orchestrators (4), RC-0 now (5), the third probe (6).
+orchestrators (4), RC-0 now (5), the third probe (6). They accepted this ADR the same day, with
+what the security review asked for that was left open: what the session tools ask.
 
 ### The author's answers
 
@@ -72,7 +73,7 @@ The security reviewer's advice, on the design, and what the author chose:
 | A mode change from elsewhere kept from removing oso's card, with the two blocks measured above; or ADR 0165's Q4 amended openly, as remote control of what runs | The second. It is amended below |
 | No connecting again by itself; nothing kept across a restart | Across `oso-restart` only, as below, failing closed |
 | No orchestrators, space directories, restricted projects or agents' sessions | Orchestrators allowed. Agents' sessions never, an orchestrator of theirs neither. A restricted project runs no native session |
-| The session tools ask the person while the session is connected | Open. Decided before an orchestrator can connect: until then RC-2 refuses one, though (4) allows it |
+| The session tools ask the person while the session is connected | As advised, below. Until it is built (RC-3), RC-2 refuses orchestrators |
 | The person's keyboard alone, per session, no configuration default | As advised |
 | A question each time, naming what is sent | As advised |
 | A mark until the process ended, which no line of the stream clears | As advised |
@@ -122,6 +123,11 @@ The security reviewer's advice, on the design, and what the author chose:
 - **The address** is kept only as an answer of exactly claude.ai's shape gave it, is never
   opened by oso, and copied only on the person's key; `connect_url` is never read. Neither the
   address nor the id is logged, put in the sessions' record or given to an agent.
+- **Session tools ask.** While a session is connected, a call of its that starts a session (a resume
+  among them, as ADR 0135's rule decides both), removes a worktree or archives a session asks the
+  person at oso, whatever the configuration lets go without asking; a call refused before its
+  question is refused as now. It is for that time only: once the process ended, the rules are as
+  before. An archive of a stopped session's row, which asks nothing today, asks then too.
 - **Questions stay oso's.** No line from the phone or the stream answers or closes a card.
 
 ### What the stream may say
@@ -154,8 +160,8 @@ above are read strictly, and what they can come to is bounded by how oso started
 - **RC-2:** the command, its question, the respawn, the marks, off, and across `oso-restart`;
   the transcript's messages from elsewhere no longer read as the person's; orchestrators
   refused.
-- **RC-3:** the rows of messages and of mode changes from elsewhere, live and past; what the
-  session tools ask while a session is connected, and with it orchestrators.
+- **RC-3:** the rows of messages and of mode changes from elsewhere, live and past; the session
+  tools' questions while a session is connected, and with them orchestrators.
 
 ## Part RC-1, as built
 
@@ -210,9 +216,12 @@ above are read strictly, and what they can come to is bounded by how oso started
   only if it did not come another way (RC-2).
 - **ADR 0165, part 4d:** Remote Control is turned off before the switch to the TUI.
 - **ADR 0121,** deferred, "anything cloud or remote": this one thing.
-- **ADR 0176,** "What runs natively there": an orchestrator can be connected, once what its
-  tools ask is decided. ADR 0135's unasked starts and ADR 0179's unasked archives stand until
-  that decision, which amends them, as no orchestrator connects before it.
+- **ADR 0176,** "What runs natively there": an orchestrator can be connected, from RC-3 on.
+- **ADR 0135,** "What it covers" and "As built", and **ADR 0153,** "ADR 0135's rule decides whether it
+  asks": a connected session's starts and resumes ask, whatever the setting.
+- **ADR 0121,** Q14 and step 6, `worktree_remove` asks nothing once its checks hold: a connected
+  session's asks.
+- **ADR 0179,** "Asking": a connected session's archive asks, a stopped session's row's too.
 
 ## Consequences
 
@@ -224,8 +233,8 @@ above are read strictly, and what they can come to is bounded by how oso started
     Anthropic's servers, and turning it off deletes nothing. oso's withholding of secrets does
     not reach there.
   - The remote side may read the session's files with no card of oso's (not measured).
-  - Whoever holds the account can send a connected orchestrator a message, and it has the
-    session tools.
+  - Whoever holds the account can send a connected orchestrator a message, and it has the session
+    tools, which then ask the person at oso before they start, remove or archive.
 - oso has no network code still: `claude` connects, as it does for the model.
 - The request is not documented. A CLI that changes it makes the command refuse; one that
   ignores the block is told by the canary.

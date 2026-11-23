@@ -716,7 +716,10 @@ fn a_slow_fix_is_killed_at_its_limit_and_the_text_stays() {
     dictate(&mut app);
     app.wait_for("the fix running", |state| fixes(state) == 1);
     let sleep = scratch.path().join("claude/sleep");
-    app.wait_for("the fake's sleep", |_| sleep.exists());
+    // The shell makes the file, then writes the id and its newline.
+    app.wait_for("the fake's sleep", |_| {
+        fs::read_to_string(&sleep).is_ok_and(|id| id.ends_with('\n'))
+    });
     let pid: u32 = fs::read_to_string(&sleep).unwrap().trim().parse().unwrap();
     assert!(super::harness::process_exists(pid));
     // The limit is 30 s, as long as a wait: most of it passes here.
@@ -912,6 +915,16 @@ fn learned(app: &mut App, scratch: &Scratch, pairs: usize) -> Value {
     }
 }
 
+/// The learning log in the flow's state directory, once it holds each of `parts`. It is replaced
+/// whole, after the record it tells of, or after the last change a pass made.
+fn logged(app: &mut App, scratch: &Scratch, parts: &[&str]) -> String {
+    let file = scratch.path().join("state/dictation/learning.log");
+    app.wait_for("the learning log", |_| {
+        fs::read_to_string(&file).is_ok_and(|log| parts.iter().all(|part| log.contains(part)))
+    });
+    fs::read_to_string(&file).unwrap()
+}
+
 /// `record`'s pair of `wrong` and `right`, as `(fixes, edits, undone)`.
 fn counts(record: &Value, wrong: &str, right: &str) -> (u64, u64, u64) {
     let pair = record["pairs"]
@@ -946,7 +959,7 @@ fn a_fix_that_stood_and_the_persons_rewrite_go_to_the_next_fix_as_history() {
     let record = learned(&mut app, &scratch, 2);
     assert_eq!(counts(&record, "TypeWhisper", "TW"), (1, 0, 0));
     assert_eq!(counts(&record, "from", "to"), (0, 1, 0));
-    let log = fs::read_to_string(scratch.path().join("state/dictation/learning.log")).unwrap();
+    let log = logged(&mut app, &scratch, &[r#""right":"TW""#, r#""right":"to""#]);
     assert_eq!(log.lines().count(), 2, "{log}");
 
     // The next dictation's fix is given both, each `wrong` in the text first.
@@ -964,10 +977,7 @@ fn a_fix_that_stood_and_the_persons_rewrite_go_to_the_next_fix_as_history() {
     assert!(history.contains(&json!({"wrong": "TypeWhisper", "right": "TW", "count": 1})));
     assert!(history.contains(&json!({"wrong": "from", "right": "to", "count": 1})));
     assert_eq!(input["rejected"], json!([]));
-    app.wait_for("the history logged", |_| {
-        fs::read_to_string(scratch.path().join("state/dictation/learning.log"))
-            .is_ok_and(|log| log.contains("\"history\""))
-    });
+    logged(&mut app, &scratch, &[r#""history""#]);
 }
 
 #[test]
@@ -1129,6 +1139,12 @@ fn pairs_learned_often_go_to_typewhispers_dictionary_and_a_forget_takes_back_onl
     });
     assert_eq!(changes(&fake, "PUT"), 2, "once, and never `hello`");
 
+    // The first dictation's pass logs after its changes, and the log is read as it is shown.
+    logged(
+        &mut app,
+        &scratch,
+        &[r#""right":"React""#, r#""right":"TW""#],
+    );
     the_log_is_shown_read_only(&mut app);
 
     // The person makes one of oso's entries theirs: the forget leaves it, and all they had.
@@ -1201,6 +1217,8 @@ fn a_forget_with_typewhisper_gone_takes_its_entries_back_at_the_next_dictation()
         &json!({"terms": ["oso", "React"], "corrections": []}),
     );
     app.wait_for("the fix landed", |state| fixes(state) == 0);
+    // The pass had its answer, and ended, before TypeWhisper goes.
+    logged(&mut app, &scratch, &[r#""right":"React""#]);
 
     fs::remove_file(&fake.discovery).unwrap();
     drop(fake);

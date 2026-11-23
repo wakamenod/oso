@@ -410,6 +410,7 @@ impl App {
             Some(Mark::Approved(_, after)) => plan::mode_after(*after),
             _ => None,
         };
+        self.call_waits(key, id, false);
         if let (Some(mark), Some(native)) = (mark, self.hosting.natives.map.get_mut(&key)) {
             let change = match mark {
                 Mark::Denied(row) => native.rows.denied(id, &row),

@@ -59,6 +59,16 @@ pub struct LineStart {
     state: State,
 }
 
+impl LineStart {
+    /// A reply's start, `lines` lines drawn before its first.
+    pub fn after(lines: usize) -> Self {
+        Self {
+            lines,
+            ..Self::default()
+        }
+    }
+}
+
 /// What the lines so far say of the next.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct State {

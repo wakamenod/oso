@@ -83,8 +83,12 @@ fn recent_files_are_kept_over_a_quit_and_open_from_c_x_c_r_and_c_x_b() {
     assert_eq!(state["buffer"]["name"], "*scratch*");
     assert_eq!(recent_rows(&mut again, 2).len(), 2);
     again.send_keys("RET");
+    // Loaded, so judged: the state withholds a prompt opened beside a file not judged yet until
+    // it closes.
     again.wait_for("plan.md open", |state| {
-        state["buffer"]["name"] == "plan.md" && state["prompts"] == serde_json::json!([])
+        state["buffer"]["name"] == "plan.md"
+            && state["buffer"]["loading"].is_null()
+            && state["prompts"] == serde_json::json!([])
     });
 
     // `C-x b` lists `notes.md` after the buffers, previews nothing of it, and opens it.

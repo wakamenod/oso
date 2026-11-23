@@ -287,7 +287,12 @@ fn the_recorded_turns_are_rows_as_live_ones_are() {
     for row in rows.rows() {
         if let Kind::Tools(tools) = &row.kind {
             assert!(tools.iter().all(|tool| tool.state == ToolState::Done));
-            assert!(row.folded);
+            // But for a change, which is open.
+            let changed = tools.iter().any(|tool| {
+                let result = tool.result.as_ref();
+                result.is_some_and(|result| !result.patch.is_empty())
+            });
+            assert_eq!(row.folded, !changed, "{}", tools[0].name);
         }
     }
     let edit = (rows.rows().iter())
@@ -301,7 +306,7 @@ fn the_recorded_turns_are_rows_as_live_ones_are() {
     assert_eq!(changes.len(), rows.rows().len());
     assert!((changes.iter().enumerate()).all(|(at, change)| *change == RowChange::Added(at)));
     for row in rows.rows() {
-        assert!(render(row, Path::new("/w/proj")).text.ends_with('\n'));
+        assert!(render(row, Path::new("/w/proj"), 80).text.ends_with('\n'));
     }
 }
 

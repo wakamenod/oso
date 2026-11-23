@@ -20,6 +20,7 @@ fn reply(text: &str, depth: u8) -> Row {
         },
         depth,
         folded: false,
+        gap: false,
     }
 }
 
@@ -102,7 +103,7 @@ fn a_fence_s_code_is_its_language_s_or_in_code_s_face() {
     // `fn` is a keyword; the second fence's language gives nothing.
     let runs = project(&row, &marked(text, std::slice::from_ref(&(8..10)))).expect("projected");
     let drawn = tail(&row, LineStart::default()).text;
-    assert_eq!(drawn, "● fn a\n\n  b c\n");
+    assert_eq!(drawn, "  fn a\n\n  b c\n");
     let on_row = laid(drawn.len(), &runs);
     let at = |shown: &str| on_row.at(drawn.find(shown).expect("drawn"));
     assert_eq!(at("fn"), Some(Highlight::Keyword));
@@ -110,11 +111,11 @@ fn a_fence_s_code_is_its_language_s_or_in_code_s_face() {
     assert_eq!(at("b c"), Some(Highlight::String), "code's face");
     // Not parsed yet, all of it is.
     let plain = laid(drawn.len(), &plain(&row).expect("a reply"));
-    assert_eq!(plain.at(4), Some(Highlight::String));
+    assert_eq!(plain.at(2), Some(Highlight::String));
 }
 
 #[test]
-fn an_empty_reply_is_its_mark_alone() {
+fn an_empty_reply_draws_nothing() {
     let row = reply("", 0);
     let runs = project(&row, &Highlights::new(0)).expect("projected");
     check(&row, &Highlights::new(0), &runs);
@@ -134,9 +135,9 @@ fn a_blank_line_has_no_mark_and_no_row_ends_in_a_space() {
     }
     assert_eq!(
         tail(&reply(text, 1), LineStart::default()).text,
-        "  ● A\n\n\n    b\n"
+        "│   A\n│\n│\n│   b\n"
     );
-    assert_eq!(tail(&reply("", 1), LineStart::default()).text, "  ●\n");
+    assert_eq!(tail(&reply("", 1), LineStart::default()).text, "");
 }
 
 #[test]
@@ -149,6 +150,7 @@ fn only_a_whole_reply_within_the_limit_is_highlighted() {
         },
         depth: 0,
         folded: false,
+        gap: false,
     };
     assert_eq!(highlightable(&streaming), None);
     let cut = Row {
@@ -204,7 +206,10 @@ fn plain_is_what_the_row_draws() {
         "```\n```",
     ] {
         for depth in 0..2 {
-            let row = reply(text, depth);
+            let row = Row {
+                gap: depth == 1,
+                ..reply(text, depth)
+            };
             let drawn = tail(&row, LineStart::default());
             let runs = plain(&row).expect("a reply");
             let total: usize = runs.iter().map(|(len, _)| len).sum();
@@ -220,6 +225,7 @@ fn plain_is_what_the_row_draws() {
         kind: Kind::Note("a".into()),
         depth: 0,
         folded: false,
+        gap: false,
     };
     assert_eq!(plain(&note), None);
 }

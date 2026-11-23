@@ -103,7 +103,7 @@ fn a_message_sent_while_a_turn_runs_waits_in_the_queue_and_goes_when_it_ends() {
     flow.scratch.write("release.3", b"");
     let state = app.wait_for("the third reply", |state| text(state).contains("reply 3"));
     let shown = text(&state);
-    assert!(shown.contains("› third"), "{shown}");
+    assert!(shown.contains("〉 third"), "{shown}");
     assert!(!shown.contains("Queued"), "{shown}");
     let _ = app.exchange("exit", None);
     app.wait_for_exit();

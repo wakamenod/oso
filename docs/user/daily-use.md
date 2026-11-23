@@ -724,7 +724,12 @@ Unless `mode = "tui"`, a new session in a trusted project, or a space's new orch
 shows its conversation in `*claude: NAME*` as oso's own rows. In a restricted project it runs in a terminal, where Claude
 Code asks its own trust question. A start with no brief starts at once, with the composer
 under the conversation selected for your first message; a session you end before writing one
-leaves nothing behind. In the session's buffer, `TAB` folds
+leaves nothing behind. Your messages are on a band after `〉`, Claude's replies two columns in, and
+each tool call one row: `▸` folded, `▾` open, `·` with nothing to open, `…` running (`waiting for you` while its card
+asks), `✗` failed or denied. A subagent's rows, and the calls of an opened row of several, have
+a `│` at the left. Only oso's marks stand in the first two columns, so nothing Claude writes passes
+for one. An edit shows open, its first 40 lines numbered, and an open result its first
+12 lines; each turn's time and cost is at the right. In the session's buffer, `TAB` folds
 or unfolds the row at point, `RET` shows a tool call's whole result in `*result: NAME*`, which
 agents cannot read, `w` copies a reply as the Markdown Claude wrote, `n` and `p` move between
 your messages, and `]` and `[` between tool rows. Replies show without their Markdown's marks;

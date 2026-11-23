@@ -71,16 +71,22 @@ fn a_sessions_requests_on_two_connections_are_shown_one_at_a_time_in_turn() {
     let mut asks = Asks::default();
     asks.push(ask(1, 7, "t1", start));
     asks.push(ask(2, 7, "t2", start));
+    assert!(asks.asked().next().is_none(), "none is found yet");
     let found = |ask: &Ask<()>| Look::Found(question(&ask.call.tool_use_id));
     asks.look(start, found);
     let first: Vec<String> = (asks.unshown())
         .map(|a| a.call.tool_use_id.clone())
         .collect();
     assert_eq!(first, ["t1"]);
+    // Both wait for the person, the one shown and the one behind it, until answered.
+    let asked =
+        |asks: &Asks<()>| -> Vec<String> { asks.asked().map(|(_, id)| id.to_owned()).collect() };
+    assert_eq!(asked(&asks), ["t1", "t2"]);
     asks.unshown().next().unwrap().shown = Some(start);
     // The second waits while the first card is shown, and is not shown with it.
     assert!(asks.unshown().next().is_none());
     assert_eq!(asks.take_shown(7).unwrap().call.tool_use_id, "t1");
+    assert_eq!(asked(&asks), ["t2"]);
     let next: Vec<String> = (asks.unshown())
         .map(|a| a.call.tool_use_id.clone())
         .collect();

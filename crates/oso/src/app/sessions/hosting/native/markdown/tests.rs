@@ -76,6 +76,8 @@ pub(in crate::app::sessions::hosting::native) fn native(buffer: BufferId) -> Nat
         buffer,
         rows: Rows::new(PathBuf::from("/w")),
         placed: Placed::default(),
+        width: 80,
+        results: HashMap::new(),
         stream: None,
         first: false,
         spoke: true,
@@ -211,7 +213,7 @@ fn a_reply_is_opened_once_whole_and_its_runs_go_past_its_marks() {
     assert!(setup.opened().is_empty(), "plain while it streams");
     assert_eq!(
         setup.text(),
-        "● Hi\n  some `x`\n",
+        "  Hi\n  some `x`\n",
         "its last line as written"
     );
     // The whole message is what streamed: its last line ended.
@@ -224,23 +226,23 @@ fn a_reply_is_opened_once_whole_and_its_runs_go_past_its_marks() {
     setup.sync(true);
     assert_eq!(setup.opened().len(), 1, "once");
 
-    assert_eq!(setup.text(), "● Hi\n  some x\n");
+    assert_eq!(setup.text(), "  Hi\n  some x\n");
     // What was hidden left its faces at once; the report's lie on the rest.
-    assert_eq!(setup.at(4), Some(Highlight::Heading));
-    assert_eq!(setup.at(9), None);
+    assert_eq!(setup.at(2), Some(Highlight::Heading));
+    assert_eq!(setup.at(7), None);
     assert!(setup.report(key, reported_on(REPLY, 5..9), true));
-    // `● ` is four bytes, and keeps its face, as does the heading.
+    // Its indent is two bytes, and keeps its face, as does the heading.
     assert_eq!(setup.at(0), Some(Highlight::SessionQuiet));
-    assert_eq!(setup.at(4), Some(Highlight::Heading));
-    assert_eq!(setup.at(5), Some(Highlight::Heading));
-    assert_eq!(setup.at(6), None, "a break has none");
+    assert_eq!(setup.at(2), Some(Highlight::Heading));
+    assert_eq!(setup.at(3), Some(Highlight::Heading));
+    assert_eq!(setup.at(4), None, "a break has none");
     assert_eq!(
-        setup.at(7),
+        setup.at(5),
         Some(Highlight::SessionQuiet),
         "the next line's mark"
     );
-    assert_eq!(setup.at(9), Some(Highlight::Keyword), "the report's");
-    assert_eq!(setup.at(14), Some(Highlight::String), "inline code");
+    assert_eq!(setup.at(7), Some(Highlight::Keyword), "the report's");
+    assert_eq!(setup.at(12), Some(Highlight::String), "inline code");
     assert_eq!(setup.stand.0.borrow().closed, vec![key], "closed once done");
     assert!(setup.natives.replies.open.is_empty());
 }
@@ -255,7 +257,7 @@ fn only_the_done_report_of_the_key_it_waits_under_counts() {
         !setup.report(key, reported_on(REPLY, 5..9), false),
         "not done"
     );
-    assert_eq!(setup.at(9), None);
+    assert_eq!(setup.at(7), None);
     // The row is drawn again, with another text: what was asked for it is stale.
     let other = "# Ho\nmore";
     setup.feed(&[whole("m2", other)]);
@@ -263,7 +265,7 @@ fn only_the_done_report_of_the_key_it_waits_under_counts() {
     native.markdown.drawn(0);
     setup.sync(true);
     assert!(!setup.report(key, reported_on(REPLY, 5..9), true), "stale");
-    assert_eq!(setup.at(9), None);
+    assert_eq!(setup.at(7), None);
     let keys: Vec<u64> = setup.opened().iter().map(|(key, ..)| *key).collect();
     assert_eq!(keys.len(), 3, "row 0 again, and row 1: {keys:?}");
     assert!(!keys[1..].contains(&key));
@@ -276,7 +278,7 @@ fn a_reply_that_fails_stays_plain_and_says_nothing() {
     setup.sync(true);
     let key = setup.opened()[0].0;
     assert!(!setup.report(key, Outcome::Failed(Failure::TooSlow), false));
-    assert_eq!(setup.at(9), None);
+    assert_eq!(setup.at(7), None);
     let messages = setup.editor.messages_buffer();
     let said = setup
         .editor
@@ -296,7 +298,7 @@ fn highlights_that_do_not_fit_the_row_leave_it_plain() {
     let key = setup.opened()[0].0;
     // Highlights of another text.
     assert!(!setup.report(key, reported_on("# H", 0..3), true));
-    assert_eq!(setup.at(9), None);
+    assert_eq!(setup.at(7), None);
 }
 
 #[test]
@@ -306,14 +308,14 @@ fn font_lock_off_closes_what_is_open_and_on_lays_faces_and_highlights_again() {
     setup.sync(true);
     let key = setup.opened()[0].0;
     setup.report(key, reported_on(REPLY, 5..9), true);
-    assert_eq!(setup.at(9), Some(Highlight::Keyword));
+    assert_eq!(setup.at(7), Some(Highlight::Keyword));
     // One more waits, and is open, when highlighting turns off.
     setup.feed(&[whole("m2", "two")]);
     setup.sync(true);
     let second = setup.opened()[1].0;
 
     assert!(!setup.sync(false), "the editor dropped them");
-    assert_eq!(setup.at(9), None);
+    assert_eq!(setup.at(7), None);
     assert!(setup.stand.0.borrow().closed.contains(&second));
     assert!(setup.natives.replies.opener.is_none(), "the handle goes");
     assert!(
@@ -325,8 +327,8 @@ fn font_lock_off_closes_what_is_open_and_on_lays_faces_and_highlights_again() {
     // reply is asked for, the newest first, once a handle is back.
     assert!(setup.sync(true), "a frame is due");
     assert_eq!(setup.at(0), Some(Highlight::SessionQuiet), "its mark");
-    assert_eq!(setup.at(4), Some(Highlight::Heading), "its heading");
-    assert_eq!(setup.at(9), None, "the parse's once reported");
+    assert_eq!(setup.at(2), Some(Highlight::Heading), "its heading");
+    assert_eq!(setup.at(7), None, "the parse's once reported");
     assert_eq!(setup.natives.replies.waiting.len(), 2);
     setup.natives.replies.opener = Some(Box::new(setup.stand.clone()));
     setup.sync(true);
@@ -337,7 +339,7 @@ fn font_lock_off_closes_what_is_open_and_on_lays_faces_and_highlights_again() {
     assert_eq!(texts, ["two", REPLY]);
     let key = setup.opened()[3].0;
     setup.report(key, reported_on(REPLY, 5..9), true);
-    assert_eq!(setup.at(9), Some(Highlight::Keyword));
+    assert_eq!(setup.at(7), Some(Highlight::Keyword));
 }
 
 #[test]

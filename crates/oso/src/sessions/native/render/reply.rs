@@ -1,9 +1,9 @@
 //! A reply's row (ADR 0165, "The look: Markdown"): its lines as `shown` reads its Markdown, each
-//! after its mark, from where it grew or whole.
+//! after its indent, from where it grew or whole; its gap's blank line before them.
 //!
 //! Must not depend on: the theme, the UI or files.
 
-use super::{Face, Rendered, blank_mark};
+use super::{Face, GUIDE, Rendered, blank_mark};
 use crate::sessions::native::rows::{Kind, Row};
 use crate::sessions::native::shown::{self, LineStart, Piece};
 use crate::sessions::native::wire::MAX_TEXT;
@@ -27,7 +27,10 @@ pub fn tail(row: &Row, at: LineStart) -> Rendered {
         faces: Vec::with_capacity(grown / 16 + 8),
         calls: Vec::new(),
     };
-    reply_lines(row.depth, text, at, *streaming && !*cut, |mark, pieces| {
+    if at.lines == 0 && row.gap {
+        out.put("\n", None);
+    }
+    reply_lines(row, text, at, *streaming && !*cut, |mark, pieces| {
         out.put(mark, Some(Face::Dim));
         for piece in pieces {
             out.put(piece.text, piece.style.map(Face::Reply));
@@ -36,36 +39,29 @@ pub fn tail(row: &Row, at: LineStart) -> Rendered {
     });
     if *cut {
         out.put(
-            &format!(
-                "{}  … cut at {} MiB\n",
-                "  ".repeat(usize::from(row.depth)),
-                MAX_TEXT >> 20
-            ),
+            &format!("{}… cut at {} MiB\n", reply_indent(row), MAX_TEXT >> 20),
             Some(Face::Dim),
         );
     }
     out
 }
 
-/// Gives `line` each line a reply of `text` at `depth` draws from `at` on: its mark, which is
-/// the line's without its spaces at the end if it is empty, and its pieces. A reply that draws
-/// nothing is its mark alone.
+/// What each line of reply `row` starts with.
+fn reply_indent(row: &Row) -> String {
+    GUIDE.repeat(usize::from(row.depth)) + "  "
+}
+
+/// Gives `line` each line reply `row`, whose text is `text`, draws from `at` on: its indent, for
+/// an empty line without the spaces at its end, and its pieces. An empty reply draws none.
 pub(in crate::sessions::native) fn reply_lines<'a>(
-    depth: u8,
+    row: &Row,
     text: &'a str,
     at: LineStart,
     streams: bool,
     mut line: impl FnMut(&str, &[Piece<'a>]),
 ) {
-    let indent = "  ".repeat(usize::from(depth));
-    let (first, follow) = (format!("{indent}● "), format!("{indent}  "));
-    let mut lines = at.lines;
+    let indent = reply_indent(row);
     shown::walk(text, at, streams, |pieces| {
-        let before = if lines == 0 { &first } else { &follow };
-        line(blank_mark(before, pieces.is_empty()), pieces);
-        lines += 1;
+        line(blank_mark(&indent, pieces.is_empty()), pieces);
     });
-    if lines == 0 {
-        line(blank_mark(&first, true), &[]);
-    }
 }

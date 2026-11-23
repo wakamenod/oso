@@ -10,6 +10,8 @@
 use std::fs;
 use std::path::PathBuf;
 
+use serde_json::{Value, json};
+
 use super::super::super::harness::{App, sockets};
 use super::restart::{idle_in_accept_edits, session_id, show_transcript, transcript_says};
 use super::resume::spoken_and_stopped;
@@ -40,6 +42,19 @@ fn write_lines(flow: &Flow, id: &str, lines: &str) -> PathBuf {
     path
 }
 
+/// The transcript in front, whole: its first turns may be above what the window shows.
+fn whole(app: &mut App) -> String {
+    let text = app.call("get-text", Some(json!({ "start_row": 0, "rows": 1000 })));
+    let rows = text["rows"].as_array().expect("rows");
+    let rows: Vec<&str> = rows.iter().filter_map(|row| row.as_str()).collect();
+    rows.join("\n")
+}
+
+/// Whether the transcript's last row, `row`, is the last the person sees: it opens at its end.
+fn opens_at_its_end(state: &Value, row: &str) -> bool {
+    text(state).trim_end().ends_with(row)
+}
+
 /// Where `row` is in `shown`, which says it.
 fn at(shown: &str, row: &str) -> usize {
     shown
@@ -67,10 +82,10 @@ fn a_native_fork_shows_the_turns_it_copies() {
     assert!(args.contains("arg --fork-session"), "{args}");
     app.wait_for("the fork's composer", in_composer);
     app.send_keys("C-c C-o");
-    let state = app.wait_for("the fork's transcript", |state| {
-        state["buffer"]["name"] != "*claude: proj*" && text(state).contains("Forked from")
+    app.wait_for("the fork's transcript, at its end", |state| {
+        state["buffer"]["name"] != "*claude: proj*" && opens_at_its_end(state, "Forked from proj.")
     });
-    let shown = text(&state);
+    let shown = whole(&mut app);
     let prompt = at(&shown, "Reply with the single word apple.");
     assert!(prompt < at(&shown, "note.txt"), "{shown}");
     assert!(
@@ -97,10 +112,12 @@ fn a_session_resumed_after_a_restart_shows_its_turns_first() {
     flow.wait_for_file("run.2");
     show_transcript(&mut new);
     transcript_says(&mut new, "Resumed after oso-restart.");
-    let state = new.wait_for("the earlier turns", |state| {
-        text(state).contains("Reply with the single word apple.")
+    // Its last turn at the end, then the rest above it.
+    new.wait_for("the earlier turns, at their end", |state| {
+        text(state).contains("plum") && opens_at_its_end(state, "Resumed after oso-restart.")
     });
-    let shown = text(&state);
+    let shown = whole(&mut new);
+    at(&shown, "Reply with the single word apple.");
     let resumed = at(&shown, "Resumed after oso-restart.");
     assert!(at(&shown, "plum") < resumed, "{shown}");
     assert!(at(&shown, "Stopped.") < at(&shown, "apple"), "{shown}");

@@ -2,7 +2,9 @@
 
 Proposals for the native session view of [ADR 0165](adr/0165-native-claude-sessions-the-route.md),
 written on 2026-11-21 at the author's request: the view should be more modern than the author's
-Emacs client (ECC), and the author asked where the room for improvement is. A companion to ADR
+Emacs client (ECC), and the author asked where the room for improvement is. On 2026-11-24 the author
+found the view built so very hard to read, and chose ECC's look with oso's structure: ADR 0165, "The
+rows' look, as built". Where the ADR differs on a row's marks, words or colours, the ADR holds. A companion to ADR
 0165: the author's answers are under "Decisions", and each part moves into [`ui.md`](ui.md) as
 its step is built. A proposal no question covers is still a proposal, settled in its step.
 
@@ -28,7 +30,10 @@ orchestrator:
 - **Slash commands:** the minimal set of section 5. Everything is sent as text; completion leaves
   out the terminal's commands; `/model` and `/effort` complete their argument; oso answers only
   `/btw`, in step 5.
-- **Tool rows:** consecutive reads and searches are grouped into one row (proposal 1, step 1).
+- **Tool rows:** consecutive reads and searches are grouped into one row (proposal 1, step 1), drawn
+  `Read ×3 · a.rs, b.rs, c.rs` since 2026-11-24.
+- **The rows' look** (2026-11-24): ECC's, section 1's points on single rows no longer binding; the
+  structure, the keys, the card, the strip and the review stay as decided here.
 - **Rewind and fork:** fork from a message in step 5; files are not rewound, and `rewind_files`
   stays outside the control requests.
 - **Images** are chips; thumbnails wait for an ADR on drawing images in `oso-render`.
@@ -105,10 +110,10 @@ the rest).
 
 | # | Proposal | Value | Effort | Step |
 |---|---|---|---|---|
-| 1 | **Tool rows as one line:** a status mark, the tool, its target relative to the project, and what came of it (`+4 −2`, `3 lines`, `error`, `denied`). Consecutive reads and searches grouped (`Read 3 files`), unfolded with `TAB`. | H | S | 1 |
-| 2 | **Thinking as one row,** `∴ Thought for 4 s`. The CLI sends no thinking text by default, so the row has nothing to unfold unless it does. | M | S | 1 |
+| 1 | **Tool rows as one line:** a status mark, the tool, its target relative to the project, and what came of it (`+4 −2`, `3 lines`, `error`, `denied`). Consecutive reads and searches grouped (`Read 3 files`), unfolded with `TAB`. Its shape since: mark, badge, name, ` · ` and the rest (ADR 0165, "The rows' look, as built"). | H | S | 1 |
+| 2 | **Thinking as one row,** `∴ Thought for 4 s`. The CLI sends no thinking text by default, so the row has nothing to unfold unless it does. Since: `▸ Thinking · 4 s`. | M | S | 1 |
 | 3 | **A compaction marker:** a full-width rule, `── compacted · 20.2k → 3.9k tokens ──`. | M | S | 1 |
-| 4 | **A turn footer,** dim, right-aligned: `12.3 s · $0.21`, or `✗ interrupted`. | M | S | 1 |
+| 4 | **A turn footer,** dim, right-aligned: `12.3 s · $0.21`, or `✗ interrupted`. Built at the left, and right-aligned since 2026-11-24. | M | S | 1 |
 | 5 | **Sub-agent progress on its row:** the Agent row shows the subagent's description and its live progress line; its own calls are folded one level under it. | M | S | 1 |
 | 6 | **Buffer keys:** `n`/`p` between prompts, `]`/`[` between tool rows, `TAB` folds, `RET` opens a result whole, `w` copies the row (built for a reply, as its raw Markdown); isearch and `M-s l` as in any buffer. The window follows the end unless the person scrolled up; then the modeline says `↓ 3 new` and `M->` goes back. | H | S | 1 |
 | 7 | **Streaming Markdown with highlighting** (decided: a follow-up inside step 1). Built in step 2 (ADR 0165 part 2g): a reply is highlighted once whole, plain while it streams. Amended 2026-11-24 (ADR 0165, "The look: Markdown"): replies are drawn without their Markdown's marks, a line as it ends, with a fence's own highlighting once the reply is whole; `w` copies a reply's raw Markdown, `M-w` what shows. | H | M | 2 |
@@ -132,6 +137,7 @@ and Working (ADR 0136, 0140), searching past conversations (ADR 0145), session s
 
 ## 4. Mockups
 
+As proposed on 2026-11-21; the one drawn now is in ADR 0165, "The rows' look, as built".
 The conversation, at 80 columns, with the sessions pane on the right left out. Illustrative:
 what a row says comes only from what the stream carries.
 

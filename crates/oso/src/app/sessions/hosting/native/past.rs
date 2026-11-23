@@ -24,6 +24,7 @@ use super::{App, Native, draw};
 use crate::sessions::identity::SessionId;
 use crate::sessions::native::past::{Past, PastAsk};
 use crate::sessions::native::render;
+use crate::sessions::native::rows::Kind;
 use crate::sessions::start::NativeOrder;
 use crate::sessions::worker::SessionKey;
 
@@ -156,11 +157,14 @@ fn draw_added(editor: &mut Editor, native: &mut Native, from: usize) {
     let mut runs = Vec::new();
     let mut lengths = Vec::with_capacity(rows.len() - from);
     for (at, row) in rows.iter().enumerate().skip(from) {
-        let rendered = render::render(row, native.rows.directory());
+        let rendered = render::render(row, native.rows.directory(), native.width);
         if rendered.calls.is_empty() {
             native.calls.remove(&at);
         } else {
             native.calls.insert(at, rendered.calls.clone());
+        }
+        if matches!(row.kind, Kind::Result(_)) {
+            native.results.insert(at, native.width);
         }
         let row_runs = rendered.runs();
         // Each row's runs end at its last face: the rest of it is plain.

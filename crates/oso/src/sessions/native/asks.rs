@@ -192,6 +192,13 @@ impl<R> Asks<R> {
         })
     }
 
+    /// The sessions and calls of the requests found, which wait for the person.
+    pub fn asked(&self) -> impl Iterator<Item = (SessionKey, &str)> {
+        (self.waiting.iter())
+            .filter(|ask| ask.question.is_some())
+            .map(|ask| (ask.key, ask.call.tool_use_id.as_str()))
+    }
+
     /// Session `key`'s request whose card is shown, if one is.
     pub fn shown(&self, key: SessionKey) -> Option<&Ask<R>> {
         (self.waiting.iter()).find(|ask| ask.key == key && ask.shown.is_some())

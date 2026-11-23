@@ -1,6 +1,6 @@
 # 0165. Native Claude sessions: the route
 
-- Status: Accepted, amended by 0170, 0173, 0176 and 0180; "Following the end, as amended" and "Remote Control is off, as amended" (2026-11-24)
+- Status: Accepted, amended by 0170, 0173, 0176, 0180 and 0181; "Following the end, as amended" and "Remote Control is off, as amended" (2026-11-24)
 - Date: 2026-11-21
 
 ## Context
@@ -384,7 +384,7 @@ The author answered step 1's questions on 2026-11-21, through the space's orches
   applying, and shows as a denied row.
 - An agent reads a native session's buffer only after the person allowed it, as a terminal's.
 - A tool result is as ADR 0130 has it: one folded row, `TAB` unfolds it, past 200 lines its
-  first and last 50, `RET` shows it whole.
+  first and last 50, `RET` shows it whole. Since "The rows' look, as built", its first 12 lines.
 - A resumed session's buffer starts with one line; its earlier turns are step 5's. Since part
   5a, a resume whose rows hold none of its conversation shows its earlier turns before it.
 - Replies are plain text with the rows' faces in part 1b; Markdown highlighting moved to
@@ -397,14 +397,15 @@ reviews' findings:
   lines, with `wire/messages` for the messages' bodies and `wire/tools` for a tool call's
   input, which is read into a typed value. Nothing past `wire` touches JSON. Tier 2's requests
   go to `wire/control` in step 2.
-- **Rows:** consecutive `Read`, `Grep` and `Glob` calls share a row (`Read 3 files`), as
+- **Rows:** consecutive `Read`, `Grep` and `Glob` calls share a row (`Read 3 files`; since "The rows'
+  look, as built", `Read ×3`), as
   [`native-sessions-ux.md`](../native-sessions-ux.md) decided, at most 50, each call folding
   on its own; never a call that names a path outside the session's directory or one that may
   hold secrets (ADR 0044), which keeps a row of its own (the author's choice).
 - **The person's messages:** a replayed message is shown as the person's only when oso sent its
   text; any other replay is a note, or nothing when a command or a hook wrapped it.
 - **Cost:** a reply that grows is drawn again from its last line only; a result shows at most
-  64 KiB, walking only what it shows; a diff keeps at most 1 MiB; a folded row that shows
+  64 KiB (8 KiB since "The rows' look, as built"), walking only what it shows; a diff keeps at most 1 MiB; a folded row that shows
   nothing new reports no change.
 - **States:** a replayed message or a request is `Working`, a turn's `result` is idle; an
   error result shows in its row, and `failed` stays the exit's. ADR 0121's tracker holds a new
@@ -995,7 +996,7 @@ orchestrator chose (a) on the last. The author accepted the exception to ADR 011
   take their own language as in any Markdown buffer (ADR 0111, step 7). Only the report that
   says it is done counts, once.
 - **On its row:** the row draws each line after a mark (`● `, or two spaces past the first,
-  after its indent), an empty line's without the spaces at its end, so that no row ends in
+  after its indent; since "The rows' look, as built", two spaces on each), an empty line's without the spaces at its end, so that no row ends in
   spaces, which the trailing whitespace aid would show (as for every row's lines); the report's runs are put past each line's mark, which keeps its face, in
   one walk over the lines and the runs (`sessions::native::markdown`), and laid over the row's
   bytes in the buffer's highlights (`Editor::set_internal_highlights`), O(log n) and a step a
@@ -2141,6 +2142,60 @@ transcript holds after them, when the conversation may have gone on elsewhere si
   decoded: hidden under the CLI's start for the median transcript, not measured at the largest.
 - **New public items:** none.
 
+## The rows' look, as built
+
+The author found the transcript very hard to read, and chose on 2026-11-24: the look is ECC's, the
+structure stays oso's. ECC was read as a reference; no code of it is copied. This replaces how a
+row looked after ADR 0130 and steps 1 and 2; what folds, groups and opens stays. oso's marks
+stand in the first two columns, 2 columns left of the author's mock-ups (the space's orchestrator,
+for the reason under "Only oso's rows look so").
+
+- **A blank line** sets a prompt, thinking, a reply, a run of tool rows, a note and a compaction apart.
+  It is the first line of the row after it (`Row::gap`), so a row is still drawn where it is and
+  nothing else. A turn's result follows its turn at once and ends with a blank line. `n`, `p`, `]` and
+  `[` go to a row's first line past it, and on a blank line no key acts on a row.
+- **A prompt** is after `〉`, its other lines in line with it, on a band to the window's edges: the
+  spaces pane's header fill, until a colour of its own.
+- **A reply** has no mark: each line is two columns in.
+- **Thinking** is `▸ Thinking · 4.2 s`, `… Thinking` while it streams.
+- **A tool row** is its mark, a badge of one plain character, its name, then ` · ` and what it works
+  on: `▸ ≡ Read · a.rs  48 lines`. The mark is `▸` folded, `▾` open, `·` with nothing to open, `…`
+  while it runs, `✗` failed or denied, which the row says in words too. Calls share a row as before,
+  as `Read ×3 · a.rs, b.rs, c.rs`. A call that waits for the person says `waiting for you`, until it is
+  answered, also behind another's card.
+- **A nested row,** a subagent's or a call of an open row of several, has oso's guide `│ ` in its
+  first two columns (the space's orchestrator; not in the mock-ups).
+- **A change** is open once it came, after "Added 4 lines, removed 2 lines": at most 40 lines and
+  8 KiB, a number before each, the old file's for a removed line, and added and removed lines
+  on the review's bands; `⋮` between hunks. Folded, its row says `+4 −2`. A later part's `v` opens the
+  review. A hunk with no line is not kept.
+- **A result** shows its first 12 lines, at most 8 KiB, where ADR 0130 and step 1 had 200 lines,
+  else the first and last 50. `RET` shows a result or a change whole, as before.
+- **A turn's result** stands at the right edge of the narrowest window that shows the session, so that
+  it wraps in none. When the width changes, those in view are drawn again, the others as they come
+  into view.
+- **`AskUserQuestion`'s row** shows its first question; its input as JSON is gone. What a request is
+  held against is as it was.
+- **Only oso's rows look so.** Only oso's marks and guides stand in the first two columns of a line, at
+  every depth, whatever a reply, a note, thinking, a result or a change says: a fuzz target holds it.
+  On a tool row and in what it shows, what Claude or a tool says is dim and oso's words are not (a
+  waiting call's, a failure's and a denial's have colours of their own), and runs of spaces in it are
+  one, so it spells no outcome in oso's face. A changed line's number is not in the line's face. A
+  band is drawn where a line starts in a highlight that only `sessions::native::render` gives, in a
+  session's buffer, never from what a text holds; a tool's name is in one that no parser gives. These
+  are `*Spaces*`' highlights, borrowed until the session's own. With `global-font-lock-mode` off there
+  are no bands or faces, and the columns still hold. A wrapped row's columns are "Long lines"'.
+- **Measured** (release, this Mac, other builds running, a throwaway test run twice each way in turn;
+  10,000 rows, about 1,700 edits of 20 lines among them, 2.0 MB of text where it was 0.4; a 60 by
+  100 window that wraps), before and after:
+  - a streamed delta folded and drawn: p50 6.5 and 7.4 µs, p99 10 to 19 and 10 µs;
+  - an edit's result, drawn open now: p50 9.3 and 13.6 µs, p99 10 to 24 and 16 to 23 µs; at its
+    bounds 30 and 87 µs; 1,024 of them in one batch 16 and 23 ms;
+  - a change of 20,000 hunks with no line 44 and 33 µs;
+  - the window's rows laid out: p50 22 and 23 µs, p99 29 to 34 and 27 to 29 µs.
+- **New public items:** none. The session's own colours, its badges', bold and the header and
+  footer are later parts.
+
 ## Long lines, as built
 
 The author found a transcript whose long lines are cut at the window's edge unreadable, and
@@ -2390,6 +2445,9 @@ Each passage stays in its ADR as written; what holds now follows it.
   `quit-when-idle` also cancel a restart that waits, and `oso-restart`, waiting or beginning,
   cancels an exit that waits and resets its guard, so that only one of the two waits (part
   4b).
+- [ADR 0130](0130-agent-chat.md), "each tool call one row (`▸ Edit src/foo.rs`, …)", "a result longer
+  than 200 lines shows its first and last 50" and "each turn's result as a row": kept by reference, as
+  "The rows' look, as built" has them.
 - [ADR 0112](0112-window-splits.md), "An edit in one window moves the others' cursors and tops as
   markers": in a native session's transcript a cursor at the end stays there in every window, and
   the view goes with it. "A buffer a window never showed starts where the window selected most

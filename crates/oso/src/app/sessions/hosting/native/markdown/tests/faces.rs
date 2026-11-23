@@ -55,8 +55,9 @@ fn faces_are_laid_again_for_what_shows_at_once_and_the_rest_in_slices() {
     setup.editor.show(setup.buffer);
     (setup.editor.current_mut().0.selections).move_primary(0);
     setup.editor.follow_cursor();
-    let width = setup.text().len() / replies;
-    let heading = |setup: &Setup, row: usize| setup.at(row * width + 4);
+    // Each row but the first has a blank line before it.
+    let width = setup.text().len().div_ceil(replies);
+    let heading = |setup: &Setup, row: usize| setup.at(row * width + 2);
     let marked = Some(Highlight::Heading);
 
     assert!(setup.sync(true), "a frame is due");
