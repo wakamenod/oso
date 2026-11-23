@@ -39,6 +39,10 @@ pub(in crate::app) enum Outgoing<'a> {
     /// oso's own reference, a kept image's `@PATH` (ADR 0142): as it is, but that it makes no
     /// `@` after it the start of a word (`sessions::send::reference`).
     Reference(&'a str),
+    /// oso's own slash command, `/add-dir PATH` made from a checked path
+    /// (`sessions::send::Command`): as it is, so that it runs as one. A terminal's only: a
+    /// native session's composer is refused it.
+    Command(&'a send::Command),
 }
 
 impl<'a> Outgoing<'a> {
@@ -47,6 +51,7 @@ impl<'a> Outgoing<'a> {
         match self {
             Self::Composed(text) => send::for_claude(text, next),
             Self::Reference(text) => send::reference(text, next),
+            Self::Command(command) => std::borrow::Cow::Borrowed(command.as_str()),
         }
     }
 
@@ -54,6 +59,7 @@ impl<'a> Outgoing<'a> {
     pub(in crate::app) fn len(self) -> usize {
         match self {
             Self::Composed(text) | Self::Reference(text) => text.len(),
+            Self::Command(command) => command.as_str().len(),
         }
     }
 }
@@ -151,6 +157,17 @@ impl App {
         text: String,
     ) -> Result<(), String> {
         let sent = self.paste_into_session(key, Outgoing::Composed(&text), Shown::Session);
+        sent.map(|_| ())
+    }
+
+    /// [`App::paste_into_session`] of oso's own `command`, not escaped, into session `key`'s
+    /// terminal, the session shown and selected in its space.
+    pub(in crate::app) fn send_command(
+        &mut self,
+        key: SessionKey,
+        command: &send::Command,
+    ) -> Result<(), String> {
+        let sent = self.paste_into_session(key, Outgoing::Command(command), Shown::Session);
         sent.map(|_| ())
     }
 

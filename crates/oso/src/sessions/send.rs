@@ -329,7 +329,7 @@ fn hint(text: &str) -> bool {
 
 mod escape;
 
-pub use escape::{for_claude, reference};
+pub use escape::{Command, for_claude, reference};
 
 #[cfg(test)]
 mod tests;

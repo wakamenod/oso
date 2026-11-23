@@ -40,6 +40,10 @@ impl App {
         text: Outgoing<'_>,
         show: bool,
     ) -> Result<BufferId, String> {
+        // `claude -p` runs no `/add-dir`, which the composer's send would carry unescaped.
+        if let Outgoing::Command(_) = text {
+            return Err("A native session takes no slash command of oso's".to_owned());
+        }
         let transcript = (self.hosting.natives.map.get(&key)).map(|native| native.buffer);
         let transcript = transcript.ok_or_else(|| "That session is gone".to_owned())?;
         let id = (self.composer(key)).ok_or_else(|| "The session has no composer".to_owned())?;

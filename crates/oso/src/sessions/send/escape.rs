@@ -22,9 +22,11 @@
 //!   alone ([`reference`]).
 //!
 //! What the person types into a session's input box or composer is never escaped. Text with
-//! nothing to escape is not copied.
+//! nothing to escape is not copied. Nor is oso's own slash command, a [`Command`], which only
+//! this module makes, from a path it checked, so that it runs as a command (ADR 0165, part 2f).
 
 use std::borrow::Cow;
+use std::path::Path;
 
 use oso_core::display_map::cell::is_invisible;
 
@@ -67,6 +69,41 @@ pub fn reference(reference: &str, next: Option<char>) -> Cow<'_, str> {
     }
 }
 
+/// The longest [`Command`]: one the person reads whole in oso's question and in the input box.
+pub const MAX_COMMAND: usize = 512;
+
+/// oso's own slash command for a Claude Code session's input box, as it goes in, not escaped:
+/// `/add-dir PATH` alone. Only [`Command::add_dir`] makes one, so that no other text takes this
+/// way.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Command(String);
+
+impl Command {
+    /// `/add-dir root`, for an orchestrator, while `root` is one line the input box reads as
+    /// it is: an absolute path in UTF-8 with no control or invisible character, no blank but a
+    /// space, none at its end, and no `@` after one, which would put that file in the context;
+    /// the whole within [`MAX_COMMAND`] bytes. `root` must be a repository of the space that
+    /// the person trusts, as the caller checks: this looks at its text only.
+    pub fn add_dir(root: &Path) -> Option<Self> {
+        let text = root.to_str()?;
+        if "/add-dir ".len() + text.len() > MAX_COMMAND {
+            return None;
+        }
+        let plain = |c: char| !c.is_control() && !is_invisible(c);
+        let blank = |c: char| spaces(c) && c != ' ';
+        let ok = root.is_absolute()
+            && text.chars().all(|c| plain(c) && !blank(c))
+            && !text.ends_with(' ')
+            && !text.contains(" @");
+        ok.then(|| Self(format!("/add-dir {text}")))
+    }
+
+    /// The command's text.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 /// Whether `c` is looked through: a terminal's paste drops it (`oso_term::input::paste`), or
 /// it is invisible, as a program may drop it too.
 fn looked_through(c: char) -> bool {
@@ -91,7 +128,9 @@ fn starts_word(before: bool, c: char) -> bool {
 mod tests {
     use std::borrow::Cow;
 
-    use super::{for_claude, reference};
+    use std::path::Path;
+
+    use super::{Command, for_claude, reference};
 
     fn escaped(text: &str) -> String {
         for_claude(text, None).into_owned()
@@ -183,5 +222,37 @@ mod tests {
         assert_eq!(escaped("/x @y"), " /x \\@y");
         let plain = "Fix this error.\nsrc/main.rs:10-20";
         assert_eq!(for_claude(plain, None), Cow::Borrowed(plain));
+    }
+
+    #[test]
+    fn add_dir_is_made_of_a_plain_absolute_path_only() {
+        // Absolute on Unix and on Windows alike.
+        let root = if cfg!(windows) { "C:" } else { "" };
+        let made = |path: &str| {
+            let path = format!("{root}{path}");
+            Command::add_dir(Path::new(&path)).map(|c| c.as_str().to_owned())
+        };
+        let said = |path: &str| Some(format!("/add-dir {root}{path}"));
+        assert_eq!(made("/src/back"), said("/src/back"));
+        assert_eq!(made("/My Projects/a@b"), said("/My Projects/a@b"));
+        assert_eq!(Command::add_dir(Path::new("src/back")), None);
+        let long = format!("/{}", "a".repeat(super::MAX_COMMAND));
+        assert_eq!(made(&long), None);
+        for path in [
+            "/a\n/clear",
+            "/a\r",
+            "/a\t@/etc/hosts",
+            "/a @/etc/hosts",
+            "/a\u{a0}@/etc/hosts",
+            "/a\u{3000}b",
+            "/a\u{2028}b",
+            "/a\u{feff}b",
+            "/a\u{202e}b",
+            "/a\u{200b}b",
+            "/a\u{1b}[2J",
+            "/a ",
+        ] {
+            assert_eq!(made(path), None, "{path:?}");
+        }
     }
 }
