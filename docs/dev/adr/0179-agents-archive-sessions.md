@@ -1,6 +1,6 @@
 # 0179. Agents archive sessions
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-23
 
 ## Context
@@ -26,6 +26,8 @@ check 4), the asking as proposed, the session_rename scope, images kept, the wor
 touched.
 
 ## Decision
+
+The author accepted this ADR on 2026-11-23, through the orchestrator session.
 
 - **`session_archive { session }`,** the session by its id or name from `session_list`. It is a
   `Change` tool of `sessions::tools::TOOLS`, `Asks::UnlessAllowed`, not destructive, for hosted

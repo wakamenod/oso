@@ -1,6 +1,6 @@
 # 0178. A rate limit on the session tools
 
-- Status: Accepted
+- Status: Accepted, amended by 0179
 - Date: 2026-11-23
 
 ## Context
