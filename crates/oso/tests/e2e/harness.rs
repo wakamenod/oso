@@ -521,9 +521,10 @@ impl App {
     /// What a wait that timed out can say of where the time went, for a flake that waited on
     /// a program oso started, such as a fake `claude`: how fast the states came, when each
     /// terminal first showed and first had text, how it stands, the scratch directory's
-    /// executables and when each was written, the instance's processes and the load. Names
-    /// counts and states only, never a terminal's text, and the scratch directory, the
-    /// temporary one and the home as `<scratch>`, `<temp>` and `~`.
+    /// executables and when each was written, the instance's processes and the load. And which
+    /// buffer is current, and each prompt as the state gives it, its rows too, or that the state
+    /// withholds it. Otherwise names counts and states only, never a terminal's text, and the
+    /// scratch directory, the temporary one and the home as `<scratch>`, `<temp>` and `~`.
     fn timeout_report(&self, state: &Value, started: Instant, watch: &Watch) -> String {
         use std::fmt::Write as _;
         let scratch = self.cwd.as_deref().and_then(scratch_of);
@@ -538,6 +539,16 @@ impl App {
             watch.states,
             watch.slowest,
         );
+        let buffer = &state["buffer"];
+        let _ = writeln!(
+            report,
+            "current: {}, secret {}",
+            tidy(&buffer["name"].to_string()),
+            buffer["secret"],
+        );
+        for prompt in state["prompts"].as_array().into_iter().flatten() {
+            let _ = writeln!(report, "{}", tidy(&prompt_report(prompt)));
+        }
         for terminal in state["terminals"].as_array().into_iter().flatten() {
             let name = terminal_name(terminal);
             let seen = watch.terminals.iter().find(|seen| seen.name == name);
@@ -1154,6 +1165,21 @@ fn scratch_of(cwd: &Path) -> Option<&Path> {
         dir.file_name()
             .is_some_and(|name| name.to_string_lossy().starts_with("oso-e2e-"))
     })
+}
+
+/// What a wait that timed out says of `prompt`. One that was open, or opened, while a buffer
+/// that may hold secrets or a file not judged yet was shown has no label in the state for as
+/// long as it is open (ADR 0076), and no rows to wait for.
+fn prompt_report(prompt: &Value) -> String {
+    let mut report = format!("prompt {} {}", prompt["depth"], prompt["kind"]);
+    if prompt["prompt"].is_null() {
+        report.push_str(": withheld, as it was open beside a secret or a file not judged yet");
+        return report;
+    }
+    for key in ["prompt", "text", "message", "completion"] {
+        report.push_str(&format!(", {key} {}", prompt[key]));
+    }
+    report
 }
 
 /// `text` with the scratch directory, the temporary one and the home written as `<scratch>`,
