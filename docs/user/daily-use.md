@@ -687,7 +687,8 @@ a file to attach. Typing `/` in an empty composer, or
 composer. `/clear` is refused there: start a new session instead. If the session
 stops, what is queued stays there: take a message back with `RET`, or drop it with `d`. oso does not
 restart while a composer or a queue holds a message: send, clear or drop it first. While a
-native session has a turn under way, asks you something or is starting, or while git runs,
+native session has a turn under way, asks you something or is starting, or while git or a
+file copy, move or delete runs,
 `M-x oso-restart` waits for it: the echo area names what it waits for, nothing queued is sent
 meanwhile, and the restart begins once all of it has been idle for 2 seconds. `C-g` or
 `C-x C-c` cancels the wait. `M-x session-resume` takes

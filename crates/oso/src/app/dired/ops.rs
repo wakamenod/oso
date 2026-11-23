@@ -292,6 +292,16 @@ impl App {
     }
 
     /// `C-g` asked the operation running to stop.
+    /// The listing whose file operation runs, if one does: a restart that waits waits for it
+    /// (ADR 0165, part 4b), as the restart would end it part way.
+    pub(in crate::app) fn file_operation_running(&self) -> Option<BufferId> {
+        self.dired
+            .ops
+            .running
+            .as_ref()
+            .map(|running| running.buffer)
+    }
+
     pub(in crate::app) fn stop_operation_if_asked(&mut self) {
         if self.editor.take_operation_stop()
             && let Some(worker) = &self.dired.ops.worker

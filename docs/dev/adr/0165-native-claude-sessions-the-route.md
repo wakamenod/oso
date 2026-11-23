@@ -1317,13 +1317,16 @@ The author's (a) on Q4-1: the restart waits without asking, and `C-g` cancels it
   session being started, or held for the configuration's first look (ADR 0173), holds it too,
   as it does an exit that waits. So does a git run, which the restart would end: `oso-restart`
   asks first while git runs (ADR 0127, Q7), but a run that starts while the restart waits would
-  otherwise be ended with no question. Terminals do not hold it: they are carried, their
-  programs running on.
+  otherwise be ended with no question. A dired file operation (ADR 0134) holds it too, as the
+  restart would end it part way. Terminals do not hold it: they are carried, their programs
+  running on. While a file operation runs, `C-g` stops it first, and a second `C-g` cancels
+  the restart. After `oso-restart`'s question about a git run, `y` now waits for that run.
 - **The wait** (`app/restart/wait.rs`). `oso-restart` first checks, as before, that this
   instance may hand over; refused, it says why and waits for nothing. Then, while anything
   holds it, the restart waits with no question: `Editor::set_restart_when_idle` leaves a flag on
   the editor, and the echo area says "oso-restart waits for *claude: NAME* to be idle; C-g
-  cancels", naming the native sessions and git's buffers up to three and counting the rest,
+  cancels", naming the native sessions, git's buffers and the listing of a file operation up
+  to three and counting the rest,
   and "a session starting" for another session. Before the event loop waits, the host looks,
   with nothing allocated: once nothing has held the restart for 2 s straight (ADR 0133's
   `IdleClock` and hold), the restart begins as it would have, and its checks run again. A
@@ -1360,7 +1363,9 @@ The author's (a) on Q4-1: the restart waits without asking, and `C-g` cancels it
   buffer by keys (`dispatch`). End to end (`sessions::native::restart_wait`): a fake whose
   turn waits for a release file holds `oso-restart`, which starts no instance while it waits;
   once released, the new instance takes over; and `C-g` cancels a wait.
-- **Not done:** a mark while the restart waits, other than the echo said once; a test of the
+- **Not done:** a mark while the restart waits, other than the echo said once (an agent's
+  session ending its turn chooses the moment within the hold, and an agent's starts keep it
+  waiting; the person cancels); a test of the
   app's own wiring (the queue held, a refusal once due) beside the end-to-end flows, as the app
   has no harness of its own.
 
@@ -1432,7 +1437,8 @@ Each passage stays in its ADR as written; what holds now follows it.
   `oso-restart` thread": while a native session has a turn under way, asks the person, is
   starting or is being interrupted, the host waits first, with no question, until they have
   been idle for 2 s, and `C-g` or `C-x C-c` cancels the wait (part 4b). Any session starting,
-  ADR 0173's held starts and git's runs hold it too; terminals still do not.
+  ADR 0173's held starts, git's runs and a file operation hold it too; terminals still do
+  not.
 - [ADR 0133](0133-keeping-terminals-over-an-update.md), step 5, as built, "Waiting.": `w` and
   `quit-when-idle` also cancel a restart that waits, and `oso-restart`, waiting or beginning,
   cancels an exit that waits and resets its guard, so that only one of the two waits (part

@@ -1118,7 +1118,7 @@ once the instance going has gone. No socket listens, none of the dev methods shi
 channel is off while the restart is under way.
 
 While a native session has a turn under way, asks the person, is starting or is being
-interrupted, or while git runs, `oso-restart` waits for it first, with no question
+interrupted, or while git or a file operation runs, `oso-restart` waits for it first, with no question
 ([ADR 0165](adr/0165-native-claude-sessions-the-route.md), part 4b): `Editor::restart_when_idle`
 holds the wait, so `C-g` and `C-x C-c` cancel it, and the host begins the restart once
 nothing has held it for 2 s (`app/restart/wait.rs`, with `IdleClock`). Terminals do

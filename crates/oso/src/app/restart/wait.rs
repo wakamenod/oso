@@ -1,5 +1,6 @@
 //! `oso-restart` waits for the native sessions (ADR 0165, part 4b): while one has a turn under
-//! way, asks the person, is starting or is being interrupted, or while git runs, the restart
+//! way, asks the person, is starting or is being interrupted, or while git or a file operation
+//! runs, the restart
 //! waits, with no question, and the echo area names them and says that `C-g` cancels. Once
 //! nothing has held it for the hold (`IdleClock`), with no prompt open, the restart begins as
 //! it would have. Terminals do not hold it, as they are carried. Meanwhile a session's queue
@@ -27,6 +28,7 @@ impl App {
         self.editor.set_restart_when_idle(true);
         let mut holding = self.natives_holding_restart();
         holding.extend(self.editor.git_runs());
+        holding.extend(self.file_operation_running());
         let named = crate::commands::session::names(&self.editor, &holding);
         self.editor
             .message(waiting_for(&named, self.others_starting()));
@@ -61,11 +63,13 @@ impl App {
     }
 
     /// Whether anything holds a restart back, with nothing allocated: a native session, a
-    /// session starting, or git running, which a restart would end (ADR 0127, Q7).
+    /// session starting, or git running or a file operation (ADR 0127, Q7; ADR 0134), which a
+    /// restart would end part way.
     fn restart_held(&self) -> bool {
         self.sessions_starting()
             || self.natives_hold_restart()
             || self.editor.git_runs().next().is_some()
+            || self.file_operation_running().is_some()
     }
 
     /// Whether a session other than a native one, which is named, is being started or waits
