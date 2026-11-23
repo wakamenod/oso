@@ -130,6 +130,9 @@ pub struct Window {
     jumps: Jumps,
     /// The host buffer and slot it is docked under, if it is a docked window (ADR 0170).
     docked: Option<(BufferId, DockSlot)>,
+    /// Whether it was at the end of the native session's transcript it shows as it left the
+    /// frame, or is to start there: it comes in at its end (ADR 0165). Read only as it does.
+    tail: bool,
 }
 
 #[cfg(test)]
@@ -175,6 +178,7 @@ impl Window {
             way_back: Vec::new(),
             jumps: Jumps::default(),
             docked: None,
+            tail: false,
         }
     }
 
@@ -200,7 +204,19 @@ impl Window {
             jumps: self.jumps.clone(),
             // A split of a docked window is a tiled one.
             docked: None,
+            tail: false,
         }
+    }
+
+    /// Notes whether it leaves the transcript it shows at its end, as it leaves the buffer or
+    /// the frame (ADR 0165).
+    pub(crate) fn set_tail(&mut self, tail: bool) {
+        self.tail = tail;
+    }
+
+    /// Whether it left its transcript at its end, taken as it comes back.
+    pub(crate) fn take_tail(&mut self) -> bool {
+        std::mem::take(&mut self.tail)
     }
 
     /// Its name.

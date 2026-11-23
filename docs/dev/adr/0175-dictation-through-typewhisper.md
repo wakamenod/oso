@@ -156,7 +156,7 @@ started, not for its answer. Nothing of a dictation is carried across a restart.
 
 ### Layers and tests
 
-- The `oso` crate's `dictation` module, `dictation::{api, discovery, state, fix, learning}`, on the
+- The `oso` crate's `dictation` module, `dictation::{api, dictionary, discovery, state, fix, learning}`, on the
   lowest line of `guardrails/layers.txt`: it uses nothing of the crate. `app::dictation` carries
   it out; `dispatch::paste_guard` holds the key; `config::dictation` reads `[dictation]`. Where
   the text goes, and its provisional spans, are oso-core's (`editor::dictation`, step 2).
@@ -375,3 +375,90 @@ outside oso; adding to TypeWhisper's dictionary is step 4.
   spans and how every span follows an edit.
 - The dev socket's state says `dictation.watches`. A dev build's end-to-end flow can make the
   watches quick (`OSO_DEV_DICTATION_QUICK`: 1 s, 2 s and 10 s).
+
+## Step 4, as built (2026-11-24)
+
+Promotion runs in the background as learning does: nothing of it is shown, and each change is
+logged.
+
+- **What is promoted:** a pair that stood **3 times, over 2 days or more**, and more often than it
+  was undone. One whose `wrong` is kana and whose `right` is ASCII becomes a **term**; any other a
+  **correction** that matches case.
+- **Never a pair learned only from text typed plain** (`C-u s-d`), the author's decision on
+  2026-11-24, until the same pair is also learned from text a fix saw. Promoting it was decided
+  first, on the ground that TypeWhisper stays on the machine. That does not hold in general:
+  **TypeWhisper's own settings decide where its dictionary goes**. It puts its enabled terms and
+  replacements in the prompts of workflows that use a language model, which may be a cloud one;
+  its terms go to a cloud recogniser; and it can sync its data. So what oso promotes, from fixed
+  text too, may leave the machine through TypeWhisper. A fix sends TypeWhisper's dictionary to
+  Claude as before (step 2), what oso added among it.
+- **Not promoted either:** a `wrong` of one character, or of two when all hiragana or all ASCII, or
+  with no letter; a side that is empty, over 40 characters, starts or ends with a space, or holds
+  a character with other ways to write it (a mark of its own, a ligature, a compatibility
+  ideograph, Hangul), as oso could not tell its entry from another; a change of case only; a
+  `right` that holds its `wrong`; a `wrong` that became other words as often; a pair the person
+  took back; one TypeWhisper has a term or a correction for; and one that would change what
+  another correction gives, or be changed by it.
+- **The calls** go through curl as the rest: `PUT` and `DELETE` of `/v1/dictionary/terms` and
+  `/v1/dictionary/corrections`, with 3 s each, their words in a JSON body in curl's configuration.
+  A term is put with `replace` false, so that nothing else goes.
+- **A pass** over the dictionary is asked for after a dictation was typed and after a watch ended,
+  and runs on the learning's thread. It asks TypeWhisper for nothing unless an entry is to be
+  added or removed, or may have arrived. It reads both lists, checks what oso added, removes, then
+  adds, and **reads the entry's list again before each change**. It starts no change once a
+  dictation is under way, a forget was asked for, or 10 s have passed. A call that fails ends it,
+  nothing is tried twice, and after one that did not go as it should the instance makes no pass
+  for 10 minutes. A list of more than 10,000 entries, or a word over 1 KiB, is not read.
+- **The list of what oso added**, `dictation/typewhisper.json`, is kept as the record is and apart
+  from it, so that a lost record loses no ownership. It is changed only under a lock
+  (`typewhisper.lock`) that one instance of oso holds, and written **before** TypeWhisper is asked
+  for a change. An entry whose call's outcome is not known stays in it as unsure until TypeWhisper
+  gives it, or on a later day does not. Each entry names the TypeWhisper it is in, as its discovery
+  file's path, and only that one's are looked at. **A list oso cannot read, or that is not whole, is
+  left as it is, by a forget too**: nothing is promoted, and oso's log says so.
+- **Whose an entry is:** oso's only while TypeWhisper gives it exactly as oso added it, with no
+  similarity of its own and nothing beside it that a removal, which ignores case and accents, could
+  take instead. One the person changed, disabled or removed is theirs from then on: it leaves the
+  list, and no pair adds that term, or a correction of that word, again, until
+  `dictation-forget-learned` or past the 200 remembered. An empty dictionary, though oso added to
+  it, is believed only once TypeWhisper answers the removal of a term nobody has, as one not loaded
+  refuses it.
+- **At most 40 entries** of one TypeWhisper. One that no dictation used for **30 days** is removed,
+  and one whose pair the person undid as often as it stood, or whose `right` they rewrote to its
+  `wrong` themselves since it was added. When full, the least recently used that was not used
+  today makes room. One oso removed, or TypeWhisper refused, is added again only once its pair is
+  seen again. *Used* means, in a dictation that got a span: the term is in its text, or the
+  correction's `wrong` is in TypeWhisper's `raw_text` and its `right` in the text.
+- **`dictation-forget-learned`** also marks every entry of the list to go and removes them from
+  TypeWhisper, and empties the log's buffer. With no answer from TypeWhisper, the record and the
+  log are gone at once, the echo area says how many entries are left, and they go after the next
+  dictation that finds it, in any instance; the list holds their words until then. Entries the
+  person changed are said and left. It waits up to 30 s for another instance's pass. An empty file,
+  `typewhisper.forget`, says that the list has yet to be marked: if that instance holds it longer,
+  or this one quits, the next pass of any instance marks it, and takes away what was learned
+  meanwhile too. What a forget removes is not logged.
+- **`dictation-learning-log`** (`Person`, refused in keyboard macros as the others) shows the log,
+  newest first, in the internal buffer `*Dictation log*`, withheld from agents, read on a thread of
+  its own. The log also has each entry added, removed, left to the person (`released`) and, once a
+  day for each pair in an instance, not added, each with why.
+- **The public item**, approved by the author on 2026-11-24: `DictationRequest::ShowLog`.
+- **The limit accepted by the author on 2026-11-24:** TypeWhisper's API lists only enabled entries,
+  and its `PUT` enables and writes over a disabled one of the same word. So **a disabled entry the
+  person has for a word oso promotes is written over**, and is oso's to remove from then on; oso
+  cannot see it, and its only other source, the export of every setting, is not read. A removal,
+  which ignores accents, may in the same way take a disabled term that differs by them.
+- **More limits:**
+  - A dictation started by TypeWhisper's own hotkey, or typed with no span (past 4 drawn or 32
+    cursors), counts as no use and starts no pass.
+  - An entry the person adds that is exactly one oso added looks like oso's.
+  - Entries of another discovery path are left until `[dictation] discovery` names it again, a
+    forgotten one too.
+  - Two state directories over one TypeWhisper each take the other's entries for the person's. A
+    list file removed by hand leaves its entries to the person.
+  - A pass that another instance holds the lock through is missed.
+- **The modules:** `dictation::dictionary`, with `matching` (which words TypeWhisper takes for the
+  same), `rules` (what is promoted), `list` (what oso added) and `sync` (a pass, over the
+  transport), and `dictation::learning::view` (the log's text); `app::dictation::promoting` runs
+  passes and keeps the list, and `app::dictation::log_view` shows the log.
+- **`fake-typewhisper`** keeps a dictionary when its script has one, in a file a flow can change as
+  the person would.

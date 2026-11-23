@@ -71,7 +71,7 @@ impl Editor {
         }
         let start = state.current.as_ref().map_or(cursor, |range| range.start);
         let find = if state.backward {
-            let began = state.begin.0.primary().cursor;
+            let began = state.begin.selections.primary().cursor;
             let reach = state
                 .current
                 .as_ref()

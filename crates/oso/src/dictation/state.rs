@@ -60,6 +60,15 @@ pub struct Settings {
     pub max_recording: Duration,
 }
 
+/// What TypeWhisper heard, as it gave it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Heard {
+    /// The text, with its corrections made.
+    pub text: String,
+    /// What was recognised, before them, if it says.
+    pub raw: Option<String>,
+}
+
 /// Why a dictation stopped recording.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Stopped {
@@ -78,8 +87,8 @@ pub enum Event {
     Recording,
     /// It stopped recording, and the text is on its way.
     Waiting(Stopped),
-    /// The text TypeWhisper heard, as it gave it.
-    Text(String),
+    /// The text TypeWhisper heard.
+    Text(Heard),
     /// The dictation ended with no text, and what to say.
     Failed(String),
     /// [`Timing::settle`] has passed since the text came.
@@ -172,7 +181,7 @@ struct Dictation<'r, R: Fn(Event)> {
 enum Progress {
     Recording,
     Processing,
-    Completed(String),
+    Completed(Heard),
     Failed(String),
 }
 
@@ -267,8 +276,8 @@ impl<R: Fn(Event)> Dictation<'_, R> {
         let began = Instant::now();
         loop {
             match self.progress(discovery, id) {
-                Ok(Progress::Completed(text)) => {
-                    (self.report)(Event::Text(text));
+                Ok(Progress::Completed(heard)) => {
+                    (self.report)(Event::Text(heard));
                     return self.settle();
                 }
                 Ok(Progress::Failed(why)) => return self.fail(why),
@@ -348,9 +357,13 @@ fn progress(body: &[u8]) -> Result<Progress, String> {
         Some("processing") => Ok(Progress::Processing),
         Some("completed") => value
             .get("transcription")
-            .and_then(|transcription| transcription.get("text"))
-            .and_then(Value::as_str)
-            .map(|text| Progress::Completed(text.to_owned()))
+            .and_then(|transcription| {
+                let text = |key: &str| Some(transcription.get(key)?.as_str()?.to_owned());
+                Some(Progress::Completed(Heard {
+                    text: text("text")?,
+                    raw: text("raw_text"),
+                }))
+            })
             .ok_or_else(unread),
         Some("failed") => {
             let error = value.get("error").and_then(Value::as_str).and_then(cleaned);

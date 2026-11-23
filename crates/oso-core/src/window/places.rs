@@ -20,6 +20,9 @@ pub struct Place {
     pub selections: SelectionSet,
     /// What the window showed.
     pub scroll: Scroll,
+    /// Whether it was at the end of a native session's transcript, whose end it comes back to
+    /// (ADR 0165).
+    pub(crate) tail: bool,
 }
 
 /// The places of the buffers a window showed before the one it shows, most recent first.
@@ -113,6 +116,7 @@ impl Window {
         let place = Place {
             selections: std::mem::take(&mut self.selections),
             scroll: self.scroll,
+            tail: self.tail,
         };
         places.leave(self.buffer, place);
         let place = places.take(buffer);
@@ -167,6 +171,7 @@ mod tests {
     fn place(cursor: usize) -> Place {
         Place {
             selections: SelectionSet::new(cursor),
+            tail: false,
             scroll: Scroll::default(),
         }
     }

@@ -164,7 +164,8 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   [ADR 0007](adr/0007-multi-cursor.md) and [ADR 0071](adr/0071-mark-and-region.md).
   Every window's cursors follow an edit of the buffer it shows, and those in the
   chunks the edit rebuilt are clipped to display clusters (`display-model.md`). In the selected window a cursor at an insertion ends after
-  it; in others it stays before, as an Emacs marker. Marks follow as markers in
+  it; in others it stays before, as an Emacs marker. In a native session's transcript a cursor
+  at the end stays there in every window, and the view goes with it (ADR 0165). Marks follow as markers in
   every window, and an edit hides the regions.
 - **Edits** go through `Editor::apply_edits`, but for an internal buffer's, which have no undo
   ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)), and a recovered emergency copy's whole text
@@ -270,7 +271,9 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   span stays, undrawn, and `app/dictation/learning.rs` watches the person's own commands that
   change it, a few minutes at most; what a fix and the person's rewrites taught goes to the
   learning record (`dictation::learning`) on a thread of its own, and each later fix is given
-  it as history. While the text is due, the dispatcher holds an `M-v`
+  it as history. The same thread adds what was learned often enough to TypeWhisper's dictionary
+  and takes back only what oso added (`dictation::dictionary`, `app/dictation/promoting.rs`); `dictation-learning-log` shows the log of it
+  (`app/dictation/log_view.rs`). While the text is due, the dispatcher holds an `M-v`
   (`dispatch/paste_guard.rs`) and drops it when the clipboard's types-only look finds
   TypeWhisper's marker, as TypeWhisper pastes the same text itself with Command-V.
 - **Modified state** compares content ids. Each edit gets a new id, undo and redo

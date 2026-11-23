@@ -1,9 +1,10 @@
 //! What dictation learns, in the app (ADR 0175, step 3): each dictation typed outside the
 //! minibuffer and buffers that may hold secrets is watched once it settles, and when the watch
 //! ends what it saw goes to a thread of its own, which keeps the record and the log in oso's
-//! state directory. Nothing of it is shown: learning is silent.
+//! state directory. Learning is silent: only `dictation-learning-log` shows it (`log_view`).
 //!
-//! Must not depend on: how a frame is drawn, or TypeWhisper.
+//! Must not depend on: how a frame is drawn, or TypeWhisper: its dictionary is `promoting`'s,
+//! whose jobs run on the same thread.
 //!
 //! - **A watch** keeps the span (`oso_core::editor`'s dictation), the text as typed, the text
 //!   oso left and the fixes made. It ends [`QUIET`] after the last of the person's commands
@@ -18,6 +19,8 @@
 //! - A fix's thread reads the record itself, for the history (`fix.rs`).
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -26,8 +29,10 @@ use oso_core::editor::DictationSpan;
 use oso_platform::privacy::PrivateDir;
 
 use super::App;
+use super::promoting::{self, Endpoint, Passes, Taken};
 use crate::app::UserEvent;
 use crate::dictation::learning::{self, History, Record, Watched};
+use crate::dictation::state::Heard;
 use crate::sessions::record::{read_file, replace_file};
 
 /// How long after the last of the person's changes to a dictation its watch ends.
@@ -97,16 +102,91 @@ impl Watch {
     }
 }
 
-/// What goes to the learning's thread. Each job but a forget carries how many forgets came
-/// before it was made: one made before the last forget is dropped.
-pub(super) enum Job {
-    /// A watch ended on what it saw, at seconds since the epoch.
-    Watched(Watched, u64, u64),
-    /// A fix was given this history, at seconds since the epoch: logged as counts.
-    History(History, u64, u64),
-    /// The record and the log go, as the forget that many makes; then this is called with
+/// What goes to the learning's thread, when, in seconds since the epoch, and how many forgets
+/// came before it was made: one made before the last forget is dropped.
+pub(super) struct Job {
+    at: u64,
+    made: u64,
+    work: Work,
+}
+
+/// What a job does.
+pub(super) enum Work {
+    /// A watch ended on what it saw.
+    Watched(Watched),
+    /// A fix was given this history: logged as counts.
+    History(History),
+    /// A dictation that was typed heard this: the entries of TypeWhisper's dictionary it used
+    /// are noted (step 4).
+    Heard(Heard),
+    /// A pass over TypeWhisper's dictionary.
+    Promote(Endpoint),
+    /// The record, the log and what oso added to TypeWhisper go; then this is called with
     /// whether they did.
-    Forget(u64, Box<dyn FnOnce(bool) + Send>),
+    Forget(Option<Endpoint>, Box<dyn FnOnce(Forgot) + Send>),
+}
+
+/// What the app tells the learning's thread at once, past the jobs that wait.
+#[derive(Default)]
+pub(super) struct Shared {
+    /// How many forgets this instance asked for.
+    pub(super) forgets: AtomicU64,
+    /// A dictation is under way.
+    pub(super) busy: AtomicBool,
+}
+
+/// Where a fix's thread sends the history it was given.
+#[derive(Clone)]
+pub(super) struct Jobs {
+    jobs: Sender<Job>,
+    made: u64,
+}
+
+impl Jobs {
+    /// Sends `work`, as made when this was.
+    pub(super) fn send(&self, work: Work) -> bool {
+        let job = Job {
+            at: now_secs(),
+            made: self.made,
+            work,
+        };
+        self.jobs.send(job).is_ok()
+    }
+}
+
+/// What came of a forget.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Forgot {
+    /// The record and the log are gone.
+    record: bool,
+    /// What came of TypeWhisper's entries.
+    typewhisper: Taken,
+}
+
+impl Forgot {
+    /// What to say of it.
+    fn said(self) -> String {
+        match (self.record, self.typewhisper) {
+            (false, _) => {
+                "Dictation could not forget what it learned: oso's log says why".to_owned()
+            }
+            (true, Taken::All { kept: 0 }) => "Dictation forgot everything it learned".to_owned(),
+            (true, Taken::All { kept }) => format!(
+                "Dictation forgot everything it learned, and left {kept} you changed in \
+                 TypeWhisper"
+            ),
+            (true, Taken::Left(1)) => "Dictation forgot what it learned; 1 entry goes from \
+                                       TypeWhisper once it answers a dictation"
+                .to_owned(),
+            (true, Taken::Left(left)) => format!(
+                "Dictation forgot what it learned; {left} entries go from TypeWhisper once it \
+                 answers a dictation"
+            ),
+            (true, Taken::Unknown) => "Dictation forgot what it learned, but not what it added to \
+                                       TypeWhisper: oso's log says why"
+                .to_owned(),
+        }
+    }
 }
 
 /// The app's part of learning.
@@ -114,8 +194,7 @@ pub(super) enum Job {
 pub(super) struct Learning {
     watches: Vec<Watch>,
     jobs: Option<Sender<Job>>,
-    /// How many forgets this instance asked for.
-    pub(super) forgets: u64,
+    pub(super) shared: Arc<Shared>,
 }
 
 /// Seconds since the epoch now.
@@ -133,21 +212,32 @@ pub(super) fn directory(state: &Path) -> PathBuf {
 impl App {
     /// The sender of jobs to the learning's thread, which starts on the first: `None` with no
     /// state directory, or if the thread cannot start.
-    pub(super) fn learning_jobs(&mut self) -> Option<Sender<Job>> {
+    pub(super) fn learning_jobs(&mut self) -> Option<Jobs> {
+        let shared = Arc::clone(&self.dictations.learning.shared);
+        let made = shared.forgets.load(Ordering::Relaxed);
         if let Some(jobs) = &self.dictations.learning.jobs {
-            return Some(jobs.clone());
+            let jobs = jobs.clone();
+            return Some(Jobs { jobs, made });
         }
         let directory = directory(&self.hosting.state_directory()?);
         let (jobs, waiting) = mpsc::channel();
         let spawned = thread::Builder::new()
             .name("oso-dictation-learn".into())
-            .spawn(move || run(&directory, &waiting));
+            .spawn({
+                let shared = Arc::clone(&shared);
+                move || run(&directory, &waiting, &shared)
+            });
         if let Err(e) = spawned {
             log::warn!("dictation will learn nothing: {e}");
             return None;
         }
         self.dictations.learning.jobs = Some(jobs.clone());
-        Some(jobs)
+        Some(Jobs { jobs, made })
+    }
+
+    /// Sends `work` to the learning's thread. Says whether it went.
+    pub(super) fn learn(&mut self, work: Work) -> bool {
+        self.learning_jobs().is_some_and(|jobs| jobs.send(work))
     }
 
     /// Watches `span`, whose text was typed as `typed` and left as `left` with the fixes
@@ -241,10 +331,8 @@ impl App {
             current,
             sent: watch.sent,
         };
-        let forgets = self.dictations.learning.forgets;
-        if let Some(jobs) = self.learning_jobs() {
-            let _ = jobs.send(Job::Watched(watched, now_secs(), forgets));
-        }
+        self.learn(Work::Watched(watched));
+        self.promote_learned();
     }
 
     /// Drops every watch, learning nothing from them: as oso exits, or forgets.
@@ -256,55 +344,70 @@ impl App {
 
     /// `dictation-forget-learned`: the fixes under way stop, as `dictation-cancel` stops them,
     /// as each would watch its text; the watches go, then the record and the log, and any job
-    /// made before.
+    /// made before, and what oso added to TypeWhisper's dictionary. The log's buffer empties.
     pub(super) fn forget_dictation_learning(&mut self) {
         if self.stop_dictation_fixes() {
             // A composer's send that waited for a fix does not go with the text unfixed.
             self.drop_held_sends();
         }
         self.drop_dictation_watches();
-        self.dictations.learning.forgets += 1;
-        let forgets = self.dictations.learning.forgets;
-        let Some(jobs) = self.learning_jobs() else {
+        self.empty_dictation_log();
+        if self.hosting.state_directory().is_none() {
             return self
                 .editor
                 .message("Dictation has learned nothing: oso has no state directory");
-        };
+        }
+        // At once, so that a pass under way and the jobs that wait see it.
+        (self.dictations.learning.shared.forgets).fetch_add(1, Ordering::Relaxed);
+        let endpoint = self.typewhisper();
         let waker = self.waker.clone();
         let done = Box::new(move |forgot| {
             waker.send(UserEvent::DictationForgot(forgot));
         });
-        if jobs.send(Job::Forget(forgets, done)).is_err() {
+        if !self.learn(Work::Forget(endpoint, done)) {
             self.editor
                 .message("Dictation could not forget what it learned");
         }
     }
 
-    /// The learning's thread said whether it forgot.
-    pub(in crate::app) fn dictation_forgot(&mut self, forgot: bool) {
-        self.editor.message(if forgot {
-            "Dictation forgot everything it learned"
-        } else {
-            "Dictation could not forget what it learned: the log says why"
-        });
+    /// The learning's thread said what came of a forget.
+    pub(in crate::app) fn dictation_forgot(&mut self, forgot: Forgot) {
+        // It may have been shown again before the log was gone.
+        self.empty_dictation_log();
+        self.editor.message(forgot.said());
         self.request_redraw();
     }
 }
 
 /// The learning's thread: each job in turn, until the app goes. A job that panics loses only
 /// itself, so that learning goes on.
-fn run(directory: &Path, jobs: &Receiver<Job>) {
-    let mut forgotten = 0;
-    while let Ok(job) = jobs.recv() {
-        let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match job {
-            Job::Watched(_, _, made) | Job::History(_, _, made) if made < forgotten => {}
-            Job::Watched(watched, at, _) => learn(directory, &watched, at),
-            Job::History(history, at, _) => {
+fn run(directory: &Path, jobs: &Receiver<Job>, shared: &Shared) {
+    let mut passes = Passes::default();
+    while let Ok(Job { at, made, work }) = jobs.recv() {
+        let forgotten = made < shared.forgets.load(Ordering::Relaxed);
+        let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match work {
+            Work::Forget(endpoint, done) => {
+                let record = forget(directory);
+                let typewhisper = promoting::forget(
+                    directory,
+                    endpoint.as_ref(),
+                    at,
+                    &mut passes,
+                    promoting::FORGET_WAIT,
+                );
+                done(Forgot {
+                    record,
+                    typewhisper,
+                });
+            }
+            _ if forgotten => {}
+            Work::Watched(watched) => learn(directory, &watched, at),
+            Work::History(history) => {
                 append_to_log(directory, &[learning::log_history(&history, at)], at);
             }
-            Job::Forget(forgets, done) => {
-                forgotten = forgotten.max(forgets);
-                done(forget(directory));
+            Work::Heard(heard) => promoting::note_used(directory, &heard, at),
+            Work::Promote(endpoint) => {
+                promoting::promote(directory, &endpoint, at, &mut passes, shared, made);
             }
         }));
         if ran.is_err() {
@@ -339,7 +442,7 @@ fn learn(directory: &Path, watched: &Watched, at: u64) {
 }
 
 /// Adds `lines` to the log at `at`, keeping its last lines of the last month.
-fn append_to_log(directory: &Path, lines: &[String], at: u64) {
+pub(super) fn append_to_log(directory: &Path, lines: &[String], at: u64) {
     let old = match read_file(directory, learning::LOG, learning::MAX_BYTES) {
         Ok(bytes) => bytes.map(|bytes| String::from_utf8_lossy(&bytes).into_owned()),
         Err(e) => return log::warn!("dictation's learning log is not read: {e}"),
@@ -385,6 +488,12 @@ fn forget(directory: &Path) -> bool {
             return false;
         }
     };
+    forget_record(&private)
+}
+
+/// Removes the record and the log from `private`, and what a write left of them: whether none is
+/// there.
+pub(super) fn forget_record(private: &PrivateDir) -> bool {
     let names = [
         learning::FILE,
         learning::PART,
@@ -393,16 +502,18 @@ fn forget(directory: &Path) -> bool {
     ];
     // Each is tried, whatever came of the one before.
     names.iter().fold(true, |all, name| {
-        let gone = match std::fs::remove_file(private.path().join(name)) {
-            Ok(()) => true,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => true,
-            Err(e) => {
-                log::warn!("dictation's learning is not forgotten: {e}");
-                false
-            }
-        };
-        all && gone
+        let gone = remove(private, name)
+            .inspect_err(|e| log::warn!("dictation's learning is not forgotten: {e}"));
+        all && gone.is_ok()
     })
+}
+
+/// Removes the file called `name` from `private`, if it is there.
+pub(super) fn remove(private: &PrivateDir, name: &str) -> std::io::Result<()> {
+    match std::fs::remove_file(private.path().join(name)) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+        _ => Ok(()),
+    }
 }
 
 /// The history the record in `directory` gives a fix of `target` on the day of `at`: none if
