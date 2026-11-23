@@ -7,7 +7,7 @@
 //! Must not depend on: key presses or how a frame is drawn.
 
 use crate::app::{App, UserEvent};
-use crate::sessions::start::{self, Order, Report, Runs};
+use crate::sessions::start::{self, Kind, Order, Report, Runs};
 
 impl App {
     /// Gives `order` to a start thread of its own, or keeps it until the configuration's
@@ -15,7 +15,7 @@ impl App {
     pub(super) fn order_session(&mut self, order: Order) {
         // A native resume whose project's trust waits for the record of trusted projects
         // waits with them (ADR 0165, part 4a).
-        if self.starts_wait() || start::trust::waits(&order) {
+        if self.starts_wait() || start::trust::waits(&order) || start::space_gate::waits(&order) {
             return self.hold_start(move |app| app.order_held_session(order));
         }
         let waker = std::sync::Mutex::new(self.waker.clone());
@@ -71,8 +71,19 @@ impl App {
     fn judge_held_order(&mut self, order: &mut Order) -> Result<(), String> {
         if let Runs::Native(native) = &mut order.runs {
             let (name, directory) = (&order.name, &order.directory);
-            let judged = self.native_resume_trust(name, directory, order.project.as_deref())?;
-            (order.trusted, native.trust) = self.native_judged(order.token, judged);
+            let root = order.project.as_deref();
+            // A space's gate is judged by the conversation a fork copies (ADR 0176).
+            match &order.kind {
+                Kind::Resume(of) | Kind::Fork(of) => {
+                    let of = of.clone();
+                    (order.trusted, native.trust, native.gate) =
+                        self.native_gate_or_trust(order.token, &of, name, directory, root)?;
+                }
+                Kind::New => {
+                    let judged = self.native_resume_trust(name, directory, root)?;
+                    (order.trusted, native.trust) = self.native_judged(order.token, judged);
+                }
+            }
         }
         if order.space.is_some() {
             order.space = self.orchestrator_start_for(order.token)?;

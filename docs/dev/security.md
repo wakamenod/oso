@@ -664,6 +664,17 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   own record has as stopped native sessions, at most 64, in the record's directory and root,
   under the trust judged then, once the instance before has gone, and refused by the start
   thread while the registry has the conversation live.
+- A native session in an issue space's own directory runs under the space's gate, never
+  under a project's trust ([ADR 0176](adr/0176-native-orchestrators.md)): only in an open
+  space's directory that oso made under `[spaces] root`, with the identity it had then, for the
+  space's current or an earlier orchestrator, or a session of the person's there (a fork of
+  one); never one an agent started. Its line adds `--setting-sources=user`, so none of the
+  directory's or its parents' hooks, `.mcp.json` servers, commands or `CLAUDE.md` load; the
+  space's checks run on the start thread before it, as before every start there. No
+  `TrustedRoot` is made for it, so it adds nothing to the session tools' trust and takes no
+  baseline. Until its start thread reports, the UI takes the gate back once the space closed,
+  its directory changed or the session is no longer the space's, and the look before the spawn
+  refuses it.
 - A native session's earlier turns (ADR 0165, part 5a) are read from Claude Code's transcript
   of its conversation once its process is spawned, before its stream: only a regular file of
   this user's with one name under the transcripts' directory, in a project directory that is

@@ -363,6 +363,27 @@ impl Spaces {
         }
     }
 
+    /// Space `at`'s orchestrator `id` forgotten, as it ended before it was given a message, so
+    /// Claude Code keeps no conversation of it: the one before it, if any, is its orchestrator
+    /// again (ADR 0176, the author's Q-O8 (a)). Nothing if `id` is not its orchestrator.
+    pub fn forget_orchestrator(
+        &mut self,
+        at: usize,
+        id: &crate::sessions::identity::SessionId,
+        now: u64,
+    ) {
+        let Some(space) = self.spaces.get_mut(at) else {
+            return;
+        };
+        let stored = &mut space.stored;
+        if stored.orchestrator.as_ref() != Some(id) {
+            return;
+        }
+        stored.orchestrator = stored.earlier.pop();
+        stored.changed = now;
+        self.unsaved = true;
+    }
+
     pub fn set_orchestrator(
         &mut self,
         at: usize,

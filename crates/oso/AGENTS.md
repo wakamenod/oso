@@ -115,7 +115,9 @@ often, so it must rebuild within 2 s.
   by `native/slash.rs` and opened by `dispatch/slash.rs` (part 3c), and its resume, a
   native fork and a native adoption `native/resume.rs`, under the trust `sessions/start/trust.rs` judges, from what
   `app/sessions/hosting/trust.rs` gives it, and by the record on the start thread
-  (ADR 0165, step 2); its whole replies are highlighted as Markdown on the syntax threads, as
+  (ADR 0165, step 2), or in an issue space's own directory under the space's gate
+  `sessions/start/space_gate.rs`, from what `app/sessions/spaces/native.rs` judges (ADR 0176);
+  its whole replies are highlighted as Markdown on the syntax threads, as
   documents no buffer owns, by `app/sessions/hosting/native/markdown.rs`, and their runs put
   on each reply's row by `sessions/native/markdown.rs` (part 2g); its to-do strip is
   `native/todo.rs`, over `sessions/native/todo.rs` and `wire/todo.rs` (part 3e); its switch to

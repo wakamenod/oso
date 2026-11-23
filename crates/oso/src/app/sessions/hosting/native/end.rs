@@ -162,6 +162,8 @@ impl App {
         if let Some(native) = self.hosting.natives.map.remove(&key) {
             self.kill_native_buffers(&native);
         }
+        // An orchestrator's place goes back to the one before it (ADR 0176).
+        self.unspoken_orchestrator_forgotten(key);
         self.forget_started_session(key);
         self.editor.message(format!(
             "Session {name} ended before it was given a message: nothing is left to resume"

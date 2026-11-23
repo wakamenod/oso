@@ -10,7 +10,10 @@ use std::path::Path;
 use oso_core::buffer::BufferId;
 
 use crate::app::App;
+use crate::git::TrustedRoot;
 use crate::sessions::hosted::Run;
+use crate::sessions::identity::SessionId;
+use crate::sessions::start::space_gate::ByGate;
 use crate::sessions::start::trust::ByRecord;
 use crate::sessions::start::{Chosen, Kind, NativeOrder, Order, Runs, TerminalOrder};
 use crate::sessions::worker::SessionKey;
@@ -109,12 +112,11 @@ impl App {
                  to resume: claude starts a new one"
             ));
         }
-        let (trusted, trust) = match native {
-            true => {
-                let judged = self.native_resume_trust(&name, &directory, root.as_deref())?;
-                self.native_judged(key, judged)
+        let (trusted, trust, gate) = match (native, &kind) {
+            (true, Kind::Resume(id)) => {
+                self.native_gate_or_trust(key, id, &name, &directory, root.as_deref())?
             }
-            false => (None, ByRecord::No),
+            _ => (None, ByRecord::No, ByGate::No),
         };
         // An orchestrator's command line is made again from its space as it is now: the CLI
         // keeps neither its `--add-dir`s nor its prompt (ADR 0136, step 3).
@@ -126,6 +128,7 @@ impl App {
         let runs = match native {
             true => Runs::Native(NativeOrder {
                 trust,
+                gate,
                 tui_to_end: self.hosting.table.get(key).and_then(|s| s.tui_process),
                 ..self.resume_native_buffer(key, buffer, shown)
             }),
@@ -154,5 +157,29 @@ impl App {
             space,
         });
         Ok(())
+    }
+
+    /// What native start `key`, `name`, of conversation `of` (its own, or the one a fork
+    /// copies) runs under in `directory`, of the project at `root`: its space's gate in a
+    /// space's directory (ADR 0176), else its project's trust (ADR 0165, part 4a), each kept
+    /// to be taken back until it starts.
+    ///
+    /// # Errors
+    ///
+    /// Why it does not run natively there.
+    pub(in crate::app::sessions::hosting) fn native_gate_or_trust(
+        &mut self,
+        key: SessionKey,
+        of: &SessionId,
+        name: &str,
+        directory: &Path,
+        root: Option<&Path>,
+    ) -> Result<(Option<TrustedRoot>, ByRecord, ByGate), String> {
+        if let Some(gate) = self.native_space_gate(key, of, name, directory) {
+            return Ok((None, ByRecord::No, gate?));
+        }
+        let judged = self.native_resume_trust(name, directory, root)?;
+        let (trusted, trust) = self.native_judged(key, judged);
+        Ok((trusted, trust, ByGate::No))
     }
 }

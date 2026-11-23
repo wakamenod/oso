@@ -11,6 +11,7 @@ mod handover;
 mod lists;
 mod members;
 mod naming;
+mod native;
 mod new_space;
 mod orchestrator;
 
@@ -99,6 +100,8 @@ pub(in crate::app) struct SpaceWork {
     /// The directories each session being started also reads, until it is in the table.
     pub(in crate::app) reads:
         HashMap<crate::sessions::worker::SessionKey, Vec<crate::sessions::spaces::Member>>,
+    /// The gates of native starts under way in spaces' directories (ADR 0176).
+    gates: native::SpaceGates,
 }
 
 impl SpaceWork {

@@ -579,10 +579,12 @@ fn a_space_takes_a_repository_open_once_and_up_to_sixteen() {
 /// restricted one until their trust (ADR 0161, Q5).
 #[test]
 fn the_reply_says_what_reads_the_added_repository() {
-    assert_eq!(add_dir(false, true, true), AddDir::WaitsForTrust);
-    assert_eq!(add_dir(true, true, false), AddDir::Given);
-    assert_eq!(add_dir(true, false, true), AddDir::Offered);
-    assert_eq!(add_dir(true, false, false), AddDir::NotOffered);
+    assert_eq!(add_dir(false, true, true, false), AddDir::WaitsForTrust);
+    assert_eq!(add_dir(true, true, false, false), AddDir::Given);
+    assert_eq!(add_dir(true, false, true, false), AddDir::Offered);
+    assert_eq!(add_dir(true, false, false, false), AddDir::NotOffered);
+    let native = add_dir(true, false, true, true);
+    assert_eq!(native, AddDir::NextResume);
     let note = AddDir::Offered.note("/r/web");
     assert!(
         note.contains("/add-dir /r/web") && note.contains("ask them"),

@@ -235,13 +235,17 @@ impl App {
     }
 
     /// The repository the project commands use from `buffer` when it is a space's
-    /// orchestrator's ([`repo::for_commands`]); `None` for another buffer. A buffer of that
-    /// repository must be open for the command to find it as a project.
+    /// orchestrator's ([`repo::for_commands`]): its terminal, its native transcript or that
+    /// one's composer (ADR 0176); `None` for another buffer. A buffer of that repository must
+    /// be open for the command to find it as a project.
     pub(in crate::app) fn orchestrator_repository(
         &self,
         buffer: BufferId,
     ) -> Option<Result<PathBuf, String>> {
-        let session = self.hosting.table.by_buffer(buffer)?;
+        let session = match self.composer_session(buffer) {
+            Some(key) => self.hosting.table.get(key)?,
+            None => self.hosting.table.by_buffer(buffer)?,
+        };
         let spaces = self.watch.spaces();
         let stored = spaces.stored(spaces.orchestrated_by(&session.id)?)?;
         let trusted: Vec<&Path> = (stored.members.iter())

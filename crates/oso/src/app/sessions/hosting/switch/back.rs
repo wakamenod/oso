@@ -25,6 +25,7 @@ use oso_term::End;
 
 use crate::app::App;
 use crate::sessions::hosted::{Run, TuiProcess};
+use crate::sessions::identity::SessionId;
 use crate::sessions::native::switch::{Then, TuiAt};
 use crate::sessions::start::trust::NotTrusted;
 use crate::sessions::worker::SessionKey;
@@ -47,8 +48,12 @@ impl App {
             pid,
             held: self.native_resume_held(key),
         };
-        let (directory, root) = (session.directory.clone(), session.root.clone());
-        if let Err(why) = self.switch_trust(name, &directory, root.as_deref()) {
+        let (id, directory, root) = (
+            session.id.clone(),
+            session.directory.clone(),
+            session.root.clone(),
+        );
+        if let Err(why) = self.switch_trust(name, &id, &directory, root.as_deref()) {
             return self.editor.message(why);
         }
         match self.hosting.natives.switches.hand_to_native(key, &at) {
@@ -82,14 +87,20 @@ impl App {
         }
     }
 
-    /// Why session `name`, in `directory` of the project at `root`, does not come back
-    /// natively, if it does not: its project not trusted now for a native session.
+    /// Why session `name`, conversation `id`, in `directory` of the project at `root`, does
+    /// not come back natively, if it does not: its project not trusted now for a native
+    /// session, or in a space's directory, its space's gate refused (ADR 0176).
     fn switch_trust(
         &self,
         name: &str,
+        id: &SessionId,
         directory: &Path,
         root: Option<&Path>,
     ) -> Result<(), String> {
+        if let Some(gate) = self.space_gate_now(id, directory) {
+            return gate
+                .map_err(|why| format!("Session {name} stays in the TUI, as it {}", why.reason()));
+        }
         let why = match self.native_trust_listed(directory, root) {
             Ok(_) => return Ok(()),
             Err(NotTrusted::NotOpen) => {
@@ -149,14 +160,15 @@ impl App {
             self.hosting.natives.switches.over(key);
             return;
         };
-        let (name, directory, root, terminal) = (
+        let (name, id, directory, root, terminal) = (
             session.name.clone(),
+            session.id.clone(),
             session.directory.clone(),
             session.root.clone(),
             session.buffer,
         );
         // Judged again now: a project no longer trusted keeps its session in the TUI.
-        if let Err(why) = self.switch_trust(&name, &directory, root.as_deref()) {
+        if let Err(why) = self.switch_trust(&name, &id, &directory, root.as_deref()) {
             self.hosting.natives.switches.over(key);
             return self.editor.message(why);
         }

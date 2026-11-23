@@ -143,19 +143,34 @@ impl App {
         true
     }
 
-    /// Starts fork `key`, `name`, natively in a new buffer, as [`App::start_native_new`]
-    /// does. It starts with `forked`, what the native session it copies holds: its permission
-    /// mode state, as that session's next process would (part 3b), and the model and effort
-    /// chosen there (part 3c).
+    /// Starts fork `key`, `name`, of conversation `from`, natively in a new buffer, as
+    /// [`App::start_native_new`] does, or in a space's directory under its gate, judged by
+    /// `from` (ADR 0176). It starts with `forked`, what the native session it copies holds:
+    /// its permission mode state, as that session's next process would (part 3b), and the
+    /// model and effort chosen there (part 3c).
     pub(in crate::app::sessions::hosting) fn start_native_fork(
         &mut self,
         key: SessionKey,
+        from: &SessionId,
         name: &str,
         directory: &Path,
         root: Option<&Path>,
         forked: Option<Forked>,
     ) -> Option<(NativeOrder, Option<TrustedRoot>)> {
-        let (mut order, trusted) = self.start_native_new(key, name, directory, root, true)?;
+        let gate = match self.configuration.native_sessions() {
+            true => self.native_space_gate(key, from, name, directory),
+            false => None,
+        };
+        let (mut order, trusted) = match gate {
+            // No gate there: a terminal.
+            Some(gate) => {
+                let gate = gate.ok()?;
+                let order =
+                    self.native_session_buffer(key, name, directory.to_path_buf(), true, None);
+                (NativeOrder { gate, ..order }, None)
+            }
+            None => self.start_native_new(key, name, directory, root, true)?,
+        };
         if let (Some(forked), Some(native)) = (forked, self.hosting.natives.map.get_mut(&key)) {
             native.mode = forked.mode;
             order.permission_mode = native.mode.for_start();
@@ -220,9 +235,11 @@ impl App {
         directory: &Path,
         root: Option<&Path>,
     ) -> bool {
-        // Judged only while the record is unread, which copies nothing of it.
+        // Judged only while the record is unread, which copies nothing of it; a space's
+        // directory is judged by its space (ADR 0176).
         self.configuration.native_sessions()
             && matches!(self.trust_record(), TrustRecord::Unread)
+            && !self.is_space_directory(directory)
             && matches!(self.native_trust_listed(directory, root), Ok(Judged::Waits))
     }
 }

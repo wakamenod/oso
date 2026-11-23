@@ -88,7 +88,7 @@ pub(super) fn flow(test: &str) -> Flow {
 }
 
 /// The arguments run `n` logged.
-fn args(flow: &Flow, n: usize) -> Vec<String> {
+pub(super) fn args(flow: &Flow, n: usize) -> Vec<String> {
     let run = flow.wait_for_file(&format!("run.{n}"));
     run.lines()
         .filter_map(|line| line.strip_prefix("arg "))
@@ -97,7 +97,7 @@ fn args(flow: &Flow, n: usize) -> Vec<String> {
 }
 
 /// The value of `--NAME=` in `args`.
-fn flag<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
+pub(super) fn flag<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
     let prefix = format!("--{name}=");
     args.iter()
         .find_map(|arg| arg.strip_prefix(prefix.as_str()))
@@ -143,7 +143,7 @@ fn wait_for_record(project: &Path, what: &str, holds: impl Fn(&[Value]) -> bool)
 }
 
 /// The rows of every terminal the state has.
-fn screen(state: &Value) -> String {
+pub(super) fn screen(state: &Value) -> String {
     (state["terminals"].as_array().into_iter().flatten())
         .flat_map(|terminal| terminal["rows"].as_array().into_iter().flatten())
         .filter_map(Value::as_str)

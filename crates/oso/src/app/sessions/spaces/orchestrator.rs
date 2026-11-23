@@ -376,6 +376,11 @@ impl App {
         let Some(key) = self.live_orchestrator(at) else {
             return false;
         };
+        // A native one takes no `/add-dir` (`claude -p` has none): its next resume is given
+        // the repository (ADR 0176).
+        if self.hosting.natives.has(key) {
+            return false;
+        }
         let Some(stored) = self.watch.spaces().stored(at) else {
             return false;
         };

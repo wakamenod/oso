@@ -18,6 +18,13 @@ use crate::git::TrustedRoot;
 use crate::sessions::start::trust::{self, ByRecord, Judged, NotTrusted, TrustRecord};
 use crate::sessions::worker::SessionKey;
 
+impl super::Hosting {
+    /// Whether start `key` is under way: ordered, held or not, until its start thread reports.
+    pub(in crate::app) fn start_under_way(&self, key: SessionKey) -> bool {
+        self.starting.contains_key(&key)
+    }
+}
+
 impl App {
     /// The trust of the project at `root` as an open buffer of it has it now: `None` when no
     /// buffer has it open, `Some(None)` when it is not trusted.
@@ -106,12 +113,15 @@ impl App {
     /// Forgets what was kept of start `token`'s trust: its start thread reported.
     pub(in crate::app::sessions::hosting) fn native_start_reported(&mut self, token: SessionKey) {
         self.hosting.native_trusts.remove(&token);
+        self.space_gate_reported(token);
     }
 
     /// Takes back the trust of each native resume or fork under way whose project is no
     /// longer trusted, by an open buffer of it or the record: its start thread refuses it at
     /// its look before the spawn. What started or was refused is forgotten. After each event.
     pub(in crate::app) fn revoke_untrusted_native_starts(&mut self) {
+        // Those in spaces' directories, by their spaces (ADR 0176).
+        self.revoke_space_gates();
         if self.hosting.native_trusts.is_empty() {
             return;
         }

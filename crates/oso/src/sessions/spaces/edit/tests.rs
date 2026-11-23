@@ -441,3 +441,27 @@ fn a_summarys_names_are_taken_unique_the_slug_only_while_there_is_no_directory()
     let names = spaces.take_names(a, (Some("other"), Some("ログイン 🔧")), &no_session, 4);
     assert_eq!(names, Some(("oso".to_owned(), "ログイン 🔧 2".to_owned())));
 }
+
+/// An orchestrator forgotten with no conversation gives its place back to the one before it
+/// (ADR 0176, Q-O8 (a)); forgetting another session changes nothing.
+#[test]
+fn a_forgotten_orchestrator_gives_its_place_back_to_the_one_before() {
+    let mut spaces = Spaces::default();
+    let stored = Stored::of_repository(id(1), "api".into(), Member::at(Path::new("/src/api")), 1);
+    spaces.recall(vec![stored], Vec::new(), false);
+    let session = |n: u8| crate::sessions::identity::SessionId::from_random([n; 16]);
+    let (first, second) = (session(1), session(2));
+    spaces.set_orchestrator(0, first.clone(), 2);
+    spaces.set_orchestrator(0, second.clone(), 3);
+    spaces.forget_orchestrator(0, &first, 4);
+    assert_eq!(
+        spaces.stored(0).unwrap().orchestrator.as_ref(),
+        Some(&second)
+    );
+    spaces.forget_orchestrator(0, &second, 5);
+    let stored = spaces.stored(0).unwrap();
+    assert_eq!(stored.orchestrator.as_ref(), Some(&first));
+    assert!(stored.earlier.is_empty());
+    spaces.forget_orchestrator(0, &first, 6);
+    assert_eq!(spaces.stored(0).unwrap().orchestrator, None);
+}
