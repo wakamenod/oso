@@ -491,6 +491,7 @@ mod status;
 mod suggest;
 mod switch;
 mod todo;
+mod wrap;
 
 /// The selected window, if it is the composer docked under a session.
 fn selected_composer(state: &Value) -> Option<&Value> {

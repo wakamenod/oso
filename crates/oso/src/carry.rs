@@ -33,7 +33,7 @@
 //! leaves the new instance clean, and the old one is kept.
 
 use oso_core::buffer::{Buffer, BufferId, Verdict};
-use oso_core::editor::Editor;
+use oso_core::editor::{Editor, SCRATCH};
 
 use self::handed::{Handed, handed};
 use oso_core::frame::Tiling;
@@ -312,8 +312,9 @@ fn buffer_state(id: BufferId, buffer: &Buffer, items: &mut Vec<Item>) -> Result<
     }
     // What waits for the person, only when something does (ADR 0118, Q8).
     waits::export(buffer, &mut entry);
-    // Also only when true (ADR 0100).
-    if buffer.wraps() {
+    // Also only when true (ADR 0100), and only of a buffer that comes back: the entry of one
+    // with no path, such as a composer's, stands for `*scratch*`.
+    if buffer.wraps() && (path.is_some() || buffer.name() == SCRATCH) {
         entry["wraps"] = Value::Bool(true);
     }
     Ok(entry)

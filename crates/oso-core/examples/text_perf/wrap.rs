@@ -302,6 +302,80 @@ pub(super) fn screen_costs() {
     }
 }
 
+/// Times a native session's transcript of `rows` rows, half of them Japanese, in a window at
+/// its end, as the app draws a stream: 2,000 changes, each drawing the reply's last line again
+/// about `piece` bytes longer, a new line each 200, with its rewrap, the frame's rows and its
+/// job asked for, whose report comes back before the next. Then bringing it back into the
+/// window, and narrowing it.
+fn transcript(rows: usize, piece: usize, wraps: bool) {
+    let mut editor = Editor::default();
+    editor.set_view_size(ViewSize::new(60, COLUMNS));
+    let id = editor.add_native_session_buffer("*claude: perf*");
+    let mut rng = Lcg(17);
+    let mut past = String::new();
+    for row in 0..rows {
+        let reply = varied_line(20 + rng.below(600), row % 2 == 0);
+        past.push_str("● ");
+        past.push_str(&reply);
+        past.push('\n');
+    }
+    editor.replace_native_rows(id, 0..0, &past, &[(past.len(), None)]);
+    editor.set_wraps(id, wraps);
+    let (_, shown) = time(|| editor.show(id));
+    editor.restore_positions(SelectionSet::new(past.len()), Scroll::default());
+    editor.follow_cursor();
+    let run_jobs = |editor: &mut Editor| {
+        for job in editor.take_wrap_jobs() {
+            if let Some(report) = job.run() {
+                editor.take_wrap_report(report);
+            }
+        }
+    };
+    run_jobs(&mut editor);
+    let mut screen = Screen::default();
+    let mut samples = Vec::new();
+    let (mut line, mut len) = (past.len(), past.len());
+    for step in 0..2000 {
+        // In whole sentences, so that each change ends at a character's end.
+        let mut grown = line_of("word and 日本語の文章、", 30 + (step % 200 + 1) * piece);
+        let ends = step % 200 == 199;
+        if ends {
+            grown.push('\n');
+        }
+        let start = Instant::now();
+        editor.refill_wraps();
+        editor.replace_native_rows(id, line..len, &grown, &[(grown.len(), None)]);
+        editor.screen(black_box(&mut screen));
+        samples.push(start.elapsed());
+        len = line + grown.len();
+        if ends {
+            line = len;
+        }
+        run_jobs(&mut editor);
+    }
+    let (p50, p99) = percentiles(&mut samples);
+    let other = editor.add_buffer(Buffer::from_text("other", ""));
+    editor.show(other);
+    let (_, back) = time(|| editor.show(id));
+    let (_, narrower) = time(|| editor.set_view_size(ViewSize::new(60, COLUMNS - 20)));
+    let how = if wraps { "wrapped" } else { "truncated" };
+    println!(
+        "transcript {rows:>6} rows +{piece:<4} {how:>9}  {:>5.1} MB  shown {shown:>9.2?}  streamed p50 {p50:>9.2?} p99 {p99:>9.2?}  back {back:>9.2?}  narrower {narrower:>9.2?}",
+        len as f64 / MB as f64,
+    );
+}
+
+/// The timings of a native session's transcript, alone (`text_perf -- transcript`), and after
+/// the rest of soft wrap's.
+pub(super) fn transcript_costs() {
+    // Lines of a few KiB, and of 64 KiB, the most a reply's row takes.
+    for (rows, piece) in [(100, 16), (10_000, 16), (10_000, 330)] {
+        for wraps in [false, true] {
+            transcript(rows, piece, wraps);
+        }
+    }
+}
+
 /// Every timing of soft wrap; with `1g`, wrapping 1 GB of source too.
 pub(super) fn wrap_costs() {
     println!("== Soft wrap");
@@ -360,4 +434,6 @@ pub(super) fn wrap_costs() {
     }
     println!();
     screen_costs();
+    println!();
+    transcript_costs();
 }

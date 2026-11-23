@@ -70,3 +70,23 @@ fn a_plans_edit_is_left_behind_unless_the_person_changed_it() {
     assert!(refused.contains("*plan: s*"), "{refused}");
     assert!(!refused.contains("pelican"), "{refused}");
 }
+
+/// A composer wraps (ADR 0165), and its entry stands for `*scratch*`, which it must not wrap.
+#[test]
+fn a_composer_that_wraps_leaves_the_scratch_buffer_as_it_is() {
+    use oso_core::buffer::Mode;
+    let export = |editor: &Editor| crate::carry::export_value(editor, &[], None, None).unwrap();
+    let mut editor = Editor::default();
+    let scratch = editor.window().buffer();
+    let mut composer = Buffer::from_text("*compose: s*", "");
+    composer.set_mode(Mode::Composer);
+    let composer = editor.add_buffer(composer);
+    editor.set_wraps(composer, true);
+    let state = crate::carry::parse(&export(&editor)).unwrap();
+    assert!(state.buffers.iter().all(|entry| !entry.wraps));
+    // Its own setting still goes.
+    editor.set_wraps(scratch, true);
+    let exported = export(&editor);
+    assert_eq!(exported["buffers"][0]["wraps"], true);
+    assert!(exported["buffers"][1].get("wraps").is_none());
+}

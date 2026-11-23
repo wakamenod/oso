@@ -2063,6 +2063,30 @@ transcript holds after them, when the conversation may have gone on elsewhere si
   decoded: hidden under the CLI's start for the median transcript, not measured at the largest.
 - **New public items:** none.
 
+## Long lines, as built
+
+The author found a transcript whose long lines are cut at the window's edge unreadable, and
+chose on 2026-11-24:
+
+- **A transcript, its composer and `*result: NAME*` wrap from when they are made**
+  ([ADR 0100](0100-soft-wrap.md)), for native sessions only. That covers a start, a resume, a
+  fork, a session brought back, an adoption, a switch from the TUI and the earlier turns.
+- **`toggle-truncate-lines` still turns each off,** and what the person chose stays for as long
+  as that buffer lives: a `*result*` shown again for another call keeps it.
+- **Not the card or the strip,** which oso draws to their window's width: a card that wraps takes
+  no answer (part 2e-2).
+- **The composer's rows** were counted as wrapped since [ADR 0170](0170-docked-windows-under-a-sessions-transcript.md),
+  so its window grew for text that it then cut; now they agree.
+- **A restart** makes these buffers again, wrapped. Their setting is not carried: a composer's
+  entry in the state stands for `*scratch*`, which it must not wrap, and an entry that does not
+  say it wraps leaves the buffer as it is.
+- **Measured** (`text_perf -- transcript`, a 60 by 100 window, M-series Mac): a change of the
+  growing last line, its rewrap and the frame's rows take 0.19 ms at p50 and 0.31 ms at p99
+  wrapped, 0.04 and 0.08 ms truncated, at 100 rows and at 10,000. On a line that grows to
+  64 KiB they take 1.1 and 2.0 ms, 0.35 and 0.71 ms truncated. The window's 10,000 rows come
+  back wrapped in 0.2 ms, the rest on the worker.
+- **New public items:** none.
+
 ## Questions
 
 The author chose (a) on each, on 2026-11-21. The options are kept as they were put.
@@ -2181,6 +2205,12 @@ Each passage stays in its ADR as written; what holds now follows it.
   whole as a fork does, before its key is reserved and its buffer made; a second adoption of a
   conversation whose adoption waits is held too, and says "That conversation is being
   adopted" once it goes (part 4e).
+
+- [ADR 0100](0100-soft-wrap.md), "**Off by default, for every buffer (author).**" and "Nothing
+  turns it on by file name; modes do that from M3": except a native session's transcript, its
+  composer and `*result: NAME*`, which wrap from when they are made ("Long lines, as built").
+- ADR 0100, "`oso dev` carries each buffer's setting to the instance that replaces it": not that
+  of a buffer whose entry stands for `*scratch*`, as a composer's.
 
 ## Consequences
 

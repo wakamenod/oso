@@ -297,7 +297,7 @@ fn old_map_slot(map: &mut DisplayMap) -> DisplayMap {
     reason = "a linear script of timed sections, one after another"
 )]
 fn main() {
-    let parts: [(&str, fn()); 10] = [
+    let parts: [(&str, fn()); 11] = [
         ("editorconfig", editorconfig::editorconfig_costs),
         ("words", words::word_motion_costs),
         ("trim", trim::trim_costs),
@@ -306,6 +306,7 @@ fn main() {
         ("highlights", highlights::highlight_costs),
         ("wrap", wrap::wrap_costs),
         ("screen", wrap::screen_costs),
+        ("transcript", wrap::transcript_costs),
         ("indent", indent::indent_costs),
         ("undo", undo::undo_costs),
     ];
