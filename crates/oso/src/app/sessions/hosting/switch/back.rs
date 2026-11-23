@@ -15,7 +15,8 @@
 //!   one.
 //! - Once the terminal said its program ended, after the event (its end is said as its handle
 //!   is dropped), its terminal goes and the session resumes natively in the transcript set
-//!   aside, which takes `*claude: NAME*` back, or after an oso restart a new one. Every native
+//!   aside, which takes `*claude: NAME*` back, or after an oso restart a new one, in each window
+//!   that showed the terminal (the one set aside before the terminal goes). Every native
 //!   resume of a session whose TUI's `claude` may still run waits for it to be gone on its
 //!   start thread (`sessions::start::gone`), whatever stopped the TUI. The record says native
 //!   once the native process started: a resume refused leaves it a TUI session there.
@@ -173,7 +174,18 @@ impl App {
             self.hosting.natives.switches.over(key);
             return self.editor.message(why);
         }
-        // Its TUI's terminal, whose program ended, goes; it no longer holds the session.
+        // Its TUI's terminal, whose program ended, goes; it no longer holds the session. The
+        // windows that showed it show the transcript instead: the one set aside before the
+        // terminal goes, so that no window passes through what a kill would show.
+        let windows = match terminal {
+            Some(terminal) => super::tree_windows_showing(&self.editor, terminal),
+            None => Vec::new(),
+        };
+        if let Some(aside) = self.hosting.natives.aside_buffer(key) {
+            for &id in &windows {
+                self.editor.show_in(id, aside);
+            }
+        }
         if let Some(session) = self.hosting.table.get_mut(key) {
             session.buffer = None;
         }
@@ -181,7 +193,9 @@ impl App {
             self.editor.kill_buffer(terminal);
         }
         if !self.take_back_aside(key, &name) {
+            // After a restart, no transcript was set aside: a new one, shown once it is there.
             self.bring_back_native(key);
+            self.show_session_in(key, &windows);
         }
         if let Err(why) = self.resume_hosted(key, true) {
             self.hosting.natives.switches.over(key);

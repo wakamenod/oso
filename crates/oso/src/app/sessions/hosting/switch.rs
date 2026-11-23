@@ -14,12 +14,17 @@
 //!   ADR 0121's screen rules and the tracker's screen entry take over from its start, and
 //!   agents read its terminal only once the person lets them, as any session's. A stopped
 //!   session is handed at once.
+//! - Either way, each window of the frame's tree that showed the session shows it in its other
+//!   mode, the side window and docked ones apart; the resume then shows it in the selected
+//!   window, as `session-resume` does. The trees kept behind the frame are not changed.
 //! - The TUI may ask Claude Code's own trust question, which `claude -p` skipped.
 //! - A TUI start that is refused leaves the session a stopped TUI one, whose `session-resume`
 //!   starts it again.
 //! - **Back to native** (part 4d-2) is `back`'s.
 
 use oso_core::buffer::BufferId;
+use oso_core::editor::Editor;
+use oso_core::window::{Window, WindowId};
 
 use crate::app::App;
 use crate::sessions::native::switch::{Then, Way};
@@ -88,6 +93,16 @@ impl App {
     /// the record saying `tui`, and the TUI started in a new terminal with what it held. A
     /// start refused at once is said, and the switch is over.
     fn start_tui_for(&mut self, key: SessionKey) {
+        // The windows that showed its transcript show its terminal once it is there.
+        let transcript = self
+            .hosting
+            .table
+            .get(key)
+            .and_then(|session| session.buffer);
+        let windows = match transcript {
+            Some(transcript) => tree_windows_showing(&self.editor, transcript),
+            None => Vec::new(),
+        };
         let Some(chosen) = self.set_native_aside(key) else {
             self.hosting.natives.switches.over(key);
             return;
@@ -100,9 +115,22 @@ impl App {
         self.remember_sessions();
         // A stopped terminal of its own, `*claude: NAME*`, which the resume starts over.
         self.bring_back_stopped(key);
+        self.show_session_in(key, &windows);
         if let Err(why) = self.resume_hosted_with(key, true, Some(chosen)) {
             self.hosting.natives.switches.over(key);
             self.editor.message(format!("The TUI did not start: {why}"));
+        }
+    }
+
+    /// Shows session `key`'s buffer, its other mode's now, in each of `windows`: those that
+    /// showed it, so that a switch leaves no window of a split on another buffer. One that went
+    /// meanwhile shows nothing.
+    fn show_session_in(&mut self, key: SessionKey, windows: &[WindowId]) {
+        let Some(buffer) = (self.hosting.table.get(key)).and_then(|session| session.buffer) else {
+            return;
+        };
+        for &id in windows {
+            self.editor.show_in(id, buffer);
         }
     }
 
@@ -120,5 +148,51 @@ impl App {
         if self.hosting.natives.switches.over(token) == Some(Way::ToTui) && started {
             self.hosting.natives.switches.handed(token);
         }
+    }
+}
+
+/// The windows of the frame's tree that show `buffer`, the side window and docked ones apart
+/// (`carry::tiled_windows`): those a session's buffer follows to its other mode. The trees
+/// kept behind the frame (a zoom's, other spaces', the review's) are not among them.
+fn tree_windows_showing(editor: &Editor, buffer: BufferId) -> Vec<WindowId> {
+    (crate::carry::tiled_windows(editor).into_iter())
+        .filter(|window| window.buffer() == buffer)
+        .map(Window::id)
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use oso_core::buffer::Buffer;
+    use oso_core::editor::Editor;
+    use oso_core::frame::{FrameSize, Way};
+    use oso_core::window::DockSlot;
+
+    use super::tree_windows_showing;
+
+    /// Both halves of a split that show a transcript follow it; its docked composer, and a
+    /// window on another buffer, do not.
+    #[test]
+    fn the_windows_that_follow_a_session_are_the_trees_that_show_it() {
+        let mut editor = Editor::with_buffer(Buffer::from_text("*claude: s*", "one\n"));
+        editor.set_frame_size(FrameSize {
+            rows: 40,
+            columns: 80,
+        });
+        let transcript = editor.window().buffer();
+        let composer = editor.add_buffer(Buffer::from_text("*compose: s*", ""));
+        editor.set_dock(transcript, DockSlot::Composer, Some(composer));
+        let top = editor.window().id();
+        let bottom = editor.split_window(Way::Down, false).unwrap();
+        let other = editor.add_buffer(Buffer::from_text("notes", "x\n"));
+        let third = editor.split_window(Way::Across, true).unwrap();
+        editor.show(other);
+        let docked = editor.dock_window(transcript, DockSlot::Composer).unwrap();
+        let mut shown = tree_windows_showing(&editor, transcript);
+        shown.sort_unstable_by_key(|id| id.get());
+        let mut expected = vec![top, bottom];
+        expected.sort_unstable_by_key(|id| id.get());
+        assert_eq!(shown, expected);
+        assert!(!shown.contains(&docked) && !shown.contains(&third));
     }
 }

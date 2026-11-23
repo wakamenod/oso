@@ -12,7 +12,7 @@ use super::super::super::harness::{App, sockets};
 use super::super::super::spaces::trust_restricted;
 use super::super::super::worktrees::keys;
 use super::switch::{IDLE, switch_back, tui_idle};
-use super::{Flow, answer_after_quiet, card};
+use super::{Flow, answer_after_quiet, card, composer_docked};
 
 /// The fake: run `N` from 1 logs its arguments to `run.N`. With `-p`, it prints `stream.jsonl`
 /// and asks its bridge, `oso mcp --pid PID --permission` as its `--mcp-config` names it, about
@@ -109,6 +109,8 @@ fn a_tui_carried_over_a_restart_and_switched_to_native_asks_the_person() {
         said,
         json!({"behavior": "allow", "updatedInput": {"command": "make"}})
     );
+    // Answered, point goes to the composer, docked under the transcript as a native start's.
+    app.wait_for("the composer docked", composer_docked);
     flow.scratch.write("answered", b"");
     let _ = app.exchange("exit", None);
 }

@@ -1751,7 +1751,9 @@ The author's (a) on Q4-5 to Q4-8 of 2026-11-23, through the space's orchestrator
   nowhere: a later resume of the TUI session, after a refused start, its exit or oso's next
   start, starts as any TUI session does, in the mode the person's Claude Code settings give it
   (ADR 0121), and `session-resume` of it turns the agent channel on, as any session's start
-  does.
+  does. Each window of the frame's tree that showed the transcript shows the terminal, the
+  side window and docked ones apart, and the resume shows it in the selected window, as
+  `session-resume` does; the transcript's docks go with it (ADR 0170).
 - **The transcript** (Q4-5 (a)) is set aside as `*native: NAME*`, its rows and composer kept,
   whole, for part 4d-2 to resume in, with a row "In the TUI since here, in *claude: NAME*." It
   stays read-only and withheld from agents, as every native transcript is, its modeline says
@@ -1838,7 +1840,12 @@ of "One session, and the TUI as a hand-off" (Q3).
   "Stopped. Its conversation is kept by Claude Code." It resumes as `session-resume` resumes a
   native session (part 2b), the composer selected, in the mode, model and effort oso held for
   it from before the hand-off, which the row names; what the person changed in the TUI is not
-  read back, as no stream says it (an item the security review named for the author).
+  read back, as no stream says it (an item the security review named for the author). Each
+  window of the frame's tree that showed the terminal shows the transcript, the one set aside
+  before the terminal goes, so that none passes through what a kill would show, or the new
+  one after it; the resume shows it in the selected window, as `session-resume` does, its
+  composer docked and selected. A TUI the hand-off started that exits of itself comes back
+  so too, in the selected window whatever it showed.
 - **A TUI the hand-off started that exits of itself** with status 0 (`/exit`), not stopped by
   oso or the person, not failed, and with no resume held, comes back natively at once (Q4-6
   (a)), the same way, its process reaped. Only a TUI started by a hand-off in this instance:
@@ -1858,11 +1865,19 @@ of "One session, and the TUI as a hand-off" (Q3).
   killed while it ends, which starts nothing and archives the session; and a TUI the hand-off
   started that exits 0 of itself. `sessions::native::carried`: a TUI carried over
   `oso-restart`, switched, whose `claude -p` asks the person through its bridge and gets a
-  card (its claim was refused before `Hosted::started_here`, so every call was denied).
+  card (its claim was refused before `Hosted::started_here`, so every call was denied), then
+  has its composer docked; `sessions::native::split`: a split switched both ways (back by the TUI's
+  own exit, which takes it back as `C-c C-t` does), both halves following the session, and
+  its composer docked and laid out inside a window that shows the
+  transcript, which the orchestrator's switch (ADR 0176) checks too. Which windows follow is
+  `tree_windows_showing` in `hosting/switch.rs`, with its test.
 - **Not done:** app-level tests of a switch given up by a stop asked or a restart asked, and
   of trust taken back while the TUI ends, as the app has no harness of its own beside the
   end-to-end flows; and an end-to-end flow of a carried TUI resumed as a TUI, whose channel
-  bridge `Hosted::started_here` lets in unasked too (the table's test covers the rule).
+  bridge `Hosted::started_here` lets in unasked too (the table's test covers the rule). The
+  trees kept behind the frame (a zoom's, other spaces', the review's layout) do not follow a
+  switch: a window there that showed the session keeps the transcript set aside, or after the
+  way back what a kill shows. No flow covers a split whose start is refused at once.
 
 ### Part 4e: native is the default
 

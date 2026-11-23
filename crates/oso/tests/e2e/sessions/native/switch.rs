@@ -104,7 +104,7 @@ pub(super) fn flag<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
 }
 
 /// `flow`'s app with a native session sent [`MESSAGE`] and answered, its transcript selected.
-fn answered(flow: &Flow) -> super::super::super::harness::App {
+pub(super) fn answered(flow: &Flow) -> super::super::super::harness::App {
     let mut app = flow.start();
     app.open_file(&flow.project.join("notes.md"));
     trust_restricted(&mut app, "proj");
