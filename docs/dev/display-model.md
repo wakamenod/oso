@@ -155,11 +155,13 @@ O(log n). This is cheaper than retrofitting variable heights later.
 Soft wrap is off by default and can be enabled per mode (for example Markdown
 or org) or toggled per buffer. `C-n` and `C-p` move by logical lines.
 A native session's transcript, its composer and its `*result: NAME*` wrap from when they are
-made ([ADR 0165](adr/0165-native-claude-sessions-the-route.md)).
+made ([ADR 0165](adr/0165-native-claude-sessions-the-route.md)). In the transcript alone, the
+rows a line goes on in are indented under the line's text, as `wrap_map/indent.rs` says: the
+indent takes of the wrap's width. It wraps from 15 columns.
 [ADR 0100](adr/0100-soft-wrap.md) designs it:
 
 - `toggle-truncate-lines` (`C-x x t`) turns it on for a buffer, with Emacs's argument. Each window wraps at its own width, less a column for the `↩` that
-  marks a row that continues; below 10 columns nothing wraps.
+  marks a row that continues; below 10 columns nothing wraps, nor a transcript below 15.
 - Rows break after spaces, between CJK clusters, and with basic kinsoku, only
   between display clusters. One space at a break may take the mark's column.
 - The WrapMap is the window's: a `SumTree` of breaks in bounded items. Motion,
@@ -173,8 +175,8 @@ made ([ADR 0165](adr/0165-native-claude-sessions-the-route.md)).
   budget, and the rest count one row a logical line.
 - What a frame draws is a `window::Screen`, built once a frame: the rows in view,
   each part of a logical line from where it starts to where the next row starts.
-  A row that continues draws its text in the wrap's width and `↩` in the column
-  after, where one space may hang; a provisional line, or a row wider than that,
+  A row that continues draws its text, and its indent if it has one, in the wrap's width and `↩`
+  in the column after, where one space may hang; a provisional line, or a row wider than that,
   draws to the edge with no mark. A range
   past a break fills to the row's text width. A preedit's line is laid out again
   with it in, as if inserted, and the view follows its caret

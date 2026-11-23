@@ -6,9 +6,11 @@
 //!
 //! The layout starts where an edit at the cursor would start its rewrap, and reads the line's
 //! clusters with the preedit's spliced in, as `row_clusters` draws them, a row at a time, for
-//! as many rows as the caller asks. Nothing is kept: the window's rows stay as they are.
+//! as many rows as the caller asks. A line's indent (`indent.rs`) is read without the preedit: the
+//! only buffer whose rows are indented takes no typing. Nothing is kept: the window's rows stay as they are.
 
 use super::breaks::{Cluster, Rows};
+use super::indent::LineIndent;
 use super::{WrapSnapshot, buffer_end, line_end};
 use crate::display_map::{DisplayCluster, DisplayPoint, DisplaySnapshot, Preedit};
 
@@ -75,7 +77,8 @@ impl WrapSnapshot {
             }
         };
         let (mut row_start, mut column) = (from, start.column);
-        for row in Rows::new(clusters, self.width, line_end) {
+        let indent = LineIndent::of(self.fit, display, at.row);
+        for row in Rows::new(clusters, indent, line_end) {
             out.push(SplicedRow {
                 start: in_buffer(row_start),
                 end: in_buffer(row.end),
@@ -104,7 +107,7 @@ impl WrapSnapshot {
         let mut at = from;
         while at < own {
             let (start, end, _) = self.row_span(display, row);
-            if column(end).saturating_sub(column(start)) > self.width.saturating_add(1) {
+            if column(end).saturating_sub(column(start)) > self.fit.width.saturating_add(1) {
                 return own;
             }
             (row, at) = (row + 1, end);
@@ -210,7 +213,7 @@ mod tests {
         // Rows wrapped from an anchor near the cursor, after a row of all the line before it.
         let text = "word ".repeat(200);
         let display = snapshot(&text);
-        let mut map = super::super::WrapMap::provisional(&display, 11);
+        let mut map = super::super::WrapMap::provisional(&display, 11, false);
         map.realize(&display, 900, 4);
         let wrap = map.snapshot();
         let cursor = 900;

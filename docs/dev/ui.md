@@ -1321,7 +1321,8 @@ a switch made with its command stands until that setting changes in the file
   call as one line (`▸ ≡ Read · a.rs  48 lines`), a change as a numbered diff, open, and each turn's time and cost at the
   right, with a blank line between them (ADR 0165, "The rows' look, as built"). A call the person is
   asked about says `waiting for you`. A result shows its first 12 lines, a change 40. Its
-  long lines wrap, its composer's and its results' too, until `C-x x t` there. A
+  long lines wrap, its composer's and its results' too, until `C-x x t` there; a transcript's go
+  on under their row's text. A
   start with no brief starts at once, with its composer selected, where the person writes the
   first message (step 2); a session stopped or killed before it was given one leaves nothing
   to resume, and goes (one that failed, or holds a draft, stays, saying why). Its state comes from its stream. In its buffer, `TAB` folds or unfolds

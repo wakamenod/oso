@@ -2226,6 +2226,45 @@ chose on 2026-11-24:
   the text's own cost. Back in the window they wrap in 0.1 ms, the rest on the worker.
 - **New public items:** none.
 
+### Wrapped rows line up under their row
+
+The author chose on 2026-11-24, for a native transcript only, that the rows a line goes on in are
+indented, so that they read as part of their row:
+
+- **The indent** is the line's leading U+0020 spaces, then up to four times a leader and the
+  spaces after it. A leader is one display cluster that starts with neither a letter, a digit nor
+  white space, or 1 to 9 digits and `.` or `)`; a space must follow it. So a reply goes on at
+  column 2, its `- ` item at 4, its `1. ` item at 5, a `│ • ` one at 6, `▸ ≡ Read · …` at 4, and
+  code at its own spaces. No other space counts, as oso writes these, and no list of leaders is
+  kept. A space that a combining character joins counts as any.
+- **At least 2 columns, whatever a line starts with, and at most half the row's width,** or less
+  where the widest cluster of 8 cells ([ADR 0104](0104-soft-wrap-drawn-in-view-rows.md)) would not
+  fit after it. So that a call in a nested row keeps its 6, a transcript wraps from 15 text
+  columns, where another buffer does from 10. Narrower, it is as a window whose lines are
+  truncated; a split or a resize still goes down to 10 ([ADR 0112](0112-window-splits.md)), as it
+  goes down to where a window with a wide gutter does not wrap.
+- **Such a row holds as many cells fewer.** A row does not break before the column the next one
+  stands at.
+- **The text is as it was:** the indent is no text. Copying, motion, `C-a`, the cursor, regions,
+  matches, the agent channel's and the dev socket's rows have none of it; a region does not fill
+  it. The mark `↩` stays in the last column. A preedit would not count in its line's indent, but
+  a transcript takes no typing.
+- **An edit of what the indent is read from** lays the line out again from its start, and a rewrap
+  stops within a line only where its indent is as it was before; a job's, only at a line's start.
+- **Code:** in `display_map::wrap_map`, the private `fit.rs` (a window's layout) and `indent.rs` (the
+  rule, read from the line's start, at most half a row of it, once a line that wraps is laid out
+  and once a line in view a frame). A screen row has its indent, crate-private, and
+  `Screen::origin` is its column less that; the renderer lays such a row out in a region that
+  starts past its indent.
+- **Tests:** the property tests of the WrapMap and of the cursor's place run with rows indented and
+  not; the rule's table and that it never gives less than a row's prefix, whatever follows; lines of
+  many shapes at widths from 10 to 100; rows not yet wrapped again; a text-grid snapshot of a
+  transcript with the cursor, a region and matches; the renderer's cells.
+- **Measured** (`text_perf -- transcript`, as above): a batch takes 0.09 ms at p50 and 0.17 ms at
+  p99, 0.02 ms more than with no indent, at 100 rows and at 10,000, and 0.40 and 0.54 ms on a line
+  that grows to 1 MiB, as with none.
+- **New public items:** none.
+
 ## Remote Control is off, as amended
 
 Amended on 2026-11-24, the author's choice. Claude Code's Remote Control connects a session to
@@ -2439,6 +2478,23 @@ Each passage stays in its ADR as written; what holds now follows it.
 - [ADR 0100](0100-soft-wrap.md), "**Off by default, for every buffer (author).**" and "Nothing
   turns it on by file name; modes do that from M3": except a native session's transcript, its
   composer and `*result: NAME*`, which wrap from when they are made ("Long lines, as built").
+- ADR 0100, "**A continuation row starts at the left edge (author),** with no indent", and its
+  alternative "Continuation rows indented as their line": in a native session's transcript they are
+  indented ("Wrapped rows line up under their row"). Everywhere else they start at the edge. "A row's
+  start depends on the row before it": and there on what its line starts with.
+- [ADR 0104](0104-soft-wrap-drawn-in-view-rows.md), "**Below 10 text columns, nothing wraps**": below
+  15 in a native session's transcript. "A row that continues draws its text in the wrap's width,
+  and the mark in the column after": after its indent, which is in that width. "**A row draws the
+  mark only while it fits** in the wrap's width": with its indent.
+- [ADR 0102](0102-soft-wrap-what-building-it-changed.md), "A job rewraps from its start and goes on
+  past its end until its rows meet the old ones": in a transcript, until a line starts. An edit's
+  rewrap stops within a line there only if its indent is as it was.
+- [ADR 0125](0125-a-rewrap-starts-at-a-row-that-reads-the-edit.md), "A rewrap also starts further
+  back while a row before reads the edit's start", and its alternative "Rewrap from the logical
+  line's start": in a transcript, an edit of what its line's indent is read from, at most half a
+  row, starts at the line's start.
+- ADR 0112, "fewer than 10 text columns, ADR 0104's narrowest wrap": a transcript between 10 and 14
+  columns wide does not wrap.
 - ADR 0100, "`oso dev` carries each buffer's setting to the instance that replaces it": not that
   of a buffer whose entry stands for `*scratch*`, as a composer's. ADR 0103's "a buffer that wraps
   says `"wraps": true`" is the same.

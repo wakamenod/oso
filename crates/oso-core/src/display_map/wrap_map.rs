@@ -15,6 +15,9 @@
 //!   there every row is as before (`edit.rs`).
 //! - A command's rewraps read at most a budget; past it, rows are provisional and stale, and
 //!   a [`WrapJob`] rewraps them, or a new width, off the UI thread (`job.rs`, ADR 0102).
+//! - In a native session's transcript, the rows a line goes on in are indented, as `indent.rs`
+//!   says, by what the line starts with, and hold that many cells fewer; it wraps from more
+//!   columns (`fit.rs`, ADR 0165).
 //! - Until a job reports, the rows near a window's view are wrapped from an anchor, and the
 //!   rest count one row a logical line (`realize.rs`, ADR 0103). A window holds them in a
 //!   `WrapMap` (`map.rs`).
@@ -22,27 +25,33 @@
 //! No `Debug` here prints an offset, as where rows break tells how long words are in a
 //! buffer that may hold secrets.
 
+mod ahead;
 mod breaks;
 mod builder;
 mod edit;
+mod fit;
+mod indent;
 mod job;
 mod map;
 mod realize;
 mod spliced;
+mod stream;
 
 use std::fmt;
 use std::sync::Arc;
 
-use self::breaks::{Cluster, RowEnd, Rows};
 use self::builder::Builder;
+use self::fit::Fit;
 pub(crate) use self::job::SPLICES_READ;
 pub use self::job::{COMMAND_BUDGET, Splice, WrapJob, WrapReport};
 pub(crate) use self::map::WrapMap;
 pub(crate) use self::spliced::SplicedRow;
-use super::{DisplayCluster, DisplayPoint, DisplaySnapshot};
+use self::stream::RowStream;
+use super::{DisplayPoint, DisplaySnapshot};
 use crate::sum_tree::{Bias, Dimension, Item, SumTree, Summary};
 
-/// Below this many text columns, a window does not wrap and shows no mark. A row then holds
+/// Below this many text columns, a window does not wrap and shows no mark, nor does one on a
+/// native session's transcript below some more (`fit.rs`). A row then holds
 /// the widest display cluster, a boxed label of 8 cells, with the mark's column after it
 /// (ADR 0104).
 pub const MIN_COLUMNS: usize = 10;
@@ -190,8 +199,7 @@ impl fmt::Debug for ViewRow {
 #[derive(Clone)]
 pub struct WrapSnapshot {
     tree: SumTree<WrapItem>,
-    /// The cells a row holds, the mark's column aside; `usize::MAX` when nothing wraps.
-    width: usize,
+    fit: Fit,
 }
 
 impl fmt::Debug for WrapSnapshot {
@@ -200,155 +208,6 @@ impl fmt::Debug for WrapSnapshot {
         f.debug_struct("WrapSnapshot")
             .field("rows", &self.row_count())
             .finish_non_exhaustive()
-    }
-}
-
-/// The clusters of a row as the rules see them.
-type Clustered<'a> =
-    std::iter::Map<super::tab_map::RowClusters<'a>, fn(DisplayCluster<'a>) -> Cluster>;
-
-/// Where each row the edit or the build reads starts, as [`breaks`] finds them, from a row's
-/// start to the end of the buffer.
-struct RowStream<'a> {
-    display: &'a DisplaySnapshot,
-    width: usize,
-    /// The logical line being read, and its rows.
-    line: usize,
-    rows: Option<Rows<Clustered<'a>>>,
-    /// A line in one row, found with no cluster read: where it ends and whether it holds a
-    /// tab.
-    whole: Option<(usize, bool)>,
-    /// Where the next row starts, and its cell column on its line.
-    at: usize,
-    column: usize,
-    end: usize,
-    /// Whether a line may be found to fit from its bytes; off in tests that compare it with
-    /// a scan of its clusters.
-    plain: bool,
-}
-
-impl<'a> RowStream<'a> {
-    /// The rows of `display` from `start`, a row's start, `width` cells each.
-    fn new(display: &'a DisplaySnapshot, start: usize, width: usize) -> Self {
-        let point = display.offset_to_display_point(start);
-        let mut stream = Self {
-            display,
-            width,
-            line: point.row,
-            rows: None,
-            whole: None,
-            at: start,
-            column: point.column,
-            end: buffer_end(display),
-            plain: true,
-        };
-        stream.open(point);
-        stream
-    }
-
-    /// Starts reading the line of `point` from its column.
-    fn open(&mut self, point: DisplayPoint) {
-        let line_end = line_end(self.display, point.row, self.end);
-        if point.column == 0
-            && self.plain
-            && let Some(tabs) = self.fits_plainly((self.at, line_end))
-        {
-            self.whole = Some((line_end, tabs));
-            self.rows = None;
-            return;
-        }
-        let clusters: Clustered<'a> = self.display.clusters(point).map(Cluster::of);
-        self.rows = Some(Rows::new(clusters, self.width, line_end));
-    }
-
-    /// Whether the line from `start` to `end`, its line break included, fits in a row with no
-    /// rule to read: always unwrapped, and otherwise when it is printable ASCII and tabs, each
-    /// character a cluster of its own. Says too whether it holds a tab.
-    fn fits_plainly(&self, (start, end): (usize, usize)) -> Option<bool> {
-        if self.width == usize::MAX {
-            return Some(true);
-        }
-        let len = end - start;
-        if len > self.width + 2 {
-            return None;
-        }
-        let tab_width = self.display.tab_width().get() as usize;
-        let (mut column, mut tabs, mut carriage) = (0, false, false);
-        let bytes = self.display.text_in(start..end).flat_map(str::bytes);
-        for (index, byte) in bytes.enumerate() {
-            if carriage && byte != b'\n' {
-                // A lone `\r` is an escape of two cells.
-                return None;
-            }
-            match byte {
-                b'\t' => {
-                    tabs = true;
-                    column += tab_width - column % tab_width.max(1);
-                }
-                0x20..=0x7e => column += 1,
-                // The line break that ends it, `\n` or `\r\n`.
-                b'\n' if index + 1 == len => {}
-                b'\r' if index + 2 == len => carriage = true,
-                _ => return None,
-            }
-        }
-        (column <= self.width).then_some(tabs)
-    }
-
-    /// Where the next row will start, and its cell column on its line.
-    fn position(&self) -> (usize, usize) {
-        (self.at, self.column)
-    }
-}
-
-impl Iterator for RowStream<'_> {
-    type Item = Row;
-
-    fn next(&mut self) -> Option<Row> {
-        loop {
-            if let Some((end, tabs)) = self.whole.take() {
-                let row = Row {
-                    len: u32::try_from(end - self.at).unwrap_or(u32::MAX),
-                    continues: false,
-                    tabs,
-                };
-                self.at = end;
-                self.column = 0;
-                if self.line + 1 < self.display.row_count() {
-                    self.line += 1;
-                    self.open(DisplayPoint::new(self.line, 0));
-                }
-                return Some(row);
-            }
-            let rows = self.rows.as_mut()?;
-            let Some(RowEnd {
-                end,
-                continues,
-                next_column,
-                tabs,
-            }) = rows.next()
-            else {
-                if self.line + 1 >= self.display.row_count() {
-                    self.rows = None;
-                    return None;
-                }
-                self.line += 1;
-                self.open(DisplayPoint::new(self.line, 0));
-                continue;
-            };
-            let row = Row {
-                len: u32::try_from(end - self.at).unwrap_or(u32::MAX),
-                continues,
-                tabs,
-            };
-            self.at = end;
-            self.column = next_column;
-            if !continues && self.line + 1 >= self.display.row_count() {
-                // The last line's last row: nothing follows.
-                self.rows = None;
-            }
-            return Some(row);
-        }
     }
 }
 
@@ -371,31 +230,37 @@ impl WrapSnapshot {
     /// The view rows of `display` in a window `columns` cells wide: each row holds one
     /// column less, for the mark. O(n), so a large buffer is wrapped off the UI thread.
     pub fn new(display: &DisplaySnapshot, columns: usize) -> Self {
-        Self::with_width(display, wrap_width(columns))
+        Self::with_fit(display, Fit::new(columns, false))
+    }
+
+    /// [`WrapSnapshot::new`] of a buffer whose rows are indented (`indent.rs`).
+    #[cfg(test)]
+    pub(crate) fn indenting(display: &DisplaySnapshot, columns: usize) -> Self {
+        Self::with_fit(display, Fit::new(columns, true))
     }
 
     /// The view rows of `display` with nothing wrapped: one per logical line.
     pub fn unwrapped(display: &DisplaySnapshot) -> Self {
-        Self::with_width(display, usize::MAX)
+        Self::with_fit(display, Fit::UNWRAPPED)
     }
 
-    fn with_width(display: &DisplaySnapshot, width: usize) -> Self {
+    fn with_fit(display: &DisplaySnapshot, fit: Fit) -> Self {
         let never = || false;
-        Self::with_width_unless(display, width, &never).unwrap_or_else(|| Self {
+        Self::with_fit_unless(display, fit, &never).unwrap_or_else(|| Self {
             tree: SumTree::new(),
-            width,
+            fit,
         })
     }
 
-    /// [`WrapSnapshot::with_width`], or `None` once `stop` says so, which it asks every
+    /// [`WrapSnapshot::with_fit`], or `None` once `stop` says so, which it asks every
     /// [`STOP_ROWS`] rows.
-    fn with_width_unless(
+    fn with_fit_unless(
         display: &DisplaySnapshot,
-        width: usize,
+        fit: Fit,
         stop: &dyn Fn() -> bool,
     ) -> Option<Self> {
         let mut builder = Builder::new(true);
-        for (index, row) in RowStream::new(display, 0, width).enumerate() {
+        for (index, row) in RowStream::new(display, 0, fit).enumerate() {
             if index % STOP_ROWS == STOP_ROWS - 1 && stop() {
                 return None;
             }
@@ -403,7 +268,7 @@ impl WrapSnapshot {
         }
         Some(Self {
             tree: builder.finish().into_iter().collect(),
-            width,
+            fit,
         })
     }
 
@@ -411,9 +276,9 @@ impl WrapSnapshot {
     /// fit from its bytes.
     #[cfg(test)]
     fn scanned(display: &DisplaySnapshot, columns: usize) -> Self {
-        let width = wrap_width(columns);
+        let fit = Fit::new(columns, false);
         let mut builder = Builder::new(true);
-        let mut stream = RowStream::new(display, 0, width);
+        let mut stream = RowStream::new(display, 0, fit);
         stream.plain = false;
         if stream.whole.is_some() {
             stream.whole = None;
@@ -424,7 +289,7 @@ impl WrapSnapshot {
         }
         Self {
             tree: builder.finish().into_iter().collect(),
-            width,
+            fit,
         }
     }
 
@@ -447,15 +312,21 @@ impl WrapSnapshot {
         self.tree.summary().bytes
     }
 
-    /// The cells a row's text takes, the mark's column after them; `usize::MAX` when nothing
+    /// The cells a row's text takes, its indent among them, the mark's column after them; `usize::MAX` when nothing
     /// wraps.
     pub(crate) fn width(&self) -> usize {
-        self.width
+        self.fit.width
+    }
+
+    /// The cells the rows that logical line `line` goes on in are indented by: 0 unless its
+    /// buffer's rows are (`indent.rs`).
+    pub(crate) fn indent(&self, display: &DisplaySnapshot, line: usize) -> usize {
+        self.fit.indent(display, line)
     }
 
     /// Whether rows wrap at all.
     pub fn wraps(&self) -> bool {
-        self.width != usize::MAX
+        self.fit.wraps()
     }
 
     /// How many view rows there are.
@@ -562,17 +433,8 @@ impl WrapSnapshot {
 /// How many view rows `display` takes from its start in a window `columns` wide, as its wrap
 /// breaks them, counting no more than `most`: it reads only those rows.
 pub(crate) fn rows_at_most(display: &DisplaySnapshot, columns: usize, most: usize) -> usize {
-    let width = wrap_width(columns);
-    RowStream::new(display, 0, width).take(most).count().max(1)
-}
-
-/// The cells a row holds in a window `columns` wide, the mark's column aside.
-fn wrap_width(columns: usize) -> usize {
-    if columns < MIN_COLUMNS {
-        usize::MAX
-    } else {
-        columns - 1
-    }
+    let fit = Fit::new(columns, false);
+    RowStream::new(display, 0, fit).take(most).count().max(1)
 }
 
 #[cfg(test)]

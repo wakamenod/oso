@@ -1643,6 +1643,49 @@ mod tests {
         assert_eq!(mark, theme().foreground(Face::WrapMark));
     }
 
+    #[test]
+    fn a_native_transcripts_row_goes_on_indented_and_draws_nothing_before_it() {
+        // 21 columns: 20 of text and the mark's. The rows the item goes on in start under its
+        // text, at column 4.
+        let mut editor = oso_core::editor::Editor::default();
+        editor.set_view_size(ViewSize::new(3, 21));
+        let id = editor.add_native_session_buffer("*claude: s*");
+        editor.set_wraps(id, true);
+        editor.show(id);
+        let text = "  - aaaa bbbb cccc dddd";
+        editor.replace_native_rows(id, 0..0, text, &[]);
+        let mut screen = Screen::default();
+        editor.screen(&mut screen);
+        let buffer = editor.current().1;
+        let content = PaneContent::Text(TextView {
+            display: buffer.display(),
+            buffer: id,
+            revision: buffer.revision(),
+            screen: &screen,
+            cursor: DisplayPoint::new(1000, 0),
+            cursor_style: CursorStyle::Box,
+            others: &[],
+            preedit: None,
+            fills: &[],
+            labels: &[],
+            whitespace: false,
+            flash: None,
+            highlights: None,
+            marks: crate::pane::TextMarks::NONE,
+        });
+        let mut scene = Scene::new(LIMITS, theme());
+        let panes = [pane(0, rect(0, 0, 3, 21), 0, content)];
+        build(&mut scene, &panes, &mut FakeAtlas::default());
+        let quads = u32::try_from(scene.quads().len()).unwrap();
+        let cells = quad_cells(&scene, 0..quads);
+        let on = |row| {
+            let on_row = cells.iter().filter(move |cell| cell.0 == row);
+            on_row.map(|cell| cell.1).collect::<Vec<_>>()
+        };
+        assert_eq!(on(0).last(), Some(&20), "the mark");
+        assert_eq!(on(1), [4, 5, 6, 7], "only its own text");
+    }
+
     /// A frame of `editor`'s tiled window in a region of `rows` by `columns`, and how many rows
     /// it shaped.
     fn frame_of(

@@ -17,6 +17,13 @@ struct Window {
 }
 
 impl Window {
+    /// A window whose rows are indented, all of them wrapped.
+    fn indenting(text: &str, columns: usize) -> Self {
+        let mut window = Self::provisional(text, columns, true);
+        window.settle();
+        window
+    }
+
     fn new(text: &str, columns: usize) -> Self {
         let rope = Rope::from(text);
         let map = DisplayMap::new(&rope, TabWidth::new(4));
@@ -25,10 +32,10 @@ impl Window {
     }
 
     /// A window that has just turned wrapping on: its rows provisional.
-    fn provisional(text: &str, columns: usize) -> Self {
+    fn provisional(text: &str, columns: usize, indents: bool) -> Self {
         let rope = Rope::from(text);
         let map = DisplayMap::new(&rope, TabWidth::new(4));
-        let wrap = WrapMap::provisional(&map.snapshot(), columns);
+        let wrap = WrapMap::provisional(&map.snapshot(), columns, indents);
         Self { rope, map, wrap }
     }
 
@@ -68,7 +75,9 @@ impl Window {
 
     fn fresh(&self, columns: usize) -> Vec<(usize, usize, bool)> {
         let display = self.map.snapshot();
-        shape(&WrapSnapshot::new(&display, columns), &display)
+        let indents = self.wrap.snapshot().fit.indents;
+        let fresh = WrapSnapshot::with_fit(&display, Fit::new(columns, indents));
+        shape(&fresh, &display)
     }
 }
 
@@ -126,7 +135,7 @@ fn a_job_stops_once_its_map_is_gone() {
 fn provisional_rows_near_the_view_wrap_at_once_and_the_rest_wait() {
     let line = "word ".repeat(60);
     let text = format!("{line}\n{line}\n{line}\n");
-    let mut window = Window::provisional(&text, 12);
+    let mut window = Window::provisional(&text, 12, false);
     assert_eq!(
         window.rows().len(),
         4,
@@ -399,6 +408,7 @@ fn text() -> impl Strategy<Value = String> {
             "\t",
             "\n",
             "abcdefghij",
+            "- ",
         ][..],
     );
     prop::collection::vec(pieces, 0..60).prop_map(|pieces| pieces.concat())
@@ -411,16 +421,17 @@ proptest! {
     fn once_settled_the_rows_are_a_wrap_from_scratch(
         text in text(),
         steps in prop::collection::vec(
-            (0_usize..5, prop::collection::vec((0_usize..300, 0_usize..4, text()), 1..4), 4_usize..20),
+            (0_usize..5, prop::collection::vec((0_usize..300, 0_usize..4, text()), 1..4), 4_usize..28),
             1..8,
         ),
-        columns in 4_usize..20,
+        columns in 4_usize..28,
         provisional in any::<bool>(),
+        indents in any::<bool>(),
     ) {
-        let mut window = if provisional {
-            Window::provisional(&text, columns)
-        } else {
-            Window::new(&text, columns)
+        let mut window = match (provisional, indents) {
+            (true, indents) => Window::provisional(&text, columns, indents),
+            (false, true) => Window::indenting(&text, columns),
+            (false, false) => Window::new(&text, columns),
         };
         let mut columns = columns;
         let mut held = None;

@@ -1,6 +1,6 @@
 # 0102. Soft wrap: what building it changed
 
-- Status: Accepted
+- Status: Accepted, amended by 0165
 - Date: 2026-11-10
 
 ## Context
