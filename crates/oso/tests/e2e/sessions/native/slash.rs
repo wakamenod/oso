@@ -92,7 +92,7 @@ fn a_slash_completes_over_the_sessions_commands_and_clear_is_refused() {
     let state = app.wait_for("the command's reply", |state| {
         text(state).contains("Set model to")
     });
-    assert!(text(&state).contains("› /model haiku"), "{}", text(&state));
+    assert!(text(&state).contains("〉 /model haiku"), "{}", text(&state));
 
     // `/clear` is refused, and stays in the composer.
     app.send_keys("i");

@@ -98,7 +98,7 @@ fn a_reply_is_drawn_without_its_marks_and_highlighted_once_whole() {
         parsed(state) && text(state).contains("fn main() {}")
     });
     let shown = text(&state);
-    let drawn = "● Notes:\n\n  Some code here.\n\n  fn main() {}\n";
+    let drawn = "  Notes:\n\n  Some code here.\n\n  fn main() {}\n";
     assert!(shown.contains(drawn), "{shown}");
     // Only macOS draws text so far (ADR 0036): elsewhere the state alone is checked.
     let shot = cfg!(target_os = "macos").then(|| app.screenshot());

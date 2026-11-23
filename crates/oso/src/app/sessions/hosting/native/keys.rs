@@ -21,7 +21,7 @@ use oso_core::editor::{Editor, NativeAction};
 use super::{Native, draw};
 use crate::app::App;
 use crate::app::sessions::show_withheld;
-use crate::sessions::native::point::{self, Point, Wanted};
+use crate::sessions::native::point::{self, Wanted};
 use crate::sessions::native::rows::Kind;
 use crate::sessions::worker::SessionKey;
 
@@ -171,7 +171,7 @@ impl App {
         let Some(native) = self.hosting.natives.map.get(&key) else {
             return;
         };
-        let row = (native.placed.row_at(offset)).and_then(|row| native.rows.rows().get(row));
+        let row = at(native, offset).and_then(|(row, ..)| native.rows.rows().get(row));
         let Some(text) = row.and_then(point::markdown) else {
             return self.editor.message("No reply here");
         };
@@ -185,13 +185,7 @@ impl App {
         let Some(native) = self.hosting.natives.map.get(&key) else {
             return;
         };
-        let point = match native.placed.row_at(offset) {
-            Some(row) => Point::In {
-                row,
-                first_line: native.placed.start(row) == offset,
-            },
-            None => Point::End,
-        };
+        let point = point::point(native.rows.rows(), &native.placed, offset);
         let Some(row) = point::step(native.rows.rows(), point, count, wanted) else {
             let (what, way) = match wanted {
                 Wanted::Prompt => ("message", if count < 0 { "earlier" } else { "later" }),
@@ -199,7 +193,10 @@ impl App {
             };
             return self.editor.message(format!("No {way} {what}"));
         };
-        let (buffer, start) = (native.buffer, native.placed.start(row));
+        let (buffer, start) = (
+            native.buffer,
+            point::first_line(native.rows.rows(), &native.placed, row),
+        );
         self.native_point(buffer, start);
     }
 
@@ -221,20 +218,24 @@ impl App {
 }
 
 /// The row at `offset`, the call of an open row of several that it is on, and where that
-/// call, or else the row, starts.
+/// call, or else the row's first line, starts; none on the blank line before a row.
 fn at(native: &Native, offset: usize) -> Option<(usize, Option<usize>, usize)> {
     let row = native.placed.row_at(offset)?;
     let start = native.placed.start(row);
+    let first = point::first_line(native.rows.rows(), &native.placed, row);
+    if offset < first {
+        return None;
+    }
     let shown = native.rows.rows().get(row)?;
     let several = matches!(&shown.kind, Kind::Tools(tools) if tools.len() > 1);
     if !several || shown.folded {
-        return Some((row, None, start));
+        return Some((row, None, first));
     }
     let calls = native.calls.get(&row).map_or(&[][..], Vec::as_slice);
     let slot = point::slot(calls, offset - start);
     let call_start = slot
         .and_then(|slot| calls.iter().find(|(s, _)| *s == slot))
-        .map_or(start, |(_, range)| start + range.start);
+        .map_or(first, |(_, range)| start + range.start);
     Some((row, slot, call_start))
 }
 

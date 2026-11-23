@@ -456,7 +456,9 @@ pub(crate) mod tests {
 
     /// An escape's label sits wherever text can: on every fill behind buffer text, a review's
     /// bands among them, in a modeline's name and on a float.
-    const ESCAPE_PAIRS: [(Face, f32); 19] = [
+    const ESCAPE_PAIRS: [(Face, f32); 20] = [
+        // A native session's prompt (ADR 0165).
+        (Face::SessionHeader, 4.5),
         (Face::Text, 4.5),
         (Face::DictationProvisional, 4.5),
         (Face::CurrentLine, 4.5),
@@ -480,7 +482,9 @@ pub(crate) mod tests {
     ];
 
     /// A whitespace or wrap mark sits on everything behind buffer text (ADR 0097).
-    const MARK_PAIRS: [(Face, f32); 15] = [
+    const MARK_PAIRS: [(Face, f32); 16] = [
+        // A native session's prompt (ADR 0165).
+        (Face::SessionHeader, 3.0),
         (Face::Text, 3.0),
         (Face::DictationProvisional, 3.0),
         (Face::CurrentLine, 3.0),
@@ -605,13 +609,16 @@ pub(crate) mod tests {
             ],
             // A waiting row's lit beat: its glyphs on their own fill, as a key's on its chip.
             Face::SessionAlertLit => &[(Face::SessionAlertLit, LABEL)],
-            // What a permission card says quietly, too (ADR 0180).
+            // A changed line's number in a native session (ADR 0165), and what a permission card
+            // says quietly (ADR 0180), too.
             Face::SessionQuiet => &[
                 (Face::Text, LABEL),
                 (Face::CurrentLine, LABEL),
                 (Face::SessionHeader, LABEL),
                 (Face::SessionFrontTint, LABEL),
                 (Face::SessionPoint, LABEL),
+                (Face::DiffAdded, LABEL),
+                (Face::DiffRemoved, LABEL),
                 (Face::Card, LABEL),
             ],
             Face::SessionWorking

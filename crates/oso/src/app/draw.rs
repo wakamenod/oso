@@ -32,6 +32,7 @@ mod float;
 mod menu;
 mod spaces;
 mod tiled;
+mod transcript;
 
 pub(super) use tiled::statuses_into;
 

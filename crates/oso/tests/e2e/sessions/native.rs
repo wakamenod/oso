@@ -240,19 +240,19 @@ fn a_native_session_starts_with_its_first_message_and_shows_its_stream() {
         state["buffer"]["name"] == "*claude: proj*" && text(state).contains("There is one file.")
     });
     let shown = text(&state);
-    assert!(shown.contains(&format!("› {MESSAGE}")), "{shown}");
-    assert!(shown.contains("● Reading it."), "{shown}");
-    assert!(shown.contains("Bash ls"), "{shown}");
+    assert!(shown.contains(&format!("〉 {MESSAGE}")), "{shown}");
+    assert!(shown.contains("\n\n  Reading it.\n"), "{shown}");
+    assert!(shown.contains("$ Bash · ls"), "{shown}");
     assert!(shown.contains("1.5 s · $0.0100"), "{shown}");
 
     // Its keys: `]` goes to the call's row, `TAB` opens it, `RET` shows its whole result,
     // read-only and withheld, and `p` goes back to the message.
     app.send_keys("M-<");
     app.send_keys("]");
-    app.wait_for("point on the call", |state| state["cursor"]["row"] == 2);
+    app.wait_for("point on the call", |state| state["cursor"]["row"] == 4);
     app.send_keys("TAB");
     app.wait_for("the call open", |state| {
-        text(state).contains("▾ Bash ls\n    notes.md")
+        text(state).contains("▾ $ Bash · ls\n    notes.md")
     });
     app.send_keys("RET");
     let state = app.wait_for("the result", |state| {
@@ -393,7 +393,7 @@ fn a_native_sessions_calls_are_asked_of_the_person_with_the_agent_channel_off() 
     );
     assert!(run.contains(r#""--permission"]"#), "{run}");
     app.wait_for("the calls", |state| {
-        state["buffer"]["name"] == "*claude: proj*" && text(state).contains("Bash make")
+        state["buffer"]["name"] == "*claude: proj*" && text(state).contains("$ Bash · make")
     });
 
     // The agent channel goes off; the session still asks.
@@ -437,12 +437,13 @@ fn a_native_sessions_calls_are_asked_of_the_person_with_the_agent_channel_off() 
     flow.scratch.write("go", b"0");
     // Point is in the composer; the transcript's modeline says the session stopped.
     app.send_keys("C-c C-o");
-    app.wait_for("the session stopped", |state| {
+    let state = app.wait_for("the session stopped", |state| {
         state["buffer"]["name"] == "*claude: proj*"
             && state["modeline"]
                 .as_str()
                 .is_some_and(|modeline| modeline.contains("stopped"))
     });
+    assert!(!text(&state).contains("waiting for you"), "{state}");
     // How soon each card showed after its request, for the PR (ADR 0165, step 2e-2).
     let log = app.stop_and_read_log();
     for row in log

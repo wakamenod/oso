@@ -119,7 +119,9 @@ fn lay_row(native: &Native, row: usize, highlights: &mut Highlights) {
     let runs = match plain(at) {
         Some(runs) => fits(&runs, &range).then_some(runs),
         None => {
-            let rendered = render::render(at, native.rows.directory());
+            // A result's, for the width it was drawn for.
+            let width = native.results.get(&row).copied().unwrap_or(native.width);
+            let rendered = render::render(at, native.rows.directory(), width);
             // Its runs leave out what has none at its end.
             (rendered.text.len() == range.len()).then(|| rendered.runs())
         }

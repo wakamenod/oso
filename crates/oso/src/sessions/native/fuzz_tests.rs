@@ -16,8 +16,8 @@ use std::path::{Path, PathBuf};
 
 use super::past::Index;
 use super::placed::Placed;
-use super::render::{render, tail};
-use super::rows::{Changes, RowChange, Rows};
+use super::render::{Face, GUIDE, Rendered, render, tail};
+use super::rows::{Changes, Kind, Row, RowChange, Rows};
 use super::turns::target;
 use super::wire::{parse, transcript};
 
@@ -81,6 +81,38 @@ fn line_start(buffer: &str, start: usize, lines: usize) -> usize {
     at
 }
 
+/// Whether only oso's marks stand in the first two columns of `row` as drawn, past the guides
+/// of a nested one, and only a prompt's or a change's lines start in a band's face.
+fn only_oso_stands_first(row: &Row, rendered: &Rendered) -> bool {
+    let guides = GUIDE.repeat(usize::from(row.depth));
+    let mut at = 0;
+    rendered.text.split_inclusive('\n').all(|line| {
+        let start = at;
+        at += line.len();
+        let line = line.trim_end_matches('\n');
+        let own = line.strip_prefix(guides.as_str()).unwrap_or(line);
+        let first: String = own.chars().take(2).collect();
+        let said = match row.kind {
+            Kind::Reply { .. } | Kind::Note(_) | Kind::Result(_) => &[][..],
+            Kind::Prompt(_) => &["〉 ", "〉"],
+            Kind::Thinking { .. } => &["… ", "▸ ", "▾ "],
+            Kind::Tools(_) => &["… ", "✗ ", "· ", "▸ ", "▾ ", GUIDE],
+            Kind::Compacted { .. } => &["──"],
+            Kind::Unreadable(_) => &["⚠ "],
+        };
+        let stands = first.trim().is_empty() || own == "│" || said.contains(&first.as_str());
+        let banded = rendered.faces.iter().any(|(range, face)| {
+            range.start == start
+                && match face {
+                    Face::PromptMark => !matches!(row.kind, Kind::Prompt(_)),
+                    Face::Added | Face::Removed => !matches!(row.kind, Kind::Tools(_)),
+                    _ => false,
+                }
+        });
+        stands && !banded
+    })
+}
+
 proptest! {
     #[test]
     fn any_bytes_read_without_panicking(bytes in prop::collection::vec(any::<u8>(), 0..4096)) {
@@ -121,14 +153,14 @@ proptest! {
                 let range = range.unwrap_or_default();
                 let text = match change {
                     RowChange::Grew { at, .. } => tail(row, at).text,
-                    RowChange::Added(_) | RowChange::Changed(_) => render(row, directory).text,
+                    RowChange::Added(_) | RowChange::Changed(_) => render(row, directory, 80).text,
                 };
                 buffer.replace_range(range.clone(), &text);
                 placed.put(at, range, text.len());
                 prop_assert_eq!(placed.end(), buffer.len());
             }
         }
-        let whole: String = rows.rows().iter().map(|row| render(row, directory).text).collect();
+        let whole: String = rows.rows().iter().map(|row| render(row, directory, 80).text).collect();
         prop_assert_eq!(&buffer, &whole);
         let count = rows.rows().len();
         if count > 0 {
@@ -137,8 +169,9 @@ proptest! {
             }
         }
         for row in rows.rows() {
-            let rendered = render(row, directory);
-            prop_assert!(rendered.text.ends_with('\n'));
+            let rendered = render(row, directory, 80);
+            prop_assert!(rendered.text.is_empty() || rendered.text.ends_with('\n'));
+            prop_assert!(only_oso_stands_first(row, &rendered), "{:?}", rendered.text);
             for (range, _) in &rendered.faces {
                 prop_assert!(range.start < range.end && range.end <= rendered.text.len());
                 prop_assert!(rendered.text.is_char_boundary(range.start));
@@ -214,7 +247,7 @@ proptest! {
         }
         let mut rows = Rows::new(PathBuf::from(directory));
         rows.note("Stopped.");
-        let mut buffer = render(&rows.rows()[0], directory).text;
+        let mut buffer = render(&rows.rows()[0], directory, 80).text;
         let mut placed = Placed::default();
         placed.put(0, 0..0, buffer.len());
         for change in rows.past(said) {
@@ -223,11 +256,11 @@ proptest! {
             let range = placed.range(change, |start, lines| line_start(&buffer, start, lines));
             prop_assert!(range.is_some(), "{:?} not drawn", change);
             let range = range.unwrap_or_default();
-            let text = render(&rows.rows()[at], directory).text;
+            let text = render(&rows.rows()[at], directory, 80).text;
             buffer.replace_range(range.clone(), &text);
             placed.put(at, range, text.len());
         }
-        let shown: String = rows.rows().iter().map(|row| render(row, directory).text).collect();
+        let shown: String = rows.rows().iter().map(|row| render(row, directory, 80).text).collect();
         prop_assert_eq!(&buffer, &shown);
     }
 }

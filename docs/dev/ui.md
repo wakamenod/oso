@@ -1317,10 +1317,12 @@ a switch made with its command stands until that setting changes in the file
 
   Unless `mode = "tui"` (ADR 0165, step 1; the default since part 4e), a new session in a
   trusted project runs `claude -p` and shows its conversation in `*claude: NAME*` as oso's own rows instead of a terminal: the
-  person's messages after `› `, replies after `● ` with their Markdown's marks hidden, thinking
-  as `∴ Thought for N s`, each tool call as one line with what came of it, an edit as a diff, and
-  each turn's time and cost. Its long lines wrap, its composer's and its results' too, until
-  `C-x x t` there; a transcript's go on under their row's text. A
+  person's messages after `〉` on a band, replies two columns in with their Markdown's marks hidden, thinking as `▸ Thinking · N s`, each tool
+  call as one line (`▸ ≡ Read · a.rs  48 lines`), a change as a numbered diff, open, and each turn's time and cost at the
+  right, with a blank line between them (ADR 0165, "The rows' look, as built"). A call the person is
+  asked about says `waiting for you`. A result shows its first 12 lines, a change 40. Its
+  long lines wrap, its composer's and its results' too, until `C-x x t` there; a transcript's go
+  on under their row's text. A
   start with no brief starts at once, with its composer selected, where the person writes the
   first message (step 2); a session stopped or killed before it was given one leaves nothing
   to resume, and goes (one that failed, or holds a draft, stays, saying why). Its state comes from its stream. In its buffer, `TAB` folds or unfolds

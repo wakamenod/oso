@@ -30,6 +30,8 @@ pub struct ToolInput {
     pub path: Option<String>,
     /// Its command, pattern, URL, query, skill or description.
     pub text: Option<String>,
+    /// An `AskUserQuestion`'s first question.
+    pub question: Option<String>,
     /// A subagent's type.
     pub kind: Option<String>,
     /// How many to-do items it writes.
@@ -75,6 +77,15 @@ pub fn decode(name: &str, value: Option<&Value>) -> ToolInput {
         "Agent" | "Task" => {
             input.kind = field("subagent_type", MAX_NAME);
             input.text = field("description", MAX_FIELD);
+        }
+        // Its first question; the card shows them all (step 2e-2).
+        "AskUserQuestion" => {
+            input.question = value
+                .get("questions")
+                .and_then(|questions| questions.get(0))
+                .and_then(|question| question.get("question"))
+                .and_then(Value::as_str)
+                .map(|text| capped(text, MAX_FIELD).0.to_owned());
         }
         "TodoWrite" => {
             input.items = value.get("todos").and_then(Value::as_array).map(Vec::len);

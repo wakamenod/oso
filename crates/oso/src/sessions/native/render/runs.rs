@@ -13,13 +13,15 @@ impl Face {
     pub fn highlight(self) -> Highlight {
         match self {
             Self::Prompt => Highlight::CommentPerson,
+            Self::PromptMark => Highlight::SessionFront,
             Self::Dim => Highlight::SessionQuiet,
-            Self::Tool => Highlight::Function,
+            // No parser gives it, so no reply's code has a tool's name's colour.
+            Self::Tool => Highlight::SessionRepository,
             Self::Target => Highlight::String,
             Self::Added => Highlight::DiffAdded,
             Self::Removed => Highlight::DiffRemoved,
-            Self::Hunk => Highlight::DiffHunkHeader,
             Self::Error => Highlight::SessionAlert,
+            Self::Waiting => Highlight::SessionWorking,
             Self::Reply(Style::Heading) => Highlight::Heading,
             Self::Reply(Style::Strong | Style::Mark) => Highlight::Markup,
             Self::Reply(Style::Code) => Highlight::String,

@@ -18,12 +18,10 @@ use oso_core::buffer::{BufferId, Mode};
 use oso_core::syntax::Highlights;
 use oso_core::window::DockSlot;
 
+use super::UNSHOWN_WIDTH;
 use crate::app::App;
 use crate::sessions::native::todo::{Strip, Todo};
 use crate::sessions::worker::SessionKey;
-
-/// The width a strip is drawn at when no window shows it yet, in cells.
-const UNSHOWN_WIDTH: usize = 80;
 
 /// A native session's to-do list and its strip.
 #[derive(Debug, Default)]

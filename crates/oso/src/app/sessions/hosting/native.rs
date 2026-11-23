@@ -23,6 +23,7 @@
 //!   `markdown`'s (part 2g); its status line, `status`'s (part 3a); its permission mode,
 //!   `mode`'s (part 3b); its `/model` and `/effort` completion, `slash`'s (part 3c); its
 //!   to-do strip, `todo`'s (part 3e).
+//! - Its turns' results stand at its window's right edge by `results`.
 //! - Its prompt suggestion is `suggesting`'s, and the recap of a turn that ended out of sight
 //!   `recap`'s (part 3f).
 //! - Its process ended before `oso-restart`, and resumed by the new instance, is
@@ -57,6 +58,7 @@ mod past;
 mod permissions;
 mod recap;
 mod restarting;
+mod results;
 mod resume;
 mod slash;
 mod status;
@@ -81,7 +83,7 @@ use crate::sessions::native::interrupt::Interrupt;
 use crate::sessions::native::mode::ModeState;
 use crate::sessions::native::placed::Placed;
 use crate::sessions::native::render;
-use crate::sessions::native::rows::{Changes, RowChange, Rows};
+use crate::sessions::native::rows::{Changes, Kind, RowChange, Rows};
 use crate::sessions::native::slash::SlashCommands;
 use crate::sessions::native::turns;
 use crate::sessions::native::wire::Event;
@@ -89,6 +91,9 @@ use crate::sessions::start::{Ready, Started};
 use crate::sessions::state::Target;
 use crate::sessions::stream::{Out, Stream};
 use crate::sessions::worker::{Job, SessionKey};
+
+/// The width a session's rows and its strip are laid out for while no window shows it, in cells.
+const UNSHOWN_WIDTH: usize = 80;
 
 /// The most of a failed process's standard error shown, its end.
 const MAX_ERR_SHOWN: usize = 2048;
@@ -123,6 +128,10 @@ struct Native {
     buffer: BufferId,
     rows: Rows,
     placed: Placed,
+    /// The width its turns' results are laid out for, in cells, and the one each row of one was
+    /// drawn for last.
+    width: usize,
+    results: HashMap<usize, usize>,
     stream: Option<Stream>,
     /// It was given a first message, so a turn is under way once it runs.
     first: bool,
@@ -471,7 +480,7 @@ fn draw(
         let rendered = match change {
             RowChange::Grew { at, .. } => render::tail(row, at),
             RowChange::Added(_) | RowChange::Changed(_) => {
-                render::render(row, native.rows.directory())
+                render::render(row, native.rows.directory(), native.width)
             }
         };
         if !matches!(change, RowChange::Grew { .. }) {
@@ -480,6 +489,9 @@ fn draw(
             } else {
                 native.calls.insert(at, rendered.calls.clone());
             }
+        }
+        if matches!(row.kind, Kind::Result(_)) {
+            native.results.insert(at, native.width);
         }
         let runs = rendered.runs();
         // Drawn again: a whole reply is highlighted again (part 2g).

@@ -104,7 +104,9 @@ often, so it must rebuild within 2 s.
   started on the start thread, read on `oso-native-read`, `oso-native-batch` and
   `oso-native-err`, and written to on `oso-native-write` (`stream`);
   `app/sessions/hosting/native.rs` draws its rows on the UI thread, row by row, in the buffer
-  `native/buffer.rs` makes. Its composer and
+  `native/buffer.rs` makes, its tool rows' look `sessions/native/render/tools.rs`, its turns' results
+  kept at the right edge by `native/results.rs` and its bands drawn by `app/draw/transcript.rs`. Only
+  oso's marks stand in a row's first two columns. Its composer and
   queue are `app/sessions/hosting/native/composer.rs`, over the queue's rules in
   `sessions/native/queue.rs`, what oso composed put in or sent there `composer/composed.rs`
   (part 2f), what its placeholder says `composer/placeholder.rs`, drawn by `app/draw/tiled/placeholder.rs` (ADR 0170), escaped by `sessions/send/escape.rs` as every send is, its interrupt `native/interrupting.rs`, over the control layer's

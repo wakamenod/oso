@@ -183,7 +183,7 @@ impl App {
 
     /// After each event: a native session whose buffer was killed is stopped and archived, or
     /// forgotten given no message, a queue that may go does, the replies whole since are
-    /// highlighted (part 2g), and a turn that ended out of sight is recapped (part 3f).
+    /// highlighted (part 2g), results in view are laid out again, and a turn that ended out of sight is recapped (part 3f).
     pub(in crate::app) fn sync_native_sessions(&mut self) {
         self.sync_sessions_socket();
         self.sweep_killed_natives();
@@ -196,6 +196,7 @@ impl App {
         // After the sweep: nothing is opened for a session that is gone.
         self.sync_reply_markdown();
         self.sync_todo_strips();
+        self.sync_native_results();
         self.sync_recaps();
     }
 

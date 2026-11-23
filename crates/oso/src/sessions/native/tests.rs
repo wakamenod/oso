@@ -12,12 +12,14 @@ use std::path::{Path, PathBuf};
 
 use oso_core::editor::Approval;
 
-use super::render::{Face, LONG_RESULT, RESULT_EDGE, Shown, edges, render, seconds, tail, tokens};
+use super::render::{Face, render, seconds, tail, tokens};
 use super::rows::{Kind, RowChange, Rows, ToolState};
 use super::shown::LineStart;
 use super::turns::target;
-use super::wire::{Event, MAX_LINE, MAX_TEXT, ToolResult, parse, user_message};
+use super::wire::{Event, MAX_LINE, MAX_TEXT, parse, user_message};
 use crate::sessions::state::Target;
+
+mod look;
 
 const TOOLS_2_1_330: &str = include_str!("fixtures/2.1.330/tools.jsonl");
 /// What the recording's turns sent, as oso would have.
@@ -59,7 +61,7 @@ fn read(rows: &mut Rows, line: &str) -> Vec<RowChange> {
 fn shown(rows: &Rows) -> String {
     rows.rows()
         .iter()
-        .map(|row| render(row, rows.directory()).text)
+        .map(|row| render(row, rows.directory(), 80).text)
         .collect()
 }
 
@@ -89,7 +91,10 @@ fn a_recorded_session_folds_into_rows() {
 fn a_recorded_session_unfolded() {
     let mut rows = recorded();
     for at in 0..rows.rows().len() {
-        rows.toggle(at, None);
+        // A change is open already.
+        if rows.rows()[at].folded {
+            rows.toggle(at, None);
+        }
     }
     insta::assert_snapshot!(shown(&rows));
 }
@@ -211,11 +216,14 @@ fn an_interrupted_turn_ends_it_and_says_so() {
     );
     let mut rows = Rows::new(PathBuf::from("/w"));
     read(&mut rows, line);
-    assert_eq!(shown(&rows), "  ✗ interrupted · 1.2 s\n\n");
+    assert_eq!(
+        shown(&rows).trim_start_matches(' '),
+        "✗ interrupted · 1.2 s\n\n"
+    );
     let failed = "{\"type\":\"result\",\"is_error\":true,\"subtype\":\"x\\ny\",\"terminal_reason\":\"\\u001b\"}";
     let mut rows = Rows::new(PathBuf::from("/w"));
     read(&mut rows, failed);
-    assert_eq!(shown(&rows), "  ✗ x y ( )\n\n");
+    assert_eq!(shown(&rows).trim_start_matches(' '), "✗ x y ( )\n\n");
 }
 
 #[test]
@@ -228,8 +236,8 @@ fn a_turn_that_ends_closes_what_streams() {
         read(&mut rows, line);
     }
     let changes = read(&mut rows, r#"{"type":"result","subtype":"success"}"#);
-    // The call is unfinished, and the reply's last line ended.
-    let at = LineStart::default();
+    // The call is unfinished, and the reply's last line ended, after its blank line.
+    let at = LineStart::after(1);
     assert_eq!(
         changes,
         vec![
@@ -252,7 +260,7 @@ fn a_reply_that_grows_is_drawn_from_its_last_line() {
     let mut rows = Rows::new(PathBuf::from("/w"));
     let start = r#"{"type":"stream_event","api_message_id":"m","event":{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}}"#;
     assert_eq!(read(&mut rows, start), vec![RowChange::Added(0)]);
-    let mut drawn = render(&rows.rows()[0], rows.directory()).text;
+    let mut drawn = render(&rows.rows()[0], rows.directory(), 80).text;
     for piece in ["He", "llo\nwo", "rld\n", "", "\n\nend"] {
         let part = serde_json::json!({"type": "text_delta", "text": piece});
         let event = serde_json::json!({"type": "content_block_delta", "index": 0, "delta": part});
@@ -267,12 +275,12 @@ fn a_reply_that_grows_is_drawn_from_its_last_line() {
         }
         assert_eq!(
             drawn,
-            render(&rows.rows()[0], rows.directory()).text,
+            render(&rows.rows()[0], rows.directory(), 80).text,
             "after {piece:?}"
         );
     }
     // A blank line ends in no space.
-    assert_eq!(drawn, "● Hello\n  world\n\n\n  end\n");
+    assert_eq!(drawn, "  Hello\n  world\n\n\n  end\n");
     let whole = r#"{"type":"assistant","message":{"id":"m","content":[{"type":"text","text":"Hello\nworld\n\n\nend"}]}}"#;
     // Its last line ended: drawn again, as its marks are hidden now.
     let at = match read(&mut rows, whole)[..] {
@@ -303,42 +311,8 @@ fn only_what_oso_sent_is_the_persons() {
     }
     assert_eq!(
         shown(&rows),
-        "› Fix it\n  Done\n  Fix it\n  a message from elsewhere\n"
+        "〉 Fix it\n\n  Done\n\n  Fix it\n\n  a message from elsewhere\n"
     );
-}
-
-#[test]
-fn a_long_result_shows_its_edges() {
-    let text: Vec<String> = (1..=LONG_RESULT + 1).map(|n| n.to_string()).collect();
-    let result = ToolResult {
-        tool_use_id: String::new(),
-        error: false,
-        text: text.join("\n"),
-        cut: false,
-        lines: text.len(),
-        patch: Vec::new(),
-        changed: (0, 0),
-    };
-    let Shown::Edges { head, note, tail } = edges(&result) else {
-        panic!("whole")
-    };
-    assert_eq!(head.lines().count(), RESULT_EDGE);
-    assert_eq!(head.lines().last(), Some("50"));
-    assert_eq!(note, "… 101 more lines: RET shows them all …");
-    assert_eq!(
-        (tail.lines().count(), tail.lines().next()),
-        (RESULT_EDGE, Some("152"))
-    );
-    let one = ToolResult {
-        text: "x".repeat(MAX_TEXT),
-        lines: 1,
-        ..result
-    };
-    let Shown::Edges { head, tail, note } = edges(&one) else {
-        panic!("whole")
-    };
-    assert!(head.len() + tail.len() <= super::render::MAX_SHOWN_RESULT);
-    assert_eq!(note, "… cut: RET shows it all …");
 }
 
 #[test]
@@ -354,12 +328,12 @@ fn a_target_is_one_short_line() {
     let lines: Vec<String> = rows
         .rows()
         .iter()
-        .map(|row| render(row, Path::new("/w")).text)
+        .map(|row| render(row, Path::new("/w"), 80).text)
         .collect();
-    assert_eq!(lines[0], "◌ Bash echo a [31m rm -rf ~ · running\n");
-    assert!(lines[1].starts_with("◌ Bash echo hi "));
-    assert!(lines[1].ends_with("… · input cut · running\n"));
-    assert_eq!(lines[2], "◌ x › forged /w/src/a.rs · running\n");
+    assert_eq!(lines[0], "… $ Bash · echo a [31m rm -rf ~\n");
+    assert!(lines[1].starts_with("… $ Bash · echo hi "));
+    assert!(lines[1].ends_with("… · input cut\n"));
+    assert_eq!(lines[2], "… * x › forged · /w/src/a.rs\n");
 }
 
 #[test]
@@ -381,21 +355,21 @@ fn reads_one_after_another_share_a_row() {
     let result = r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"b","is_error":true,"content":"gone"}]}}"#;
     assert_eq!(read(&mut rows, result), vec![RowChange::Changed(0)]);
     assert_eq!(
-        render(&rows.rows()[0], rows.directory()).text,
-        "◌ Read 3 files · a.rs, b.rs, c.rs · 1 failed · 2 running\n"
+        render(&rows.rows()[0], rows.directory(), 80).text,
+        "… ≡ Read ×3 · a.rs, b.rs, c.rs · 1 failed\n"
     );
     rows.toggle(0, None);
     rows.toggle(0, Some(1));
-    let unfolded = render(&rows.rows()[0], rows.directory());
+    let unfolded = render(&rows.rows()[0], rows.directory(), 80);
     assert!(
         unfolded
             .text
-            .contains("\n  ◌ Read a.rs · running\n  ▾ Read b.rs · error\n      gone\n")
+            .contains("\n│ … ≡ Read · a.rs\n│ ✗ ≡ Read · b.rs · error\n│     gone\n")
     );
     let (slot, range) = &unfolded.calls[1];
     assert_eq!(
         (*slot, &unfolded.text[range.clone()]),
-        (1, "  ▾ Read b.rs · error\n      gone\n")
+        (1, "│ ✗ ≡ Read · b.rs · error\n│     gone\n")
     );
 }
 
@@ -442,8 +416,8 @@ fn a_streamed_read_that_may_not_share_leaves_its_row() {
     let result = r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"b","content":"root"}]}}"#;
     assert_eq!(read(&mut rows, result), vec![RowChange::Changed(1)]);
     assert_eq!(
-        render(&rows.rows()[1], rows.directory()).text,
-        "▸ Read /etc/passwd · 1 lines\n"
+        render(&rows.rows()[1], rows.directory(), 80).text,
+        "▸ ≡ Read · /etc/passwd  1 line\n"
     );
 }
 
@@ -504,10 +478,13 @@ fn a_patch_keeps_within_its_bounds() {
 fn faces_cover_the_text_they_name() {
     let mut rows = recorded();
     for at in 0..rows.rows().len() {
-        rows.toggle(at, None);
+        // A change is open already.
+        if rows.rows()[at].folded {
+            rows.toggle(at, None);
+        }
     }
     for row in rows.rows() {
-        let rendered = render(row, rows.directory());
+        let rendered = render(row, rows.directory(), 80);
         assert!(rendered.text.ends_with('\n'));
         for (range, _) in &rendered.faces {
             assert!(range.start < range.end && range.end <= rendered.text.len());
@@ -518,7 +495,7 @@ fn faces_cover_the_text_they_name() {
     let diff = rows
         .rows()
         .iter()
-        .map(|row| render(row, rows.directory()))
+        .map(|row| render(row, rows.directory(), 80))
         .find(|rendered| rendered.faces.iter().any(|(_, face)| *face == Face::Added));
     assert!(diff.is_some());
 }

@@ -7,9 +7,9 @@
 //! - A reply is highlighted only once it is whole: its block closed, by its message or by the
 //!   end of its turn, and its text at most [`MAX_REPLY`] bytes. A reply that streams has
 //!   the faces it is drawn with.
-//! - Its row draws each line as `shown` says, after a mark (`● `, or two spaces past the first
-//!   line, after the row's indent), an empty line's without its spaces at the end, as `render`
-//!   does; the projection walks the same lines. What Markdown's hidden marks are around keeps
+//! - Its row draws each line as `shown` says, after its indent, an empty line's without its
+//!   spaces at the end, and its gap's blank line before them, as `render` does; the projection
+//!   walks the same lines. What Markdown's hidden marks are around keeps
 //!   the face `shown` gives it. A fence's code takes its language's highlights, or code's face
 //!   when its language gave it none; what is drawn as written takes the parse's, a `_` emphasis
 //!   or a table's code among it. A line's break has no run. O(runs + lines).
@@ -82,26 +82,23 @@ fn lay(
 ) -> Vec<Run> {
     let mark_run = Some(Face::Dim.highlight());
     let mut runs: Vec<Run> = Vec::new();
+    if row.gap {
+        runs.push((1, None));
+    }
     let mut code = None;
-    reply_lines(
-        row.depth,
-        text,
-        LineStart::default(),
-        streams,
-        |mark, pieces| {
-            // Marks and breaks count too: many short lines are as many runs.
-            if runs.len() > most {
-                return;
-            }
-            if !mark.is_empty() {
-                runs.push((mark.len(), mark_run));
-            }
-            for piece in pieces {
-                put(&mut runs, &mut code, piece, highlights, most);
-            }
-            runs.push((1, None));
-        },
-    );
+    reply_lines(row, text, LineStart::default(), streams, |mark, pieces| {
+        // Marks and breaks count too: many short lines are as many runs.
+        if runs.len() > most {
+            return;
+        }
+        if !mark.is_empty() {
+            runs.push((mark.len(), mark_run));
+        }
+        for piece in pieces {
+            put(&mut runs, &mut code, piece, highlights, most);
+        }
+        runs.push((1, None));
+    });
     if let Some(code) = code {
         code.end(&mut runs);
     }
