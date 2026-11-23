@@ -341,9 +341,18 @@ fn sent(flow: &Flow) -> App {
     app
 }
 
-/// The card that asks about a call, once point came to it after a quiet moment: its text.
+/// The card that asks about a call, once point came to it: its text.
 fn card(app: &mut App, what: &str) -> String {
     let state = app.wait_for(what, |state| state["buffer"]["name"] == "*card: proj*");
+    text(&state)
+}
+
+/// The card that says `what_it_says`, once point came to it: one that follows another at once has
+/// its place and name.
+fn card_saying(app: &mut App, what: &str, what_it_says: &str) -> String {
+    let state = app.wait_for(what, |state| {
+        state["buffer"]["name"] == "*card: proj*" && text(state).contains(what_it_says)
+    });
     text(&state)
 }
 
@@ -389,19 +398,18 @@ fn a_native_sessions_calls_are_asked_of_the_person_with_the_agent_channel_off() 
     flow.scratch.write("ask", b"");
 
     // Each call the stream has is asked in turn, on the session's card, from what the stream
-    // says of it; point goes there after a quiet moment.
+    // says of it; point goes there as it appears.
     let first = card(&mut app, "the first card");
     assert!(
-        first.starts_with("Bash wants to run, in session proj"),
+        first.starts_with("╭─ Bash wants to run, in session proj "),
         "{first}"
     );
     assert!(first.contains("│ $ rm -rf build"), "{first}");
-    assert!(first.contains("[y] allow once"), "{first}");
+    assert!(first.contains("╰─  y  allow"), "{first}");
     answer_after_quiet(&mut app, "y");
-    // Answered, the card goes, and point with it, to the composer.
-    app.wait_for("the first card answered", in_composer);
-    let second = card(&mut app, "the second card");
-    assert!(second.contains("│ $ make"), "{second}");
+    // Answered, the card goes, and the call that waits behind it has its own, with point there as
+    // it appears (ADR 0180).
+    card_saying(&mut app, "the second card", "│ $ make");
     // `RET` shows the whole call in the card, and goes back.
     answer_after_quiet(&mut app, "RET");
     app.wait_for("the whole call", |state| {
@@ -495,6 +503,7 @@ fn answer_after_quiet(app: &mut App, key: &str) {
 }
 
 mod adopt;
+mod card_focus;
 mod cards;
 mod carried;
 mod compose;

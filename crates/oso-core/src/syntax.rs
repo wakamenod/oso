@@ -88,6 +88,11 @@ pub enum Highlight {
     /// A waiting session's mark and name on the lit beat of its blink, drawn inverse on a fill
     /// in the alert's colour (ADR 0140, as amended): only the host's `*Spaces*` gives these.
     SessionAlertLit,
+    /// A native session's permission card's frame and title, oso's words (ADR 0180): only the
+    /// host's card gives these two; no parser does.
+    CardTitle,
+    /// A key of that card, drawn on a chip.
+    CardKey,
     /// A working session's mark.
     SessionWorking,
     /// The mark of a session done or ready for review.

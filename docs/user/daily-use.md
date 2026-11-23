@@ -762,14 +762,18 @@ both start at once, with the composer ready. They need a project you trust, thou
 it needs to be open (one in a git worktree still does). Otherwise the resume says why, and the
 fork runs in a terminal.
 
-When Claude asks to run something, a card opens between the conversation and the composer,
-and the cursor moves to it once you have stopped typing for a moment, unless you are writing
-in the composer (then `C-x o` goes to it): Claude's own words are
-on rows that start with `│`, and the keys on its last row. `y` allows it once, `n` denies it,
+When Claude asks to run something, a framed card opens between the conversation and the composer,
+and the cursor moves to it at once, unless you are writing
+in the composer (then `C-x o` goes to it): Claude's own words are inside the frame, on rows that
+start with `│`, and the keys on its last row. The card takes keys once you have typed none for half
+a second, so that what you were typing never answers it. `y` allows it once, `n` denies it,
 `N` denies it with a note Claude is told, and `RET` shows all of the call. A question from
-Claude shows its options numbered: type the number, or `o` to answer in your own words. A plan
-is approved with `y`. Elsewhere, the session shows that it needs you, as a terminal session
-does.
+Claude shows all it asks and its options numbered: type the number, or `o` to answer in your own
+words. A plan is approved with `y`. A question or a plan too long for the window shows a page and
+how many rows there are; `SPC` goes on and `DEL` back, and an option can be chosen once it was on
+screen. In the composer, while it is empty, `y`, `n`, `N` and a question's `o` and numbers answer
+the card too; once you have written something, every key is text. Elsewhere, the session shows
+that it needs you, as a terminal session does.
 
 When Claude keeps a to-do list, it shows as one line above the composer, `☐ 2/5 ▶` and the
 item it works on; `C-c C-t`, in the conversation or the composer, opens it to a row an item

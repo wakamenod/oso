@@ -38,6 +38,7 @@ impl App {
     /// The window is in front again, as its event or the dev socket's `window-focus` says.
     pub(super) fn window_gained_focus(&mut self) {
         self.window_focused();
+        self.card_seen_again();
         self.look_at_configuration_again();
         self.list_adoptable_on_focus();
         self.look_at_binary();
@@ -240,6 +241,7 @@ impl App {
             // ---- Visible again: frames skipped while occluded need a redraw ----
             Event::Occluded(false) => {
                 self.sessions_occluded(false);
+                self.card_seen_again();
                 self.reviews_occluded(false);
                 self.request_redraw();
             }

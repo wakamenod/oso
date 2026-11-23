@@ -6,49 +6,134 @@
 //! Must not depend on: threads, the stream or the UI; the caller gives what the call says, the
 //! card's width and the keys' meaning, and docks the text.
 //!
-//! - oso's words are the card's first row, its title, and its last, the keys; what Claude
+//! - oso's words are the card's first row, its title, and its last, the keys, the top and the
+//!   bottom of its frame; what Claude
 //!   wrote (a command, a diff, a reason, a question, its options, a plan) is fenced between
-//!   them, each row of it after `│ ` in a face of its own, so that none of it can stand as a key
-//!   row or pass for oso's own words (ADR 0170). Each of Claude's line breaks starts a row of
+//!   them, each row of it after the frame's left side, `│ `, in a face of its own, so that none
+//!   of it can stand as a key row or pass for oso's own words (ADR 0170). The frame and the
+//!   title are in [`Face::CardTitle`] and the keys' chips in [`Face::CardKey`], which oso's own
+//!   spans alone take, and what is drawn behind a chip comes from that face, never from what a
+//!   text holds (ADR 0180). Each of Claude's line breaks starts a row of
 //!   its own, and a row longer than the card is broken into rows at its width, measured as
 //!   the display draws it, the rows it goes on to fenced `┊ `: no text of Claude's runs past
 //!   the card's edge or wraps unfenced, and a row is one row on screen. A mark that would
 //!   start a row goes on `◌`, as it would join the fence.
-//! - The card is at most [`MAX_ROWS`] rows; what is left out says so, and `RET` shows all of
-//!   it in the card ([`whole`]), at most [`MAX_WHOLE`] rows, with the keys on its title row.
+//! - A call's card is at most [`MAX_ROWS`] rows; what is left out says so, and `RET` shows all
+//!   of it in the card, at most [`MAX_WHOLE`] rows, with the keys on its title row. A question's
+//!   and a plan's grow to what they say, up to the rows the caller has, and page past that
+//!   (`body`): an option may be chosen only once it has been on screen (ADR 0180).
 //! - A question's answer is an option's label, or several joined by `, ` (measured, CLI
 //!   2.1.330), or the person's own words.
 
+mod body;
 pub mod call;
+mod frame;
+mod rows;
 
-use std::ops::Range;
-
-use oso_core::minibuffer::cells_of;
-
+use self::body::{Body, Page};
 pub use self::call::question;
+pub use self::frame::Shown;
+use self::frame::{BOTTOM, Key, MIN_WIDTH, TOP, chips, room_in};
+use self::rows::{Break, Row, rows_of};
 use super::render::Face;
 use super::wire::card::Asked;
 
-/// The most rows a card has: its title, what it fences and its keys (ADR 0170).
+/// The most rows a call's card has: its title, what it fences and its keys (ADR 0170).
 pub const MAX_ROWS: usize = 12;
-/// The most rows of Claude's text a card fences.
-pub const MAX_FENCED: usize = MAX_ROWS - 2;
+/// The most rows of Claude's text a call's card fences, with its keys on one row.
+#[cfg(test)]
+const MAX_FENCED: usize = MAX_ROWS - 2;
 /// The most rows `RET`'s whole view fences.
 pub const MAX_WHOLE: usize = 2000;
-/// The fence before each row of Claude's text.
-pub const FENCE: &str = "│ ";
-/// The fence before a row that goes on with the row above, broken at the card's width.
-pub const FENCE_ON: &str = "┊ ";
-/// The narrowest card drawn, in cells.
-const MIN_WIDTH: usize = 20;
+/// The narrowest window a card is read in, in cells: a narrower one cuts each of its rows.
+pub const NARROWEST: usize = MIN_WIDTH;
 
 /// What the person is asked about a call: its card, what `RET` shows of it whole, once
-/// asked, and whether the card shows that now.
+/// asked, whether the card shows that now, and where a question's or a plan's page is.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Question {
     pub card: Card,
     pub details: Option<String>,
     pub whole: bool,
+    page: Box<Page>,
+}
+
+impl Question {
+    /// What `card` asks, shown from its start.
+    pub fn new(card: Card) -> Self {
+        Self {
+            card,
+            details: None,
+            whole: false,
+            page: Box::default(),
+        }
+    }
+
+    /// Whether the card grows to what it says, and pages past that: a question or a plan.
+    pub fn grows(&self) -> bool {
+        !matches!(self.card, Card::Call { .. }) && !self.whole
+    }
+
+    /// The card as text `width` cells wide and, if it [grows](Self::grows), at most `room` rows
+    /// tall.
+    pub fn shown(&mut self, width: usize, room: usize) -> Shown {
+        if let (true, Some(details)) = (self.whole, &self.details) {
+            return whole(&self.card, details, width);
+        }
+        let keys = self.card.keys();
+        match &self.card {
+            Card::Call { title, lines } => call_shown(title, lines, keys, width),
+            Card::Questions(questions) => {
+                (self.page).shown((width, room), keys, || Body::question(questions, width))
+            }
+            Card::Plan { plan, cut } => {
+                (self.page).shown((width, room), keys, || Body::plan(plan, *cut, width))
+            }
+        }
+    }
+
+    /// Turns `pages` pages on, back if negative. Whether the page changed.
+    pub fn turn(&mut self, pages: isize) -> bool {
+        self.grows() && self.page.turn(pages)
+    }
+
+    /// The card as drawn last is on screen.
+    pub fn on_screen(&mut self) {
+        self.page.on_screen();
+    }
+
+    /// Whether option `number` of the question, from 1, has been on screen: only then may the
+    /// person choose it.
+    pub fn has_shown(&self, number: usize) -> bool {
+        self.page.has_shown(number)
+    }
+
+    /// Whether the question offers option `number`, from 1.
+    pub fn offers(&self, number: usize) -> bool {
+        match &self.card {
+            Card::Questions(questions) => (questions.current())
+                .is_some_and(|asked| (1..=asked.options.len()).contains(&number)),
+            Card::Call { .. } | Card::Plan { .. } => false,
+        }
+    }
+
+    /// Turns to option `number`, from 1.
+    pub fn go_to(&mut self, number: usize) {
+        self.page.go_to(number);
+    }
+
+    /// The question went through `step`: the next one starts at its first page.
+    pub fn stepped(&mut self, step: Step) {
+        match step {
+            Step::Next | Step::Done => *self.page = Page::default(),
+            Step::Toggled => {
+                if let Card::Questions(questions) = &self.card {
+                    self.page.remark(questions);
+                }
+            }
+            Step::Nothing => {}
+        }
+    }
 }
 
 /// What a card asks.
@@ -66,181 +151,95 @@ pub enum Card {
     Plan { plan: String, cut: bool },
 }
 
-/// A card as text, with faces over byte ranges of it.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Shown {
-    pub text: String,
-    pub faces: Vec<(Range<usize>, Face)>,
-    /// How many rows it has.
-    pub rows: usize,
-}
-
-impl Shown {
-    fn row(&mut self, text: &str, face: Face) {
-        if !self.text.is_empty() {
-            self.text.push('\n');
-        }
-        let start = self.text.len();
-        self.text.push_str(text);
-        self.faces.push((start..self.text.len(), face));
-        self.rows += 1;
-    }
-
-    /// One fenced row: the fence, `│ ` or `┊ ` for one that goes on with the row above, then
-    /// `text`, which holds no line break.
-    fn fenced_row(&mut self, (text, on): (&str, bool), face: Face) {
-        if !self.text.is_empty() {
-            self.text.push('\n');
-        }
-        let start = self.text.len();
-        self.text.push_str(if on { FENCE_ON } else { FENCE });
-        self.faces.push((start..self.text.len(), Face::Dim));
-        let start = self.text.len();
-        self.text.push_str(text);
-        self.faces.push((start..self.text.len(), face));
-        self.rows += 1;
-    }
-}
-
-/// Claude's `text` as the card's rows of at most `width` cells after the fence, each with
-/// whether it goes on with the row above: a row at each line feed, a tab as a space, and a
-/// longer row broken at the width, measured as the display draws it (a mark past what one
-/// cluster holds is drawn boxed, wider). At most `most` rows, and whether more were left out.
-fn rows_of(text: &str, width: usize, most: usize) -> (Vec<(String, bool)>, bool) {
-    let room = width.max(MIN_WIDTH).saturating_sub(cells_of(FENCE)).max(1);
-    let mut rows = Vec::new();
-    for line in text.split('\n') {
-        let line = line.strip_suffix('\r').unwrap_or(line);
-        let (mut row, mut used, mut on) = (String::new(), 0, false);
-        for c in line.chars() {
-            let c = if c == '\t' { ' ' } else { c };
-            let before = row.len();
-            row.push(c);
-            // ASCII that prints is one cell; anything else is measured with what it joins.
-            let now = if c.is_ascii_graphic() || c == ' ' {
-                used + 1
-            } else {
-                cells_of(&row)
-            };
-            if now > room && before > 0 {
-                row.truncate(before);
-                rows.push((std::mem::take(&mut row), on));
-                if rows.len() >= most {
-                    return (rows, true);
-                }
-                // A mark that starts a row would join the fence: it goes on a base of its own.
-                if joins(c) {
-                    row.push(BASE);
-                }
-                row.push(c);
-                used = cells_of(&row);
-                on = true;
-            } else {
-                used = now;
-            }
-        }
-        if rows.len() >= most {
-            return (rows, true);
-        }
-        rows.push((row, on));
-    }
-    (rows, false)
-}
-
 impl Card {
     /// Its keys, the card's last row.
-    fn keys(&self) -> &'static str {
+    fn keys(&self) -> &'static [Key] {
         match self {
-            Self::Call { .. } => {
-                "[y] allow once  [n] deny  [N] deny with a note  [RET] the whole call"
-            }
+            Self::Call { .. } => &[
+                ("y", "allow once", "allow"),
+                ("n", "deny", "deny"),
+                ("N", "deny with a note", "note"),
+                ("RET", "the whole call", "all"),
+            ],
             Self::Questions(questions) if questions.current().is_some_and(|asked| asked.multi) => {
-                "[1-9] choose or unchoose  [RET] done  [o] in your words  [n] decline"
+                &[
+                    ("1-9", "choose or unchoose", "choose"),
+                    ("RET", "done", "done"),
+                    ("o", "in your words", "own"),
+                    ("n", "decline", "decline"),
+                ]
             }
-            Self::Questions(_) => "[1-9] choose  [o] in your words  [n] decline  [RET] all of it",
+            Self::Questions(_) => &[
+                ("1-9", "choose", "choose"),
+                ("o", "in your words", "own"),
+                ("n", "decline", "decline"),
+            ],
             // `a` and `A` approve too, with that mode after it (part 3d).
-            Self::Plan { .. } => {
-                "[y] approve  [a] accept edits  [A] auto  [e] edit  [n] no  [N] note  [RET] all"
-            }
+            Self::Plan { .. } => &[
+                ("y", "approve", "approve"),
+                ("a", "accept edits", "edits"),
+                ("A", "auto", "auto"),
+                ("e", "edit", "edit"),
+                ("n", "no", "no"),
+                ("N", "note", "note"),
+                ("RET", "all", "all"),
+            ],
         }
     }
+}
 
-    /// The card as text `width` cells wide: its title, Claude's rows fenced, at most
-    /// [`MAX_FENCED`] of them, and its keys.
-    pub fn shown(&self, width: usize) -> Shown {
-        let mut shown = Shown::default();
-        let (title, lines) = match self {
-            Self::Call { title, lines } => (title.clone(), lines.clone()),
-            Self::Questions(questions) => questions.shown(),
-            Self::Plan { plan, cut } => {
-                let mut lines = vec![(plan.clone(), Face::Target)];
-                if *cut {
-                    lines.push(("(the request cut it)".to_owned(), Face::Dim));
-                }
-                ("Claude's plan, as its request gives it".to_owned(), lines)
-            }
-        };
-        // Cut to the card: what the title says first, as a warning, stays in sight.
-        shown.row(&title_of(&title, width), Face::Tool);
-        let mut rows = Vec::new();
-        let mut more = false;
-        for (line, face) in &lines {
-            let (broken, left) = rows_of(line, width, MAX_FENCED + 1 - rows.len());
-            rows.extend(broken.into_iter().map(|row| (row, *face)));
-            if left || rows.len() > MAX_FENCED {
-                more = true;
-                break;
-            }
+/// A call's card as text `width` cells wide: its `title`, Claude's `lines` fenced, at most
+/// [`MAX_ROWS`] rows with them, and its `keys`, the title and the keys the frame's top and bottom.
+fn call_shown(title: &str, lines: &[(String, Face)], keys: &[Key], width: usize) -> Shown {
+    let mut shown = Shown::default();
+    // Cut to the card: what the title says first, as a warning, stays in sight.
+    shown.edge(TOP, &[(title.to_owned(), Face::CardTitle)], width);
+    let room = room_in(width);
+    let keys = chips("", keys, width);
+    // A second row of keys takes one of Claude's.
+    let most = MAX_ROWS.saturating_sub(1 + keys.len()).max(1);
+    let mut rows = Vec::new();
+    let mut more = false;
+    for (line, face) in lines {
+        let (broken, left) = rows_of(line, room, Break::Exact, most + 1 - rows.len());
+        rows.extend(broken.into_iter().map(|row| (row, *face)));
+        if left || rows.len() > most {
+            more = true;
+            break;
         }
-        if more {
-            rows.truncate(MAX_FENCED - 1);
-        }
-        for ((row, on), face) in &rows {
-            shown.fenced_row((row, *on), *face);
-        }
-        if more {
-            shown.fenced_row(("… more rows: RET shows all", false), Face::Dim);
-        }
-        shown.row(&title_of(self.keys(), width), Face::Prompt);
-        shown
     }
+    if more {
+        rows.truncate(most - 1);
+    }
+    for (row, face) in &rows {
+        shown.fenced_row(row, *face, width);
+    }
+    if more {
+        let said = Row::said("… more rows: RET shows all", room);
+        shown.fenced_row(&said, Face::Dim, width);
+    }
+    shown.bottom(&keys, width);
+    shown
 }
 
 /// `card` shown whole, `details`, as `RET` asks, `width` cells wide: its keys on the title row,
 /// as the rows below may be many, then every row of it fenced, at most [`MAX_WHOLE`], scrolled
-/// as any buffer is; `RET` goes back to the card.
-pub fn whole(card: &Card, details: &str, width: usize) -> Shown {
+/// as any buffer is, and the frame's bottom; `RET` goes back to the card.
+fn whole(card: &Card, details: &str, width: usize) -> Shown {
     let mut shown = Shown::default();
-    let keys = card.keys();
-    let keys = match keys.find("[RET]") {
-        Some(at) => format!("All of it:  {}[RET] back", &keys[..at]),
-        None => format!("All of it:  {keys}  [RET] back"),
-    };
-    shown.row(&title_of(&keys, width), Face::Prompt);
-    let (rows, more) = rows_of(details, width, MAX_WHOLE);
-    for (row, on) in &rows {
-        shown.fenced_row((row, *on), Face::Target);
+    let before_ret = (card.keys().iter().copied()).take_while(|(key, ..)| *key != "RET");
+    let keys: Vec<Key> = before_ret.chain([("RET", "back", "back")]).collect();
+    shown.top(&chips("All of it:", &keys, width), width);
+    let (rows, more) = rows_of(details, room_in(width), Break::Exact, MAX_WHOLE);
+    for row in &rows {
+        shown.fenced_row(row, Face::Target, width);
     }
     if more {
-        shown.fenced_row(("… the rest is not shown here", false), Face::Dim);
+        let said = Row::said("… the rest is not shown here", room_in(width));
+        shown.fenced_row(&said, Face::Dim, width);
     }
+    shown.edge(BOTTOM, &[], width);
     shown
-}
-
-/// What a mark that starts a row goes on, as a lone mark is shown (`◌`).
-const BASE: char = '\u{25cc}';
-
-/// Whether `c` joins the character before it, as a combining mark does.
-fn joins(c: char) -> bool {
-    let mut joined = String::from("a");
-    joined.push(c);
-    !c.is_ascii() && cells_of(&joined) <= 1
-}
-
-/// `title` cut to `width` cells, with `…` where it was cut.
-fn title_of(title: &str, width: usize) -> String {
-    let (kept, cut) = oso_core::minibuffer::cut_to(title, width.max(MIN_WIDTH));
-    format!("{kept}{cut}")
 }
 
 /// An `AskUserQuestion`'s questions, answered one at a time.
@@ -355,36 +354,21 @@ impl Questions {
             .collect()
     }
 
-    /// The card's title and Claude's lines for the question answered now.
-    fn shown(&self) -> (String, Vec<(String, Face)>) {
-        let Some(asked) = self.current() else {
-            return ("Claude asks".to_owned(), Vec::new());
-        };
-        let count = self.asked.len();
-        let title = match count {
-            1 => "Claude asks".to_owned(),
-            _ => format!("Claude asks ({} of {count})", self.at + 1),
-        };
-        let mut lines = Vec::new();
-        if !asked.header.is_empty() {
-            lines.push((asked.header.clone(), Face::Dim));
+    /// The card's title: which question of how many is answered now.
+    fn title(&self) -> String {
+        match self.asked.len() {
+            0 | 1 => "Claude asks".to_owned(),
+            count => format!("Claude asks {}/{count}", (self.at + 1).min(count)),
         }
-        lines.push((asked.question.clone(), Face::Target));
-        for (index, (label, description)) in asked.options.iter().enumerate() {
-            let mark = match (asked.multi, self.picked.contains(&index)) {
-                (true, true) => "[x] ",
-                (true, false) => "[ ] ",
-                (false, _) => "",
-            };
-            let line = match description.is_empty() {
-                true => format!("{}. {mark}{label}", index + 1),
-                false => format!("{}. {mark}{label}: {description}", index + 1),
-            };
-            lines.push((line, Face::Target));
-        }
-        (title, lines)
+    }
+
+    /// Whether the option at `index` is chosen, of a question that takes several.
+    fn picks(&self, index: usize) -> bool {
+        self.picked.contains(&index)
     }
 }
 
+#[cfg(test)]
+mod grow_tests;
 #[cfg(test)]
 mod tests;
