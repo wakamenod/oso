@@ -130,8 +130,8 @@ pub struct Status {
     pub state: String,
     /// The echo area's line, as it comes from a message.
     pub echo: String,
-    /// The window is the selected one and no prompt is open, so its modeline is drawn active
-    /// (ADR 0112).
+    /// Its modeline is drawn active (ADR 0112): the window is the selected one, or the host of
+    /// the docked one that is (ADR 0170), and no prompt is open.
     pub selected: bool,
     /// A frame has no modeline, so the echo row has its warnings.
     warnings_on_echo_row: bool,

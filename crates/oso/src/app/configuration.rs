@@ -341,14 +341,20 @@ impl App {
         if let Some(old) = self.dispatcher.set_user_keymap(keys) {
             self.freer.free(old);
         }
+        self.forget_named_keys();
+    }
+
+    /// Forgets the keys drawn hints name, as the user's keys or menus changed.
+    fn forget_named_keys(&mut self) {
         self.forget_pane_keys();
+        self.hosting.natives.forget_placeholder();
     }
 
     /// Drops on the freeing thread the user's keymaps that ones waiting for a prefix key replaced.
     pub(super) fn free_replaced_keymap(&mut self) {
         while let Some(old) = self.dispatcher.take_replaced_keymap() {
             self.freer.free(old);
-            self.forget_pane_keys();
+            self.forget_named_keys();
         }
         while let Some(old) = self.dispatcher.take_replaced_menus() {
             self.freer.free(old);
