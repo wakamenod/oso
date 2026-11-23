@@ -7,7 +7,7 @@
 //!
 //! Must not depend on: the app's internals; the line's rules have their own tests.
 
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use super::super::super::harness::App;
 use super::super::super::spaces::trust_restricted;
@@ -82,6 +82,11 @@ fn transcript_says(app: &mut App, what: &str) -> Value {
 #[ignore = "opens windows; run with `just e2e`"]
 fn the_transcripts_modeline_says_the_sessions_model_mode_context_cost_and_limit() {
     let flow = Flow::with("native-status", STATUS_FAKE, "");
+    // The instance's state is kept in the project, which the turn's look at its changes would
+    // find, making the session ready for review and its attention mark crowd the line.
+    let exclude = flow.project.join(".git/info/exclude");
+    std::fs::create_dir_all(exclude.parent().unwrap()).unwrap();
+    std::fs::write(&exclude, "state/\n").unwrap();
     let mut app = flow.start();
     app.open_file(&flow.project.join("notes.md"));
     trust_restricted(&mut app, "proj");
@@ -100,6 +105,10 @@ fn the_transcripts_modeline_says_the_sessions_model_mode_context_cost_and_limit(
     app.send_keys(&keys("plan it"));
     app.send_keys("C-c C-c");
     flow.wait_for_file("sent.1");
+    // The turn ended while the composer was selected: until its transcript has been in front
+    // of the person for a moment (ADR 0140), the session's attention mark leads the modeline
+    // and crowds the line, and a CI window that lost its focus never has the person in front.
+    app.call("focus", Some(json!({ "focused": true })));
     let state = transcript_says(&mut app, AFTER);
     assert!(modeline(&state).ends_with(AFTER), "{}", modeline(&state));
     narrow_windows_drop_parts_from_the_right(&mut app);
