@@ -56,6 +56,14 @@ fn completed(text: &str) -> Reply {
     ok(200, &body.to_string())
 }
 
+/// What [`completed`]'s answer says was heard.
+fn heard(text: &str) -> Heard {
+    Heard {
+        text: text.to_owned(),
+        raw: Some(text.to_owned()),
+    }
+}
+
 impl Fake {
     fn with(starts: Vec<Reply>, stops: Vec<Reply>, polls: Vec<Reply>) -> Self {
         Self {
@@ -87,7 +95,7 @@ impl Transport for Fake {
             Call::Start { .. } => ("start", &self.starts),
             Call::Stop => ("stop", &self.stops),
             Call::Transcription(_) => ("poll", &self.polls),
-            Call::Terms | Call::Corrections => panic!("a dictation reads no dictionary"),
+            _ => panic!("a dictation reads no dictionary"),
         };
         self.calls.lock().unwrap().push(name.to_owned());
         next(list)
@@ -154,7 +162,7 @@ fn a_dictation_records_stops_and_gives_its_text() {
     assert_eq!(event(&events), Event::Recording);
     handle.stop();
     assert_eq!(event(&events), Event::Waiting(Stopped::Asked));
-    assert_eq!(event(&events), Event::Text("こんにちは".to_owned()));
+    assert_eq!(event(&events), Event::Text(heard("こんにちは")));
     assert_eq!(event(&events), Event::Settled);
     let calls = fake.calls();
     assert_eq!(calls.first().map(String::as_str), Some("start"));
@@ -223,7 +231,7 @@ fn a_stop_from_typewhispers_own_hotkey_goes_on_to_the_text() {
     let (_handle, events) = begin(settings(&file), &fake);
     assert_eq!(event(&events), Event::Recording);
     assert_eq!(event(&events), Event::Waiting(Stopped::Elsewhere));
-    assert_eq!(event(&events), Event::Text("done".to_owned()));
+    assert_eq!(event(&events), Event::Text(heard("done")));
     assert!(!fake.calls().contains(&"stop".to_owned()));
 }
 
@@ -255,7 +263,7 @@ fn a_stop_typewhisper_already_made_is_no_failure() {
     assert_eq!(event(&events), Event::Recording);
     handle.stop();
     assert_eq!(event(&events), Event::Waiting(Stopped::Asked));
-    assert_eq!(event(&events), Event::Text("late".to_owned()));
+    assert_eq!(event(&events), Event::Text(heard("late")));
 }
 
 #[test]

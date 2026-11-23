@@ -15,15 +15,18 @@
 //!   as often as they stood. A pair whose `right` looks like a credential is never kept.
 //! - **What a watch saw** becomes observations: the text as oso left it, the text as it was
 //!   typed, the fixes made and the text now (`rewrites` finds the person's own).
+//! - **TypeWhisper's dictionary** gets the pairs that stood often enough (`dictionary`, step 4).
 //! - **The log** is JSON lines, the last [`MAX_LOG_LINES`] of the last [`UNUSED_DAYS`]: each
-//!   observation and each history sent, as counts. Nothing of it is shown: learning is
-//!   silent.
+//!   observation, each history sent, as counts, and each change in TypeWhisper's dictionary.
+//!   Learning is silent: only `dictation-learning-log` shows it (`view`).
 
 use serde_json::{Value, json};
 
+use super::dictionary::sync::Done;
 use super::fix::{self, MAX_FIX_CHARS};
 
 pub mod rewrites;
+pub mod view;
 
 /// The directory in oso's state directory the record and the log are in.
 pub const DIRECTORY: &str = "dictation";
@@ -82,7 +85,7 @@ pub struct Observation {
 }
 
 /// A pair the record keeps.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Pair {
     pub wrong: String,
     pub right: String,
@@ -219,7 +222,8 @@ impl Record {
         text
     }
 
-    fn find(&self, wrong: &str, right: &str) -> Option<usize> {
+    /// Where the pair of `wrong` and `right` is, if it is there.
+    pub fn find(&self, wrong: &str, right: &str) -> Option<usize> {
         self.pairs
             .iter()
             .position(|pair| pair.wrong == wrong && pair.right == right)
@@ -472,6 +476,19 @@ pub fn log_history(history: &History, at: u64) -> String {
         "event": "history",
         "accepted": history.accepted.len(),
         "rejected": history.rejected.len(),
+    })
+    .to_string()
+}
+
+/// The log's line for what a pass over TypeWhisper's dictionary did, at `at`.
+pub fn log_done(done: &Done, at: u64) -> String {
+    json!({
+        "at": at,
+        "event": done.what.name(),
+        "as": done.kind.name(),
+        "wrong": done.wrong,
+        "right": done.right,
+        "why": done.why,
     })
     .to_string()
 }

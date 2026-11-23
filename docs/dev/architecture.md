@@ -270,7 +270,9 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   span stays, undrawn, and `app/dictation/learning.rs` watches the person's own commands that
   change it, a few minutes at most; what a fix and the person's rewrites taught goes to the
   learning record (`dictation::learning`) on a thread of its own, and each later fix is given
-  it as history. While the text is due, the dispatcher holds an `M-v`
+  it as history. The same thread adds what was learned often enough to TypeWhisper's dictionary
+  and takes back only what oso added (`dictation::dictionary`, `app/dictation/promoting.rs`); `dictation-learning-log` shows the log of it
+  (`app/dictation/log_view.rs`). While the text is due, the dispatcher holds an `M-v`
   (`dispatch/paste_guard.rs`) and drops it when the clipboard's types-only look finds
   TypeWhisper's marker, as TypeWhisper pastes the same text itself with Command-V.
 - **Modified state** compares content ids. Each edit gets a new id, undo and redo

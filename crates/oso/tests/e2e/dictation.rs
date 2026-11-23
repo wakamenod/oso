@@ -10,6 +10,9 @@
 //! is skipped; and the face is drawn only while the fix runs. Step 3's learning: a fix that
 //! stood and the person's own rewrite go to the record, and the next fix is given them as
 //! history; an undone fix is recorded as undone; and `dictation-forget-learned` empties it.
+//! Step 4's promotion: pairs learned often enough are added to the fake's dictionary once, never
+//! those learned only from text typed plain, the log is shown, and a forget removes what oso added
+//! and nothing the person has.
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test: the discovery
 //! file's checks, the curl configuration, the thread's steps and the held key's queue have
@@ -1002,4 +1005,229 @@ fn an_undone_fix_is_learned_as_undone_and_forgetting_empties_the_record() {
     let directory = scratch.path().join("state/dictation");
     assert!(!directory.join("learning.json").exists());
     assert!(!directory.join("learning.log").exists());
+}
+
+/// Writes a learning record of `pairs` in `scratch`'s state directory, each a `wrong` and its
+/// `right` that stood three times over two days, as the count called `source`.
+fn seed_learned(scratch: &Scratch, pairs: &[(&str, &str, &str)]) {
+    let today = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        / 86_400;
+    let pairs: Vec<Value> = pairs
+        .iter()
+        .map(|(wrong, right, source)| {
+            let mut pair = json!({
+                "wrong": wrong, "right": right, "fixes": 0, "edits": 0, "plain": 0, "undone": 0,
+                "days": [today - 1, today], "last": today,
+            });
+            pair[*source] = json!(3);
+            pair
+        })
+        .collect();
+    let record = json!({"version": 1, "pairs": pairs}).to_string();
+    let file = scratch.write("state/dictation/learning.json", record.as_bytes());
+    set_mode(&scratch.path().join("state"), 0o700);
+    set_mode(&scratch.path().join("state/dictation"), 0o700);
+    set_mode(&file, 0o600);
+}
+
+/// [`script`], with a dictionary the fake keeps in a file, which holds `terms` and
+/// `corrections` at first; and the file.
+fn script_with_kept_dictionary(
+    scratch: &Scratch,
+    terms: &Value,
+    corrections: &Value,
+) -> (Value, PathBuf) {
+    let file = scratch.write("typewhisper/dictionary.json", b"");
+    let mut script = script(0);
+    script["dictionary"] = json!({"terms": terms, "corrections": corrections, "file": file});
+    (script, file)
+}
+
+fn correction(original: &str, replacement: &str, case: bool) -> Value {
+    json!({"original": original, "replacement": replacement, "caseSensitive": case})
+}
+
+/// What the fake keeps once it is `wanted`, the corrections in any order.
+fn wait_for_dictionary(app: &mut App, file: &Path, wanted: &Value) {
+    let sorted = |value: &Value| -> Vec<String> {
+        let mut all: Vec<String> = ["terms", "corrections"]
+            .iter()
+            .flat_map(|list| value[*list].as_array().unwrap())
+            .map(Value::to_string)
+            .collect();
+        all.sort();
+        all
+    };
+    let wanted = sorted(wanted);
+    app.wait_for("TypeWhisper's dictionary", |_| {
+        fs::read(file)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+            .is_some_and(|kept| sorted(&kept) == wanted)
+    });
+}
+
+/// How many changes of the dictionary `fake` was asked for, as `METHOD` alone.
+fn changes(fake: &Fake, method: &str) -> usize {
+    fake.requests()
+        .iter()
+        .filter(|(request, authorized, _)| {
+            *authorized && request.starts_with(&format!("{method} /v1/dictionary/"))
+        })
+        .count()
+}
+
+/// Answers `dictation-forget-learned`'s question with `y`.
+fn forget_learned(app: &mut App) {
+    app.send_keys(&format!("M-x {} RET", keys("dictation-forget-learned")));
+    app.wait_for("the question", |state| {
+        state["prompts"][0]["prompt"]
+            .as_str()
+            .is_some_and(|prompt| prompt.contains("Forget everything dictation has learned"))
+    });
+    app.send_keys("y");
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn pairs_learned_often_go_to_typewhispers_dictionary_and_a_forget_takes_back_only_oso_s() {
+    let scratch = Scratch::new("dictation-promote");
+    let own = own_entry();
+    let (script, dictionary) =
+        script_with_kept_dictionary(&scratch, &json!(["oso"]), &json!([own.clone()]));
+    let fake = Fake::start(&scratch, &script);
+    let claude = fake_claude(&scratch, 0, &no_fixes());
+    let config = write_config(&scratch, &fake.discovery, &claude, "");
+    let file = scratch.write("notes.md", b"start\n");
+    seed_learned(
+        &scratch,
+        &[
+            ("TypeWhisper", "TW", "fixes"),
+            ("hello", "yellow", "plain"),
+            ("リアクト", "React", "edits"),
+        ],
+    );
+    let mut app = start(&scratch, &config, &file);
+    dictate(&mut app);
+    let sent = correction("TypeWhisper", "TW", true);
+    wait_for_dictionary(
+        &mut app,
+        &dictionary,
+        &json!({"terms": ["oso", "React"], "corrections": [own, sent]}),
+    );
+    assert_eq!(changes(&fake, "PUT"), 2);
+    app.wait_for("the fix landed", |state| fixes(state) == 0);
+
+    // The next dictation adds nothing more.
+    app.send_keys("M->");
+    dictate(&mut app);
+    app.wait_for("the second fix landed", |state| {
+        fixes(state) == 0 && text(state).matches(SAID).count() == 2
+    });
+    assert_eq!(changes(&fake, "PUT"), 2, "once, and never `hello`");
+
+    the_log_is_shown_read_only(&mut app);
+
+    // The person makes one of oso's entries theirs: the forget leaves it, and all they had.
+    let theirs = correction("TypeWhisper", "TW!", true);
+    let mut kept: Value = serde_json::from_slice(&fs::read(&dictionary).unwrap()).unwrap();
+    for entry in kept["corrections"].as_array_mut().unwrap() {
+        if entry["original"] == "TypeWhisper" {
+            *entry = theirs.clone();
+        }
+    }
+    fs::write(&dictionary, kept.to_string()).unwrap();
+    forget_learned(&mut app);
+    let state = echo_has(
+        &mut app,
+        "what was learned forgotten",
+        "Dictation forgot everything it learned, and left 1 you changed in TypeWhisper",
+    );
+    assert!(!text(&state).contains("React"), "the log's buffer is empty");
+    wait_for_dictionary(
+        &mut app,
+        &dictionary,
+        &json!({"terms": ["oso"], "corrections": [own_entry(), theirs]}),
+    );
+    assert_eq!(changes(&fake, "DELETE"), 1);
+    for name in ["learning.json", "learning.log", "typewhisper.json"] {
+        let file = scratch.path().join("state/dictation").join(name);
+        assert!(!file.exists(), "{name}");
+    }
+}
+
+/// `dictation-learning-log` shows what was added, and no key changes it.
+fn the_log_is_shown_read_only(app: &mut App) {
+    app.send_keys(&format!("M-x {} RET", keys("dictation-learning-log")));
+    let state = app.wait_for("the log", |state| {
+        text(state).contains("What dictation learned, newest first.")
+    });
+    for part in [
+        "added to TypeWhisper as a term: リアクト → React",
+        "added to TypeWhisper as a correction: TypeWhisper → TW",
+    ] {
+        assert!(text(&state).contains(part), "{part} in {}", text(&state));
+    }
+    app.send_keys("x");
+    assert!(
+        text(&app.state()).starts_with("What dictation"),
+        "read-only"
+    );
+}
+
+/// The person's own correction in the promotion's flow.
+fn own_entry() -> Value {
+    correction("ty", "thank you", false)
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_forget_with_typewhisper_gone_takes_its_entries_back_at_the_next_dictation() {
+    let scratch = Scratch::new("dictation-forget-later");
+    let (first, dictionary) = script_with_kept_dictionary(&scratch, &json!(["oso"]), &json!([]));
+    let fake = Fake::start(&scratch, &first);
+    let claude = fake_claude(&scratch, 0, &no_fixes());
+    let config = write_config(&scratch, &fake.discovery, &claude, "");
+    let file = scratch.write("notes.md", b"start\n");
+    seed_learned(&scratch, &[("リアクト", "React", "fixes")]);
+    let mut app = start(&scratch, &config, &file);
+    dictate(&mut app);
+    wait_for_dictionary(
+        &mut app,
+        &dictionary,
+        &json!({"terms": ["oso", "React"], "corrections": []}),
+    );
+    app.wait_for("the fix landed", |state| fixes(state) == 0);
+
+    fs::remove_file(&fake.discovery).unwrap();
+    drop(fake);
+    forget_learned(&mut app);
+    echo_has(
+        &mut app,
+        "what is left to go",
+        "1 entry goes from TypeWhisper once it answers a dictation",
+    );
+    assert!(
+        !scratch
+            .path()
+            .join("state/dictation/learning.json")
+            .exists()
+    );
+
+    let (second, dictionary) =
+        script_with_kept_dictionary(&scratch, &json!(["oso", "React"]), &json!([]));
+    let fake = Fake::start(&scratch, &second);
+    app.send_keys("M->");
+    dictate(&mut app);
+    wait_for_dictionary(
+        &mut app,
+        &dictionary,
+        &json!({"terms": ["oso"], "corrections": []}),
+    );
+    assert_eq!(changes(&fake, "DELETE"), 1);
+    let list = scratch.path().join("state/dictation/typewhisper.json");
+    app.wait_for("the list gone", |_| !list.exists());
 }

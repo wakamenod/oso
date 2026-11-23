@@ -22,7 +22,7 @@ use std::thread;
 use std::time::Duration;
 
 use oso_platform::process::{Executable, Signal, Sink, Source, Spawn, spawn};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use super::discovery::Discovery;
 
@@ -31,6 +31,10 @@ pub const MAX_ANSWER: usize = 1 << 20;
 
 /// The most characters of what TypeWhisper says in an error that the echo area shows.
 const MAX_SAID: usize = 120;
+
+/// The dictionary's paths.
+const TERMS: &str = "/v1/dictionary/terms";
+const CORRECTIONS: &str = "/v1/dictionary/corrections";
 
 /// curl's exit when it could not connect: nothing listens on the port.
 const CANNOT_CONNECT: i32 = 7;
@@ -74,10 +78,21 @@ pub enum Call {
     /// `GET /v1/dictation/transcription?id=ID`: where the dictation is, and its text once it is
     /// done.
     Transcription(DictationId),
-    /// `GET /v1/dictionary/terms`: the person's terms, for a fix (step 2).
+    /// `GET /v1/dictionary/terms`: the person's terms, for a fix (step 2) and a pass (step 4).
     Terms,
     /// `GET /v1/dictionary/corrections`: the person's corrections, for a fix.
     Corrections,
+    /// `PUT /v1/dictionary/terms`: adds a term (step 4).
+    PutTerm(String),
+    /// `DELETE /v1/dictionary/terms`: removes a term.
+    DeleteTerm(String),
+    /// `PUT /v1/dictionary/corrections`: adds a correction that matches case.
+    PutCorrection {
+        original: String,
+        replacement: String,
+    },
+    /// `DELETE /v1/dictionary/corrections`: removes the correction of an original.
+    DeleteCorrection(String),
 }
 
 impl Call {
@@ -96,8 +111,31 @@ impl Call {
             Self::Transcription(DictationId(id)) => {
                 ("GET", format!("/v1/dictation/transcription?id={id}"), None)
             }
-            Self::Terms => ("GET", "/v1/dictionary/terms".to_owned(), None),
-            Self::Corrections => ("GET", "/v1/dictionary/corrections".to_owned(), None),
+            Self::Terms => ("GET", TERMS.to_owned(), None),
+            Self::Corrections => ("GET", CORRECTIONS.to_owned(), None),
+            Self::PutTerm(term) => {
+                let body = json!({ "terms": [term], "replace": false });
+                ("PUT", TERMS.to_owned(), Some(body.to_string()))
+            }
+            Self::DeleteTerm(term) => {
+                let body = json!({ "term": term });
+                ("DELETE", TERMS.to_owned(), Some(body.to_string()))
+            }
+            Self::PutCorrection {
+                original,
+                replacement,
+            } => {
+                let body = json!({
+                    "original": original,
+                    "replacement": replacement,
+                    "caseSensitive": true,
+                });
+                ("PUT", CORRECTIONS.to_owned(), Some(body.to_string()))
+            }
+            Self::DeleteCorrection(original) => {
+                let body = json!({ "original": original });
+                ("DELETE", CORRECTIONS.to_owned(), Some(body.to_string()))
+            }
         }
     }
 
@@ -105,16 +143,22 @@ impl Call {
     pub fn limit(&self) -> Duration {
         match self {
             Self::Start { .. } => Duration::from_secs(10),
-            Self::Stop | Self::Transcription(_) | Self::Terms | Self::Corrections => {
-                Duration::from_secs(3)
-            }
+            Self::Stop
+            | Self::Transcription(_)
+            | Self::Terms
+            | Self::Corrections
+            | Self::PutTerm(_)
+            | Self::DeleteTerm(_)
+            | Self::PutCorrection { .. }
+            | Self::DeleteCorrection(_) => Duration::from_secs(3),
         }
     }
 }
 
 /// curl's configuration for `call` to the server `discovery` names, read from its standard
 /// input. Every value in it is oso's own or checked: the port is a number, the token's
-/// characters need no quoting (`discovery`), and a body holds a UUID alone.
+/// characters need no quoting (`discovery`), and a body is JSON oso wrote, which starts with
+/// `{`, holds no control, and has its quotes and backslashes escaped again for curl.
 pub fn config(discovery: &Discovery, call: &Call) -> String {
     let (method, path, body) = call.request();
     let mut config = format!(
@@ -283,7 +327,7 @@ impl Curl {
             args_logged: true,
         })
         .map_err(|e| Failure::Curl(format!("curl did not start: {e}")))?;
-        // A few hundred bytes: it fits in the pipe, so this does not wait for curl to read.
+        // A few KiB at most: it fits in the pipe, so this does not wait for curl to read.
         if let Some(mut stdin) = child.stdin.take() {
             let _ = stdin.write_all(config(discovery, call).as_bytes());
         }
@@ -425,6 +469,44 @@ mod tests {
             assert!(config.contains("request = \"GET\""));
             assert!(config.contains("max-time = 3"));
             assert!(!config.contains("data"));
+        }
+    }
+
+    #[test]
+    fn the_dictionarys_changes_carry_their_words_in_an_escaped_json_body() {
+        let wrong = "a\"\nurl = \"http://elsewhere/\\";
+        let call = Call::PutCorrection {
+            original: wrong.to_owned(),
+            replacement: "ビート".to_owned(),
+        };
+        let config = config(&found(), &call);
+        assert!(config.contains("url = \"http://127.0.0.1:8978/v1/dictionary/corrections\""));
+        assert!(config.contains("request = \"PUT\""));
+        assert_eq!(config.lines().filter(|l| l.starts_with("url")).count(), 1);
+        let body = config
+            .lines()
+            .find_map(|line| line.strip_prefix("data-binary = \"")?.strip_suffix('"'))
+            .unwrap();
+        assert!(body.starts_with('{'), "never a file's name to curl");
+        // As curl reads it: a backslash and what follows it are one character.
+        let mut read = String::new();
+        let mut chars = body.chars();
+        while let Some(c) = chars.next() {
+            read.push(if c == '\\' { chars.next().unwrap() } else { c });
+        }
+        assert_eq!(
+            serde_json::from_str::<Value>(&read).unwrap(),
+            json!({"original": wrong, "replacement": "ビート", "caseSensitive": true})
+        );
+        for (call, method, path) in [
+            (Call::PutTerm("oso".into()), "PUT", TERMS),
+            (Call::DeleteTerm("oso".into()), "DELETE", TERMS),
+            (Call::DeleteCorrection("x".into()), "DELETE", CORRECTIONS),
+        ] {
+            let config = super::config(&found(), &call);
+            assert!(config.contains(&format!("url = \"http://127.0.0.1:8978{path}\"")));
+            assert!(config.contains(&format!("request = \"{method}\"")));
+            assert!(config.contains("max-time = 3"));
         }
     }
 
