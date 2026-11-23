@@ -1,7 +1,9 @@
-//! A native session's reply highlighted as Markdown once whole (ADR 0165, part 2g), with a
-//! fake `claude -p` that streams the start of a reply, then, once the flow says so, its whole
-//! message: plain while it streams, highlighted, its Rust fence too, once whole, and on macOS,
-//! the one OS that draws text so far, drawn in colour that `global-font-lock-mode` takes away.
+//! A native session's reply drawn as its Markdown says (ADR 0165, part 2g and "The look:
+//! Markdown"), with a fake `claude -p` that streams the start of a reply, then, once the flow
+//! says so, its whole message: a line that has not ended as written, every other without its
+//! marks, its Rust fence highlighted once whole, and on macOS, the one OS that draws text so
+//! far, drawn in colour that `global-font-lock-mode` takes away. `w` copies the Markdown, `M-w`
+//! what shows.
 //!
 //! Must not depend on: the app's internals; which runs a reply's row takes, and when, have
 //! their own tests.
@@ -26,8 +28,8 @@ while [ ! -f "$dir/go" ]; do sleep 0.1; done
 exit "$(cat "$dir/go")"
 "#;
 
-/// The reply: a heading, inline code and a Rust fence.
-const REPLY: &str = "# Notes\n\nSome `code` here.\n\n```rust\nfn main() {}\n```";
+/// The reply: inline code and a Rust fence.
+const REPLY: &str = "Notes:\n\nSome `code` here.\n\n```rust\nfn main() {}\n```";
 
 fn lines(lines: &[Value]) -> String {
     let lines: Vec<String> = lines.iter().map(Value::to_string).collect();
@@ -37,7 +39,7 @@ fn lines(lines: &[Value]) -> String {
 /// The person's message replayed, and the reply's first line streamed, its block open.
 fn streamed() -> String {
     let start = json!({"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}});
-    let delta = json!({"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "# Notes\n\nSome `co"}});
+    let delta = json!({"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "Notes:\n\nSome `co"}});
     lines(&[
         json!({"type": "system", "subtype": "init", "cwd": "/w", "session_id": "s", "model": "m"}),
         json!({"type": "user", "isReplay": true, "message": {"content": MESSAGE}}),
@@ -54,15 +56,15 @@ fn after() -> String {
     ])
 }
 
-/// Whether the session's buffer holds runs of a syntax class: only the reply's Markdown can
-/// give them here, as the stream has no tool row.
-fn coloured(state: &Value) -> bool {
-    state["buffer"]["name"] == "*claude: proj*" && state["buffer"]["syntax"] == true
+/// Whether the session's buffer holds runs of code's classes: only the parse of the reply's
+/// fence can give them here, as the stream has no tool row.
+fn parsed(state: &Value) -> bool {
+    state["buffer"]["name"] == "*claude: proj*" && state["buffer"]["code"] == true
 }
 
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
-fn a_reply_is_plain_while_it_streams_and_highlighted_once_whole() {
+fn a_reply_is_drawn_without_its_marks_and_highlighted_once_whole() {
     let flow = Flow::new("native-markdown");
     let fake = flow.scratch.path().join("fake-claude");
     let script = MARKDOWN_FAKE.replace("DIR", &flow.scratch.path().display().to_string());
@@ -84,20 +86,20 @@ fn a_reply_is_plain_while_it_streams_and_highlighted_once_whole() {
     // Back to the transcript, whose rows and highlights the flow reads.
     app.send_keys("C-c C-o");
 
-    // While the reply streams, it is plain.
+    // The line that streams is as written, and plain.
     let state = app.wait_for("the reply streaming", |state| {
         state["buffer"]["name"] == "*claude: proj*" && text(state).contains("Some `co")
     });
-    assert!(!coloured(&state), "plain while it streams: {state}");
+    assert!(!parsed(&state), "plain while it streams: {state}");
 
     // Whole, it is highlighted.
     flow.scratch.write("whole", b"");
     let state = app.wait_for("the reply highlighted", |state| {
-        coloured(state) && text(state).contains("fn main() {}")
+        parsed(state) && text(state).contains("fn main() {}")
     });
     let shown = text(&state);
-    assert!(shown.contains("● # Notes"), "{shown}");
-    assert!(shown.contains("  ```rust"), "{shown}");
+    let drawn = "● Notes:\n\n  Some code here.\n\n  fn main() {}\n";
+    assert!(shown.contains(drawn), "{shown}");
     // Only macOS draws text so far (ADR 0036): elsewhere the state alone is checked.
     let shot = cfg!(target_os = "macos").then(|| app.screenshot());
 
@@ -115,7 +117,25 @@ fn a_reply_is_plain_while_it_streams_and_highlighted_once_whole() {
         );
     }
     app.run_command("global-font-lock-mode", None).unwrap();
-    app.wait_for("the reply highlighted again", coloured);
+    app.wait_for("the reply highlighted again", parsed);
+
+    // `w` copies the reply as Claude wrote it, `M-w` what shows: yanked in the composer.
+    let mut copied = |what: &str, keys: &str, copied: &str| {
+        app.send_keys("M-< C-s S o m e RET C-a");
+        app.send_keys(keys);
+        app.send_keys("i");
+        app.wait_for("the composer", in_composer);
+        app.send_keys("C-y");
+        app.wait_for(what, |state| {
+            in_composer(state) && text(state).trim_end() == copied
+        });
+        app.send_keys("C-x h C-w C-c C-o");
+        app.wait_for("the transcript", |state| {
+            state["buffer"]["name"] == "*claude: proj*"
+        });
+    };
+    copied("the Markdown yanked", "w", REPLY);
+    copied("what shows yanked", "C-SPC C-e M-w", "Some code here.");
 
     flow.scratch.write("go", b"0");
     let _ = app.exchange("exit", None);

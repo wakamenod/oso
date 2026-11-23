@@ -469,7 +469,7 @@ fn draw(
             continue;
         };
         let rendered = match change {
-            RowChange::Grew { lines, from, .. } => render::tail(row, lines, from),
+            RowChange::Grew { at, .. } => render::tail(row, at),
             RowChange::Added(_) | RowChange::Changed(_) => {
                 render::render(row, native.rows.directory())
             }
@@ -482,7 +482,7 @@ fn draw(
             }
         }
         let runs = rendered.runs();
-        // Drawn plain: a whole reply is highlighted again (part 2g).
+        // Drawn again: a whole reply is highlighted again (part 2g).
         native.markdown.drawn(at);
         editor.replace_native_rows(native.buffer, range.clone(), &rendered.text, &runs);
         native.placed.put(at, range, rendered.text.len());

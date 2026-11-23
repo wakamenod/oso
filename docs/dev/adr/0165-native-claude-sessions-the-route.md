@@ -1004,8 +1004,8 @@ orchestrator chose (a) on the last. The author accepted the exception to ADR 011
   folding redraws other rows only: both leave the runs where they are. A row drawn again is
   plain: what was open for it is closed at once, and a whole reply drawn again is opened again;
   a report under a key it no longer waits under is dropped, and one whose runs do not cover the
-  row's bytes changes nothing. Markdown's markers stay, in their face; hiding them waits for
-  the display map.
+  row's bytes changes nothing. Markdown's markers stayed, in their face; amended on
+  2026-11-24 ("The look: Markdown" below): most are hidden.
 - **Budgets:** a reply past 64 KiB (the author's choice, Q1), cut short, or whose runs, its
   marks and breaks among them, would pass 65536 stays plain. At most 4 replies are open at
   once, of every session, as many as hold a tree at once, and at most 256 wait, the newest
@@ -1025,8 +1025,8 @@ orchestrator chose (a) on the last. The author accepted the exception to ADR 011
   still goes with the text, so a buffer judged otherwise would not be opened.
 - **`global-font-lock-mode` (Q2 (a)):** off closes what is open, and the editor drops every
   buffer's highlights, a session's faces among them. On again, a session's faces are laid
-  again from its rows once a window shows it, a reply's as plain, in one change of its
-  highlights, and then its newest whole replies are asked for, before the others, at most 256;
+  again from its rows once a window shows it, those in view at once and the others in slices
+  ("The look: Markdown" below), and then its newest whole replies are asked for, before the others, at most 256;
   a session started while it was off has its faces, and its replies are asked for at once.
   While it is off, rows drawn are still looked at, so a reply that streams then is highlighted
   once whole after it is on.
@@ -1042,6 +1042,84 @@ orchestrator chose (a) on the last. The author accepted the exception to ADR 011
     in 631 KB, takes 4.8 ms, once, when a window shows it; laying them for every session at
     once would cost that for each, which waiting for a window avoids. An event with nothing
     to do takes 1.4 µs.
+
+### The look: Markdown
+
+The author decided on 2026-11-24 that the native view takes ECC's look and keeps oso's
+structure, approved the plan's mock-ups, and chose, for this part (D1): `M-w` copies what is
+shown and `w` a reply's raw Markdown (Q8 (a)); a link's target is hidden only behind plain
+words. ECC is GPL: its look was read, and no code or colour of it is here. It amends part 2g.
+
+- **Drawn without marks:** a reply's rows are drawn by `sessions::native::shown`, a pure walk
+  over its text: no `#` before a heading, no `*` around emphasis, no backticks around inline
+  code, no fence lines; `• ` for a `- ` or `* ` (an ordered list's numbers and `+ ` stay), `│ ` for a
+  quote's `> `, a line of 32 `─` for a rule, a link as its text. oso writes the rows' text, so nothing
+  is concealed by the display: the buffer holds what shows. An empty line stands for a fence's
+  line where none was. Faces are existing ones: what hidden marks were around keeps a colour
+  (a heading, emphasis, inline code as a string, a link). Real bold and italic, and tables, are
+  later parts: a table is drawn as written.
+- **Faces:** `shown` gives a reply's faces at once, also while it streams. The parse (part 2g)
+  still runs once the reply is whole: its runs lie on a fence's code, and on what has no face
+  of `shown`'s; code whose language gave it none is in inline code's face.
+- **While it streams,** a line is drawn without its marks once it ends; the last one is as
+  written until then. `RowChange::Grew` carries a `LineStart`, the place a line of the text starts
+  at with the lines drawn before it and what the lines before say of it (an open fence, a
+  list), so that only what follows is drawn again and drawing from any of them gives the
+  lines drawing whole does.
+- **As written:** tables, HTML, indented code, `+ ` items, `_` and `~` emphasis, images, reference links,
+  backslash escapes, a setext heading's underline, a fence in a quote or right after a bullet, and
+  a fence whose info string is not one word of at most 16 bytes, as it would hide words. A `*` that
+  could be a wildcard, a pointer or arithmetic stays: one opens only after a space, a bracket,
+  a quotation mark or a letter that is not ASCII, and before what a word starts with; one
+  closes only after what a word ends with and before no ASCII letter or digit; none is read in
+  an address. (`rm *foo*`, not in code, is emphasis, in its colour, as in any Markdown.) Marks
+  are matched on one line only. Past 16 KiB of a line, 256 KiB of a reply, 64 rules or 8
+  quote marks, text is as written, so that a crafted reply draws little more than it holds.
+- **What Claude writes cannot hide or pass for oso's:**
+  - A link's target is hidden only when it starts with `http://` or `https://`, has no title,
+    is its line's only address, and the link's text is plain words: letters and digits of
+    Latin, Greek, Cyrillic, kana, the ideographs and Hangul, and spaces, so no `.`, `/`, `:` or
+    `@` and nothing that looks like them; and when nothing next to it could go on its text,
+    and the rest of its line is words and the stops that end them, so that nothing there could
+    read as its target. Otherwise the target follows the text in parentheses, or the text is the
+    target. Other lines are not looked at: nothing opens a link here, and `w` copies what it is.
+  - Bidi controls and invisible characters are in the text as they came, so the display shows
+    them as in any buffer.
+  - A line that starts, past its spaces and a tree's `│`s, with a character that could be a
+    row's mark (`▸`, `›`, `●`, `∴`, `◌`, `·`, `…`, `✗`, `⚠`, `──`, or anything that is not ASCII, a
+    letter as above or one of a few signs, or one a combining mark changes) keeps its marks;
+    inside a fence, whose lines are hidden by then, it is drawn behind a `│ `, as is one that
+    starts with `>`. What tells a reply from a row is that and its place, past its mark; its
+    faces are none of the rows' quiet, prompt, alert and diff ones, but a fence's code can have
+    a tool row's two (the function's and the string's) until those have their own. A row a
+    soft wrap starts is not looked at: the continuation indent (ADR 0100) keeps it off the rows'
+    column.
+  - A mark between two characters that could join once it is hidden stays: it goes only
+    between those known to stand on their own.
+- **Keys:** `w` (`native-session-copy-markdown`, `Person`, `NativeAction::CopyMarkdown`) copies
+  the reply at point as it came to the kill ring and the clipboard; `M-w` copies what shows.
+- **Font lock on again** reads each reply's Markdown again, so a session's faces are laid for
+  the rows in view at once, and 512 rows or 128 KiB an event, of one session at a time, the newest first, each slice
+  asking for a frame, after which the next comes. Its replies are asked for after the last.
+- **Measured** (release, the author's Mac, with throwaway tests, before and after, replies of
+  headings, emphasis, inline code, a link, a list and a Rust fence every 150 bytes):
+  - A reply of 64 KiB that streams in 40-byte deltas in a wrapping buffer, each folded in, drawn
+    and wrapped: p50 9.4 to 10.3 µs, p99 26 to 29 µs; its end, the last line drawn once more, 48 to
+    47 µs; drawn at once whole, 0.21 to 0.45 ms. One of 1 MiB in 400-byte deltas: p99 35 to
+    44 µs.
+  - Font lock on again over 10,000 replies of 1.1 KB: 41.5 ms in one event, to 1.4 to 1.6 ms an
+    event, with those in view in the first.
+  - A resume's rows, once: 10,000 replies of 1.1 KB rendered in 12 to 47 ms, and the most a resume
+    reads, 8 MiB in 2000 replies, in 8 to 32 ms (4 ms for 1 MiB). Past one frame at the bound, once
+    a resume: accepted, as part 5a bounds what is read.
+  - A reply of 1 MiB made of one mark, such as rules, quotes or `[a](`: at most 6.2 ms and half
+    again its bytes; of 64 KiB, 0.7 ms.
+- **Built with** `sessions::native::shown` (`walk`, `LineStart`, `Piece`, `Style`), its
+  `inline` and `signs`, `render::reply_lines`, which `render::tail`, `markdown::project` and
+  `plain` share, `Open.mark` in `rows`, and the host's `markdown::faces`. One new public item, the author's OK of 2026-11-24:
+  `NativeAction::CopyMarkdown`. Unit tests, a property that a reply drawn as it streams, cut
+  anywhere, is the one drawn whole, the streams' fuzz target, and the e2e flow
+  `sessions::native::markdown`.
 
 ## Step 3, as built
 

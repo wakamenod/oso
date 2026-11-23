@@ -1,29 +1,31 @@
 //! A native session's replies highlighted as Markdown (ADR 0165, part 2g; ADR 0111): once a
 //! reply is whole, its text is opened as a document no buffer owns on the syntax threads, and
-//! the report's runs are put on its row. A reply that streams stays plain. The threads parse,
+//! the report's runs are put on its row, over a fence's code and what is drawn as written; the
+//! rest keeps the faces it is drawn with. The threads parse,
 //! fences in their own language too, and the session's pure part projects the runs.
 //!
 //! Must not depend on: key presses or how a frame is drawn; nothing here parses.
 //!
 //! - A reply is opened once its block closed and only if its text is at most
 //!   [`MAX_REPLY`](crate::sessions::native::markdown::MAX_REPLY) bytes, under a key never used before; a report counts only while its reply
-//!   waits under that key, and only the one that says it is done. A row drawn again, plain,
+//!   waits under that key, and only the one that says it is done. A row drawn again
 //!   makes what was asked for it stale, closing it if open, and a whole reply drawn again is
 //!   opened again.
 //! - At most [`MAX_OPEN`] replies are open at once, of every session, and at most
-//!   [`MAX_WAITING`] wait, the newest first; the oldest past that stay plain. They share the
+//!   [`MAX_WAITING`] wait, the newest first; the oldest past that keep the faces they
+//!   are drawn with. They share the
 //!   schedule's documents with a review's sides: a full schedule makes them wait a second. A
 //!   reply on screen as it opens ranks as shown; the others go after buffers no window shows.
 //!   The worker's own limits (ADR 0111) bound its time: a reply that fails, too slow or with a
-//!   long line, stays plain, and nothing is said or logged.
+//!   long line, stays as drawn, and nothing is said or logged.
 //! - A reply is parsed whatever it quotes, as its buffer is never judged secret (an exception
 //!   to ADR 0111, Q2, that ADR 0165, part 2g, gives the reasons for). The buffer's verdict still
 //!   goes with the text, and one that is not ordinary would not be opened.
 //! - `global-font-lock-mode` off closes what is open; the editor drops every buffer's
 //!   highlights, a session's faces too. On again, a session's rows' faces are laid again once a
-//!   window shows it, in one change of its buffer, and then its newest whole replies are asked
-//!   for, before the others, at most [`MAX_WAITING`] of them; so turning it on costs the
-//!   sessions on screen, not every session.
+//!   window shows it, in slices ([`faces`]), and then its newest whole replies are asked for,
+//!   before the others, at most [`MAX_WAITING`] of them; so turning it on costs the sessions on screen,
+//!   not every session.
 //! - What a report held is freed off the UI thread.
 
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -37,12 +39,15 @@ use oso_core::rope::Rope;
 use oso_core::syntax::{Highlight, Highlights};
 use oso_syntax::{Language, Outcome, Refused, Report};
 
+mod faces;
+
+use faces::{Faces, lay_faces};
+
 use super::{Native, NativeSessions};
 use crate::app::App;
 use crate::app::freer::Freer;
 use crate::app::syntax::{Documents, SyntaxKey};
-use crate::sessions::native::markdown::{highlightable, plain, project};
-use crate::sessions::native::render::{self, Face};
+use crate::sessions::native::markdown::{highlightable, project};
 use crate::sessions::native::rows::{Kind, Row};
 use crate::sessions::worker::SessionKey;
 
@@ -51,7 +56,7 @@ use crate::sessions::worker::SessionKey;
 /// reply finishing has the next one ready and no more wait there.
 pub(in crate::app) const MAX_OPEN: usize = 4;
 
-/// The most replies that wait to be opened: past it, the oldest stay plain.
+/// The most replies that wait to be opened: past it, the oldest stay as drawn.
 pub(in crate::app) const MAX_WAITING: usize = 256;
 
 /// How long a schedule that was full waits before a reply is offered again.
@@ -70,13 +75,17 @@ pub(super) struct Marks {
     highlighted: HashSet<usize>,
     /// Keys made stale by a row drawn again: closed if open.
     stale: Vec<u64>,
-    /// Highlighting turned off after the session's rows were drawn, dropping their faces
-    /// (`Editor::set_font_lock`): they are laid again once it is on and a window shows it.
-    faces_lost: bool,
+    /// The session's faces, once highlighting turned off dropped them.
+    faces: Faces,
 }
 
 impl Marks {
-    /// Row `row` was drawn again, plain: what was asked for it is stale. A reply that grows
+    /// Whether the faces of its rows are, or may be, missing.
+    fn lost(&self) -> bool {
+        self.faces.lost()
+    }
+
+    /// Row `row` was drawn again: what was asked for it is stale. A reply that grows
     /// draws its row once a delta: noted once.
     pub(super) fn drawn(&mut self, row: usize) {
         if let Some(key) = self.keys.remove(&row) {
@@ -145,7 +154,7 @@ impl Replies {
         self.next += 1;
         marks.keys.insert(row, self.next);
         self.waiting.push_front((session, row, self.next));
-        // The oldest past the bound stay plain; its key is left stale.
+        // The oldest past the bound stay as drawn; its key is left stale.
         self.waiting.truncate(MAX_WAITING);
     }
 
@@ -189,7 +198,7 @@ impl Replies {
                 streams
             });
             // A session whose faces were dropped asks once they are laid again.
-            let asking = asking && !marks.faces_lost;
+            let asking = asking && !marks.lost();
             for row in whole.into_iter().filter(|_| asking) {
                 if rows.get(row).and_then(highlightable).is_some() {
                     self.ask(*session, marks, row);
@@ -205,7 +214,7 @@ impl Replies {
     fn ask_all(&mut self, natives: &mut HashMap<SessionKey, Native>, editor: &Editor) {
         let shown = |native: &Native| editor.windows().any(|w| w.buffer() == native.buffer);
         let mut sessions: Vec<(bool, SessionKey)> = (natives.iter())
-            .filter(|(_, native)| !native.markdown.faces_lost)
+            .filter(|(_, native)| !native.markdown.lost())
             .map(|(session, native)| (!shown(native), *session))
             .collect();
         sessions.sort_unstable();
@@ -238,7 +247,7 @@ impl Replies {
             marks.keys.insert(row, self.next);
             self.waiting.insert(at + index, (session, row, self.next));
         }
-        // Those past the bound stay plain; their keys are left stale.
+        // Those past the bound stay as drawn; their keys are left stale.
         self.waiting.truncate(MAX_WAITING);
     }
 
@@ -365,7 +374,7 @@ fn sync(natives: &mut NativeSessions, editor: &mut Editor, freer: &Freer, on: bo
             let marks = &mut native.markdown;
             if !on {
                 // The editor dropped every buffer's highlights.
-                marks.faces_lost = true;
+                marks.faces.drop_all();
                 marks.highlighted.clear();
             }
             marks.keys.clear();
@@ -384,50 +393,19 @@ fn sync(natives: &mut NativeSessions, editor: &mut Editor, freer: &Freer, on: bo
         return false;
     }
     replies.forget_gone(&natives.map);
-    let mut redraw = false;
+    let (mut redraw, mut slice) = (false, true);
     for (session, native) in &mut natives.map {
         let buffer = native.buffer;
-        if native.markdown.faces_lost && editor.windows().any(|window| window.buffer() == buffer) {
-            native.markdown.faces_lost = false;
-            redraw |= lay_faces(editor, freer, native);
-            replies.ask_session(*session, native, true);
+        if native.markdown.lost() && editor.windows().any(|window| window.buffer() == buffer) {
+            redraw |= lay_faces(editor, freer, native, &mut replies.shown, slice);
+            // One slice an event, of every session.
+            slice = false;
+            if !native.markdown.lost() {
+                replies.ask_session(*session, native, true);
+            }
         }
     }
     redraw
-}
-
-/// Lays the faces of every row of `native` again, and of its queue, as they were drawn, a
-/// reply's as plain, in one change of its buffer's highlights; a row whose text is not what
-/// it renders to now is left with none. Whether a window shows the buffer.
-fn lay_faces(editor: &mut Editor, freer: &Freer, native: &Native) -> bool {
-    let Some(len) = editor
-        .buffer(native.buffer)
-        .map(|buffer| buffer.text().len())
-    else {
-        return false;
-    };
-    let mut highlights = Highlights::new(len);
-    let directory = native.rows.directory();
-    for (row, at) in native.rows.rows().iter().enumerate() {
-        let range = row_range(native, row);
-        // A reply's text is not rendered again: its marks are all it has.
-        let runs = match plain(at) {
-            Some(runs) => fits(&runs, &range).then_some(runs),
-            None => {
-                let rendered = render::render(at, directory);
-                // Its runs leave out what has none at its end.
-                (rendered.text.len() == range.len()).then(|| rendered.runs())
-            }
-        };
-        if let Some(runs) = runs {
-            highlights.replace(range, runs);
-        }
-    }
-    let queue = native.placed.end()..len;
-    if !queue.is_empty() {
-        highlights.replace(queue.clone(), [(queue.len(), Some(Face::Dim.highlight()))]);
-    }
-    set_highlights(editor, freer, native.buffer, highlights)
 }
 
 /// Whether `runs` cover `range` exactly.
@@ -436,7 +414,7 @@ fn fits(runs: &[(usize, Option<Highlight>)], range: &Range<usize>) -> bool {
 }
 
 /// Puts the runs of reply `report.buffer` on its row, if its report is the done one and it
-/// still waits under that key; one that failed stays plain, and nothing is said. Whether a
+/// still waits under that key; one that failed stays as drawn, and nothing is said. Whether a
 /// window shows it.
 fn reported(
     natives: &mut NativeSessions,
@@ -465,7 +443,7 @@ fn reported(
     native.markdown.keys.remove(&row);
     let runs = match (&report.outcome, native.rows.rows().get(row)) {
         (Outcome::Highlights(highlights), Some(at)) => project(at, highlights),
-        // Too slow, a long line or lost: it stays plain.
+        // Too slow, a long line or lost: it stays as drawn.
         _ => None,
     };
     let range = row_range(native, row);
