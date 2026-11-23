@@ -144,7 +144,14 @@ touched.
 - The session tools' guard test (ADR 0121, step 6) keeps `hang_up` and the process module out of
   the tools' files, by name. The stop is reached through `App::stop_quietly`, outside them, as a
   removal's through `stop_idle_sessions_in`; the guard does not tell such a call apart. A guard
-  that named the stops a tool may reach would be a change to a check file, for the author.
+  that named the stops a tool may reach would be a change to a check file; the author left the
+  guard as it is for now (2026-11-23).
+
+## Follow-up
+
+- **A stricter guard:** `crates/oso/tests/architecture/agent_tools.rs` could name the stops a
+  tool file may reach (`stop_quietly`, `stop_idle_sessions_in`) and allow each only from the
+  tool that needs it, so that a new tool's stop fails the check until a decision lets it.
 - Ready for review counts as settled, as for a removal: an agent can stop and archive a session
   whose work waits for review. The review itself is the worktree's and stays.
 - Between the registry's read and the stop, a few milliseconds without asking and a second read
