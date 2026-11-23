@@ -934,8 +934,9 @@ fn a_fix_that_stood_and_the_persons_rewrite_go_to_the_next_fix_as_history() {
     app.wait_for("the fix landed", |state| {
         fixes(state) == 0 && text(state).starts_with("hello from TWstart")
     });
-    // The person rewrites a word of it: point is after `TW`, which `start` joins.
-    app.send_keys("M-b M-b M-d t o");
+    // The person rewrites a word of it, `from`, by characters: word motion would stop inside
+    // `TWstart`, at its change of case.
+    app.send_keys("C-a C-f C-f C-f C-f C-f C-f M-d t o");
     app.wait_for("the rewrite", |state| {
         text(state).starts_with("hello to TWstart")
     });

@@ -221,9 +221,10 @@ release-safety:
     # `oso-restart`, whose pair has names of its own (ADR 0133).
     markers="oso-dev-control-socket oso-dev-supervisor send-keys export-state"
     markers="$markers export-text import-state hand-over-terminals import-terminals"
-    # The dev hooks that stop an `oso-restart` short, name a stand-in `gh` and delay the
-    # configuration's first look, for end-to-end flows.
+    # The dev hooks that stop an `oso-restart` short, name a stand-in `gh`, delay the
+    # configuration's first look and make dictation's watches quick, for end-to-end flows.
     markers="$markers OSO_DEV_RESTART_FAIL OSO_DEV_GH OSO_DEV_CONFIG_DELAY_MS"
+    markers="$markers OSO_DEV_DICTATION_QUICK"
     # On macOS, the window layer's dev-only Carbon import, for the dev socket's secure input
     # check (ADR 0070, ADR 0073).
     if [ "$(uname -s)" = Darwin ]; then markers="$markers IsSecureEventInputEnabled"; fi
