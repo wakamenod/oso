@@ -763,3 +763,92 @@ fn a_fix_that_answers_during_the_next_dictation_waits_for_its_text() {
     });
     assert!(!state.to_string().contains("kill ring"), "{state}");
 }
+
+/// A fake `claude` for a native session and a fix at once, in `scratch`'s `both` directory:
+/// run with a JSON schema, it is the fix, which waits 3 s and answers [`one_fix`]; otherwise
+/// it is the session, which keeps every message the person sends it.
+fn fake_claude_for_both(scratch: &Scratch) -> PathBuf {
+    let dir = scratch.path().join("both");
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(dir.join("answer.json"), one_fix().to_string()).unwrap();
+    let dir = dir.display();
+    let script = format!(
+        "#!/bin/sh\ncase \"$*\" in\n  *--json-schema=*)\n    cat > /dev/null\n    sleep 3\n    \
+         cat '{dir}/answer.json'\n    ;;\n  *)\n    while IFS= read -r line; do\n      \
+         case \"$line\" in *'\"control_request\"'*) ;; *) printf '%s\\n' \"$line\" >> '{dir}/sent' ;; \
+         esac\n    done\n    ;;\nesac\n"
+    );
+    let claude = scratch.write("both/claude", script.as_bytes());
+    set_mode(&claude, 0o700);
+    claude
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_composers_send_during_a_fix_waits_for_it_and_sends_the_fixed_text() {
+    let scratch = Scratch::new("dictation-composer-send");
+    let fake = Fake::start(&scratch, &script(0));
+    let claude = fake_claude_for_both(&scratch);
+    let config = write_config(&scratch, &fake.discovery, &claude, "");
+    let project = scratch.path().join("proj");
+    fs::create_dir(&project).unwrap();
+    git_init(&project);
+    let file = project.join("notes.md");
+    fs::write(&file, "notes\n").unwrap();
+    let mut app = start(&scratch, &config, &file);
+    trust_restricted(&mut app, "proj");
+    app.wait_for("the project trusted", |state| {
+        state["modeline"]
+            .as_str()
+            .is_some_and(|modeline| !modeline.contains("restricted"))
+    });
+    app.run_command("claude", None).unwrap();
+    app.wait_for("the composer", in_composer);
+    app.send_keys(&keys("ask: "));
+    dictate_docked(&mut app);
+    app.wait_for("the text in the composer, provisional", |state| {
+        in_composer(state) && text(state) == format!("ask: {SAID}") && fixes(state) == 1
+    });
+    // The person sends while the fix runs: it waits.
+    app.send_keys("C-c C-c");
+    let sent = scratch.path().join("both/sent");
+    thread::sleep(Duration::from_secs(1));
+    let early = fs::read_to_string(&sent).unwrap_or_default();
+    assert!(
+        !early.contains("hello"),
+        "nothing went before the fix: {early}"
+    );
+    app.wait_for("the fix landed", |state| fixes(state) == 0);
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let went = fs::read_to_string(&sent).unwrap_or_default();
+        if went.contains("ask: hello from TW") {
+            assert!(!went.contains("TypeWhisper"), "the fixed text went: {went}");
+            break;
+        }
+        assert!(Instant::now() < deadline, "the send never went: {went}");
+        thread::sleep(Duration::from_millis(100));
+    }
+
+    // Again, but `C-c C-k` drops the wait: nothing more goes. The fake, stopped already, gives
+    // the next text at its first look.
+    app.send_keys("s-d");
+    app.wait_for("the next text, provisional", |state| {
+        in_composer(state) && text(state) == SAID && fixes(state) == 1
+    });
+    app.send_keys("C-c C-c C-c C-k");
+    app.wait_for("the second fix landed", |state| fixes(state) == 0);
+    thread::sleep(Duration::from_secs(1));
+    let went = fs::read_to_string(&sent).unwrap_or_default();
+    assert_eq!(
+        went.matches("hello from").count(),
+        1,
+        "the dropped send never went: {went}"
+    );
+    let state = app.state();
+    assert_eq!(
+        text(&state),
+        "hello from TW",
+        "it stays in the composer, fixed"
+    );
+}

@@ -6,7 +6,8 @@
 //! exit that waits does for a turn (ADR 0133, step 5), and ends their processes only once
 //! they are idle. A stopped or failed session, with no process, holds nothing. So does one
 //! whose process is being ended for a switch to the TUI (part 4d), until it ended and the
-//! TUI's start, which holds it as any start does, began.
+//! TUI's start, which holds it as any start does, began. A composer's send that waits for a
+//! dictation's fix holds it too (ADR 0175, step 2).
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 
@@ -36,6 +37,8 @@ struct Doing {
     /// Its process is being ended for a switch to the TUI (part 4d), which starts once it
     /// ended: the restart carries the TUI, not a session caught half way.
     switching: bool,
+    /// The person's send waits for a dictation's fix (ADR 0175, step 2).
+    sending: bool,
 }
 
 impl Doing {
@@ -49,6 +52,7 @@ impl Doing {
             busy,
             stopping,
             switching,
+            sending: native.composing.holds_a_send(),
         }
     }
 
@@ -60,7 +64,8 @@ impl Doing {
                 || self.turn
                 || self.busy
                 || self.stopping
-                || self.switching)
+                || self.switching
+                || self.sending)
     }
 }
 
@@ -112,6 +117,7 @@ mod tests {
         busy: false,
         stopping: false,
         switching: false,
+        sending: false,
     };
 
     #[test]
@@ -132,6 +138,11 @@ mod tests {
             // Hung up, until it has ended (part 4c).
             Doing {
                 stopping: true,
+                ..LIVE
+            },
+            // The person's send waits for a dictation's fix (ADR 0175).
+            Doing {
+                sending: true,
                 ..LIVE
             },
             // Ended for a switch to the TUI, which is not started yet (part 4d).

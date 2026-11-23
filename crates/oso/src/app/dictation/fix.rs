@@ -14,6 +14,8 @@
 //! - An answer that comes while another dictation is under way waits for that one's text to
 //!   be placed: a fix changes the buffer, which would send that text to the kill ring.
 //! - At most [`MAX_RUNNING`] fixes run at once: a dictation past them is typed plain.
+//! - A native composer's send while the modeline says `fix` waits for the fixes running then
+//!   to end; the composer keeps it, and this says which run and when they end.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -105,7 +107,10 @@ impl App {
             .name("oso-dictation-fix".into())
             .spawn(move || {
                 let id = job.id;
-                waker.send(UserEvent::DictationFix(id, run(&job)));
+                // Every fix answers, so that nothing waits on one that stopped short.
+                let answer = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run(&job)))
+                    .unwrap_or_else(|_| Err("it stopped short".to_owned()));
+                waker.send(UserEvent::DictationFix(id, answer));
             });
         if let Err(e) = started {
             log::error!("cannot start a dictation fix's thread: {e}");
@@ -149,10 +154,33 @@ impl App {
             .partition(|fix| fix.answer.is_some());
         self.dictations.fixes = running;
         for fixing in answered {
+            // A composer's send waiting for the fix goes with the fixed text, not another.
+            let unchanged = self.held_sends_unchanged();
             self.land_dictation_fix(fixing);
+            self.held_sends_follow(&unchanged);
         }
         self.show_dictation_mark();
+        self.send_held_composers();
         self.request_redraw();
+    }
+
+    /// The fixes a composer's send waits for: those running while the modeline says `fix`;
+    /// none when the mark says something else, and the send goes at once.
+    pub(in crate::app) fn dictation_fixes_shown(&self) -> Option<Vec<u64>> {
+        (self.editor.dictation_mark() == DictationMark::Fixing)
+            .then(|| self.dictations.fixes.iter().map(|fix| fix.id).collect())
+    }
+
+    /// Whether the fix `id` is still under way.
+    pub(in crate::app) fn dictation_fix_runs(&self, id: u64) -> bool {
+        self.dictations.fixes.iter().any(|fix| fix.id == id)
+    }
+
+    /// As oso exits or a restart starts: the composers' sends that wait for a fix do not go,
+    /// and the fixes stop.
+    pub(in crate::app) fn leave_dictation_fixes(&mut self) {
+        self.drop_held_sends();
+        self.stop_dictation_fixes();
     }
 
     /// Makes `fixing`'s fixes at the threshold inside its span, in one undo step, and shows the
@@ -194,7 +222,7 @@ impl App {
     /// Stops every fix under way, as `dictation-cancel` or an exit does: each `claude` is
     /// killed, its thread reaps it, and the text stays as it was typed. Says whether there was
     /// one.
-    pub(in crate::app) fn stop_dictation_fixes(&mut self) -> bool {
+    pub(super) fn stop_dictation_fixes(&mut self) -> bool {
         let fixes = std::mem::take(&mut self.dictations.fixes);
         for fixing in &fixes {
             oneshot::kill(&fixing.running);

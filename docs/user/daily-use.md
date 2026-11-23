@@ -775,7 +775,9 @@ records and recognises your speech on your Mac. Turn on its API server in TypeWh
   text shows on a tinted band and the modeline says `fix` until the fix lands, as one more
   undo step: `C-z` once brings back what TypeWhisper heard. Fixes Claude is less sure of are
   only shown in the echo area. If you edit the dictated text meanwhile, the fix is skipped.
-  `C-u s-d` types the text plain, with no fix.
+  `C-u s-d` types the text plain, with no fix. In a session's composer, `C-c C-c` while the
+  modeline says `fix` waits for the fix and then sends the fixed text; `C-c C-k` drops the
+  wait, and so does editing the message meanwhile.
 - The fix runs your own `claude` (`[sessions] claude`), which sends the dictated text, a few
   lines around it and TypeWhisper's dictionary to Anthropic. It never runs for the minibuffer
   or a buffer that may hold secrets. `M-x dictation-cancel` stops a fix under way.

@@ -148,6 +148,12 @@ started, not for its answer. Nothing of a dictation is carried across a restart.
   answered within 200 ms. No text or image is read then. Whether that look shows macOS's notice
   about reading another app's clipboard is not known yet; the author checks it by hand.
 
+- [ADR 0165](0165-native-claude-sessions-the-route.md), part 2a ("Sending") and part 2c
+  (`C-c C-k`): a composer's `C-c C-c` and `C-u C-c C-c`, an empty one too, wait while a
+  dictation's fix runs, as "Step 2, as built" says, and `C-c C-k` drops that wait before it
+  gives up an edit or interrupts. A send that waits holds an exit or a restart that waits for
+  the sessions (part 4b).
+
 ### Layers and tests
 
 - The `oso` crate's `dictation` module, `dictation::{api, discovery, state, fix}`, on the
@@ -261,6 +267,23 @@ started, not for its answer. Nothing of a dictation is carried across a restart.
   buffer changed while the person spoke.
 - **Settings**: `[dictation] fix_model` (a model's name, `sonnet` unless set), `fix_effort`
   (`low`), `fix_context_lines` (0 to 20, 3) and `fix_min_confidence` (`medium`).
+- **A native composer's send** (`C-c C-c`, or `C-u C-c C-c`) while the modeline says `fix`,
+  whichever buffer the fix is in, waits for the fixes running then to end, and then sends the
+  composer's text as the fix left it: the author's choice on 2026-11-23. Each fix ends within
+  its limits (two 3 s reads and 30 s), but its answer also waits while another dictation is
+  under way, and the send with it.
+  - The wait keeps its composer and its revision, which only the fix's own edit moves on: a
+    composer the person edited, replaced or lost meanwhile drops the wait, and says so, so
+    that nothing goes but what the person sent.
+  - A send now goes as a plain send, as the turn it meant to interrupt may have ended.
+  - `C-c C-k` there drops the wait, and does nothing more; `dictation-cancel` drops it too, as
+    the text would go unfixed. An exit or a restart drops it, and one that waits for the
+    sessions waits for it. The send then goes through the composer's checks and the queue's
+    rules, as any.
+  - While a dictation records or waits for its text, a send goes at once, as before.
+- **The author's choices on 2026-11-23:** the fix runs in projects that are not trusted too, as
+  it reads nothing of the project and runs no tool, though the text it sends is the
+  project's; and there is no setting that turns the fix off: `C-u s-d` types plain, each time.
 - `M-x dictation-cancel` with no dictation under way stops the fixes running, and the text
   stays as typed; so do an exit and a restart's start. The UI thread only kills `claude`: the
   fix's thread reaps it. The dev socket's state says `dictation.fixes`.

@@ -58,7 +58,8 @@ impl App {
     /// Hands the sessions and spaces to the worker to remember, if they changed, and waits at
     /// most [`FLUSH_WAIT`] until it has written them: before the process goes, or a restart's new
     /// instance reads them (ADR 0121, "The record at an exit, as built"). Past the wait it goes
-    /// on, and says so in the log. A space's naming run is stopped first.
+    /// on, and says so in the log. What must not outlive this instance is stopped first: a
+    /// space's naming run, a dictation's fixes and the composer sends that wait for them.
     pub(in crate::app) fn flush_sessions(&mut self) {
         // A space's naming does not outlive this instance: its run is stopped, and the space
         // keeps oso's own names (ADR 0159).
@@ -67,7 +68,7 @@ impl App {
         }
         // Nor does a dictation's fix, which would edit the buffer the next oso takes over
         // (ADR 0175, step 2).
-        self.stop_dictation_fixes();
+        self.leave_dictation_fixes();
         // Nor does a native session's `claude`: it is stopped, and resumed by the next oso
         // (ADR 0165, Q8).
         self.kill_native_sessions();

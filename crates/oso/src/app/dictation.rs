@@ -15,7 +15,8 @@
 //!   TypeWhisper's paste may follow either, and at the latest that long after the text's own
 //!   wait.
 //! - Nothing is carried across a restart: an exit starts a stop if one records, and does not
-//!   wait for it, and kills the fixes under way.
+//!   wait for it, and kills the fixes under way; a composer's send that waits for them
+//!   (`sessions/hosting/native/composer/held.rs`) does not go.
 
 use std::time::{Duration, Instant};
 
@@ -207,10 +208,11 @@ impl App {
             return self.editor.message("Dictation cancelled");
         }
         if self.dictations.current.is_none() && self.stop_dictation_fixes() {
-            self.request_redraw();
-            return self
-                .editor
+            self.editor
                 .message("Dictation fix cancelled: the text stays as typed");
+            // A composer's send that waited for it does not go with the text unfixed.
+            self.drop_held_sends();
+            return self.request_redraw();
         }
         let Some(current) = self
             .dictations
@@ -421,7 +423,7 @@ impl App {
     /// under way are killed, and nothing is carried to the next instance.
     pub(super) fn leave_dictation(&mut self) {
         self.dictations.due = None;
-        self.stop_dictation_fixes();
+        self.leave_dictation_fixes();
         if let Some(current) = self.dictations.current.take() {
             current.handle.leave(EXIT_WAIT);
         }

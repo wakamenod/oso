@@ -89,7 +89,7 @@ channel dired project review walk
 # `sessions`, `vcs`, `commands` and `app`.
 git
 # `dictation` asks TypeWhisper for a dictation's text over its local API, through curl, and says
-# where the text goes (ADR 0175).
+# what Claude is asked to fix it with (ADR 0175).
 dictation
 
 [oso-syntax]
