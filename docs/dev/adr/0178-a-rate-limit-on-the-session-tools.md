@@ -1,6 +1,6 @@
 # 0178. A rate limit on the session tools
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-23
 
 ## Context
@@ -22,6 +22,8 @@ removes eight worktrees, starts or resumes eight sessions and renames eight. Tha
 if all of it falls in one minute. In practice they come in bursts of about eight.
 
 ## Decision
+
+The author accepted this ADR on 2026-11-23, through the orchestrator session.
 
 - **At most 30 calls that ask or change in any 60 s, per calling session.** The window slides:
   a call's place frees 60 s after the call came. `sessions::tools::CALLS_A_MINUTE` is 30 and
@@ -100,7 +102,6 @@ if all of it falls in one minute. In practice they come in bursts of about eight
   time, as it did before.
 - The code is small: `Guard`, now in `sessions::tools::guard`, keeps a window per session
   beside the refusals, and `Refusal::Rate` says the wait.
-- Once this ADR is accepted, ADR 0177's status becomes "Accepted, amended by 0178".
 - Follow-up: `worktree_list`'s 6 a minute is a second sliding window, kept in `app`. It could
   move beside `Guard` and share its window.
 
