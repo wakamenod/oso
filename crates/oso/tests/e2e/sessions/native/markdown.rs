@@ -135,7 +135,7 @@ fn a_reply_is_drawn_without_its_marks_and_highlighted_once_whole() {
         });
     };
     copied("the Markdown yanked", "w", REPLY);
-    copied("what shows yanked", "C-SPC C-e M-w", "  Some code here.");
+    copied("what shows yanked", "C-SPC C-e M-w", "Some code here.");
 
     flow.scratch.write("go", b"0");
     let _ = app.exchange("exit", None);
