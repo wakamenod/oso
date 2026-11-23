@@ -583,7 +583,7 @@ fn the_reply_says_what_reads_the_added_repository() {
     assert_eq!(add_dir(true, true, false, false), AddDir::Given);
     assert_eq!(add_dir(true, false, true, false), AddDir::Offered);
     assert_eq!(add_dir(true, false, false, false), AddDir::NotOffered);
-    let native = add_dir(true, false, true, true);
+    let native = add_dir(true, false, false, true);
     assert_eq!(native, AddDir::NextResume);
     let note = AddDir::Offered.note("/r/web");
     assert!(

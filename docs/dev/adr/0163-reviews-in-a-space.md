@@ -315,6 +315,8 @@ and submitted as above.
   a queued message edited there and a paused queue are left as they are.
 - **A stopped native session is refused**, "it has stopped: `session-resume` first", as it has no
   terminal to resume into with the question waiting; the question is in the prompt's history.
+  A stopped native orchestrator is offered its resume instead, as a terminal's is, and the
+  question is held until its process runs (ADR 0176, part O-2).
 - **Shown** as a terminal is: the transcript in the review layout's slot while the space it was
   asked in is in front, the review staying selected.
 

@@ -26,6 +26,8 @@
 //!   `recap`'s (part 3f).
 //! - Its process ended before `oso-restart`, and resumed by the new instance, is
 //!   `restarting`'s (part 4c).
+//! - An orchestrator's resume with a repository added to its space is `adding`'s
+//!   (ADR 0176, part O-2).
 //! - Its side of a switch to the TUI, and its transcript set aside meanwhile, are
 //!   `switching`'s (part 4d).
 //! - Its earlier turns, read from Claude Code's transcript at a start whose rows hold none of
@@ -39,6 +41,7 @@
 //!   terminal's does (or forgets it, given no message), when the session list stops it, and killed as oso exits. A stopped
 //!   native session comes back at oso's next start as a native buffer with no process.
 
+mod adding;
 mod buffer;
 mod composer;
 mod control;
@@ -107,6 +110,9 @@ pub(in crate::app) struct NativeSessions {
     aside: HashMap<SessionKey, Native>,
     /// The sessions switching between the modes, and where each switch is (part 4d).
     pub(super) switches: crate::sessions::native::switch::Switches,
+    /// The orchestrators resumed with a repository added, at the person's `y` (ADR 0176,
+    /// part O-2).
+    adding: HashMap<SessionKey, adding::Adding>,
 }
 
 /// A native session's buffer, rows and process.

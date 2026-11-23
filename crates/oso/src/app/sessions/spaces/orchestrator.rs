@@ -9,7 +9,9 @@
 //! kept beside the question's id, dropped when another question is asked, and done only when
 //! `y` answers that same question, as the person's paste, never submitted. The paste is oso's own
 //! `/add-dir PATH`, made from the recorded path only while that is one plain line, and so not
-//! escaped as composed text is (`sessions::send::Command`, ADR 0165, part 2f). Every such question,
+//! escaped as composed text is (`sessions::send::Command`, ADR 0165, part 2f). A native
+//! orchestrator, which runs no `/add-dir`, is offered a resume with the repository added
+//! instead, once its turn ends (ADR 0176, part O-2). Every such question,
 //! the space's and a review's offer to resume the orchestrator (ADR 0163), is asked through
 //! [`App::ask_confirm`], which drops the others first, and `y` runs the one still kept.
 
@@ -37,7 +39,8 @@ pub(in crate::app) enum Orchestrator {
     NoTerminal { name: String },
 }
 
-/// What a question the host asked would do on `y`: paste `/add-dir PATH` into an orchestrator.
+/// What a question the host asked would do on `y`: paste `/add-dir PATH` into an
+/// orchestrator, or resume a native one with the repository added.
 #[derive(Debug)]
 pub(in crate::app) struct Offer {
     /// The question it was asked with.
@@ -46,7 +49,8 @@ pub(in crate::app) struct Offer {
     /// The space and the repository it offers.
     space: SpaceId,
     root: PathBuf,
-    command: Command,
+    /// The paste, for a terminal's; `None` for a native orchestrator's resume.
+    command: Option<Command>,
 }
 
 impl App {
@@ -376,8 +380,8 @@ impl App {
             .is_some_and(|given| given.iter().any(|was| same(was, root)))
     }
 
-    /// Offers to paste `/add-dir root` into space `at`'s running orchestrator now, for a
-    /// trusted repository an agent just added (ADR 0161), and notes it as seen, so that the
+    /// Offers to paste `/add-dir root` into space `at`'s running orchestrator now, or to
+    /// resume a native one with it, for a trusted repository an agent just added (ADR 0161), and notes it as seen, so that the
     /// look after this event does not offer it again. Whether the person is asked.
     pub(in crate::app) fn offer_added(&mut self, at: usize, root: &Path) -> bool {
         let asked = self.offer_add_dir(at, root);
@@ -393,17 +397,12 @@ impl App {
     }
 
     /// Offers to paste `/add-dir root` into space `at`'s running orchestrator, which was not
-    /// given `root`: a trusted repository added, or trusted, since it started (Q5). Whether
-    /// it asked.
+    /// given `root`: a trusted repository added, or trusted, since it started (Q5); a native
+    /// one is offered a resume with it (ADR 0176, part O-2). Whether it asked.
     fn offer_add_dir(&mut self, at: usize, root: &Path) -> bool {
         let Some(key) = self.live_orchestrator(at) else {
             return false;
         };
-        // A native one takes no `/add-dir` (`claude -p` has none): its next resume is given
-        // the repository (ADR 0176).
-        if self.hosting.natives.has(key) {
-            return false;
-        }
         let Some(stored) = self.watch.spaces().stored(at) else {
             return false;
         };
@@ -418,10 +417,20 @@ impl App {
         };
         // The orchestrator answers to the space's slug.
         let name = stored.name.clone();
-        let question = format!(
-            "Paste {} into orchestrator {name}'s prompt, not sent? (y or n)",
-            command.as_str()
-        );
+        // A native one takes no `/add-dir` (`claude -p` has none): it is resumed with the
+        // repository given with `--add-dir` instead, once its turn ends (ADR 0176, Q-O4 (a)),
+        // the path shown only once it is one plain line, as the paste's.
+        let native = self.hosting.natives.has(key);
+        let question = match native {
+            true => format!(
+                "Resume orchestrator {name} with {} added, once its turn ends? (y or n)",
+                root.display()
+            ),
+            false => format!(
+                "Paste {} into orchestrator {name}'s prompt, not sent? (y or n)",
+                command.as_str()
+            ),
+        };
         // A question asked anew drops the one before, and what it offered.
         match self.ask_confirm(question) {
             Ok(prompt) => {
@@ -430,7 +439,7 @@ impl App {
                     session: key,
                     space,
                     root: root.to_owned(),
-                    command,
+                    command: (!native).then_some(command),
                 });
             }
             Err(e) => self.editor.message(e.to_string()),
@@ -440,7 +449,7 @@ impl App {
 
     /// `y` to the space question asked last: its offer, if it still holds: the session is
     /// still the space's running orchestrator, and the repository still one of the space's
-    /// that oso trusts. One whose question closed otherwise was dropped after that event, and
+    /// that oso trusts; a native one's resume is judged so again until it goes. One whose question closed otherwise was dropped after that event, and
     /// one asked anew replaced it, so a `y` does only the question it answered; with nothing
     /// kept, it does nothing.
     pub(in crate::app) fn space_confirmed(&mut self) {
@@ -454,24 +463,42 @@ impl App {
         let Some(offer) = self.hosting.spaces.offer.take() else {
             return;
         };
-        let at = self.watch.spaces().find(&offer.space);
-        let holds = at.is_some_and(|at| {
-            self.live_orchestrator(at) == Some(offer.session)
-                && self.trusted_members().is_some_and(|members| {
-                    (members.iter()).any(|(id, root)| *id == offer.space && same(root, &offer.root))
-                })
-        });
-        if !holds {
-            return self
-                .editor
-                .message("Not pasted: the space or its orchestrator changed meanwhile".to_owned());
+        if !self.add_dir_holds(offer.session, &offer.space, &offer.root) {
+            let not = if offer.command.is_some() {
+                "pasted"
+            } else {
+                "resumed"
+            };
+            return self.editor.message(format!(
+                "Not {not}: the space or its orchestrator changed meanwhile"
+            ));
         }
-        match self.send_command(offer.session, &offer.command) {
+        let Some(command) = offer.command else {
+            return self.resume_with_dir(offer.session, offer.space, offer.root);
+        };
+        match self.send_command(offer.session, &command) {
             Ok(()) => (self.hosting.spaces.given.entry(offer.space))
                 .or_default()
                 .push(offer.root),
             Err(why) => self.editor.message(why),
         }
+    }
+
+    /// Whether repository `root` is still one of `space`'s that oso trusts, and session `key`
+    /// still the space's running orchestrator, as an offer of it was made.
+    pub(in crate::app) fn add_dir_holds(
+        &self,
+        key: SessionKey,
+        space: &SpaceId,
+        root: &Path,
+    ) -> bool {
+        let at = self.watch.spaces().find(space);
+        at.is_some_and(|at| {
+            self.live_orchestrator(at) == Some(key)
+                && self.trusted_members().is_some_and(|members| {
+                    (members.iter()).any(|(id, was)| id == space && same(was, root))
+                })
+        })
     }
 
     /// After an event: an offer whose question is no longer open, and was not answered `y`

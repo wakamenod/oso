@@ -82,6 +82,12 @@ impl App {
         Ok(id)
     }
 
+    /// Where native session `key`'s process is, for a question held until it runs
+    /// (ADR 0176, part O-2): `None` for a session that is not a native one.
+    pub(in crate::app) fn native_run(&self, key: SessionKey) -> Option<Run> {
+        self.turn(key).map(|turn| turn.run)
+    }
+
     /// Sends `text`, which the person confirmed in oso's prompt, to native session `key`: at
     /// once, or queued behind the turn under way, escaped, the composer's draft and a paused
     /// queue left as they are. What to say, or why it was not sent: a stopped session is

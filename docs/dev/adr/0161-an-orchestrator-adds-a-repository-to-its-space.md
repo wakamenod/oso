@@ -84,7 +84,9 @@ goes without asking only for a repository oso knew before the call (Q9).
   member and the orchestrator runs without it, oso asks the person, as a separate `y` or `n`,
   whether to paste `/add-dir PATH` into the orchestrator's input, not sent. For an agent's add
   it is asked right away (`App::offer_added`), so that the reply can say whether it was. A
-  restricted one is offered once the person trusts it.
+  restricted one is offered once the person trusts it. A native orchestrator, which runs no
+  `/add-dir`, is offered a resume with the repository added instead, and the reply says
+  `resume offered` (ADR 0176, part O-2).
 - **The reply says what the agent can do next (Q5):** the repository's name, path and trust,
   `asked`, a `note` in words, and `add_dir`:
   - `offered`: the person is asked about the paste. The agent cannot read the repository until

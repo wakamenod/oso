@@ -78,11 +78,16 @@ impl App {
     pub(super) fn not_running(&self, orchestrator: &Orchestrator, left: &str) -> Option<String> {
         let (name, how) = match orchestrator {
             Orchestrator::Running(_) => return None,
-            Orchestrator::Stopped { name, .. } => (
+            Orchestrator::Stopped { name, key } => (
                 name,
                 format!(
-                    "{} in its terminal resumes it",
-                    self.dispatcher.where_is(&self.editor, "session-resume")
+                    "{} in its {} resumes it",
+                    self.dispatcher.where_is(&self.editor, "session-resume"),
+                    // A native one's buffer is its transcript (ADR 0176, part O-2).
+                    match self.hosting.natives.has(*key) {
+                        true => "transcript",
+                        false => "terminal",
+                    }
                 ),
             ),
             Orchestrator::NoTerminal { name } => (

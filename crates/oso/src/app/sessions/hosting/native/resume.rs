@@ -111,7 +111,8 @@ impl App {
             native.composing.busy = false;
             native.composing.resumed();
         }
-        self.native_note_row(key, "Resumed.");
+        let row = self.resumed_row(key);
+        self.native_note_row(key, &row);
         self.draw_queue(key);
         // Its to-do list is not read back: empty until its next to-do call (part 3e).
         self.clear_todo(key);

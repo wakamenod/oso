@@ -66,8 +66,11 @@ pub enum AddDir {
     WaitsForTrust,
     /// oso could not ask the person now.
     NotOffered,
-    /// The orchestrator runs natively, where `/add-dir` is no command: its next resume is
-    /// given it (ADR 0176).
+    /// The orchestrator runs natively, where `/add-dir` is no command: the person is asked
+    /// whether to resume it with the repository given with `--add-dir`, once its turn ends
+    /// (ADR 0176, part O-2).
+    ResumeOffered,
+    /// It runs natively, and oso could not ask the person now: its next resume is given it.
     NextResume,
 }
 
@@ -79,6 +82,7 @@ impl AddDir {
             Self::Given => "given",
             Self::WaitsForTrust => "waits for trust",
             Self::NotOffered => "not offered",
+            Self::ResumeOffered => "resume offered",
             Self::NextResume => "next resume",
         }
     }
@@ -101,24 +105,34 @@ impl AddDir {
                 "oso could not offer the person the /add-dir paste now: ask them to type \
                  /add-dir {path} in your input. Workers you start with this repo can use it now."
             ),
+            Self::ResumeOffered => format!(
+                "you run as a native session, which takes no /add-dir: oso asks the person \
+                 whether to resume you with {path} given with --add-dir once this turn ends, \
+                 your conversation kept. You cannot read it until then. Workers you start with \
+                 this repo can use it now."
+            ),
             Self::NextResume => format!(
-                "you run as a native session, which takes no /add-dir: oso gives you {path} \
-                 with --add-dir when you are resumed next. Workers you start with this repo can \
-                 use it now."
+                "you run as a native session, which takes no /add-dir, and oso could not ask \
+                 the person now: oso gives you {path} with --add-dir when you are resumed next. \
+                 Workers you start with this repo can use it now."
             ),
         }
     }
 }
 
 /// What the reply says once a repository is added: restricted when not `trusted`, else
-/// `given` already, else for a `native` orchestrator at its next resume (ADR 0176), else
-/// whether oso `offered` the paste.
+/// `given` already, else whether oso `offered` the paste, or for a `native` orchestrator the
+/// resume with it (ADR 0176, part O-2).
 pub fn add_dir(trusted: bool, given: bool, offered: bool, native: bool) -> AddDir {
     match (trusted, given, offered) {
         (false, _, _) => AddDir::WaitsForTrust,
         (true, true, _) => AddDir::Given,
-        (true, false, _) if native => AddDir::NextResume,
+        (true, false, true) if native => AddDir::ResumeOffered,
+        (true, false, false) if native => AddDir::NextResume,
         (true, false, true) => AddDir::Offered,
         (true, false, false) => AddDir::NotOffered,
     }
 }
+
+#[cfg(test)]
+mod tests;

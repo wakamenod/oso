@@ -311,7 +311,8 @@ the echo area said.
 The orchestrator is told the space's repositories, its description and its instructions, and to
 keep a `handoff.md` in its directory for whoever takes over. Its row is right under its
 space's, and `RET` on the space's row shows it. A repository added to the space, or trusted,
-while it runs is offered to it: `y` pastes `/add-dir PATH` into its prompt, not sent. In
+while it runs is offered to it: `y` pastes `/add-dir PATH` into its prompt, not sent; a
+native orchestrator is resumed with it instead, once its turn ends. In
 Claude Code, `/permissions` and its Workspace tab list the directories it was given.
 
 The orchestrator works through sessions: its tools name a repository of the space with
@@ -594,7 +595,7 @@ tools besides oso's editing ones:
 | `start_worktree_session` | Start a session in a new worktree, with a brief. Asks you first. |
 | `session_resume` | For a space's orchestrator: resume a stopped session of its space with its conversation, as `C-c a r` does. Asks you first. |
 | `session_rename` | Rename its own session or one it started; a space's orchestrator also its space's sessions. Asks nothing, and the echo area says it. |
-| `space_add_repo` | For a space's orchestrator: add a repository's main checkout to its space, as the space menu's `a` does. Asks you first, unless the setting below allows it for a trusted repository oso already knows; any other always asks, and one oso does not trust joins restricted. Once it is trusted, oso offers to paste `/add-dir PATH` into the orchestrator. |
+| `space_add_repo` | For a space's orchestrator: add a repository's main checkout to its space, as the space menu's `a` does. Asks you first, unless the setting below allows it for a trusted repository oso already knows; any other always asks, and one oso does not trust joins restricted. Once it is trusted, oso offers to paste `/add-dir PATH` into the orchestrator, or to resume a native one with it. |
 | `worktree_list` | List the repository's worktrees, as `M-x worktree-list` does. |
 | `worktree_remove` | Remove a finished worktree, under the same rules as `M-x worktree-remove`. |
 | `space_status` | Read the session's issue space: its repositories, their trust, the orchestrator's name, its sessions. |
