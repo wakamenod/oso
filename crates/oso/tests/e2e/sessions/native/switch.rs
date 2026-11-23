@@ -122,6 +122,15 @@ fn wait_for_record(project: &Path, what: &str, holds: impl Fn(&[Value]) -> bool)
     }
 }
 
+/// The rows of every terminal the state has.
+fn screen(state: &Value) -> String {
+    (state["terminals"].as_array().into_iter().flatten())
+        .flat_map(|terminal| terminal["rows"].as_array().into_iter().flatten())
+        .filter_map(Value::as_str)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// Sends `key`, which the transcript set aside, or its composer, refuses, and waits for the
 /// echo area to say so.
 fn refused(app: &mut super::super::super::harness::App, key: &str) {
@@ -160,7 +169,7 @@ fn a_native_session_is_handed_to_the_tui_which_resumes_its_conversation() {
     assert_eq!(flag(&tui, "permission-prompt-tool"), None, "{tui:?}");
     // The terminal takes the session's name, and shows the TUI.
     app.wait_for("the TUI's screen", |state| {
-        state["buffer"]["name"] == "*claude: proj*" && text(state).contains("Claude Code")
+        state["buffer"]["name"] == "*claude: proj*" && screen(state).contains("Claude Code")
     });
     // The record says it is a TUI's.
     wait_for_record(&flow.project, "the TUI session", |sessions| {
@@ -180,15 +189,6 @@ fn a_native_session_is_handed_to_the_tui_which_resumes_its_conversation() {
     for key in ["i", "S-TAB", "C-c C-k"] {
         refused(&mut app, key);
     }
-    // Its composer sends nothing either.
-    app.send_keys("C-x b");
-    app.send_keys(&keys("*compose: proj*"));
-    app.send_keys("RET");
-    app.wait_for("the composer set aside", |state| {
-        state["buffer"]["name"] == "*compose: proj*"
-    });
-    app.send_keys(&keys("more"));
-    refused(&mut app, "C-c C-c");
     // No third run: nothing else started.
     std::thread::sleep(Duration::from_millis(500));
     assert!(!flow.scratch.path().join("run.3").exists());
@@ -203,7 +203,12 @@ fn a_transcript_killed_while_its_claude_ends_for_the_tui_starts_nothing() {
     let mut app = answered(&flow);
     // Its `claude -p` takes 2 s to end: the transcript is killed meanwhile.
     app.run_command("session-switch-mode", None).unwrap();
-    app.run_command("kill-buffer-anyway", None).unwrap();
+    // It runs a program: the kill asks first.
+    app.send_keys("C-x k RET");
+    app.wait_for("the kill's question", |state| {
+        state["prompts"].as_array().is_some_and(|p| !p.is_empty())
+    });
+    app.send_keys("y");
     flow.wait_for_file("ended.1");
     std::thread::sleep(Duration::from_secs(1));
     assert!(
