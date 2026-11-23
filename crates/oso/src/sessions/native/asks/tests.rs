@@ -29,14 +29,10 @@ fn ask(from: u64, key: u64, id: &str, came: Instant) -> Ask<()> {
 }
 
 fn question(label: &str) -> Question {
-    Question {
-        card: Card::Call {
-            title: label.into(),
-            lines: Vec::new(),
-        },
-        details: None,
-        whole: false,
-    }
+    Question::new(Card::Call {
+        title: label.into(),
+        lines: Vec::new(),
+    })
 }
 
 fn denied(outcomes: &[Outcome<()>]) -> Vec<(String, Denied)> {

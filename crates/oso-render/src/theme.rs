@@ -307,7 +307,7 @@ const FADED_FLOOR: f32 = 4.5;
 /// are not here, so text on them is drawn in [`Face::Text`]'s colour.
 ///
 /// The spaces pane's bands (ADR 0140) follow: its marks and names keep their colours on them.
-pub(crate) const SYNTAX_FILLS: [Face; 9] = [
+pub(crate) const SYNTAX_FILLS: [Face; 11] = [
     Face::CurrentLine,
     Face::DiffAdded,
     Face::DiffRemoved,
@@ -318,6 +318,10 @@ pub(crate) const SYNTAX_FILLS: [Face; 9] = [
     Face::SessionPoint,
     // A waiting row's lit beat (ADR 0140, as amended): only its own inverse glyphs are on it.
     Face::SessionAlertLit,
+    // A permission card's title band and its keys' chips (ADR 0180): only oso's words are on
+    // them.
+    Face::CardTitle,
+    Face::MenuKey,
 ];
 
 /// `name`'s theme, with text gamma off until its strength is picked beside the OS's text.
@@ -439,18 +443,20 @@ pub(crate) mod tests {
 
     /// Highlighted text is read on the background, on [`SYNTAX_FILLS`], and on a float's
     /// background, where the preview of `switch-to-buffer` and the mark list draws it.
-    const SYNTAX_PAIRS: [(Face, f32); 5] = [
+    const SYNTAX_PAIRS: [(Face, f32); 6] = [
         (Face::Text, 7.0),
         (SYNTAX_FILLS[0], 7.0),
         (Face::Float, 7.0),
         // A review's lines of a side, highlighted over their bands (ADR 0122, step 9).
         (Face::DiffAdded, 7.0),
         (Face::DiffRemoved, 7.0),
+        // A permission card's text of Claude's (ADR 0180).
+        (Face::Card, 7.0),
     ];
 
     /// An escape's label sits wherever text can: on every fill behind buffer text, a review's
     /// bands among them, in a modeline's name and on a float.
-    const ESCAPE_PAIRS: [(Face, f32); 18] = [
+    const ESCAPE_PAIRS: [(Face, f32); 20] = [
         // A native session's prompt (ADR 0165).
         (Face::SessionHeader, 4.5),
         (Face::Text, 4.5),
@@ -470,10 +476,13 @@ pub(crate) mod tests {
         (Face::DiffRefineRemoved, 4.5),
         (Face::DiffFileHeader, 4.5),
         (Face::ReviewCommentPerson, 4.5),
+        // A permission card and its title (ADR 0180).
+        (Face::Card, 4.5),
+        (Face::CardTitle, 4.5),
     ];
 
     /// A whitespace or wrap mark sits on everything behind buffer text (ADR 0097).
-    const MARK_PAIRS: [(Face, f32); 15] = [
+    const MARK_PAIRS: [(Face, f32); 16] = [
         // A native session's prompt (ADR 0165).
         (Face::SessionHeader, 3.0),
         (Face::Text, 3.0),
@@ -490,6 +499,7 @@ pub(crate) mod tests {
         (Face::DiffRefineRemoved, 3.0),
         (Face::DiffFileHeader, 3.0),
         (Face::ReviewCommentPerson, 3.0),
+        (Face::Card, 3.0),
     ];
 
     /// A diagnostic's wavy line is a mark to notice under text, on the fills a line of a buffer
@@ -565,12 +575,16 @@ pub(crate) mod tests {
             Face::JumpLabelNext => &[(Face::JumpLabelNext, READ)],
             // A menu's keys on their chips (ADR 0117).
             Face::MenuKey => &[(Face::MenuKey, LABEL)],
+            // A permission card's frame and words, on its background and its title's band
+            // (ADR 0180); Claude's text on that background is read as on a float's.
+            Face::Card => &[(Face::Card, READ)],
+            Face::CardTitle => &[(Face::Card, READ), (Face::CardTitle, READ)],
             Face::MenuKeyStay => &[(Face::MenuKeyStay, LABEL)],
             Face::MenuKeySwitch => &[(Face::MenuKeySwitch, LABEL)],
             // A review's text on its bands (ADR 0122): the headers share one band, and the
             // comments another.
-            Face::DiffAdded => &[(Face::DiffAdded, READ)],
-            Face::DiffRemoved => &[(Face::DiffRemoved, READ)],
+            Face::DiffAdded => &[(Face::DiffAdded, READ), (Face::Card, READ)],
+            Face::DiffRemoved => &[(Face::DiffRemoved, READ), (Face::Card, READ)],
             Face::DiffHunkHeader | Face::DiffFileHeader => &[(Face::DiffFileHeader, READ)],
             Face::ReviewCommentPerson | Face::ReviewCommentAgent => {
                 &[(Face::ReviewCommentPerson, READ)]
@@ -595,7 +609,8 @@ pub(crate) mod tests {
             ],
             // A waiting row's lit beat: its glyphs on their own fill, as a key's on its chip.
             Face::SessionAlertLit => &[(Face::SessionAlertLit, LABEL)],
-            // A changed line's number in a native session, too (ADR 0165).
+            // A changed line's number in a native session (ADR 0165), and what a permission card
+            // says quietly (ADR 0180), too.
             Face::SessionQuiet => &[
                 (Face::Text, LABEL),
                 (Face::CurrentLine, LABEL),
@@ -604,6 +619,7 @@ pub(crate) mod tests {
                 (Face::SessionPoint, LABEL),
                 (Face::DiffAdded, LABEL),
                 (Face::DiffRemoved, LABEL),
+                (Face::Card, LABEL),
             ],
             Face::SessionWorking
             | Face::SessionFront
@@ -822,6 +838,8 @@ pub(crate) mod tests {
                 (Face::Modeline, behind_text),
                 (Face::ModelineInactive, behind_text),
                 (Face::Float, behind_text),
+                (Face::Card, behind_text),
+                (Face::CardTitle, theme.background(Face::Card)),
                 (Face::Boxed, behind_text),
                 // A key's chip and an input field sit on a float's fill.
                 (Face::Key, float),
@@ -873,7 +891,12 @@ pub(crate) mod tests {
         let chips = [Face::MenuKey, Face::MenuKeyStay, Face::MenuKeySwitch];
         for theme in &themes() {
             let name = theme.name();
-            for under in [Face::Text, Face::CompletionSelected] {
+            for under in [
+                Face::Text,
+                Face::CompletionSelected,
+                Face::Card,
+                Face::CardTitle,
+            ] {
                 for chip in chips {
                     let ratio = contrast(theme.background(chip), theme.background(under));
                     assert!(ratio >= 3.0, "{name}: {chip:?} on {under:?} {ratio:.2}");

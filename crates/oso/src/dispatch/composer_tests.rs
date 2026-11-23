@@ -103,6 +103,119 @@ fn composer(editor: &mut Editor, text: &str) {
     editor.show(composer);
 }
 
+/// Types `key` as one the host said answers the card.
+fn answers(d: &mut Dispatcher, editor: &mut Editor, key: &str) {
+    d.set_key_answers_card(true);
+    send(d, editor, key);
+    d.take_key_answered_card();
+}
+
+fn text(editor: &Editor) -> String {
+    editor.current().1.text().to_string()
+}
+
+#[test]
+fn a_key_the_host_said_answers_the_card_runs_the_cards_command_in_an_empty_composer() {
+    let (mut d, mut editor) = (Dispatcher::new(), Editor::default());
+    composer(&mut editor, "");
+    for key in ["y", "n", "N", "o", "3"] {
+        answers(&mut d, &mut editor, key);
+    }
+    assert_eq!(
+        actions(&mut editor),
+        [
+            NativeAction::Allow,
+            NativeAction::Deny,
+            NativeAction::Note,
+            NativeAction::Other,
+            NativeAction::Choose(3),
+        ]
+    );
+    assert_eq!(text(&editor), "", "none of them is typed");
+    // With no word of the host's, each is typed, as ever; and its word holds for one key.
+    send(&mut d, &mut editor, "y");
+    assert_eq!(text(&editor), "y");
+    assert_eq!(actions(&mut editor), []);
+}
+
+#[test]
+fn what_the_host_said_answers_nothing_where_the_key_would_not_be_typed_first() {
+    // With text in the composer.
+    let (mut d, mut editor) = (Dispatcher::new(), Editor::default());
+    composer(&mut editor, "dra");
+    answers(&mut d, &mut editor, "y");
+    assert_eq!(text(&editor), "ydra");
+    // After a prefix argument, in a prompt, and in a buffer that is no composer.
+    let (mut d, mut editor) = (Dispatcher::new(), Editor::default());
+    composer(&mut editor, "");
+    send(&mut d, &mut editor, "M-2");
+    answers(&mut d, &mut editor, "y");
+    assert_eq!(text(&editor), "yy");
+    send(&mut d, &mut editor, "DEL DEL M-x");
+    answers(&mut d, &mut editor, "y");
+    assert!(editor.prompt().is_some());
+    send(&mut d, &mut editor, "C-g");
+    let other = editor.add_buffer(Buffer::from_text("notes", ""));
+    editor.show(other);
+    answers(&mut d, &mut editor, "n");
+    assert_eq!(text(&editor), "n");
+    // A key of a sequence, and one the host's word came too late for.
+    let (mut d, mut editor) = (Dispatcher::new(), Editor::default());
+    composer(&mut editor, "");
+    send(&mut d, &mut editor, "C-c");
+    answers(&mut d, &mut editor, "y");
+    send(&mut d, &mut editor, "a");
+    assert_eq!(text(&editor), "a");
+    assert_eq!(actions(&mut editor), [], "nothing was answered");
+}
+
+#[test]
+fn a_key_that_ran_the_cards_command_says_so_and_a_typed_one_does_not() {
+    let (mut d, mut editor) = (Dispatcher::new(), Editor::default());
+    composer(&mut editor, "");
+    d.set_key_answers_card(true);
+    send(&mut d, &mut editor, "y");
+    assert!(d.take_key_answered_card());
+    assert!(!d.take_key_answered_card(), "taken");
+    composer(&mut editor, "draft");
+    d.set_key_answers_card(true);
+    send(&mut d, &mut editor, "y");
+    assert!(!d.take_key_answered_card(), "typed: its repeats type too");
+}
+
+#[test]
+fn a_replayed_macro_types_in_the_composer_what_answered_as_it_was_recorded() {
+    let (mut d, mut editor) = (Dispatcher::new(), Editor::default());
+    composer(&mut editor, "");
+    send(&mut d, &mut editor, "C-x (");
+    answers(&mut d, &mut editor, "n");
+    send(&mut d, &mut editor, "C-x )");
+    assert_eq!(actions(&mut editor), [NativeAction::Deny]);
+    answers(&mut d, &mut editor, "C-x e");
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while editor.macro_replaying() {
+        d.replay(&mut editor, until);
+    }
+    assert_eq!(actions(&mut editor), [], "a macro answers nothing");
+    assert_eq!(text(&editor), "n");
+}
+
+#[test]
+fn a_cards_page_keys_turn_it_by_their_count() {
+    let (mut d, mut editor) = (Dispatcher::new(), Editor::default());
+    let card = editor.add_internal_buffer("*card: s*", Mode::Card);
+    editor.show(card);
+    send(&mut d, &mut editor, "SPC DEL M-3 SPC");
+    assert_eq!(
+        actions(&mut editor),
+        [
+            NativeAction::Page(1),
+            NativeAction::Page(-1),
+            NativeAction::Page(3),
+        ]
+    );
+}
+
 fn list_commands(editor: &mut Editor) {
     use oso_core::complete::Candidate;
     let items = [

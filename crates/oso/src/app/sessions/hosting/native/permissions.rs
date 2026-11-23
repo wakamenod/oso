@@ -55,17 +55,18 @@ pub(in crate::app) struct Permissions {
     asks: Asks<Sender<Reply>>,
     /// When the loop is woken next to deny a request whose call has not shown.
     wake_at: Option<Instant>,
-    /// The sessions whose card point goes to once the person is quiet, and when each was shown
-    /// (step 2e-2).
+    /// The sessions whose card point has not gone to since it was shown, and when that was
+    /// (step 2e-2, ADR 0180).
     focus_pending: Vec<(SessionKey, Instant)>,
     /// When the loop last looked for a card to move point to.
     looked: Option<Instant>,
-    /// Each shown card's width as drawn.
-    drawn: Vec<(SessionKey, usize)>,
-    /// The card that is the selected buffer, and since when; and whether a prompt an agent
-    /// opened is over one.
+    /// Each shown card's width as drawn, and the rows it had if it grows.
+    drawn: Vec<(SessionKey, (usize, usize))>,
+    /// Where an answer to a card may come from now, and since when.
     current: Option<card::Current>,
-    after_agent: bool,
+    /// Whether a prompt an agent opened is open, and when the last one closed.
+    agents_prompt: bool,
+    agents_prompt_closed: Option<Instant>,
     /// What the person writes in the minibuffer for a card, once `N` or `o` asked.
     writing: Option<Writing>,
     /// The plans being edited before they are approved (part 3d).
@@ -289,6 +290,7 @@ impl App {
     /// native session's stream: finds the waiting requests' calls, denies those that cannot be
     /// asked, and shows each found one's card.
     pub(in crate::app) fn sync_permissions(&mut self) {
+        self.note_agents_prompt();
         if self.hosting.natives.permissions.asks.is_empty() {
             return;
         }

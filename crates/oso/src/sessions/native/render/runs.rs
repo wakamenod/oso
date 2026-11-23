@@ -21,6 +21,8 @@ impl Face {
             Self::Removed => Highlight::DiffRemoved,
             Self::Error => Highlight::SessionAlert,
             Self::Waiting => Highlight::SessionWorking,
+            Self::CardTitle => Highlight::CardTitle,
+            Self::CardKey => Highlight::CardKey,
         }
     }
 }

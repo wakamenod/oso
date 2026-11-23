@@ -173,18 +173,15 @@ A tool row unfolded with `TAB`:
      }
 ```
 
-A permission card, docked between the transcript and the composer:
+A permission card, docked between the transcript and the composer (as built, ADR 0180: the title is
+on the frame's top, and the keys, on chips, on its bottom):
 
 ```text
   ◌ Bash git push origin fix-login
-╭──────────────────────────────────────────────────────────────────────────────╮
-│ Bash wants to run                                        needs input · 0:12  │
-│   $ git push origin fix-login                                                │
-│   in webapp/.claude/worktrees/fix-login                                      │
-│   Why: Push the branch so that the pull request can be opened.               │
-│                                                                              │
-│   [y] allow once   [n] deny   [N] deny with a note   [RET] the whole input   │
-╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Bash wants to run, in session fix-login ────────────────────────────────────╮
+│ $ git push origin fix-login                                                  │
+│ Why: Push the branch so that the pull request can be opened.                 │
+╰─  y  allow once  n  deny  N  deny with a note  RET  the whole call ──────────╯
 › █
 ```
 

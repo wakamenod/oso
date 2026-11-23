@@ -88,6 +88,11 @@ impl Dispatcher {
         Some(check.from_socket)
     }
 
+    /// Whether an `M-v` is held for the clipboard's answer, and what is typed behind it.
+    pub fn holds_paste(&self) -> bool {
+        self.paste_guard.check.is_some()
+    }
+
     /// Whether an `M-v` is held for the clipboard's answer, for the dev socket's state.
     #[cfg(feature = "dev")]
     pub fn checks_paste(&self) -> bool {

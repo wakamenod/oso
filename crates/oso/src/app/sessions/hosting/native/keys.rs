@@ -54,7 +54,10 @@ impl App {
         }
         // From the composer, the session it is docked under (step 2).
         if let Some(key) = self.composer_session(buffer) {
-            self.composer_key(key, None, action);
+            // Or a card's answer typed there with nothing written (ADR 0180).
+            if !self.composer_key(key, None, action) {
+                self.card_key(key, buffer, action);
+            }
             return;
         }
         // From a plan's edit, the session whose plan it is (part 3d).
@@ -63,7 +66,7 @@ impl App {
         }
         // From a permission card, the session it asks for (step 2e-2).
         if let Some(key) = self.card_session(buffer) {
-            if !self.card_key(key, action) {
+            if !self.card_key(key, buffer, action) {
                 self.composer_key(key, None, action);
             }
             return;
