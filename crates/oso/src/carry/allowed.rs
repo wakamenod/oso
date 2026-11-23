@@ -6,6 +6,7 @@
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
+use oso_core::buffer::Mode;
 use oso_core::editor::{Editor, SCRATCH};
 
 use super::EXIT_REFUSED;
@@ -73,10 +74,12 @@ pub fn import_allowed(editor: &Editor) -> Result<(), String> {
         return Err(format!("this instance's window has no {SCRATCH} in view"));
     }
     // A session that came back stopped is a terminal with nothing running: the import may
-    // bring its terminal (ADR 0120, step 11).
+    // bring its terminal (ADR 0120, step 11). A native session that came back has an empty
+    // composer, which a restart makes again rather than carries (ADR 0165, part 4b).
     let opened = editor
         .buffers()
         .filter(|(_, buffer)| !buffer.is_terminal() || buffer.is_running())
+        .filter(|(_, buffer)| buffer.mode() != Mode::Composer || !buffer.text().is_empty())
         .count();
     if opened > 1 || scratch.name() != SCRATCH {
         return Err("this instance has already opened something".into());

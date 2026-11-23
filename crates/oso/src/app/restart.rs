@@ -8,6 +8,9 @@
 //! Must not depend on: sockets or processes; the restart's threads hold the pair and the
 //! child.
 
+mod wait;
+
+use super::idle_quit::IdleClock;
 use super::shell::Loop;
 use super::{App, UserEvent};
 use crate::carry::{self, Asked, Passed};
@@ -32,6 +35,9 @@ pub(super) struct Restart {
     /// the binary on focus, on Unix, where `oso-restart` runs, and what was said of it.
     looker: Option<carry::notice::Looker>,
     notice: carry::notice::Notice,
+    /// Since when every native session has been idle, while a restart waits for them (ADR
+    /// 0165, part 4b).
+    pub(super) wait: IdleClock,
 }
 
 /// Who asked for the agent channel while a restart held it off.
@@ -139,7 +145,8 @@ impl App {
         }
     }
 
-    /// `oso-restart`: starts the restart's thread, if this instance may hand over.
+    /// `oso-restart`: starts the restart's thread, if this instance may hand over, or waits
+    /// for the native sessions to be idle first (ADR 0165, part 4b).
     pub(super) fn begin_restart(&mut self) {
         let refused = if self.restart.under_way {
             Err("a restart is under way".to_owned())
@@ -150,10 +157,21 @@ impl App {
             let why = refused
                 .err()
                 .unwrap_or_else(|| "this instance cannot restart".into());
+            self.editor.set_restart_when_idle(false);
             self.editor.message(format!("oso-restart: {why}"));
             self.request_redraw();
             return;
         };
+        // The restart replaces an exit that waits, which would end what it carries.
+        if self.editor.quit_when_idle() {
+            self.editor.set_quit_when_idle(false);
+            self.editor.reset_exit_guard();
+        }
+        if self.wait_to_restart() {
+            self.request_redraw();
+            return;
+        }
+        self.editor.set_restart_when_idle(false);
         self.restart.channel_was_on = self.agent_channel_on();
         // An agent must not see or steer the restart (ADR 0133, T-agent).
         self.stop_agent_channel();

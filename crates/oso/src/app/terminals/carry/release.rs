@@ -99,7 +99,9 @@ impl App {
     /// password, is refused, and the terminals read again.
     pub(in crate::app) fn exit_with_terminals(&mut self) -> Result<(), String> {
         let handed: Vec<BufferId> = match &self.handover.going.exported {
-            Some(exported) if exported.handed.is_some() => {
+            // An export that carried no terminal has none to hand over: the order asks for no
+            // masters then (`carry::going`).
+            Some(exported) if exported.handed.is_some() || exported.terminals.is_empty() => {
                 exported.terminals.iter().map(|t| t.buffer).collect()
             }
             Some(_) => {

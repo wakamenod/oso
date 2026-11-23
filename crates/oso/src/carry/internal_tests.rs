@@ -6,7 +6,7 @@ use super::tests::{absolute, visiting};
 use super::{
     Restore, check, exit_allowed, export_value as export, generation, import_allowed, parse,
 };
-use oso_core::buffer::{Buffer, Replacement};
+use oso_core::buffer::{Buffer, Mode, Replacement};
 use oso_core::display_map::TabWidth;
 use oso_core::editor::Editor;
 use oso_core::jump::Kind;
@@ -487,7 +487,6 @@ fn a_keyboard_macro_holds_the_handover_and_an_exit_for_a_generation() {
 
 #[test]
 fn the_side_window_is_left_out_and_the_state_reads_back() {
-    use oso_core::buffer::Mode;
     let mut editor = visiting(&absolute("/p/a.txt"), "abc\ndef\n");
     editor.set_view_size(oso_core::window::ViewSize::new(30, 120));
     let list = editor.add_internal_buffer("*Spaces*", Mode::Sessions);
@@ -505,4 +504,20 @@ fn the_side_window_is_left_out_and_the_state_reads_back() {
             Some(PathBuf::from(absolute("/p/a.txt")))
         );
     }
+}
+
+#[test]
+fn a_native_sessions_empty_composer_brought_back_does_not_refuse_an_import() {
+    let mut editor = Editor::default();
+    let mut composer = Buffer::from_text("*compose: proj*", "");
+    composer.set_mode(Mode::Composer);
+    let id = editor.add_buffer(composer);
+    assert_eq!(import_allowed(&editor), Ok(()));
+    // One that holds a message is not one a restart makes again.
+    let text = Replacement {
+        range: 0..0,
+        text: "draft",
+    };
+    editor.apply_edits(id, &[text]).unwrap();
+    assert!(import_allowed(&editor).is_err());
 }

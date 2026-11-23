@@ -1,5 +1,6 @@
 //! Commands for the session as a whole: cancelling what is in progress, and
 //! exiting, at once or once the terminals are idle (ADR 0034, ADR 0059, ADR 0071, ADR 0133).
+//! Each cancels a restart that waits for the native sessions (ADR 0165, part 4b).
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the
 //! host-owned state and does not know its keys.
@@ -13,7 +14,7 @@ use oso_core::minibuffer::Third;
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "keyboard-quit",
-        doc: "Cancel what is in progress, one thing at a time.\n\nA pending prefix key or prefix argument goes first, in the key resolver. Then the region is hidden, then the innermost prompt or question closes, and runs nothing, and then isearch takes away a failing part, or else ends where it began. In a git status or its log, it also stops what git runs there.",
+        doc: "Cancel what is in progress, one thing at a time.\n\nA pending prefix key or prefix argument goes first, in the key resolver. Then the region is hidden, then the innermost prompt or question closes, and runs nothing, and then isearch takes away a failing part, or else ends where it began. In a git status or its log, it also stops what git runs there. With nothing else to do, it cancels an exit or an `oso-restart` that waits.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: keyboard_quit,
@@ -21,7 +22,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "save-buffers-kill-terminal",
-        doc: "Exit oso, if nothing is at risk.\n\nWith a modified buffer, a save running, a session's turn under way, or a program running in a terminal, this asks whether to exit, and says how many. It names the sessions with a turn under way, the terminals with a job running, and the repositories git commits in. `y` exits, unless more is at risk by then, when it asks again, and a save still running then gets to finish. With work under way, `w` waits for it, as `quit-when-idle` does.",
+        doc: "Exit oso, if nothing is at risk.\n\nWith a modified buffer, a save running, a session's turn under way, or a program running in a terminal, this asks whether to exit, and says how many. It names the sessions with a turn under way, the terminals with a job running, and the repositories git commits in. `y` exits, unless more is at risk by then, when it asks again, and a save still running then gets to finish. With work under way, `w` waits for it, as `quit-when-idle` does. An `oso-restart` that waits is cancelled.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: save_buffers_kill_terminal,
@@ -29,7 +30,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "quit-when-idle",
-        doc: "Exit oso once no session has a turn under way, no terminal runs a job, and git commits nowhere.\n\nYou go on working meanwhile. Once every terminal and session has been idle for 2 seconds, oso exits as `C-x C-c` would, and if more is at risk by then than you agreed to lose, or a review comment of yours is not sent, it stops and says so instead. `C-x C-c` cancels, as it asks again and only `w` waits again, and so does `C-g` where oso has the keys: a terminal sends it to its program. A shell started with no job control, as `sh -c` is, shows no job, and a job in the background is not waited for.",
+        doc: "Exit oso once no session has a turn under way, no terminal runs a job, and git commits nowhere.\n\nYou go on working meanwhile. Once every terminal and session has been idle for 2 seconds, oso exits as `C-x C-c` would, and if more is at risk by then than you agreed to lose, or a review comment of yours is not sent, it stops and says so instead. `C-x C-c` cancels, as it asks again and only `w` waits again, and so does `C-g` where oso has the keys: a terminal sends it to its program. A shell started with no job control, as `sh -c` is, shows no job, and a job in the background is not waited for. An `oso-restart` that waits is cancelled.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: quit_when_idle,
@@ -81,6 +82,13 @@ fn keyboard_quit(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
         ctx.request_redraw();
         return Ok(());
     }
+    // And a restart that waits for the native sessions (ADR 0165, part 4b).
+    if quit == Quit::Nothing && ctx.editor.restart_when_idle() {
+        ctx.editor.set_restart_when_idle(false);
+        ctx.editor.echo("Restart when idle cancelled");
+        ctx.request_redraw();
+        return Ok(());
+    }
     // Then it drops a keyboard macro being recorded (ADR 0113).
     if quit == Quit::Nothing && ctx.editor.macro_recording() {
         ctx.editor
@@ -94,8 +102,10 @@ fn keyboard_quit(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 }
 
 fn save_buffers_kill_terminal(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    // An exit that waited for the terminals asks again, and waits again only on `w`.
+    // An exit that waited for the terminals asks again, and waits again only on `w`; a
+    // restart that waited for the native sessions is cancelled (ADR 0165, part 4b).
     ctx.editor.set_quit_when_idle(false);
+    ctx.editor.set_restart_when_idle(false);
     let (turns, jobs) = busy(ctx.editor);
     let runs: Vec<BufferId> = ctx.editor.git_runs().collect();
     // Comments of the person's not sent yet are lost with the editor when their review could
@@ -183,6 +193,8 @@ fn quit_when_idle(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
         ctx.editor.reset_exit_guard();
     }
     ctx.editor.set_quit_when_idle(true);
+    // The exit replaces a restart that waited (ADR 0165, part 4b).
+    ctx.editor.set_restart_when_idle(false);
     let (turns, jobs) = busy(ctx.editor);
     let count = |n: usize, one: &str, many: &str| match n {
         0 => None,
@@ -224,7 +236,7 @@ fn busy(editor: &Editor) -> (Vec<BufferId>, Vec<BufferId>) {
 }
 
 /// The names of the buffers `ids`, up to [`NAMED`], and how many more.
-pub(super) fn names(editor: &Editor, ids: &[BufferId]) -> String {
+pub(crate) fn names(editor: &Editor, ids: &[BufferId]) -> String {
     let named: Vec<&str> = (ids.iter().take(NAMED))
         .filter_map(|id| editor.buffer(*id))
         .map(oso_core::buffer::Buffer::name)
@@ -466,6 +478,29 @@ mod tests {
             .unwrap();
         assert!(!editor.quit_when_idle());
         assert!(editor.prompt().is_some());
+    }
+
+    #[test]
+    fn c_g_another_exit_or_a_quit_when_idle_stops_a_restart_that_waits() {
+        let mut editor = editor("");
+        // The host waits for the native sessions (ADR 0165, part 4b).
+        editor.set_restart_when_idle(true);
+        run(&mut editor, "keyboard-quit", Args::NONE).0.unwrap();
+        assert!(!editor.restart_when_idle());
+        assert_eq!(echo(&editor), "Restart when idle cancelled");
+        // With nothing waiting, `C-g` says only "Quit".
+        run(&mut editor, "keyboard-quit", Args::NONE).0.unwrap();
+        assert_eq!(echo(&editor), "Quit");
+        editor.set_restart_when_idle(true);
+        run(&mut editor, "save-buffers-kill-terminal", Args::NONE)
+            .0
+            .unwrap();
+        assert!(!editor.restart_when_idle());
+        let (mut editor, _) = busy_editor();
+        editor.set_restart_when_idle(true);
+        run(&mut editor, "quit-when-idle", Args::NONE).0.unwrap();
+        assert!(!editor.restart_when_idle());
+        assert!(editor.quit_when_idle());
     }
 
     #[test]

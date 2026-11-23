@@ -43,7 +43,7 @@ mod restart;
 pub(crate) mod review;
 mod save;
 mod scroll;
-mod session;
+pub(crate) mod session;
 mod terminal;
 mod theme;
 pub(crate) mod vcs;

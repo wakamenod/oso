@@ -23,7 +23,9 @@ often, so it must rebuild within 2 s.
   answers the dev socket, and `handover` exports and imports the state of a restart, `oso dev`'s
   or `oso-restart`'s; its terminals go in `terminals/carry.rs` (the instance going) and
   `terminals/adopt.rs` (the one coming) (ADR 0120, step 11). `restart` starts `oso-restart`
-  and answers its threads, and says when a new binary is in place (ADR 0133).
+  and answers its threads, and says when a new binary is in place (ADR 0133); `restart/wait.rs`
+  holds it while native sessions are busy, as `sessions/hosting/native/holds.rs` judges them
+  (ADR 0165, part 4b).
 - `src/carry.rs` and `src/carry/` are the state a restart carries and both its transports'
   shared parts: the state's format, its texts in pieces, the terminals' entries, the
   descriptors (`fds`) and the requests (`op`). `oso dev`'s supervisor asks them over the dev

@@ -830,7 +830,8 @@ As built:
   resume" row. An "Interrupted with a signal" row says so, and its end is no failure; for a
   moment the session reads stopped, then starting, as a resume does. Nothing resumes when the
   person stopped it or is asked whether to, when the replacement of an orchestrator waits for
-  its end, while oso waits to quit or restart, or as oso exits.
+  its end, while oso waits to quit or restart, or as oso exits (a restart that waits, part 4b,
+  lets it resume).
 - **Windows has no tier 1:** with no `SIGINT`, the process would end at once and leave its
   tools running, so an interrupt the request does not carry is given up, and the person is
   told that `session-stop` stops the session.
@@ -1515,6 +1516,81 @@ The author's Q4-10 (a), part 2b's follow-up:
   record's first report in `app/projects.rs`, which lets the waiting starts go; and the e2e
   flow `sessions::native::resume::a_native_session_resumes_with_no_file_of_its_project_open`.
 
+### Part 4b: `oso-restart` waits for native turns
+
+The author's (a) on Q4-1: the restart waits without asking, and `C-g` cancels it.
+
+- **Before this part,** `oso-restart` never waited for a native session: its exit ended every
+  native process group with `SIGKILL`, a turn under way among them, and the new instance
+  brought each session back stopped.
+- **What holds it.** A native session whose process runs or is starting holds it while it is
+  starting, is being interrupted (step 2c), has a turn under way by its stream, or is found by
+  the sessions' worker working or asking the person, as a permission, question or plan card
+  does (ADR 0133's busy, `Editor::busy_native_sessions`), in
+  `app/sessions/hosting/native/holds.rs`. A stopped or failed session holds nothing. Any other
+  session being started, or held for the configuration's first look (ADR 0173), holds it too,
+  as it does an exit that waits. So does a git run, which the restart would end: `oso-restart`
+  asks first while git runs (ADR 0127, Q7), but a run that starts while the restart waits would
+  otherwise be ended with no question. A dired file operation (ADR 0134) holds it too, as the
+  restart would end it part way. Terminals do not hold it: they are carried, their programs
+  running on. While a file operation runs, `C-g` stops it first, and a second `C-g` cancels
+  the restart. After `oso-restart`'s question about a git run, `y` now waits for that run.
+- **The wait** (`app/restart/wait.rs`). `oso-restart` first checks, as before, that this
+  instance may hand over; refused, it says why and waits for nothing. Then, while anything
+  holds it, the restart waits with no question: `Editor::set_restart_when_idle` leaves a flag on
+  the editor, and the echo area says "oso-restart waits for *claude: NAME* to be idle; C-g
+  cancels", naming the native sessions, git's buffers and the listing of a file operation up
+  to three and counting the rest,
+  and "a session starting" for another session. Before the event loop waits, the host looks,
+  with nothing allocated: once nothing has held the restart for 2 s straight (ADR 0133's
+  `IdleClock` and hold), the restart begins as it would have, and its checks run again. A
+  prompt open, text being composed, or a search, undo, jump or keyboard macro under way, each
+  of which would refuse it and ends by itself, puts it off by another whole hold. Any other
+  refusal then, as a buffer that may hold secrets shown or a queued message, ends the wait and
+  says why. With nothing to wait for, it begins at once, as before. Unix only, where
+  `oso-restart` runs.
+- **Cancelling.** `C-g`, where oso has the keys (a native session's buffers among them), says
+  "Restart when idle cancelled". `C-x C-c` cancels it, and so does `quit-when-idle`, as the exit
+  replaces the restart; a restart that waits or begins in turn replaces an exit that waits,
+  which would end what it carries, and the exit's guard forgets what was agreed to. Only one of
+  the two waits at a time. `C-x C-c`'s question does not name a native session's turn (it reads
+  terminals only, `busy_terminals`), so with nothing else at risk it exits at once; that gap is
+  older than this part, and its fix is its own change.
+- **Meanwhile,** a native session's queue sends nothing on its own, as for an exit that waits,
+  and neither while the restart is under way (`Turn::leaving`), since each message would start
+  a turn the restart waits for again. The person's own send goes, and starts the hold again. A
+  queued message still refuses the restart once it would begin (part 2a's rule). A session
+  interrupted with a signal resumes as it would, and holds the restart while it starts: part
+  2c's "Nothing resumes … while oso waits to quit or restart" holds for an exit that waits and
+  a restart under way, not a restart that waits, so that a session that ran is still running
+  when the restart carries it.
+- **After the wait,** the restart is the one of before: the instance going still ends each
+  native process, now idle, whose conversation Claude Code has kept (a `SIGKILL` after a
+  `result` loses nothing, measured 2026-11-23), and the new instance brings it back stopped.
+  Ending them gently and resuming them in the new instance is part 4c's.
+- **Two older faults,** found by the end-to-end flow, kept any restart from happening while a
+  native session was in the record, or while no terminal ran. The new instance brings a native
+  session back with its empty composer, which a restart makes again rather than carries
+  (part 2a), and `carry::import_allowed` counted it as something the instance had opened; it
+  no longer does. An export that carries no terminal hands over no masters, as the order asks
+  for none, and the exit refused it as terminals exported but not handed over; it now lets
+  such an export go.
+- **New public items:** `oso-core`'s `Editor::{set_restart_when_idle, restart_when_idle}`,
+  approved by the author through the orchestrator.
+- **Tests.** What holds the restart, and that an ended session holds nothing
+  (`native::holds`); the echo's names and count, and the hold with something held, nothing
+  held and a prompt open when it is due (`restart::wait`); `C-g`, `C-x C-c` and
+  `quit-when-idle` cancelling the wait (`commands::session`), and `C-g` in a native session's
+  buffer by keys (`dispatch`); an empty composer that came back lets an import in, and one
+  with a message does not (`carry`). End to end (`sessions::native::restart_wait`): a fake whose
+  turn waits for a release file holds `oso-restart`, which starts no instance while it waits;
+  once released, the new instance takes over; and `C-g` cancels a wait.
+- **Not done:** a mark while the restart waits, other than the echo said once (an agent's
+  session ending its turn chooses the moment within the hold, and an agent's starts keep it
+  waiting; the person cancels); a test of the
+  app's own wiring (the queue held, a refusal once due) beside the end-to-end flows, as the app
+  has no harness of its own.
+
 ## Questions
 
 The author chose (a) on each, on 2026-11-21. The options are kept as they were put.
@@ -1578,6 +1654,17 @@ Each passage stays in its ADR as written; what holds now follows it.
   the screen is the authority": for a TUI session; a native session's state comes from its stream.
   "No permission flag is ever passed": a native session passes `--permission-mode` with the mode the
   person chose (Q4), and `--permission-prompt-tool`; a TUI session still passes none.
+- [ADR 0133](0133-keeping-terminals-over-an-update.md), step 2, as built: "The host refuses
+  as `check-handover` with terminals does …, then stops the agent channel and starts the
+  `oso-restart` thread": while a native session has a turn under way, asks the person, is
+  starting or is being interrupted, the host waits first, with no question, until they have
+  been idle for 2 s, and `C-g` or `C-x C-c` cancels the wait (part 4b). Any session starting,
+  ADR 0173's held starts, git's runs and a file operation hold it too; terminals still do
+  not.
+- [ADR 0133](0133-keeping-terminals-over-an-update.md), step 5, as built, "Waiting.": `w` and
+  `quit-when-idle` also cancel a restart that waits, and `oso-restart`, waiting or beginning,
+  cancels an exit that waits and resets its guard, so that only one of the two waits (part
+  4b).
 - [ADR 0130](0130-agent-chat.md): superseded. Its buffer design holds by reference
   ("The buffers"); its route, its sidecar and its two views do not.
 - [ADR 0173](0173-starts-wait-for-the-configurations-first-look.md), "Until the

@@ -104,8 +104,10 @@ impl App {
     }
 
     /// Whether a resume of native session `key` that would start of itself is held now: the
-    /// person is asked whether to stop it, oso waits to quit or restart, the replacement of an
-    /// orchestrator waits for its end, or its conversation moved to an id oso does not follow.
+    /// person is asked whether to stop it, oso waits to quit or a restart is under way, the
+    /// replacement of an orchestrator waits for its end, or its conversation moved to an id oso
+    /// does not follow. A restart that waits (part 4b) holds none: it waits for the resume, so
+    /// that a session that ran is one the restart carries as running.
     pub(super) fn native_resume_held(&self, key: SessionKey) -> bool {
         self.watch.stop_asked(key)
             || self.editor.quit_when_idle()

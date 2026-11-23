@@ -1,6 +1,6 @@
 # 0133. Keeping terminals and sessions over an update of the installed oso
 
-- Status: Accepted, amended by 0137
+- Status: Accepted, amended by 0137 and 0165
 - Date: 2026-11-15
 
 ## Context

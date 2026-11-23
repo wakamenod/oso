@@ -72,8 +72,8 @@ pub struct Turn {
     /// A turn is under way: oso's, or one it did not start.
     pub busy: bool,
     pub run: Run,
-    /// oso waits for the sessions to be idle to exit: nothing queued goes, as it would start a
-    /// turn the exit waits for again.
+    /// oso waits for the sessions to be idle to exit or restart, or restarts (ADR 0165, part
+    /// 4b): nothing queued goes, as it would start a turn the exit or restart waits for again.
     pub leaving: bool,
 }
 

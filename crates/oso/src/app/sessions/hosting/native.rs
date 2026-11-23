@@ -33,6 +33,7 @@
 mod composer;
 mod control;
 mod end;
+mod holds;
 mod interrupting;
 mod keys;
 mod markdown;
