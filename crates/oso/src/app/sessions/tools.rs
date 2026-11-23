@@ -402,7 +402,7 @@ impl App {
 
     /// The trusted root of `caller`'s project: an open project's whose root is the session's,
     /// looked up now so that the person's later trust or distrust counts, else the one the
-    /// session started with (a worktree just made, which no buffer opened).
+    /// session started with (a worktree just made, which no buffer opened), while it holds.
     fn caller_root(&self, caller: &Caller) -> Option<crate::git::TrustedRoot> {
         if let Some(at) = &caller.acting_at {
             return Some(at.clone());

@@ -14,6 +14,8 @@
 //! session is ready for review once its work is merged (ADR 0121, "Merged work is not ready for
 //! review, as amended"). A worktree session whose agent never called oso is known by its
 //! process all the same, and its finished worktree is removed.
+//! A native worktree session with no file open uses its tools while its main repository is
+//! trusted, and no more once it is not.
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test: the tools' table,
 //! the questions' wording and the refusals have their own tests.
@@ -969,5 +971,65 @@ fn a_session_in_its_own_directory_starts_without_asking_until_the_project_is_unt
     answer(&mut app, &bridge, "n");
     let (said, error) = bridge.result(id);
     assert!(error, "{said}");
+    flow.exit_with(0);
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_worktree_session_with_no_file_open_loses_its_tools_trust_with_its_main_repositorys() {
+    let flow = Flow::with_fake("session-tools-started-trust", "", FAKE);
+    // Native, as by default.
+    let config = flow.scratch.path().join("config.toml");
+    let native = fs::read_to_string(&config).unwrap();
+    let native = native.replace("mode = \"tui\"\n", "");
+    flow.scratch.write("config.toml", native.as_bytes());
+    let (mut app, _) = flow.start();
+    app.run_command("claude", None).unwrap();
+    let run = run_in(&flow, &flow.repo);
+    let mut bridge = Bridge::start(&flow, &run);
+    let id = bridge.call(
+        "start_worktree_session",
+        json!({ "branch": "e2e-own", "brief": "Fix the parser" }),
+    );
+    answer(&mut app, &bridge, "y");
+    let (started, error) = bridge.result(id);
+    assert!(!error, "{started}");
+    let worktree = flow.repo.join(".claude/worktrees/e2e-own");
+    let mut of_worktree = Bridge::start(&flow, &run_in(&flow, &worktree));
+    let (listed, error) = of_worktree.tool_when_free("worktree_list", &json!({}));
+    assert!(!error, "{listed}");
+
+    app.send_keys("C-x b");
+    app.send_keys(&keys("README.md"));
+    app.send_keys("RET");
+    app.wait_for("the main repository's file", |state| {
+        state["buffer"]["name"] == "README.md"
+    });
+    app.run_command("untrust-project", None).unwrap();
+    app.wait_for("the project restricted", |state| {
+        state["echo"]
+            .as_str()
+            .is_some_and(|echo| echo.ends_with("is restricted again"))
+    });
+    thread::sleep(AFTER_TYPING);
+    let calls = [
+        ("worktree_list", json!({})),
+        ("session_start", json!({ "directory": flow.repo })),
+        (
+            "start_worktree_session",
+            json!({ "branch": "e2e-next", "brief": "Fix the lexer" }),
+        ),
+    ];
+    for (tool, arguments) in calls {
+        let (said, error) = of_worktree.tool_when_free(tool, &arguments);
+        assert!(error, "{tool}: {said}");
+        assert!(
+            said.to_string()
+                .contains("your session's project is not trusted"),
+            "{tool}: {said}"
+        );
+    }
+    assert!(!flow.repo.join(".claude/worktrees/e2e-next").exists());
+    assert_eq!(runs(&flow).len(), 2, "a third fake ran");
     flow.exit_with(0);
 }

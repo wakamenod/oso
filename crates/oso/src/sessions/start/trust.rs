@@ -155,9 +155,20 @@ pub fn still_trusted(
     open: Option<Option<TrustedRoot>>,
     record: TrustRecord<'_>,
 ) -> bool {
+    let open = open.map(|open| open.is_some_and(|trusted| !trusted.revoked()));
+    stands(open, record, |list| list.paths().any(|path| path == root))
+}
+
+/// Whether a trust given stands, as an open buffer of its project (`open`) has it, else as
+/// `listed` says of `record`. A record not read yet keeps it; one refused trusts nothing.
+pub fn stands(
+    open: Option<bool>,
+    record: TrustRecord<'_>,
+    listed: impl FnOnce(&TrustList) -> bool,
+) -> bool {
     match (open, record) {
-        (Some(open), _) => open.is_some_and(|trusted| !trusted.revoked()),
-        (None, TrustRecord::Read(list)) => list.paths().any(|path| path == root),
+        (Some(open), _) => open,
+        (None, TrustRecord::Read(list)) => listed(list),
         (None, TrustRecord::Unread) => true,
         (None, TrustRecord::Refused) => false,
     }

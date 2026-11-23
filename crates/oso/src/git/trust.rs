@@ -3,15 +3,16 @@
 //! language server's gate checks it before each start too (ADR 0138), so a change to what
 //! [`TrustedRoot::check`] or the revocation means changes when a server may start.
 //!
-//! Must not depend on: `app`, `dispatch` or winit; [`TrustedRoot::check`] and
-//! [`TrustedRoot::replaced`] look at the disk, so they run on the threads that run git.
+//! Must not depend on: `app`, `dispatch` or winit; [`TrustedRoot::check`],
+//! [`TrustedRoot::replaced`] and [`TrustedRoot::for_worktree`] look at the disk, so they run on
+//! the threads that run git.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use oso_core::editor::Editor;
-use oso_core::project::ProjectId;
+use oso_core::project::{ProjectId, RootIdentity, TrustList};
 
 use super::path::identity_of;
 
@@ -19,13 +20,25 @@ use super::path::identity_of;
 /// was found. [`TrustedRoot::of`] makes one from a trusted project, and
 /// [`TrustedRoot::of_member`] one from an issue space's repository the trust list holds by path
 /// and identity, or a native session's root with no open buffer of its project (ADR 0165, part
-/// 4a); the latter is made fresh for each use and never revoked, so its users ask the trust
-/// list again. Its clones share one revocation: once one is revoked, so are all.
+/// 4a); the latter is made fresh for each use, so its users ask the trust list again.
+/// [`TrustedRoot::for_worktree`] makes a worktree's. Its clones share one revocation: once one
+/// is revoked, so are all, but for [`TrustedRoot::apart`]'s.
 #[derive(Clone, Debug)]
 pub(crate) struct TrustedRoot {
-    path: PathBuf,
-    identity: Option<(u64, u64)>,
+    root: RootIdentity,
+    made: Made,
     revoked: Arc<AtomicBool>,
+}
+
+/// What a root was made from.
+#[derive(Clone, Debug)]
+enum Made {
+    /// A project of the editor's table.
+    Project(ProjectId),
+    /// A root the trust list holds.
+    Listed,
+    /// The main checkout a worktree job found, as it was then, which the root belongs with.
+    Worktree(RootIdentity),
 }
 
 impl TrustedRoot {
@@ -36,8 +49,11 @@ impl TrustedRoot {
         }
         let project = editor.project(id)?;
         Some(TrustedRoot {
-            path: project.root().to_owned(),
-            identity: project.identity(),
+            root: RootIdentity {
+                path: project.root().to_owned(),
+                identity: project.identity(),
+            },
+            made: Made::Project(id),
             revoked: Arc::default(),
         })
     }
@@ -45,17 +61,17 @@ impl TrustedRoot {
     /// The root of a repository at `path` with `identity`, an issue space's member that no
     /// open buffer may show, if `list` trusts it by both (ADR 0136, step 4).
     pub(crate) fn of_member(
-        list: &oso_core::project::TrustList,
+        list: &TrustList,
         path: &Path,
         identity: Option<(u64, u64)>,
     ) -> Option<TrustedRoot> {
-        let root = oso_core::project::RootIdentity {
+        let root = RootIdentity {
             path: path.to_owned(),
             identity,
         };
         list.trusts(&root).then(|| TrustedRoot {
-            path: root.path,
-            identity,
+            root,
+            made: Made::Listed,
             revoked: Arc::default(),
         })
     }
@@ -68,29 +84,56 @@ impl TrustedRoot {
 
     /// The device and inode it was trusted with, where the system has them.
     pub(crate) fn identity(&self) -> Option<(u64, u64)> {
-        self.identity
+        self.root.identity
     }
 
     #[cfg(test)]
     pub(crate) fn for_tests(path: PathBuf) -> TrustedRoot {
         let identity = identity_of(&path);
         TrustedRoot {
-            path,
-            identity,
+            root: RootIdentity { path, identity },
+            made: Made::Listed,
             revoked: Arc::default(),
         }
     }
 
-    /// The same trust for `path`, a linked worktree a worktree job just made in this root's
-    /// repository, which belongs with it as ADR 0114 has it (ADR 0121). Its revocation is this
-    /// root's. It looks at the disk, so the job calls it.
-    pub(crate) fn for_worktree(&self, path: PathBuf) -> TrustedRoot {
+    /// The same trust for `path`, a directory a worktree job found or just made in the
+    /// repository whose main checkout is at `main`, as the record of trusted projects spells
+    /// it, which it belongs with as ADR 0114 has it (ADR 0121). Its revocation is this root's.
+    /// It looks at the disk, so the job calls it.
+    pub(crate) fn for_worktree(&self, path: PathBuf, main: &Path) -> TrustedRoot {
         let identity = identity_of(&path);
+        let main = RootIdentity {
+            path: main.to_owned(),
+            identity: identity_of(main),
+        };
         TrustedRoot {
-            path,
-            identity,
+            root: RootIdentity { path, identity },
+            made: Made::Worktree(main),
             revoked: Arc::clone(&self.revoked),
         }
+    }
+
+    /// The same trust with a revocation of its own, for a session that starts under what a
+    /// job or another session holds, so that each is taken back by itself. One taken back
+    /// already stays so.
+    pub(crate) fn apart(self) -> TrustedRoot {
+        if self.revoked() {
+            return self;
+        }
+        self.revoked_by(Arc::default())
+    }
+
+    /// Whether `list` trusts it now, by path and identity: the root, or the main repository
+    /// its worktree job found.
+    pub(crate) fn listed_in(&self, list: &TrustList) -> bool {
+        list.trusts(&self.root) || matches!(&self.made, Made::Worktree(main) if list.trusts(main))
+    }
+
+    /// Whether the project it was made from is one `editor` trusts now, where it was made from
+    /// one.
+    pub(crate) fn project_trusted(&self, editor: &Editor) -> bool {
+        matches!(self.made, Made::Project(id) if editor.project_trusted(id))
     }
 
     /// Takes the trust back, as when the person no longer trusts the project: no thread that
@@ -121,7 +164,7 @@ impl TrustedRoot {
     }
 
     pub(crate) fn path(&self) -> &Path {
-        &self.path
+        &self.root.path
     }
 
     /// Whether another directory is now at the root's path than the one trusted. It looks at
@@ -133,9 +176,11 @@ impl TrustedRoot {
     /// Whether the root is still the directory that was trusted, by its device and inode where
     /// the system has them, not following a link.
     fn still_there(&self) -> bool {
-        match self.identity {
-            Some(identity) => identity_of(&self.path) == Some(identity),
-            None => std::fs::symlink_metadata(&self.path).is_ok_and(|metadata| metadata.is_dir()),
+        match self.root.identity {
+            Some(identity) => identity_of(&self.root.path) == Some(identity),
+            None => {
+                std::fs::symlink_metadata(&self.root.path).is_ok_and(|metadata| metadata.is_dir())
+            }
         }
     }
 }

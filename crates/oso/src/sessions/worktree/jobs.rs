@@ -104,6 +104,23 @@ pub struct Trust {
     pub trusted: Trusted,
 }
 
+impl Trust {
+    /// The root in the record that `main`, the repository's main checkout as git spells it,
+    /// is, if the record holds it.
+    fn recorded(&self, main: &Path) -> Option<&Path> {
+        (self.trusted.iter())
+            .find(|known| oso_core::project::same_place(known, main))
+            .map(PathBuf::as_path)
+    }
+
+    /// The trust of `path`, a directory a job found or made in `repo`, whose main checkout the
+    /// record was found to hold. It looks at the disk.
+    fn for_worktree(&self, path: PathBuf, repo: &Repo) -> TrustedRoot {
+        let main = self.recorded(repo.main()).unwrap_or_else(|| repo.main());
+        self.root.for_worktree(path, main)
+    }
+}
+
 /// What a job found.
 #[derive(Debug)]
 pub enum Report {
@@ -254,7 +271,7 @@ impl Jobs {
         &self,
         trust: Trust,
         first: bool,
-        work: impl FnOnce(&TrustedRoot, &Repo, &dyn Fn(Report)) + Send + 'static,
+        work: impl FnOnce(&Trust, &Repo, &dyn Fn(Report)) + Send + 'static,
         failed: impl FnOnce(String) -> Report + Send + 'static,
     ) {
         let send = Arc::clone(&self.send);
@@ -265,7 +282,7 @@ impl Jobs {
                 .check()
                 .and_then(|()| repo(&trust, state.as_deref()));
             match repo {
-                Ok(repo) => work(&trust.root, &repo, &*send),
+                Ok(repo) => work(&trust, &repo, &*send),
                 Err(why) => send(failed(why)),
             }
         };
@@ -302,13 +319,14 @@ impl Jobs {
         self.on_repo(
             trust,
             false,
-            move |root, repo, send| {
+            move |trust, repo, send| {
                 let progress = |step| send(Report::Step { token, step });
-                let result =
-                    create::create(repo, &order, &progress, &|| root.check()).map(|created| {
-                        let trusted = root.for_worktree(created.path.clone());
+                let result = create::create(repo, &order, &progress, &|| trust.root.check()).map(
+                    |created| {
+                        let trusted = trust.for_worktree(created.path.clone(), repo);
                         (created, trusted)
-                    });
+                    },
+                );
                 send(Report::Created { token, result });
             },
             move |why| Report::Created {
@@ -328,7 +346,8 @@ impl Jobs {
         self.on_repo(
             trust,
             true,
-            move |root, repo, send| {
+            move |trust, repo, send| {
+                let root = &trust.root;
                 let readable = (with.iter())
                     .map(|(trust, dir)| readable_in(trust, dir, state.as_deref()))
                     .collect::<Result<Vec<Member>, String>>();
@@ -345,7 +364,7 @@ impl Jobs {
                             Some(root.clone())
                         }
                         Prepared::Directory(directory) => {
-                            Some(root.for_worktree(directory.clone()))
+                            Some(trust.for_worktree(directory.clone(), repo))
                         }
                         Prepared::Worktree { .. } => None,
                     };
@@ -416,11 +435,7 @@ fn repo(trust: &Trust, state: Option<&Path>) -> Result<Repo, String> {
     let hooks = crate::git::empty_hooks(state, "worktrees")?;
     let main = main_of(trust.root.path(), &hooks)?;
     // Worktrees take their trust from the main repository (ADR 0114).
-    let main_trusted = trust
-        .trusted
-        .iter()
-        .any(|known| oso_core::project::same_place(known, &main));
-    if !main_trusted {
+    if trust.recorded(&main).is_none() {
         return Err(MAIN_UNTRUSTED.to_owned());
     }
     Repo::open(&main, &hooks)
