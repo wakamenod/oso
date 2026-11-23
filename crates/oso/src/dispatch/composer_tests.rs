@@ -255,3 +255,18 @@ fn c_c_slash_on_effort_completes_its_level_and_elsewhere_the_commands() {
     send(&mut d, &mut editor, "C-c / c o n t RET");
     assert_eq!(editor.current().1.text().to_string(), "/context /models x");
 }
+
+#[test]
+fn an_argument_chosen_after_the_command_takes_no_word_the_composer_held() {
+    let (mut d, mut editor) = (Dispatcher::new(), Editor::default());
+    composer(&mut editor, "fix this bug");
+    list_commands(&mut editor);
+    list_arguments(&mut editor);
+    send(&mut d, &mut editor, "C-c / m o d e l RET");
+    assert!(editor.prompt().is_some(), "the models' prompt opens");
+    send(&mut d, &mut editor, "h a i RET");
+    assert_eq!(
+        editor.current().1.text().to_string(),
+        "/model haiku fix this bug"
+    );
+}

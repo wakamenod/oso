@@ -126,11 +126,11 @@ impl App {
         // Native in a trusted project under `mode = "native"`, as a new start (ADR 0165), in
         // the permission mode, model and effort of the native session it copies (parts 3b and
         // 3c).
-        let mode = (self.hosting.table.iter())
+        let forked = (self.hosting.table.iter())
             .find(|session| session.id == from)
             .and_then(|session| self.hosting.natives.forked(session.key));
         let (runs, trusted) =
-            match self.start_native_fork(key, &name, &directory, root.as_deref(), mode) {
+            match self.start_native_fork(key, &name, &directory, root.as_deref(), forked) {
                 Some((order, trusted)) => {
                     self.hosting.trusts.insert(key, trusted.clone());
                     (Runs::Native(order), Some(trusted))

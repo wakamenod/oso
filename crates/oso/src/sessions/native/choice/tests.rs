@@ -134,6 +134,12 @@ fn an_effort_is_one_of_the_levels_and_auto_clears_it() {
         ),
         ("/effort ultracode on", "Ultracode on (this session only)"),
         ("/effort high", "Couldn't set effort level: no"),
+        // A reply that names another level than asked.
+        (
+            "/effort high",
+            "Set effort level to xhigh (this session only)",
+        ),
+        ("/effort high", "Set effort level to highest"),
     ] {
         assert!(
             !after(&mut choice, text, &result("effort", reply, false)),

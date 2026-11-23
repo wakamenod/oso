@@ -1195,9 +1195,13 @@ As built:
   (`native-composer-model`), and `/effort` opens `Effort:` (`native-composer-effort`), each when
   the host listed rows for it; `C-c /` on a `/model` or `/effort` the composer begins with, as
   a word of its own, opens its argument's prompt in place of `Command:`. The one chosen goes
-  after the command, in place of the word after it on its line, and is not sent: the person
-  sends it, as any message. `C-g` leaves `/model `, to be written by hand. Both commands are
-  `Person`. No public item: the dispatcher chains the prompts, as 2d opens `Command:`.
+  after the command: on `C-c /`, in place of the word after it on its line; chained after
+  `Command:`, which put the command before what the composer held, in place of none (the
+  dispatcher gives the prompt a prefix argument, which says so). It is not sent: the person
+  sends it, as any message. `C-g` leaves `/model `, to be written by hand. The rows keep the
+  CLI's order, the levels from the least, and `Model:` takes a full model name it does not
+  list, as `--model` does. Both commands are `Person`. No public item: the dispatcher chains
+  the prompts, as 2d opens `Command:`.
 - **The lists** (`app/sessions/hosting/native/slash.rs`, beside 2d's): the models the
   selected composer's session's last `initialize` listed (part 3a's list, at most 64), each row
   its value, then its name and its description's first line, cut to 256 bytes and escaped as
@@ -1209,9 +1213,10 @@ As built:
 - **Noted** (`sessions::native::choice`): a `/model` or `/effort` the composer sent, the CLI's
   own command (its list's, or its name while the list says not whose a command is), is asked;
   the `result` that ends its turn notes it when it names that local command, is no error, its
-  subtype `success`, and its reply starts `Set model to `, `Set effort level to ` or `Effort
-  level set to auto`, which clears the level. Stricter than the author's rule, so that a reply
-  that set nothing, or set another level than asked, notes nothing; a later CLI that words its
+  subtype `success`, and its reply starts `Set model to `, `Set effort level to ` and the level
+  asked, or `Effort level set to auto`, which clears the level. The author chose this stricter rule on
+  2026-11-23, so that a reply that set nothing, or set another level than asked, notes nothing,
+  and no mistyped model goes on a later process's command line; a later CLI that words its
   reply otherwise notes nothing either, the safe side. One message is under way at a time, so
   one command is asked at a time, and any `result`, or a new process, ends it.
   - What is noted is what the person sent: a model that is one word, reads as a model's id
@@ -1219,6 +1224,13 @@ As built:
     case. Another argument (two words, `ultracode on`) notes nothing.
   - The modeline's model stays the stream's (part 3a): `system/init` names the new one at the
     next turn. The level shows after it from the `result` on (Q-C1 (a)).
+  - A level noted stays across a `/model`, as the CLI says nothing of it then: a later
+    process is given it with the new model. Whether the CLI takes `--effort` for a model that
+    takes none is not measured.
+  - The stream is not authenticated (part 3b): a forged `result` can note what the person
+    asked where the CLI refused or capped it, and a later process then starts with it.
+    Whether the CLI holds `--model` and `--effort` to the person's settings, as it holds
+    `/model` and `/effort`, is not measured.
 - **Every later process** (`NativeOrder`, `command::Line`): a resume (the person's or an
   orchestrator's), part 2c's tier-1 interrupt's resume, part 3b's tier-1 mode switch and a fork
   are given `--model=` and `--effort=` with what was noted, beside `--permission-mode`, one

@@ -314,9 +314,10 @@ pub(super) fn result(object: &Map<String, Value>) -> TurnResult {
         session_id: string(object, "session_id"),
         windows: windows(object.get("modelUsage")),
         local_command: Some(string(object, "local_command")).filter(|name| !name.is_empty()),
+        // Cut first, so that a reply with no newline is not read to its end.
         reply: (object.get("result").and_then(Value::as_str))
-            .and_then(|reply| reply.lines().next())
             .map(name)
+            .and_then(|reply| reply.lines().next().map(str::to_owned))
             .unwrap_or_default(),
     }
 }

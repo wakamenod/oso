@@ -18,7 +18,7 @@
 
 use oso_core::buffer::{BufferId, Mode, Replacement};
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
-use oso_core::editor::NativeAction;
+use oso_core::editor::{Editor, NativeAction};
 use oso_core::sum_tree::Bias;
 
 use super::native::at_point as ask;
@@ -33,10 +33,28 @@ pub const SLASH_LIST: &str = "native-slash-commands";
 pub const MODEL_LIST: &str = "native-models";
 pub const EFFORT_LIST: &str = "native-efforts";
 
-/// The commands whose argument completes, each with its command and list (part 3c).
-pub const ARGUMENTS: [(&str, &str, &str); 2] = [
-    ("model", "native-composer-model", MODEL_LIST),
-    ("effort", "native-composer-effort", EFFORT_LIST),
+/// A slash command whose argument completes (part 3c).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Argument {
+    /// What follows the `/`.
+    pub command: &'static str,
+    /// The editor command that completes its argument, and the list it completes over.
+    pub completes: &'static str,
+    pub list: &'static str,
+}
+
+/// The slash commands whose argument completes.
+pub const ARGUMENTS: [Argument; 2] = [
+    Argument {
+        command: "model",
+        completes: "native-composer-model",
+        list: MODEL_LIST,
+    },
+    Argument {
+        command: "effort",
+        completes: "native-composer-effort",
+        list: EFFORT_LIST,
+    },
 ];
 
 /// The most of the composer's start read for the command it may begin with.
@@ -58,7 +76,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "native-composer-model",
-        doc: "Complete over the models the native session's claude lists, and put `/model` with the one chosen first in its composer, ready to send.\n\nThe argument of a `/model` the composer begins with is replaced. Choosing `/model` in `native-composer-command` asks too, as does `C-c /` on a `/model` the composer begins with. The model is noted once claude says it set it, and each later claude of the session starts with it.",
+        doc: "Complete over the models the native session's claude lists, and put `/model` with the one chosen first in its composer, ready to send.\n\nThe argument of a `/model` the composer begins with is replaced; with a prefix argument, no word is, and the model goes right after `/model`. Choosing `/model` in `native-composer-command` asks too, so, as does `C-c /` on a `/model` the composer begins with. The model is noted once claude says it set it, and each later claude of the session starts with it.",
         args: ArgSpec::Listed {
             list: MODEL_LIST,
             prompt: "Model:",
@@ -70,7 +88,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "native-composer-effort",
-        doc: "Complete over the effort levels of the native session's model, and put `/effort` with the one chosen first in its composer, ready to send.\n\nThe levels are those claude lists for the model chosen with `/model`, else for the model shown, else the five `--effort` takes. The argument of an `/effort` the composer begins with is replaced. The level is noted, and shown after the model in the modeline, once claude says it set it; each later claude of the session starts with it.",
+        doc: "Complete over the effort levels of the native session's model, and put `/effort` with the one chosen first in its composer, ready to send.\n\nThe levels are those claude lists for the model chosen with `/model`, else for the model shown, else the five `--effort` takes. The argument of an `/effort` the composer begins with is replaced; with a prefix argument, no word is, and the level goes right after `/effort`, so, as choosing `/effort` in `native-composer-command` asks. The level is noted, and shown after the model in the modeline, once claude says it set it; each later claude of the session starts with it.",
         args: ArgSpec::Listed {
             list: EFFORT_LIST,
             prompt: "Effort:",
@@ -249,20 +267,27 @@ fn slash_command(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
         .map_err(|error| CommandError::new(error.to_string()))
 }
 
-fn model(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    with_argument(ctx, "model", "No model")
+fn model(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
+    with_argument(ctx, args, "model", "No model")
 }
 
-fn effort(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    with_argument(ctx, "effort", "No effort level")
+fn effort(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
+    with_argument(ctx, args, "effort", "No effort level")
 }
 
 /// Puts `/command` with the chosen argument first in the composer: in place of a `/command`
-/// it begins with and its argument, else before its text (part 3c).
-fn with_argument(ctx: &mut Ctx<'_>, command: &str, none: &'static str) -> Result<(), CommandError> {
+/// it begins with and its argument, or with a prefix argument that command alone, else before
+/// its text (part 3c).
+fn with_argument(
+    ctx: &mut Ctx<'_>,
+    args: Args,
+    command: &str,
+    none: &'static str,
+) -> Result<(), CommandError> {
     let chosen = chosen(ctx, none)?;
     let (id, start) = composer_start(ctx)?;
-    let replaced = argument_end(&start, command);
+    // With a prefix, as when chosen after the command was put in, no word is the argument.
+    let replaced = argument_end(&start, command, args.raw().is_some());
     let mut inserted = format!("/{command} {chosen}");
     if start[replaced..].starts_with(|c: char| !ends_word(c)) {
         inserted.push(' ');
@@ -286,36 +311,49 @@ fn chosen(ctx: &Ctx<'_>, none: &'static str) -> Result<String, CommandError> {
 
 /// The selected composer and its start, at most [`COMMAND_BYTES`] of it.
 fn composer_start(ctx: &Ctx<'_>) -> Result<(BufferId, String), CommandError> {
-    let (window, buffer) = ctx.editor.current();
+    selected_start(ctx.editor)
+        .ok_or_else(|| CommandError::new("This buffer is no native session's composer"))
+}
+
+/// The selected buffer, if it is a composer, and its start, at most [`COMMAND_BYTES`] of it.
+fn selected_start(editor: &Editor) -> Option<(BufferId, String)> {
+    let (window, buffer) = editor.current();
     if buffer.mode() != Mode::Composer {
-        return Err(CommandError::new(
-            "This buffer is no native session's composer",
-        ));
+        return None;
     }
     let text = buffer.text();
     let end = text.clip_offset(text.len().min(COMMAND_BYTES), Bias::Left);
-    Ok((window.buffer(), text.chunks_in_range(0..end).collect()))
+    Some((window.buffer(), text.chunks_in_range(0..end).collect()))
 }
 
 /// Which of [`ARGUMENTS`] `start`, a composer's start, begins with: `/model` or `/effort` as a
 /// word of its own (part 3c).
-pub fn begun_argument(start: &str) -> Option<(&'static str, &'static str, &'static str)> {
-    ARGUMENTS.into_iter().find(|(command, ..)| {
+pub fn begun_argument(start: &str) -> Option<Argument> {
+    ARGUMENTS.into_iter().find(|argument| {
         let rest = start
             .strip_prefix('/')
-            .and_then(|rest| rest.strip_prefix(command));
+            .and_then(|rest| rest.strip_prefix(argument.command));
         rest.is_some_and(|rest| rest.is_empty() || rest.starts_with(ends_word))
     })
 }
 
+/// Which of [`ARGUMENTS`] the selected composer begins with, as the dispatcher asks (part 3c).
+pub fn composer_argument(editor: &Editor) -> Option<Argument> {
+    begun_argument(&selected_start(editor)?.1)
+}
+
 /// How much of `start` a `/command` it begins with and its argument take: the command, the
-/// blanks after it on its line, and the word after them; 0 when it begins with none.
-fn argument_end(start: &str, command: &str) -> usize {
-    if begun_argument(start).is_none_or(|(begun, ..)| begun != command) {
+/// blanks after it on its line, and the word after them, which `none` leaves out but for one
+/// space; 0 when it begins with none.
+fn argument_end(start: &str, command: &str, none: bool) -> usize {
+    if begun_argument(start).is_none_or(|begun| begun.command != command) {
         return 0;
     }
     let after = 1 + command.len();
     let rest = &start[after..];
+    if none {
+        return after + usize::from(rest.starts_with(' '));
+    }
     let blanks = rest.len() - rest.trim_start_matches([' ', '\t']).len();
     let word = rest[blanks..]
         .find(ends_word)
@@ -323,7 +361,8 @@ fn argument_end(start: &str, command: &str) -> usize {
     after + blanks + word
 }
 
-/// Whether `c` ends a command's word, as the CLI reads it (step 2d).
+/// Whether `c` ends a command's word, as the CLI reads it (step 2d): the twin of
+/// `sessions::native::slash::ends_word`, which `commands` may not use.
 fn ends_word(c: char) -> bool {
     c.is_whitespace() || c == '\u{feff}'
 }
@@ -388,15 +427,18 @@ mod tests {
     fn a_chosen_argument_takes_the_place_of_the_one_typed() {
         use super::argument_end;
         // `/model`, the blanks after it on its line, and one word.
-        assert_eq!(argument_end("/model", "model"), 6);
-        assert_eq!(argument_end("/model ", "model"), 7);
-        assert_eq!(argument_end("/model  son more", "model"), 11);
-        assert_eq!(argument_end("/model\nmore", "model"), 6);
-        assert_eq!(argument_end("/effort\u{feff}x", "effort"), 7);
+        let end = |start, command| argument_end(start, command, false);
+        assert_eq!(end("/model", "model"), 6);
+        assert_eq!(end("/model ", "model"), 7);
+        assert_eq!(end("/model  son more", "model"), 11);
+        assert_eq!(end("/model\nmore", "model"), 6);
+        assert_eq!(end("/effort\u{feff}x", "effort"), 7);
         // Another command, or a word that only begins so.
-        assert_eq!(argument_end("/models x", "model"), 0);
-        assert_eq!(argument_end("/effort x", "model"), 0);
-        assert_eq!(argument_end(" /model x", "model"), 0);
+        assert_eq!(end("/models x", "model"), 0);
+        assert_eq!(end("/effort x", "model"), 0);
+        assert_eq!(end(" /model x", "model"), 0);
+        // With a prefix, the command and one space alone: the word after is the person's.
+        assert_eq!(argument_end("/model fix this", "model", true), 7);
         assert_eq!(super::begun_argument("/effort"), Some(super::ARGUMENTS[1]));
     }
 

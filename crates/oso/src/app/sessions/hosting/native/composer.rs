@@ -275,7 +275,7 @@ impl App {
                     native.rows.sent(text);
                 }
                 // A `/model` or `/effort` is noted once its turn's result says it was taken.
-                native.status.choice.sent(&native.commands, text);
+                native.choice.sent(&native.commands, text);
                 native.composing.busy = true;
                 native.spoke = true;
                 // Drawn away by the queue's drawing that follows each send.

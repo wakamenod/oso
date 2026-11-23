@@ -8,7 +8,8 @@
 //! prefix argument and the prompt's id. When that prompt is answered, the command runs
 //! with the answer, through the same `execute` as a key. A prompt that closes otherwise
 //! drops what waited for it. A question's `y` runs the command it names, confirmed, which
-//! checks again what is true by then.
+//! checks again what is true by then. The slash commands' prompt on a `/model` or `/effort`
+//! the composer begins with reads its argument instead (`slash`, ADR 0165, part 3c).
 
 use oso_core::buffer::EditError;
 use oso_core::command::{ArgSpec, Args, CommandId, Effects, ExecuteError, Invocation, Prefix};
@@ -146,7 +147,7 @@ impl Dispatcher {
         args: Args,
         invocation: Invocation<'_>,
     ) -> (Effects, Result<(), ExecuteError>) {
-        let id = self.argument_prompt(editor, id);
+        let id = self.in_place_of(editor, id);
         let spec = self.registry.get(id).map(|command| command.args);
         if let Some(ArgSpec::Replace { regexp }) = spec {
             return self.read_replace(editor, id, args.raw(), regexp);

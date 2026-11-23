@@ -9,8 +9,8 @@
 //!   (measured, CLI 2.1.330), so oso notes what it sent. A sent `/model` or `/effort`, the
 //!   CLI's own (its list's, or its name while the list says not whose a command is), is
 //!   asked; the `result` that ends its turn notes it when it names that local command, is no
-//!   error, and its reply says it was set: `Set model to `, `Set effort level to `, or
-//!   `Effort level set to auto`, which clears the effort. Any other reply, `Kept model as`,
+//!   error, and its reply says it was set: `Set model to `, `Set effort level to ` and the
+//!   level asked, or `Effort level set to auto`, which clears the effort. Any other reply, `Kept model as`,
 //!   `Current model:`, a model not found, an unknown option, or a level the CLI capped,
 //!   notes nothing. The replies are the CLI's (2.1.330): one that changes notes nothing, the
 //!   safe side.
@@ -23,8 +23,8 @@
 //!   holds no model.
 
 use super::slash::{SlashCommands, ends_word};
-use super::wire::Event;
 use super::wire::status_line::{Kind, Model, readable};
+use super::wire::{Event, MAX_NAME};
 
 /// The levels `--effort` takes (CLI 2.1.330's `--help`), which tier 1 completes over.
 pub const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
@@ -93,7 +93,7 @@ impl Choice {
             Asked::Effort(Some(effort)) if local == Some("effort") => {
                 let was = self.effort;
                 match effort {
-                    Effort::Level(level) if result.reply.starts_with(EFFORT_SET) => {
+                    Effort::Level(level) if names(&result.reply, level) => {
                         self.effort = Some(level);
                     }
                     Effort::Auto if result.reply.starts_with(EFFORT_AUTO) => self.effort = None,
@@ -146,6 +146,16 @@ pub fn effort_source(models: &[Model], chosen: Option<&str>, shown: Option<&str>
     chosen.and_then(says).or_else(|| shown.and_then(says))
 }
 
+/// Whether `reply` says the CLI set `level`: `Set effort level to LEVEL`, then the end, a
+/// space or a colon. So that a reply that set another, as a cap does, notes nothing, and a
+/// forged one can confirm only the level asked.
+fn names(reply: &str, level: &str) -> bool {
+    let rest = reply
+        .strip_prefix(EFFORT_SET)
+        .and_then(|rest| rest.strip_prefix(level));
+    rest.is_some_and(|rest| rest.is_empty() || rest.starts_with([' ', ':']))
+}
+
 /// The words of `rest`, what follows a command's name.
 fn words(rest: &str) -> impl Iterator<Item = &str> {
     rest.split(ends_word).filter(|word| !word.is_empty())
@@ -155,24 +165,29 @@ fn words(rest: &str) -> impl Iterator<Item = &str> {
 fn model(rest: &str) -> Option<String> {
     let mut words = words(rest);
     let model = words.next()?;
-    let carried = words.next().is_none() && readable(model, Kind::Id) && !model.starts_with('-');
+    // `readable` checks the length too, after the bytes: a long word goes first.
+    let short = model.len() <= MAX_NAME;
+    let carried = short && words.next().is_none() && readable(model, Kind::Id);
+    let carried = carried && !model.starts_with('-');
     carried.then(|| model.to_owned())
 }
 
 /// What `rest` asks of `/effort`, if it is one word: a level `--effort` takes, or `auto`.
 fn effort(rest: &str) -> Option<Effort> {
     let mut words = words(rest);
-    let word = words.next()?.to_ascii_lowercase();
+    let word = words.next()?;
     if words.next().is_some() {
         return None;
     }
-    match word.as_str() {
-        "auto" | "unset" => Some(Effort::Auto),
-        word => EFFORTS
-            .iter()
-            .find(|level| **level == word)
-            .map(|l| Effort::Level(l)),
+    if ["auto", "unset"]
+        .iter()
+        .any(|auto| word.eq_ignore_ascii_case(auto))
+    {
+        return Some(Effort::Auto);
     }
+    (EFFORTS.iter())
+        .find(|level| word.eq_ignore_ascii_case(level))
+        .map(|level| Effort::Level(level))
 }
 
 #[cfg(test)]

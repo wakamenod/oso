@@ -2,7 +2,7 @@
 //! lists both commands and two models in `initialize`'s answer: choosing `/model` in the
 //! commands' prompt completes over the models, `/effort` over the chosen model's levels; each
 //! is noted once the CLI's `result` says it set it, the effort shown after the model; and a
-//! resume starts with both.
+//! resume and a fork start with both.
 //!
 //! Must not depend on: the app's internals; the choice's rules have their own tests.
 
@@ -110,7 +110,7 @@ fn transcript_until(app: &mut App, what: &str, seen: impl Fn(&Value) -> bool) ->
 
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
-fn model_and_effort_complete_their_argument_are_noted_and_a_resume_keeps_them() {
+fn model_and_effort_complete_their_argument_are_noted_and_a_resume_and_fork_keep_them() {
     let flow = Flow::with("native-model", MODEL_FAKE, "");
     let mut app = flow.start();
     app.open_file(&flow.project.join("notes.md"));
@@ -162,6 +162,18 @@ fn model_and_effort_complete_their_argument_are_noted_and_a_resume_keeps_them() 
     assert!(args.contains("arg --resume="), "{args}");
     assert!(args.contains("arg --model=haiku"), "{args}");
     assert!(args.contains("arg --effort=max"), "{args}");
+    // A fork of it starts with them too.
+    app.wait_for("the composer", in_composer);
+    app.send_keys("C-c C-o");
+    app.wait_for("the transcript", |state| {
+        state["buffer"]["name"] == "*claude: proj*"
+    });
+    app.run_command("session-fork", None).unwrap();
+    let args = flow.wait_for_file("run.3");
+    assert!(args.contains("arg --fork-session"), "{args}");
+    assert!(args.contains("arg --model=haiku"), "{args}");
+    assert!(args.contains("arg --effort=max"), "{args}");
+    // The new session, given none.
     let first = flow.wait_for_file("run.1");
     assert!(
         !first.contains("--model") && !first.contains("--effort"),

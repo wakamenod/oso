@@ -49,9 +49,6 @@ pub struct StatusLine {
     /// The model `system/init` named last, and the one that answered last.
     init_model: Option<String>,
     answered: Option<String>,
-    /// The effort level oso noted, which no stream field gives: shown after the model (the
-    /// author's Q-C1), once part 3c notes it from a `/effort` the CLI took.
-    pub effort: Option<String>,
     /// The tokens the last main-thread answer read.
     context: Option<u64>,
     /// Each model's context window, as the last `result`s gave them.
@@ -163,9 +160,10 @@ impl StatusLine {
     }
 
     /// The line's parts, joined by [`SEPARATOR`], into `out`, after what it holds, with `mode`
-    /// as the permission mode, which `mode::Modes` holds (part 3b): nothing for a part not
-    /// known.
-    pub fn write(&self, mode: Option<&str>, out: &mut String) {
+    /// as the permission mode, which `mode::ModeState` holds (part 3b), and `effort` as the
+    /// effort level, which no stream field gives and `choice::Choice` notes (part 3c, the
+    /// author's Q-C1), shown after the model: nothing for a part not known.
+    pub fn write(&self, mode: Option<&str>, effort: Option<&str>, out: &mut String) {
         let part = |out: &mut String| {
             if !out.is_empty() {
                 out.push_str(SEPARATOR);
@@ -174,7 +172,7 @@ impl StatusLine {
         if let Some(model) = self.model() {
             part(out);
             out.push_str(&display_name(&self.models, model));
-            if let Some(effort) = self.effort.as_deref().filter(|e| readable(e, Kind::Word)) {
+            if let Some(effort) = effort.filter(|e| readable(e, Kind::Word)) {
                 out.push(' ');
                 out.push_str(effort);
             }

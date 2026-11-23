@@ -12,8 +12,10 @@
 //!   command that is not the CLI's own: a project's skill may take a built-in's name.
 //! - `/model`'s and `/effort`'s arguments are listed the same way (part 3c): the models the
 //!   session's `initialize` listed, each with its name and description, and the effort levels
-//!   of the model chosen, else shown, else the five `--effort` takes. They are made again
-//!   when the session, its list, or the model the levels are of changed.
+//!   of the model chosen, else shown, else the five `--effort` takes. The models' rows are made
+//!   again when the session or its list changed, the levels' also when the model they are of
+//!   did; which model that is is looked for after each event, over at most 64, with no
+//!   allocation.
 
 use std::sync::Arc;
 
@@ -117,7 +119,7 @@ impl App {
             return;
         };
         let (models, listed) = native.status.line.models();
-        let chosen = native.status.choice.model();
+        let chosen = native.choice.model();
         let efforts = effort_source(models, chosen, native.status.line.model());
         let now = Listed {
             key,
@@ -133,14 +135,16 @@ impl App {
             let items = slash_rows(native, now.commands);
             self.editor.set_listed(SLASH_LIST, items);
         }
-        if was.is_none_or(|was| (was.key, was.models, was.efforts) != (key, listed, efforts)) {
-            let models = native.status.line.models().0;
+        let models = native.status.line.models().0;
+        if was.is_none_or(|was| (was.key, was.models) != (key, listed)) {
             let row = |model: &Model| {
                 let said = format!("{}  {}", model.display, model.description);
                 Candidate::new(model.value.as_str(), "", said)
             };
             self.editor
                 .set_listed(MODEL_LIST, models.iter().map(row).collect());
+        }
+        if was.is_none_or(|was| (was.key, was.models, was.efforts) != (key, listed, efforts)) {
             let levels = efforts.and_then(|at| models[at].efforts.as_deref());
             let levels: Arc<[Candidate]> = match levels {
                 Some(levels) => (levels.iter())

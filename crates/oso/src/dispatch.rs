@@ -387,7 +387,8 @@ impl Dispatcher {
         // in the word the popup completes (ADR 0138).
         editor.match_completion();
         self.after_command(editor, id, result.is_ok());
-        // `review-layout`'s menu opens as it ends, as a menu key's (ADR 0160).
+        // `review-layout`'s menu opens as it ends, as a menu key's (ADR 0160), and the slash
+        // commands' prompt and their arguments' (ADR 0165, step 2d and part 3c).
         if result.is_ok() {
             effects = effects.union(self.open_asked_review_menu(editor));
             effects = effects.union(self.complete_slash(editor, id));

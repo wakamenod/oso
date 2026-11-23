@@ -19,6 +19,8 @@ const STATUS_2_1_330: &str = include_str!("../fixtures/2.1.330/status.jsonl");
 struct Line {
     status: StatusLine,
     modes: ModeState,
+    /// The effort level noted (part 3c).
+    effort: Option<&'static str>,
 }
 
 impl Deref for Line {
@@ -66,7 +68,7 @@ fn fold(line: &mut Line, event: Event) {
 
 fn shown(line: &Line) -> String {
     let mut out = String::new();
-    line.status.write(line.modes.shown(), &mut out);
+    line.status.write(line.modes.shown(), line.effort, &mut out);
     out
 }
 
@@ -148,7 +150,7 @@ fn the_model_shown_is_the_last_to_answer_on_the_main_thread_else_inits() {
         "Sonnet 5.5",
         "a subagent's and a local command's say nothing"
     );
-    line.effort = Some("high".to_owned());
+    line.effort = Some("high");
     assert_eq!(shown(&line), "Sonnet 5.5 high");
 }
 
@@ -283,10 +285,7 @@ fn a_part_that_holds_a_dot_a_space_or_was_cut_is_not_shown() {
         assert_eq!(shown(&line), "", "{odd:?}");
     }
     let mut line = Line {
-        status: StatusLine {
-            effort: Some("high · auto".to_owned()),
-            ..StatusLine::default()
-        },
+        effort: Some("high · auto"),
         ..Line::default()
     };
     read(

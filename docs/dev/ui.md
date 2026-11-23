@@ -1341,7 +1341,8 @@ a switch made with its command stands until that setting changes in the file
   description, and `/effort` to an `Effort:` completion over the levels of the model chosen
   with `/model`, else of the one shown, else the five `--effort` takes (part 3c); `C-c /` on a
   `/model` or `/effort` the composer begins with completes its argument. The one chosen goes
-  after the command, in place of its argument, unsent. Once `claude` says it set the model or
+  after the command, in place of its argument (on `C-c /`), unsent; `Model:` takes a full
+  model name it does not list. Once `claude` says it set the model or
   the level, the level shows after the model in the modeline, and a resume, an interrupt's
   resume, a mode switch's and a fork start with both; a session resumed after oso restarted
   does not. `C-u C-c C-c` interrupts and sends

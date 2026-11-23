@@ -26,7 +26,7 @@ mod spaces;
 
 pub use card::{CARD_NOTE, CARD_OWN, COMMANDS as CARD_COMMANDS, PLAN_CONFIRMED};
 pub use composer::{
-    COMMANDS as COMPOSER_COMMANDS, EFFORT_LIST, MODEL_LIST, SLASH_LIST, begun_argument,
+    COMMANDS as COMPOSER_COMMANDS, EFFORT_LIST, MODEL_LIST, SLASH_LIST, composer_argument,
 };
 pub use list::COMMANDS as LIST_COMMANDS;
 pub use list::{FOLDS, GUIDES, ROW_MARKS, SESSION_RENAME_TO, row_mark};
@@ -38,7 +38,6 @@ pub use send::{
 };
 pub use spaces::{
     ARCHIVED_LIST, COMMANDS as SPACE_COMMANDS, MEMBERS_LIST, REPOSITORIES_LIST, SPACE_RENAME_TO,
-    listed_takes_input,
 };
 
 use std::path::PathBuf;
@@ -60,9 +59,17 @@ const ADOPT_HISTORY: &str = "session-adopt";
 
 /// Whether the prompt of a command over `list` keeps the order the host gave: `session-adopt`
 /// lists live sessions, then the newest stopped ones, an order a history or the names' lengths
-/// must not undo.
+/// must not undo; a native session's models and effort levels come in the CLI's order, the
+/// levels from the least (part 3c).
 pub fn listed_in_given_order(list: &str) -> bool {
-    list == ADOPT_LIST
+    list == ADOPT_LIST || list == MODEL_LIST || list == EFFORT_LIST
+}
+
+/// Whether the prompt of a command over `list` takes any text as its answer, not only a
+/// candidate's: a repository's path need not be one oso knows yet, nor a model's full name one
+/// the CLI lists (part 3c).
+pub fn listed_takes_input(list: &str) -> bool {
+    spaces::listed_takes_input(list) || list == MODEL_LIST
 }
 
 /// Whether `prompt` is `session-adopt`'s, whose answer the host looks up in the list it

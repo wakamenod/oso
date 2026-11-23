@@ -666,7 +666,12 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   command's turn names it, is no error, and its reply says the CLI set it. What a stream line
   says alone notes nothing: the model or level is the one the person sent, a model one word of
   ASCII letters, digits and `._:/@[]-` that does not start with `-`, a level one of the five
-  `--effort` takes. A forged `result` can at most note what the person asked. Nothing of it is
+  `--effort` takes; an effort's reply must name the level asked. A forged `result` can at most
+  note what the person asked, though it can do so where the CLI refused or capped it: a model
+  or level the person's settings would not take on `/model` or `/effort` then goes on the
+  command line, where whether the CLI holds it to those settings is not measured. The person's
+  own command includes text an agent put in the composer (part 2f escapes only the start of
+  what it puts) that the person then sent. Nothing of it is
   in the record across oso's restart. Completion over the models and levels shows the CLI's
   text as completion rows show any text, escaped, and puts the one chosen in the composer,
   unsent.
