@@ -113,7 +113,8 @@ fn a_fork_with_no_transcript_says_why_and_still_starts() {
         state["buffer"]["name"] != "*claude: proj*" && text(state).contains("Forked from")
     });
     let shown = text(&state);
-    let why = at(&shown, "its transcript was not found");
+    // The note wraps at the window's width.
+    let why = at(&shown, "Its earlier turns are not shown");
     assert!(why < at(&shown, "Forked from proj."), "{shown}");
     let _ = app.exchange("exit", None);
     app.wait_for_exit();
