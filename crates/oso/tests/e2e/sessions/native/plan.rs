@@ -86,7 +86,7 @@ fn a_plan_is_edited_before_it_is_approved_and_approved_with_a_mode() {
     // with auto, once `y` answered its question.
     let first = card(&mut app, "the first plan's card");
     assert!(first.contains("│ Write hello.txt."), "{first}");
-    assert!(first.contains("[e] edit"), "{first}");
+    assert!(first.contains(" e  edit"), "{first}");
     answer_after_quiet(&mut app, "e");
     assert_eq!(
         editing(&mut app, "the plan's edit").trim_end(),

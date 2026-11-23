@@ -49,6 +49,11 @@ pub(super) enum Name {
     BgFlash,
     /// A dictation's text while Claude fixes it (ADR 0175, step 2).
     BgProvisional,
+    /// A permission card (ADR 0180): its background, the band behind its title row, and its
+    /// frame and oso's words on both.
+    BgAsk,
+    BgAskTitle,
+    FgAsk,
     /// Line numbers, dim, and the current line's, bright.
     FgLineNumber,
     FgLineNumberCurrent,
@@ -169,6 +174,9 @@ pub(super) fn dark(name: Name) -> Color {
         BgCurrentLine => rgb(0x181a22),
         BgFlash => rgb(0x4a2a5a),
         BgProvisional => rgb(0x15323a),
+        BgAsk => rgb(0x211c12),
+        BgAskTitle => rgb(0x4a370c),
+        FgAsk => rgb(0xf5c84c),
         FgLineNumber => rgb(0x767c93),
         FgLineNumberCurrent => rgb(0xd8dbe6),
         FgWrapMark => rgb(0x6aa6c4),
@@ -247,6 +255,9 @@ pub(super) fn light(name: Name) -> Color {
         BgCurrentLine => rgb(0xeeefe8),
         BgFlash => rgb(0xebc9ef),
         BgProvisional => rgb(0xc4e6e6),
+        BgAsk => rgb(0xf8eed2),
+        BgAskTitle => rgb(0xf2d98a),
+        FgAsk => rgb(0x5a3c00),
         FgLineNumber => rgb(0x6e7385),
         FgLineNumberCurrent => rgb(0x272a33),
         FgWrapMark => rgb(0x2f6684),
@@ -326,6 +337,9 @@ pub(super) fn dusk(name: Name) -> Color {
         BgCurrentLine => rgb(0x4a4a52),
         BgFlash => rgb(0x603c6c),
         BgProvisional => rgb(0x1f5058),
+        BgAsk => rgb(0x33302a),
+        BgAskTitle => rgb(0x5a4718),
+        FgAsk => rgb(0xffe9a8),
         FgLineNumber => rgb(0xb0b3c4),
         FgLineNumberCurrent => rgb(0xf3f3f6),
         FgWrapMark => rgb(0x94cde6),

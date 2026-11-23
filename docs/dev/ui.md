@@ -1386,12 +1386,18 @@ a switch made with its command stands until that setting changes in the file
   `oso-restart` stays one. An agent's start with no brief, and a restricted project, keep the
   terminal; a wrong `mode` is said, and native holds. A call that asks the person's
   permission is asked on the session's card (step 2e-2), `*card: NAME*`, docked between the
-  transcript and the composer and withheld from agents: oso's title and keys around Claude's
-  text, each row of it after `│ `; point moves to it after 500 ms with no key while the person
-  is in that session and its composer holds no draft, and a key answers only after a quiet
+  transcript and the composer and withheld from agents, on an amber background of its own
+  (ADR 0180): oso's title on a band, the frame's top, and its keys, on chips, the bottom, around
+  Claude's text, each row of it between `│ ` and ` │`. Point moves to it as it appears, while the
+  person is in that session, its composer holds no draft and they are in the middle of nothing
+  (else once that holds, after 500 ms with no key), and a key answers only after a quiet
   moment since the last key and since the card came in front. `y` allows, `n` denies, `N`
   denies with a note, `RET` shows the whole call in the card; an `AskUserQuestion` takes a
   digit, `RET` for several, or `o` for the person's words; an `ExitPlanMode` shows its plan.
+  In the session's empty composer, `y`, `n`, `N` and a question's `o` and digits answer it too,
+  under the same quiet wait; a key that would not is typed. A question's and a plan's card grow to
+  what they say, up to the window less 4 rows of transcript, and page past that with `SPC` and
+  `DEL`; a digit chooses only an option that has been on screen.
   On a plan's card (part 3d) `y` approves it, `a` approves it and leaves the session in accept
   edits, `A` in auto, after a y-or-n question, as Claude Code's own dialog offers; `e` edits it
   in `*plan: NAME*`, in the session's window in place of the transcript, Markdown, withheld

@@ -1,6 +1,6 @@
 # 0170. Docked windows under a session's transcript
 
-- Status: Accepted
+- Status: Accepted, amended by 0180
 - Date: 2026-11-22
 
 ## Context

@@ -26,6 +26,7 @@ use crate::sessions::list::SpaceBands;
 use crate::terminal::hosted::Terminals;
 use crate::text;
 
+mod card;
 mod float;
 mod menu;
 mod spaces;
