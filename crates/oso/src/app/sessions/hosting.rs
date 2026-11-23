@@ -21,7 +21,7 @@ use crate::git::TrustedRoot;
 use crate::sessions::hosted::{New, Run, Table};
 use crate::sessions::identity::Origin;
 use crate::sessions::identity::SessionId;
-use crate::sessions::start::{self, Kind, Order, Ready, Report, Runs};
+use crate::sessions::start::{self, Kind, NativeOrder, Order, Ready, Report, Runs};
 use crate::sessions::worker::SessionKey;
 
 mod adopt;
@@ -113,6 +113,11 @@ impl Hosting {
     /// Whether start `key` is under way: ordered, held or not, until its start thread reports.
     pub(in crate::app) fn start_under_way(&self, key: SessionKey) -> bool {
         self.starting.contains_key(&key)
+    }
+
+    /// The buffer start `key`, under way, starts in.
+    pub(in crate::app) fn start_buffer(&self, key: SessionKey) -> Option<BufferId> {
+        self.starting.get(&key).copied()
     }
 
     /// The hosted sessions.
@@ -255,10 +260,15 @@ impl App {
             self.ask_shared(Begin { directory, ..begin });
             return None;
         }
-        let project = self.project_at_root(&directory);
-        let native = self.native_start(&begin, &directory, project);
         let base = begin.name.clone().unwrap_or_else(|| base_name(&directory));
         let (key, name) = self.hosting.table.reserve(&directory, &base);
+        // A space's new orchestrator: under its space's gate, never a project's (ADR 0176, O-3).
+        let gate = self.new_orchestrator_gate(key, &name, &begin, &directory);
+        let project = gate
+            .is_none()
+            .then(|| self.project_at_root(&directory))
+            .flatten();
+        let native = self.native_start(&begin, &directory, project, gate.is_some());
         if let Some(parent) = begin.parent.clone() {
             self.hosting.parents.insert(key, parent);
         }
@@ -281,7 +291,11 @@ impl App {
         let shown = begin.origin == Origin::Person && !begin.behind;
         let mut brief = begin.brief_to_send();
         let runs = if native {
-            Runs::Native(self.native_start_buffer(key, &name, directory.clone(), shown, &mut brief))
+            let order = self.native_start_buffer(key, &name, directory.clone(), shown, &mut brief);
+            Runs::Native(NativeOrder {
+                gate: gate.unwrap_or_default(),
+                ..order
+            })
         } else {
             Runs::Terminal(self.session_terminal(key, &name, None, shown))
         };

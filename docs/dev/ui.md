@@ -1372,6 +1372,15 @@ a switch made with its command stands until that setting changes in the file
   projects (part 4a; else it says why, and that `session-fork` continues it in a terminal); `session-fork` forks a session
   natively there, and `session-adopt` and `move_to_space` resume a conversation from outside
   oso natively there (part 4e), unless `mode = "tui"`; each runs in a terminal elsewhere. A
+  space's orchestrator runs natively in the space's own directory, under the space's gate in
+  place of a project's trust, with `--setting-sources=user`, so that none of the directory's
+  settings, hooks, MCP servers, commands or `CLAUDE.md` load ([ADR 0176](adr/0176-native-orchestrators.md)):
+  `space-orchestrator-start`, `space-new`'s start and a successor's start a new one natively
+  unless `mode = "tui"`, a successor's brief going as its first message, and a resume, a fork,
+  `oso-restart`'s resume and the switch both ways run there for the space's orchestrator, an
+  earlier one or a native session of the person's there. A TUI orchestrator keeps its mode
+  until it is switched or replaced; an adoption there, and a session an agent started there,
+  keep the terminal. A
   stopped TUI session resumes in its terminal, as it ran, and a TUI session carried over
   `oso-restart` stays one. An agent's start with no brief, and a restricted project, keep the
   terminal; a wrong `mode` is said, and native holds. A call that asks the person's

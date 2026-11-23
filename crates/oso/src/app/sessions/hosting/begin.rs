@@ -39,8 +39,12 @@ pub(in crate::app) struct Begin {
     /// Its directory is a worktree just made, whose own trust `trusted` is: the one start
     /// that runs natively with no open buffer to say its project is trusted (ADR 0165, Q5).
     pub worktree: bool,
-    /// An issue space's orchestrator: what it starts with (ADR 0136, step 3).
+    /// An issue space's orchestrator: what it starts with (ADR 0136, step 3). A worker's
+    /// reads ride here too.
     pub space: Option<crate::sessions::start::SpaceStart>,
+    /// The space it is the new orchestrator of: only `launch_orchestrator` says so. It runs
+    /// natively there under that space's gate (ADR 0176, part O-3).
+    pub orchestrator_of: Option<SpaceId>,
     /// Its terminal is not shown though the person started it: an orchestrator `space-new`
     /// started once the person had left its space (ADR 0159).
     pub behind: bool,
@@ -58,6 +62,7 @@ impl Default for Begin {
             trusted: None,
             worktree: false,
             space: None,
+            orchestrator_of: None,
             behind: false,
         }
     }

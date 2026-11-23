@@ -1871,7 +1871,9 @@ The author's Q4-9 (a), and two answers of 2026-11-23 through the orchestrator:
   terminal (Q5). A space's orchestrator keeps it too, only because a space's directory has no
   `.git` yet and so is no project oso trusts: nothing else excludes it. The author wants
   orchestrators native as well; that needs the space's trust, its directory and the
-  orchestrator's tools and flows, and is a follow-up of its own. The configuration keeps
+  orchestrator's tools and flows, and is a follow-up of its own (amended by
+  [ADR 0176](0176-native-orchestrators.md): new orchestrators follow `mode` under the space's
+  gate since its part O-3). The configuration keeps
   `Sessions::tui` in place of `Sessions::native`, so a configuration not read in time, or
   none, gives native too.
 - **A wrong value** (`"chat"`, `"TUI"`, `true`) is said as a problem of the configuration, and

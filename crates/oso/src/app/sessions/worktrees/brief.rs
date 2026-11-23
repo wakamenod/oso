@@ -211,6 +211,7 @@ impl App {
             trusted: Some(trusted),
             worktree: true,
             space: None,
+            orchestrator_of: None,
             behind: false,
         };
         self.begin_session(begin, Then::Nothing);

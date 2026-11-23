@@ -49,7 +49,9 @@ its own.
 - **Who (Q-O3 (a)):** the space's current orchestrator, an earlier one, or a session of the
   person's there that oso made native there before (started by the person, with no parent,
   and native, or handed from native to the TUI): a native fork of one of them is one. A fork is
-  judged by the session it copies. A session an agent started in the directory is refused, and
+  judged by the session it copies. From O-3, also the space's new orchestrator, which oso
+  starts there and which has no conversation yet: its gate is for its own space alone, while
+  its start is the space's. A session an agent started in the directory is refused, and
   so is a terminal fork of it or an adoption there, which the record has as terminals.
 - **Its line** adds `--setting-sources=user`: the person's own settings alone, none of the
   directory's or its parents' (hooks, `.mcp.json`, commands, skills, agents, `CLAUDE.md`).
@@ -70,10 +72,17 @@ its own.
 - **O-1:** a native resume, a fork, `oso-restart`'s resume (ADR 0165, part 4c), and the switch
   both ways (part 4d): a TUI orchestrator taken natively with `session-switch-mode`, and a native
   one handed back to the TUI.
-- **New starts stay TUI until O-3:** `space-orchestrator-start` (`o`), `space-new`'s start and a
-  successor's. An adoption in a space's directory stays a terminal.
-- **O-3 (Q-O7 (a)):** new orchestrators follow `[sessions] mode`; an existing TUI one keeps its
-  mode (part 4e (b)) until it is switched or replaced.
+- **O-3 (Q-O7 (a)):** new orchestrators follow `[sessions] mode`:
+  `space-orchestrator-start` (`o`), `space-new`'s start and a successor's run natively unless
+  `mode = "tui"`, under the space's gate as above, never a project's trust. One given no
+  message selects its composer, as any native start does; a successor's brief is its first
+  message. The gate is judged for the space `launch_orchestrator` names, in its directory, and
+  in a space's directory a new start is native by that gate alone, never by a project's trust.
+  Where the gate refuses, as for a directory not where oso made it, it starts in a terminal as
+  before, the echo area saying why. A start that waits for the configuration's first look
+  waits whole (ADR 0173), so its gate is judged as it goes. An existing TUI orchestrator keeps its mode (part 4e (b))
+  until it is switched or replaced. Any other new start in a space's directory, and an
+  adoption there, stays a terminal.
 
 ### Flows
 
@@ -117,7 +126,7 @@ its own.
   the rule stands.
 - **ADR 0165, part 4e ("A space's orchestrator keeps it too, only because a space's directory
   has no `.git` yet"):** a space's directory is now a native root for resumes, forks, restart
-  resumes and switches; new orchestrators stay TUI until O-3.
+  resumes and switches, and from O-3 new orchestrators follow `[sessions] mode` there.
 - **ADR 0136, "The space's own directory" ("Claude Code asks its workspace trust question once
   a space") and "Trust stays per repository" ("The space's directory is the one place whose
   `.claude/settings.json` and `CLAUDE.md` load into the orchestrator"):** a native orchestrator
@@ -148,8 +157,7 @@ its own.
   write, as the session tools' roles already do (ADR 0136, step 4a): a forged orchestrator,
   earlier orchestrator or native session of the person's there passes it. The directory's
   checks and identity, and `--setting-sources=user`, still bound where and how it runs.
-- Follow-up: O-3 (the default, with the docs `ui.md`,
-  `daily-use.md` and `native-sessions-ux.md`).
+- From O-3, a new space's orchestrator is asked no trust question, unless `mode = "tui"`.
 
 ## Alternatives considered
 

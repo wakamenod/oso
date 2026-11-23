@@ -217,14 +217,19 @@ impl App {
     ///
     /// Only at the root of a project an open buffer says is trusted now, `directory`, or in a
     /// worktree just made, under its own trust: never under the trust of the agent's session
-    /// that starts it, which may be an outer project's or one taken back since.
+    /// that starts it, which may be an outer project's or one taken back since. In an issue
+    /// space's recorded directory, only a start `gated` by its space's gate, a new orchestrator
+    /// (`new_orchestrator_gate`, ADR 0176): never by a project's trust there.
     pub(super) fn native_start(
         &self,
         begin: &Begin,
         directory: &std::path::Path,
         project: Option<ProjectId>,
+        gated: bool,
     ) -> bool {
         let trusted = match &begin.trusted {
+            _ if gated => true,
+            _ if self.is_space_directory(directory) => false,
             Some(trusted) if begin.worktree => trusted.path() == directory && !trusted.revoked(),
             Some(_) => self.native_trust_now(directory, Some(directory)).is_ok(),
             None => project.is_some_and(|id| TrustedRoot::of(&self.editor, id).is_some()),

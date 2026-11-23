@@ -115,6 +115,7 @@ impl App {
             directory,
             brief,
             space: Some(space),
+            orchestrator_of: Some(id.clone()),
             behind,
             ..Begin::default()
         };

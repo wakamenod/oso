@@ -211,6 +211,7 @@ impl App {
             trusted: self.caller_root(caller),
             worktree: false,
             space: None,
+            orchestrator_of: None,
             behind: false,
         };
         // Without asking only in a project an open buffer has trusted now: the trust the session
