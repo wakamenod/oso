@@ -280,6 +280,12 @@ pub(in crate::app) fn withheld_draft(
     editor.add_buffer(buffer)
 }
 
+/// Whether `buffer` is a native session's composer with nothing in it, which takes what oso
+/// offers there: not one that a yank turned secret, which sends nothing (ADR 0165).
+pub(in crate::app) fn empty_composer(buffer: &Buffer) -> bool {
+    buffer.mode() == Mode::Composer && !buffer.is_secret() && buffer.text().is_empty()
+}
+
 /// Puts `text` in the internal buffer `kept` names, or in a new one named `name` if it is
 /// gone, withholds it from the agent channel, and shows it: `*Session explain*`, a native
 /// session's `*result: NAME*` (ADR 0165). Never a buffer that is not internal: one of that
