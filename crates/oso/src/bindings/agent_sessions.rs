@@ -20,6 +20,9 @@ pub const SESSION: &[(&str, &str)] = &[
     ("C-c C-a", "session-adopt"),
     ("C-c C-w", "session-worktree"),
     ("C-c C-e", "session-explain"),
+    // A TUI session taken back natively, or a native one handed to the TUI (ADR 0165, part
+    // 4d); a native session's buffer keeps `C-c C-t` for its to-do strip (`NOT_NATIVE`).
+    ("C-c C-t", "session-switch-mode"),
     ("C-c C-f", "session-follow-message"),
     ("C-c C-z", "space-zoom"),
     ("C-c C-v", "review-layout"),
@@ -110,8 +113,14 @@ pub const PLAN: &[(&str, &str)] = &[
 ];
 
 /// Session mode's commands a native session's buffer does not bind: an agent's reads of a
-/// terminal are let in and taken back on its screen, which a native session has none of.
-pub const NOT_NATIVE: [&str; 2] = ["terminal-allow-agent-read", "terminal-deny-agent-read"];
+/// terminal are let in and taken back on its screen, which a native session has none of; and
+/// `session-switch-mode`, whose `C-c C-t` is the to-do strip's there (part 3e), the author's
+/// Q4-8 (a): a native session switches with `C-c a t`.
+pub const NOT_NATIVE: [&str; 3] = [
+    "terminal-allow-agent-read",
+    "terminal-deny-agent-read",
+    "session-switch-mode",
+];
 
 /// The keys of `*Spaces*`, above the global ones in it.
 pub const LIST: &[(&str, &str)] = &[

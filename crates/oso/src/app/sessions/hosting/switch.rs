@@ -7,7 +7,7 @@
 //!
 //! - **Native to the TUI** (part 4d-1): the session's `claude -p`, idle, ends as a stop ends
 //!   it (standard input closed, `SIGTERM`, `SIGKILL` after 5 s); once its stream said it
-//!   ended, after its reap, its transcript is set aside (`native::aside`), the record says
+//!   ended, after its reap, its transcript is set aside (`native::switching`), the record says
 //!   `tui`, and the TUI resumes the conversation in a new terminal, `*claude: NAME*`, as
 //!   `session-resume` resumes a stopped terminal session: through the start thread's look
 //!   at Claude Code's registry, which refuses a live process of the conversation elsewhere.
@@ -17,11 +17,14 @@
 //! - The TUI may ask Claude Code's own trust question, which `claude -p` skipped.
 //! - A TUI start that is refused leaves the session a stopped TUI one, whose `session-resume`
 //!   starts it again.
+//! - **Back to native** (part 4d-2) is `back`'s.
 
 use oso_core::buffer::BufferId;
 
 use crate::app::App;
-use crate::sessions::native::switch::Then;
+use crate::sessions::native::switch::{Then, Way};
+
+mod back;
 use crate::sessions::worker::SessionKey;
 
 impl App {
@@ -37,13 +40,10 @@ impl App {
         let Some(name) = self.hosting.table.get(key).map(|s| s.name.clone()) else {
             return self.editor.message("That session is gone");
         };
-        if !self.hosting.natives.has(key) {
-            return self.editor.message(format!(
-                "Session {name} runs in the TUI: session-switch-mode hands only a native \
-                 session to the TUI for now"
-            ));
+        match self.hosting.natives.has(key) {
+            true => self.native_hand_to_tui(key, &name),
+            false => self.tui_hand_to_native(key, &name),
         }
-        self.native_hand_to_tui(key, &name);
     }
 
     /// Hands native session `key`, `name`, to the TUI: its process ends first if it runs.
@@ -106,13 +106,19 @@ impl App {
         }
     }
 
-    /// Start `token`'s start thread reported it started, was refused or found its
-    /// conversation live: what was kept of a native start's trust is forgotten, and a switch
-    /// that started it is over.
-    pub(in crate::app::sessions::hosting) fn start_thread_reported(&mut self, token: SessionKey) {
-        self.native_start_reported(token);
-        if self.hosting.natives.switches.starting(token).is_some() {
-            self.hosting.natives.switches.over(token);
+    /// Start `token`'s start thread reported it `started`, was refused or found its
+    /// conversation live: a switch that started it is over. A TUI a hand-off started is noted,
+    /// as one that exits cleanly of itself comes back natively (Q4-6 (a)).
+    pub(in crate::app::sessions::hosting) fn switch_start_reported(
+        &mut self,
+        token: SessionKey,
+        started: bool,
+    ) {
+        if self.hosting.natives.switches.starting(token).is_none() {
+            return;
+        }
+        if self.hosting.natives.switches.over(token) == Some(Way::ToTui) && started {
+            self.hosting.natives.switches.handed(token);
         }
     }
 }

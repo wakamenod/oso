@@ -134,7 +134,7 @@ through `oso mcp`.
 | `P` | `session-pin` | Pin or unpin this session; dim outside a session's buffer. |
 | `A` | `session-archive` | Archive this session, or bring it back; dim outside a session's buffer. |
 | `R` | `session-rename` | Rename this session, or the one on the `*Spaces*` row: the prompt holds its name. |
-| `t` | `session-switch-mode` | Hand this native session to Claude Code's TUI, in a terminal, once it is idle. |
+| `t` | `session-switch-mode` | Hand this native session to Claude Code's TUI, in a terminal, or take a TUI session back to native, once it is idle. |
 | `v` | `review-layout` | The review layout, as `C-x v r`: from the layout's slot, back to the review. |
 | `D` | `review-session` | Review what changed in this project since its baseline. |
 | `V` | the review menu | The review menu, as `C-x v r` opens it with no review open. |
@@ -151,6 +151,7 @@ the head's letter with Control, `C-c C-n` for `n`:
 | `C-c C-b` | Show a session, picked by name. |
 | `C-c C-p` | The `*Sessions*` pane (`s` in the menu; `C-c C-s` is kept for the terminal's search). |
 | `C-c C-r`, `C-c C-a` | Resume, adopt. |
+| `C-c C-t` | Take this TUI session back to native (`session-switch-mode`). |
 | `C-c C-w` | Start a session in a new worktree of this session's project. |
 | `C-c C-e`, `C-c C-f` | Explain this session's state; show who sent it its newest message. |
 | `C-c C-z` | Zoom the selected window. |

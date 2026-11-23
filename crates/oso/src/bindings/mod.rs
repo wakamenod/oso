@@ -524,7 +524,10 @@ mod tests {
             let keys: KeySequence = keys.parse().unwrap();
             let bound = keymap.lookup(&keys.0);
             if agent_sessions::NOT_NATIVE.contains(&name) {
-                assert!(bound.is_none(), "{keys} is bound");
+                // Unbound, or the native session's own command (`C-c C-t`, part 4d).
+                let its = matches!(bound, Some(Binding::Command(id))
+                    if registry.get(id).unwrap().name == name);
+                assert!(!its, "{keys} is bound to {name}");
                 continue;
             }
             let Some(Binding::Command(id)) = bound else {
