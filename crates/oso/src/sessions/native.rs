@@ -26,6 +26,8 @@
 //!   fallback, a signal and a resume (step 2c).
 //! - `markdown`: which replies are highlighted as Markdown, and their runs on their row
 //!   (step 2, part 2g).
+//! - `status`: the status line, model, mode, context, cost and rate limit (part 3a); `usage`:
+//!   its `get_usage` request, once a process on tier 2.
 //! - `suggest`: which prompt suggestion is kept, and its row; `recap`: the recap of a turn
 //!   that ended out of sight (part 3f).
 //! - `todo`: the session's to-do list from its to-do tools' results, and the strip that
@@ -43,9 +45,11 @@ pub mod recap;
 pub mod render;
 pub mod rows;
 pub mod slash;
+pub mod status;
 pub mod suggest;
 pub mod todo;
 pub mod turns;
+pub mod usage;
 pub mod wire;
 
 #[cfg(test)]

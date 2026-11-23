@@ -79,6 +79,7 @@ impl Control {
         match request {
             Request::Initialize => false,
             Request::Interrupt => initialized && self.receipt != Some(false),
+            Request::GetUsage => initialized,
         }
     }
 

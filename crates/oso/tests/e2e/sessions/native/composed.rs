@@ -16,7 +16,7 @@ use super::super::super::harness::App;
 use super::super::super::spaces::trust_restricted;
 use super::super::super::worktrees::{asks, keys};
 use super::compose::COMPOSE_FAKE;
-use super::{Flow, MESSAGE, in_composer, text};
+use super::{Flow, MESSAGE, end_turn, in_composer, text};
 
 /// Runs git in `dir` with `args`, which must succeed.
 fn git(dir: &Path, args: &[&str]) {
@@ -142,7 +142,8 @@ fn a_send_goes_into_the_composer_escaped_and_a_reviews_question_goes_at_once() {
         flow.wait_for_file("sent.2").trim(),
         r"draft /look at \\@notes.md"
     );
-    flow.scratch.write("release.2", b"");
+    // Its turn ends before the question, which would wait in the queue while it runs.
+    end_turn(&flow, &mut app, "release.2");
 
     // A draft stays while a review's question goes at once, escaped.
     app.send_keys(&keys("kept"));

@@ -1364,6 +1364,12 @@ a switch made with its command stands until that setting changes in the file
   holding secret text a yank brought, over 64 KiB, or empty is not approved, and a restart is
   refused while an edit the person changed waits. The plan's row then says ` · approved`,
   ` · approved, edited` or with the mode after it.
+  The transcript's modeline says, after the run's state, the session's status (part 3a):
+  `Sonnet 5.5 · acceptEdits · ctx 25% · $1.20 · 7d 28%`, the model that answered last (and
+  its effort level once noted), the permission mode, the context used, what the session cost
+  and how much of the rate limit's window is used, each once known; a resumed session shows
+  its cost and window before its first turn, where the CLI answers `get_usage`. A narrow
+  window drops them from the right.
   While the session's to-do list has an item (part 3e), `*todo: NAME*`, withheld from agents,
   is docked under the card and above the composer: one line, `☐ 2/5 ▶ ITEM` and `C-c C-t list`
   at its right edge, Claude's text in a face of its own after oso's mark, cut to the width;

@@ -195,6 +195,7 @@ impl App {
         self.review_layout_due();
         self.review_watch_due();
         self.review_ask_due();
+        self.held_starts_due();
         self.quit_if_idle(event_loop);
         // Last, once every deadline is known.
         self.set_wake(event_loop);
@@ -308,6 +309,7 @@ impl App {
             self.review_ask_deadline(),
             self.handover_deadline(),
             self.idle_quit.next_wake(),
+            self.held_starts_deadline(),
         ];
         match earliest(deadlines) {
             Some(deadline) => event_loop.wake_at(deadline),

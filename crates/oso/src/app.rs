@@ -28,6 +28,7 @@ mod flash;
 mod freer;
 mod greps;
 mod handover;
+mod held_starts;
 mod idle_quit;
 mod ime;
 mod input;

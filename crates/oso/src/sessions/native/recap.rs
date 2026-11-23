@@ -118,6 +118,7 @@ mod tests {
             turns: None,
             denials: 0,
             session_id: String::new(),
+            windows: Vec::new(),
         })
     }
 

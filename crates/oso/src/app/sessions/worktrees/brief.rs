@@ -9,7 +9,7 @@ use oso_core::buffer::{Buffer, BufferId, Mode};
 use oso_core::project::ProjectId;
 
 use super::super::super::App;
-use super::super::hosting::Begin;
+use super::super::hosting::{Begin, Then};
 use super::{BRIEF, Brief};
 use crate::app::sessions::withheld_draft;
 use crate::git::{TrustedRoot, printable};
@@ -201,7 +201,7 @@ impl App {
         // repository is one of that space's, else by the space it joins (ADR 0136): its
         // session then joins the same.
         self.hold_made_worktree(brief.parent.as_ref(), &created.path, &created.main);
-        self.begin_session(Begin {
+        let begin = Begin {
             origin: crate::sessions::identity::Origin::Person,
             name: None,
             directory: Some(created.path),
@@ -212,6 +212,7 @@ impl App {
             worktree: true,
             space: None,
             behind: false,
-        });
+        };
+        self.begin_session(begin, Then::Nothing);
     }
 }

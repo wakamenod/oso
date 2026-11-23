@@ -113,7 +113,7 @@ the rest).
 | 10 | **Queued messages** grey above the composer, `M-p` takes the last back. Built differently (ADR 0165 part 2a): grey at the transcript's end, `RET` on a queued row takes it back, `M-p` walks the messages sent. | M | S | 2 |
 | 11 | **A focus toggle** (`C-c C-f`): only prompts, replies and turn footers; tool rows hidden. | M | S | 2 |
 | 12 | **The composer's `@`** completes files with the preview float of `C-x p f`, and puts a chip (`@auth/redirect.rs`); a pasted image is a chip, `[image 1 · 1280×720]`. | M | M | 2 |
-| 13 | **Status in the session window's modeline:** model · mode · `ctx 41%` · cost · `5h 63%`, each a word or a unit, once. A narrow window drops from the right. | H | S | 3 |
+| 13 | **Status in the session window's modeline:** model · mode · `ctx 41%` · cost · `5h 63%`, each a word or a unit, once. A narrow window drops from the right. Built (ADR 0165 part 3a): the model is the one that answered last, `ctx` is the context used. | H | S | 3 |
 | 14 | **A pinned to-do strip** between the transcript and the composer: one line (`☐ 2/5 ▶ Run the tests`) while a list exists, `C-c C-t` opens it to at most 6 rows. | H | M | 3 |
 | 15 | **Plan review** as ADR 0130 has it, in an editable buffer, with `y` approve, `n` keep planning with a note. | H | M | 3 |
 | 16 | **A recap** when the person comes back to a session they had not seen finish: the turn's last reply's first sentence in the echo area. | M | S | 3 |

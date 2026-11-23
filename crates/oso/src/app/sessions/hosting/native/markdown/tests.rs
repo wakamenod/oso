@@ -91,6 +91,7 @@ pub(in crate::app::sessions::hosting::native) fn native(buffer: BufferId) -> Nat
         cli_id: None,
         moved: false,
         markdown: Marks::default(),
+        status: Default::default(),
         todo: super::super::todo::TodoStrip::default(),
         unseen: false,
     }

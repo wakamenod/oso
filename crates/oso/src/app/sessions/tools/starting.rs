@@ -9,7 +9,7 @@
 use serde_json::json;
 
 use super::super::super::App;
-use super::super::hosting::Begin;
+use super::super::hosting::{Begin, Then};
 use super::asks::{Creating, Plan};
 use super::{Caller, Job, Pending, shown};
 use crate::git::printable;
@@ -103,16 +103,33 @@ impl App {
             Plan::Start(mut begin, _) => {
                 // As the directories to read stand at the person's `y`.
                 begin.space = self.space_now(begin.space.take());
-                match self.begin_session(begin) {
-                    Some(key) => {
-                        self.hosting.tools.starts.insert(key, pending);
-                        if let Some(said) = said {
-                            self.editor.message(format!("Agent: {said}"));
-                        }
-                    }
-                    None => pending.answer(Err("the session did not start".into())),
+                let then = Then::Tool {
+                    pending,
+                    said,
+                    refused: "the session did not start",
+                };
+                self.begin_session(begin, then);
+            }
+        }
+    }
+
+    /// A tool's call whose new session starts under `key`: its reply waits for the start, and
+    /// `said` goes to the echo area. With no key, it is answered `refused`.
+    pub(in crate::app) fn tool_began(
+        &mut self,
+        key: Option<SessionKey>,
+        pending: Pending,
+        said: Option<String>,
+        refused: &'static str,
+    ) {
+        match key {
+            Some(key) => {
+                self.hosting.tools.starts.insert(key, pending);
+                if let Some(said) = said {
+                    self.editor.message(format!("Agent: {said}"));
                 }
             }
+            None => pending.answer(Err(refused.into())),
         }
     }
 
@@ -143,7 +160,7 @@ impl App {
                 self.hold_made_worktree(asker, &created.path, &created.main);
                 // As the reads stand now, the worktree made.
                 let reads = self.reads_now(creating.reads);
-                let key = self.begin_session(Begin {
+                let begin = Begin {
                     name: creating.name,
                     directory: Some(created.path),
                     brief: Some(created.prompt),
@@ -154,18 +171,13 @@ impl App {
                     worktree: true,
                     space: App::worker_reads(reads),
                     behind: false,
-                });
-                match key {
-                    Some(key) => {
-                        self.hosting.tools.starts.insert(key, creating.pending);
-                        if let Some(said) = creating.said {
-                            self.editor.message(format!("Agent: {said}"));
-                        }
-                    }
-                    None => creating.pending.answer(Err(
-                        "the worktree was made; its session did not start".into(),
-                    )),
-                }
+                };
+                let then = Then::Tool {
+                    pending: creating.pending,
+                    said: creating.said,
+                    refused: "the worktree was made; its session did not start",
+                };
+                self.begin_session(begin, then);
             }
             Report::Created {
                 result: Err(why), ..

@@ -11,15 +11,17 @@ use serde_json::Value;
 
 use super::super::super::spaces::trust_restricted;
 use super::super::super::worktrees::keys;
-use super::{Flow, MESSAGE, in_composer, text};
+use super::{Flow, MESSAGE, end_turn, in_composer, text};
 
 /// The fake: run `N` from 1 logs its arguments to `run.N`, and for each line of its input
-/// replays it and replies `reply N.M` at once. It exits once its input ends.
+/// replays it and replies `reply N.M`: at once, but the first, which ends once the flow writes
+/// `release.1.1`. It exits once its input ends.
 const RESUME_FAKE: &str = r#"#!/bin/sh
 dir='DIR'
 n=$(ls "$dir" | grep -c '^run\.')
 n=$((n+1))
-for a in "$@"; do printf 'arg %s\n' "$a"; done > "$dir/run.$n"
+for a in "$@"; do printf 'arg %s\n' "$a"; done > "$dir/tmp.$n"
+mv "$dir/tmp.$n" "$dir/run.$n"
 cat "$dir/stream.jsonl"
 m=0
 while IFS= read -r line; do
@@ -28,6 +30,9 @@ while IFS= read -r line; do
   said=$(printf '%s\n' "$line" | sed 's/.*"content":"\([^"]*\)".*/\1/')
   printf '%s\n' "$said" > "$dir/sent.$n.$m"
   printf '{"type":"user","isReplay":true,"message":{"content":"%s"}}\n' "$said"
+  if [ "$n.$m" = 1.1 ]; then
+    while [ ! -f "$dir/release.1.1" ]; do sleep 0.1; done
+  fi
   printf '{"type":"assistant","message":{"id":"m%s%s","content":[{"type":"text","text":"reply %s.%s"}]}}\n' "$n" "$m" "$n" "$m"
   printf '{"type":"result","subtype":"success","duration_ms":10}\n'
 done
@@ -60,6 +65,9 @@ fn a_stopped_native_session_resumes_in_its_buffer_and_forks_natively() {
     app.send_keys("C-c C-c");
     // Back to the transcript, whose rows the flow reads.
     app.send_keys("C-c C-o");
+    assert_eq!(flow.wait_for_file("sent.1.1").trim(), MESSAGE);
+    // Its turn ends before the stop, which would ask first while it works.
+    end_turn(&flow, &mut app, "release.1.1");
     app.wait_for("the first reply", |state| text(state).contains("reply 1.1"));
 
     // Stopped from its buffer: idle, so it is hung up at once.

@@ -40,6 +40,17 @@ impl App {
             size,
             palette: self.terminal_palette(),
         };
+        self.start_shell(request);
+    }
+
+    /// Starts the shell `request` asks for, or keeps it until the configuration's first look,
+    /// its buffer shown meanwhile (ADR 0173).
+    fn start_shell(&mut self, request: Request) {
+        if self.starts_wait() {
+            self.request_redraw();
+            return self.hold_start(move |app| app.start_held_shell(request));
+        }
+        let id = request.buffer;
         let started = self.waker.clone();
         let ready = self.waker.clone();
         let outcome = hosted::start(
@@ -55,6 +66,17 @@ impl App {
             self.terminal_failed(id, &error.to_string());
         }
         self.request_redraw();
+    }
+
+    /// Starts the shell `request` asked for, which waited, with `[terminal]` as it is in force
+    /// now; nothing if its buffer was killed meanwhile.
+    fn start_held_shell(&mut self, mut request: Request) {
+        let id = request.buffer;
+        if self.editor.buffer(id).is_none() || self.terminals.map.get(id).is_none() {
+            return;
+        }
+        request.settings = self.terminal_settings();
+        self.start_shell(request);
     }
 
     /// Shows the terminal buffer `id`, already in the map, in the selected window unless not

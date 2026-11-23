@@ -286,7 +286,7 @@ impl Rows {
             Event::Unreadable { bytes } => vec![self.push(Kind::Unreadable(bytes), 0, false)],
             Event::Init(_)
             | Event::RateLimit(_)
-            | Event::Status(_)
+            | Event::Status { .. }
             | Event::Answer(_)
             | Event::Suggestion(_)
             | Event::Other(_) => Vec::new(),
