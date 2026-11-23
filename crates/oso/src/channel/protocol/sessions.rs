@@ -27,6 +27,7 @@
 //!   (ADR 0155).
 //! - `space_add_repo`: `{"path": "/abs/web"}`, a repository's main checkout for the caller's
 //!   space (ADR 0161).
+//! - `session_archive`: `{"session": "ID or name"}`, a session's row to archive (ADR 0179).
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -36,7 +37,7 @@ use serde_json::{Map, Value};
 use super::{MAX_PATH, only, short};
 
 /// The methods of this module, as the tools that call them are named.
-pub const METHODS: [&str; 12] = [
+pub const METHODS: [&str; 13] = [
     "session_list",
     "session_state",
     "worktree_list",
@@ -49,6 +50,7 @@ pub const METHODS: [&str; 12] = [
     "session_resume",
     "session_rename",
     "space_add_repo",
+    "session_archive",
 ];
 
 /// The longest brief a session takes, in bytes, as the person's `*Brief*` (ADR 0121).
@@ -126,6 +128,10 @@ pub enum Call {
     SpaceAddRepo {
         path: PathBuf,
     },
+    /// A session to archive, by its id or its name (ADR 0179).
+    Archive {
+        session: String,
+    },
 }
 
 /// How long the server holds a call's reply for the UI.
@@ -156,6 +162,7 @@ impl Call {
             Self::Resume { .. } => "session_resume",
             Self::Rename { .. } => "session_rename",
             Self::SpaceAddRepo { .. } => "space_add_repo",
+            Self::Archive { .. } => "session_archive",
         }
     }
 
@@ -168,11 +175,13 @@ impl Call {
             | Self::DraftSet { .. }
             | Self::Rename { .. } => Hold::Usual,
             Self::WorktreeList { .. } | Self::WorktreeRemove { .. } => Hold::Job(JOB_REPLY_WITHIN),
+            // An archive that stops a session may ask (ADR 0179).
             Self::StartWorktree { .. }
             | Self::Start { .. }
             | Self::MoveToSpace { .. }
             | Self::Resume { .. }
-            | Self::SpaceAddRepo { .. } => Hold::Person,
+            | Self::SpaceAddRepo { .. }
+            | Self::Archive { .. } => Hold::Person,
         }
     }
 }
@@ -234,6 +243,9 @@ pub fn parse(method: &str, params: &Map<String, Value>) -> Option<Result<Call, S
             .and_then(|()| path(params, method, "path"))
             .and_then(|path| path.ok_or_else(|| format!("{method} needs a \"path\"")))
             .map(|path| Call::SpaceAddRepo { path }),
+        "session_archive" => only(params, method, &["session"])
+            .and_then(|()| text(params, method, "session", MAX_NAME))
+            .map(|session| Call::Archive { session }),
         _ => return None,
     })
 }
@@ -429,6 +441,7 @@ mod tests {
                 "space_add_repo",
                 json!({ "path": std::env::temp_dir().join("web").display().to_string() }),
             ),
+            call("session_archive", json!({ "session": "api" })),
         ];
         assert_eq!(calls.len(), METHODS.len());
         for (call, method) in calls.into_iter().zip(METHODS) {
@@ -531,6 +544,16 @@ mod tests {
     }
 
     #[test]
+    fn an_archive_names_one_session_within_bounds() {
+        let archive = |value: Value| call("session_archive", value);
+        assert!(archive(json!({ "session": "n".repeat(MAX_NAME) })).is_ok());
+        assert!(archive(json!({ "session": "n".repeat(MAX_NAME + 1) })).is_err());
+        assert!(archive(json!({})).is_err());
+        assert!(archive(json!({ "session": "" })).is_err());
+        assert!(archive(json!({ "session": "x", "stop": true })).is_err());
+    }
+
+    #[test]
     fn arguments_are_checked_at_their_bounds() {
         let long = "b".repeat(MAX_NAME + 1);
         assert!(call("session_state", json!({ "session": long })).is_err());
@@ -605,6 +628,8 @@ mod tests {
         assert_eq!(call("session_list", json!({})).unwrap().hold(), Hold::Usual);
         let rename = call("session_rename", json!({ "session": "a", "name": "b" })).unwrap();
         assert_eq!(rename.hold(), Hold::Usual, "it asks nothing");
+        let archive = call("session_archive", json!({ "session": "a" })).unwrap();
+        assert_eq!(archive.hold(), Hold::Person, "it may ask");
         let moving = call("move_to_space", json!({ "space": "x" })).unwrap();
         assert_eq!(moving.hold(), Hold::Person);
         let abs = std::env::temp_dir().join("web").display().to_string();

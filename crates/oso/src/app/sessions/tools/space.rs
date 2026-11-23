@@ -27,6 +27,22 @@ pub(in crate::app) struct InSpace {
     pub(super) role: Role,
 }
 
+/// What a caller reaches of a session, as a rename and an archive judge it (ADR 0155,
+/// ADR 0179). Whether it is an orchestrator is the record's word or its directory's, failing
+/// closed: also one of a closed space, or one whose directory no longer passes the checks that
+/// give it its part.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct Reach {
+    /// The record names it a space's current orchestrator.
+    pub(super) recorded: bool,
+    /// Its own part in its space, if it is in one.
+    pub(super) role: Option<Role>,
+    /// The caller is the current orchestrator of the space the session is in.
+    pub(super) of_callers_space: bool,
+    /// The caller started it, as the record's parent says.
+    pub(super) callers_child: bool,
+}
+
 /// A session's part in its space.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::app) enum Role {
@@ -77,6 +93,20 @@ impl App {
                 Some(InSpace { id, role })
             });
         caller
+    }
+
+    /// What `caller`, an agent's session or the person, reaches of `session`.
+    pub(super) fn reach_over(&self, caller: Option<&Caller>, session: &Hosted) -> Reach {
+        Reach {
+            recorded: self.watch.spaces().orchestrated_by(&session.id).is_some(),
+            role: self.caller_of(session).space.map(|space| space.role),
+            of_callers_space: caller.is_some_and(|caller| {
+                caller.orchestrator()
+                    && (caller.space.as_ref())
+                        .is_some_and(|at| self.session_in_space(session, &at.id))
+            }),
+            callers_child: caller.is_some_and(|caller| session.parent.as_ref() == Some(&caller.id)),
+        }
     }
 
     /// The caller `key` as it is now, if it is still `space`'s orchestrator: what an answer

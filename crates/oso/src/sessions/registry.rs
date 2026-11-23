@@ -230,6 +230,40 @@ pub fn read_file(dir: &Path, name: &std::ffi::OsStr) -> Option<Entry> {
     read_entry(&dir.join(name), pid_of(name)?).ok().flatten()
 }
 
+/// Process `pid`'s entry in `dir`, its own file `<pid>.json`, if it passes [`read_file`]'s
+/// checks.
+pub fn read_pid(dir: &Path, pid: u32) -> Option<Entry> {
+    read_file(dir, &OsString::from(format!("{pid}.json")))
+}
+
+/// What a hosted session's entry, whose process is `live`, says it does: check 4's registry
+/// half (ADR 0121), which an agent's archive reads too (ADR 0179).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Activity {
+    /// Its process is the entry's and it says `idle`.
+    Idle,
+    /// Its process is the entry's and it says `shell`: a shell it runs in the background still
+    /// runs.
+    Shell,
+    /// Its process is the entry's and it says anything else, such as `busy`.
+    Busy,
+    /// The entry may be another process's, or the system does not say when it started: never
+    /// idle.
+    Unverified,
+}
+
+/// What `entry`, whose process is `live`, says its session does.
+pub fn activity(entry: &Entry, live: Live) -> Activity {
+    if live != Live::Yes {
+        return Activity::Unverified;
+    }
+    match entry.status.as_deref() {
+        Some("idle") => Activity::Idle,
+        Some("shell") => Activity::Shell,
+        _ => Activity::Busy,
+    }
+}
+
 /// Whether a file called `name` is one [`read`] opens: `<digits>.json`.
 pub fn is_entry_name(name: &std::ffi::OsStr) -> bool {
     pid_of(name).is_some()

@@ -925,6 +925,21 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     running session was started with or Claude Code's registry gives it, ASCII case aside.
     A registry name counts only from the entry of the session's own `claude`, and only a clean
     one.
+  - `session_archive` ([ADR 0179](adr/0179-agents-archive-sessions.md)) archives a row in
+    `session_rename`'s scope, never the caller, an orchestrator, current or earlier, a pinned or
+    an archived session; the person's `A` brings it back, and no agent unarchives. A stopped
+    session's archive asks nothing. One that runs is stopped first, as `k` stops it, only when
+    its screen is settled and its own registry entry, matched to its process, says `idle`, read
+    on a thread (one at a time per caller, answered within 5 s) and judged again on the UI
+    thread before the stop, with the session's id and the caller's connection; `shell` (a
+    background shell still runs) refuses it. The registry half is advisory against an agent of
+    the same user, which could write that file, as it could signal the process itself; the
+    screen half is oso's own. The stop asks unless the person's `agents_start_without_asking`
+    allows it and the session is not shown in the selected window, with no trust asked, as it
+    runs nothing, and no start limit, so only the rate bounds it; after a `y` the registry is
+    read again, and a connection that goes meanwhile drops the stop, saying so. The stop is the
+    watch's (`App::stop_quietly`), outside the tools' files, which the guard test keeps from
+    terminals, as a removal's stop is. Its worktree, branch and images stay.
   - An agent's `worktree_remove` asks nothing once every check holds (the author's choice), and
     `worktree_list` runs git and `gh` without a question; both need a trusted project.
   - The person's `n` refuses the same call from a session for 60 s. It is kept by session, so a

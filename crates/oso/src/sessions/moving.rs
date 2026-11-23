@@ -12,7 +12,6 @@
 //!   records it back. The repository is a main checkout, as `space-add-repo` takes one.
 //! - Registry text in the question is quoted and escaped, as every agent question's is.
 
-use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -98,8 +97,7 @@ pub fn look(
     started: impl Fn(u32) -> io::Result<Option<SystemTime>>,
 ) -> Result<Asker, String> {
     let dir = dir.ok_or(NOT_FOUND)?;
-    let name = OsString::from(format!("{}.json", look.pid));
-    let entry = registry::read_file(dir, &name).ok_or(NOT_FOUND)?;
+    let entry = registry::read_pid(dir, look.pid).ok_or(NOT_FOUND)?;
     let id = entry.session_id.clone().ok_or(NOT_FOUND)?;
     // A run with `-p` has no one to type `/exit` and nothing to move.
     if entry
@@ -432,7 +430,6 @@ pub fn spawn_wait(
         .spawn(move || {
             let began = Instant::now();
             let dir = registry::directory();
-            let name = OsString::from(format!("{}.json", watched.pid));
             let (mut told_late, mut told_idle) = (false, false);
             let mut settling = Settling::default();
             loop {
@@ -445,7 +442,7 @@ pub fn spawn_wait(
                 if alive && !told_idle && !told_late {
                     let entry = dir
                         .as_deref()
-                        .and_then(|dir| registry::read_file(dir, &name));
+                        .and_then(|dir| registry::read_pid(dir, watched.pid));
                     if settling.saw(idle(entry.as_ref(), &watched)) {
                         told_idle = true;
                         if !send(Step::Idle) {

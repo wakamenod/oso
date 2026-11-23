@@ -116,29 +116,22 @@ impl App {
     }
 
     /// Whether session `key` may be renamed by `caller`, an agent's session, or by the person,
-    /// by [`rules::renamable`]. Whether it is a space's orchestrator is the record's word,
-    /// failing closed: also one of a closed space, or one whose directory no longer passes the
-    /// checks that give it its part. Its part decides only whether a caller reaches it.
+    /// by [`rules::renamable`], over what the caller reaches of it (`App::reach_over`). Its
+    /// part decides only whether a caller reaches it.
     fn renamable_by(&self, caller: Option<&Caller>, key: SessionKey) -> Result<(), &'static str> {
         let session = self
             .hosting
             .table()
             .get(key)
             .ok_or("that session is gone")?;
-        let spaces = self.watch.spaces();
-        let recorded = spaces.orchestrated_by(&session.id).is_some();
-        let role = self.caller_of(session).space.map(|space| space.role);
-        let of_callers_space = caller.is_some_and(|caller| {
-            caller.orchestrator()
-                && (caller.space.as_ref()).is_some_and(|at| self.session_in_space(session, &at.id))
-        });
+        let reach = self.reach_over(caller, session);
         rules::renamable(Renamable {
             agent: caller.is_some(),
             caller: caller.is_some_and(|caller| caller.key == key),
-            orchestrator: recorded || role == Some(super::space::Role::Orchestrator),
-            former: role == Some(super::space::Role::Former),
-            of_callers_space,
-            callers_child: caller.is_some_and(|caller| session.parent.as_ref() == Some(&caller.id)),
+            orchestrator: reach.recorded || reach.role == Some(super::space::Role::Orchestrator),
+            former: reach.role == Some(super::space::Role::Former),
+            of_callers_space: reach.of_callers_space,
+            callers_child: reach.callers_child,
         })
     }
 

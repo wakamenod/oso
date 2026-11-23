@@ -68,6 +68,15 @@ fn the_tools_and_their_reach() {
                 true,
                 false
             ),
+            // A stopped session's row with no question; an idle one stopped first as a start
+            // goes without asking (ADR 0179).
+            (
+                "session_archive",
+                Reach::Change,
+                Asks::UnlessAllowed,
+                true,
+                false
+            ),
         ]
     );
     let destructive: Vec<_> = TOOLS

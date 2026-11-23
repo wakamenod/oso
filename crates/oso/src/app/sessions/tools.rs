@@ -39,6 +39,7 @@ use crate::sessions::worker::SessionKey;
 use crate::sessions::worktree::jobs::{Report, Trust};
 
 mod add_repo;
+mod archive;
 mod asks;
 mod moving;
 mod question;
@@ -82,6 +83,10 @@ pub(in crate::app) struct Tools {
     /// The sessions an agent resumed without asking, by key, with the session that resumed
     /// them: each counts toward that caller's limit while it runs (ADR 0153). Memory only.
     resumed: HashMap<SessionKey, SessionId>,
+    /// The registry looks of archives that stop a session, by token (ADR 0179).
+    archive_looks: HashMap<u64, archive::Looking>,
+    /// The last look's token.
+    archive_token: u64,
 }
 
 /// A call whose reply waits.
@@ -262,14 +267,14 @@ impl App {
                 }
             }
             (Call::SpaceStatus, caller) => pending.answer(self.space_status(caller.as_ref())),
-            (Call::Resume { session }, Some(caller)) => {
-                self.tool_session_resume(pending, &tool, &caller, &session);
+            (
+                call @ (Call::Resume { .. } | Call::Rename { .. } | Call::Archive { .. }),
+                Some(caller),
+            ) => {
+                self.carry_on_session(pending, &tool, call, &caller);
             }
             (Call::SpaceAddRepo { path }, Some(caller)) => {
                 self.tool_space_add_repo(pending, &tool, &caller, path);
-            }
-            (Call::Rename { session, name }, Some(caller)) => {
-                self.tool_session_rename(pending, &tool, &caller, (&session, &name));
             }
             (Call::DraftSet { id, text }, Some(caller)) => {
                 pending.answer(self.tool_draft_set(&tool, &caller, &id, &text));
@@ -327,6 +332,20 @@ impl App {
         }
     }
 
+    /// Carries out `call` of `tool`, which acts on one session, from `caller`.
+    fn carry_on_session(&mut self, pending: Pending, tool: &Tool, call: Call, caller: &Caller) {
+        match call {
+            Call::Resume { session } => self.tool_session_resume(pending, tool, caller, &session),
+            Call::Rename { session, name } => {
+                self.tool_session_rename(pending, tool, caller, (&session, &name));
+            }
+            Call::Archive { session } => {
+                self.tool_session_archive(pending, tool, caller, &session);
+            }
+            _ => pending.answer(Err("that call names no session".into())),
+        }
+    }
+
     /// `draft_set` of `text` for request `id` from `caller`, once admitted.
     fn tool_draft_set(&mut self, tool: &Tool, caller: &Caller, id: &str, text: &str) -> Reply {
         self.admit_tool(tool, caller, id)?;
@@ -339,13 +358,25 @@ impl App {
     /// waits, which does not count toward the rate. A start that may go ahead
     /// without asking is not held back by another's question here; it is if it asks after all.
     fn admit_tool(&mut self, tool: &Tool, caller: &Caller, target: &str) -> Result<(), String> {
-        let may_go_unasked = tool.asks == Asks::UnlessAllowed
+        self.admit_asking(tool, tool.asks, caller, target)
+    }
+
+    /// As [`App::admit_tool`], for a call that asks as `asks` says rather than as the table
+    /// says of its tool: an archive of a stopped session asks nothing (ADR 0179).
+    fn admit_asking(
+        &mut self,
+        tool: &Tool,
+        asks: Asks,
+        caller: &Caller,
+        target: &str,
+    ) -> Result<(), String> {
+        let may_go_unasked = asks == Asks::UnlessAllowed
             && self.agent_starts_allowed()
             && caller.origin.by_the_person();
-        if tool.asks != Asks::No && !may_go_unasked && self.agent_question_waits() {
+        if asks != Asks::No && !may_go_unasked && self.agent_question_waits() {
             return Err(QUESTION_WAITS.into());
         }
-        if tool.asks == Asks::No
+        if asks == Asks::No
             && let Some(why) = self.agent_waits()
         {
             return Err(why.into());
@@ -469,7 +500,8 @@ impl App {
 
     /// The connection `connection` went, or every one did when it is `None`: its calls get no
     /// reply, its question closes, and nothing it asked for and the person has not allowed
-    /// runs. What the person's `y` started goes on, as the person's.
+    /// runs. What the person's `y` started goes on, as the person's, but for an archive's stop,
+    /// which waits for one more look at the registry and is dropped, saying so (ADR 0179).
     pub(in crate::app) fn session_tools_gone(&mut self, connection: Option<Connection>) {
         let ours = |of: Connection| connection.is_none_or(|gone| gone == of);
         // A call that waits for the configuration's first look runs no more.
@@ -499,6 +531,20 @@ impl App {
         // An add's look the person has not allowed yet (ADR 0161).
         self.abandon_agent_looks(|look| ours(look.connection()));
         let tools = &mut self.hosting.tools;
+        // An archive's look whose call is gone stops nothing, even one the person allowed,
+        // which the echo area says (ADR 0179).
+        let mut dropped_allowed = false;
+        tools.archive_looks.retain(|_, look| {
+            let gone = ours(look.pending.connection);
+            dropped_allowed |= gone && look.allowed;
+            !gone
+        });
+        if dropped_allowed {
+            self.editor.message(
+                "Agent: an archive you allowed was dropped, as its session's connection went; nothing was stopped",
+            );
+        }
+        let tools = &mut self.hosting.tools;
         tools
             .listings
             .retain(|lister, _| !matches!(lister, Lister::Outside(of) if ours(*of)));
@@ -518,6 +564,7 @@ impl App {
     pub(in crate::app) fn sync_session_tools(&mut self) {
         self.ask_about_a_tool();
         self.end_slow_jobs();
+        self.end_slow_archive_looks();
         self.sync_moves();
     }
 }

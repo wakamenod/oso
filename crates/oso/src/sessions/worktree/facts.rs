@@ -18,7 +18,7 @@ use oso_platform::process;
 use super::git::{MAX_LISTING, MAX_NAMES, Repo, said};
 use super::porcelain;
 use crate::git::GhRepo;
-use crate::sessions::registry::{self, Live};
+use crate::sessions::registry::{self, Activity, Live};
 
 /// The branch names a remote's main line goes by, besides the one its `HEAD` points to.
 pub const MAIN_BRANCHES: [&str; 3] = ["main", "master", "develop"];
@@ -46,6 +46,10 @@ pub struct RepoFacts {
     /// ([`registry::Live::Yes`]) and whose `status` is `idle`: the registry's half of check 4.
     /// An entry whose liveness is unknown leaves its session busy.
     pub hosted_idle: HashSet<u32>,
+    /// The process ids of the `claude`s oso hosts whose entry is known live and whose `status`
+    /// is `shell`: a shell each runs in the background still runs, which keeps it busy, as
+    /// check 4's refusal then says (ADR 0179).
+    pub hosted_shell: HashSet<u32>,
 }
 
 impl RepoFacts {
@@ -91,6 +95,7 @@ impl RepoFacts {
             external: found.external.into_iter().map(Outside::new).collect(),
             registry_untold: untold.or(found.placeless.then_some(REGISTRY_PLACELESS)),
             hosted_idle: found.hosted_idle,
+            hosted_shell: found.hosted_shell,
         }
     }
 
@@ -237,6 +242,8 @@ struct InRegistry {
     external: Vec<(PathBuf, String)>,
     /// The process ids of the sessions oso hosts whose entry is known live and says `idle`.
     hosted_idle: HashSet<u32>,
+    /// The process ids of the sessions oso hosts whose entry is known live and says `shell`.
+    hosted_shell: HashSet<u32>,
     /// One oso does not host has no directory oso can use (`registry::Entry::cwd`), so that it
     /// may run anywhere.
     placeless: bool,
@@ -260,10 +267,17 @@ fn sessions_in_registry(
             continue;
         }
         if hosted.contains(&entry.pid) {
-            if live == Live::Yes && entry.status.as_deref() == Some("idle") {
-                found.hosted_idle.insert(entry.pid);
-            } else {
-                busy.insert(entry.pid);
+            match registry::activity(&entry, live) {
+                Activity::Idle => {
+                    found.hosted_idle.insert(entry.pid);
+                }
+                Activity::Shell => {
+                    found.hosted_shell.insert(entry.pid);
+                    busy.insert(entry.pid);
+                }
+                Activity::Busy | Activity::Unverified => {
+                    busy.insert(entry.pid);
+                }
             }
             continue;
         }
@@ -310,6 +324,22 @@ mod tests {
         let external = [(PathBuf::from("/w/3"), "process 3".to_owned())];
         assert_eq!(found.external, external);
         assert!(!found.placeless);
+    }
+
+    /// A live hosted entry that says `shell` is busy, and known as one whose background shell
+    /// runs; one whose liveness is unknown is not (ADR 0179).
+    #[test]
+    fn a_hosted_entry_that_says_shell_is_busy_and_known_as_such() {
+        let entries = vec![entry(1, "shell"), entry(2, "shell")];
+        let found = sessions_in_registry(entries, &[1, 2], |entry| {
+            if entry.pid == 1 {
+                Live::Yes
+            } else {
+                Live::Unknown
+            }
+        });
+        assert!(found.hosted_idle.is_empty());
+        assert_eq!(found.hosted_shell.into_iter().collect::<Vec<_>>(), [1]);
     }
 
     #[test]
@@ -470,6 +500,7 @@ mod tests {
                 external: vec![Outside::new((directory, "other".to_owned()))],
                 registry_untold: None,
                 hosted_idle: HashSet::new(),
+                hosted_shell: HashSet::new(),
             };
             let other = ["other".to_owned()];
             // The session by a link, the worktree by its own path, and the other way round.
