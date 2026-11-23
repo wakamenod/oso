@@ -60,8 +60,10 @@ impl App {
             self.idle_quit.since = None;
             return;
         }
-        // A session that is still starting has said nothing of a turn yet.
-        let starting = (self.hosting.table().iter()).any(|session| session.run == Run::Starting);
+        // A session that is still starting has said nothing of a turn yet, nor one that waits
+        // for the configuration's first look (ADR 0173).
+        let starting = self.starts_held()
+            || (self.hosting.table().iter()).any(|session| session.run == Run::Starting);
         let idle = !starting
             && self.editor.busy_terminals().next().is_none()
             && self.editor.busy_native_sessions().next().is_none()

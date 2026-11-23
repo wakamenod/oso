@@ -215,24 +215,33 @@ impl App {
         self.adopt_into(pick, None);
     }
 
+    /// Whether conversation `id` is oso's already, which is shown, or being adopted, its start
+    /// waiting or under way, which the echo area says.
+    fn adopted_already(&mut self, id: &crate::sessions::identity::SessionId) -> bool {
+        if (self.hosting.adopting.pending.values()).any(|adoption| &adoption.from.id == id) {
+            self.editor
+                .message_unlogged("That conversation is being adopted".to_owned());
+            return true;
+        }
+        let Some(session) = (self.hosting.table().iter()).find(|session| &session.id == id) else {
+            return false;
+        };
+        let (name, buffer) = (session.name.clone(), session.buffer);
+        if let Some(buffer) = buffer {
+            self.editor.show(buffer);
+        }
+        self.editor
+            .message_unlogged(format!("Session {name} is oso's already"));
+        true
+    }
+
     /// Adopts `pick` as [`App::adopt_conversation`] does, or, for a session that asked to
     /// move, into `landing`'s space, as started on the person's `y` (ADR 0151).
     pub(super) fn adopt_into(&mut self, mut pick: adopt::Pick, landing: Option<Landing>) {
         if let Some((_, busy)) = self.hosting.adopting.names.get(&pick.id) {
             pick.busy |= busy;
         }
-        if let Some(session) = self
-            .hosting
-            .table()
-            .iter()
-            .find(|session| session.id == pick.id)
-        {
-            let (name, buffer) = (session.name.clone(), session.buffer);
-            if let Some(buffer) = buffer {
-                self.editor.show(buffer);
-            }
-            self.editor
-                .message_unlogged(format!("Session {name} is oso's already"));
+        if self.adopted_already(&pick.id) {
             return;
         }
         let Some(directory) = pick.directory.clone().filter(|dir| is_plain_directory(dir)) else {

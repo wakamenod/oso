@@ -1,6 +1,6 @@
 # 0120. The terminal
 
-- Status: Accepted, amended by 0132, 0133, 0137, 0141, 0143, 0154, 0156 and 0169
+- Status: Accepted, amended by 0132, 0133, 0137, 0141, 0143, 0154, 0156, 0169 and 0173
 - Date: 2026-11-12
 
 ## Context

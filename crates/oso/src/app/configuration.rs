@@ -33,7 +33,7 @@ pub(super) struct Configuration {
     applied: bool,
     /// Whether the file was looked at once, or there is none: until then no open starts a
     /// language server, so that the built-in table never runs before the person's changes to
-    /// it (ADR 0138).
+    /// it (ADR 0138), and no session, terminal or space starts (ADR 0173).
     looked: bool,
     /// A dev restart's handoff set the theme and the aids before any look applied settings: the
     /// next takes the file's as those in force without applying them (ADR 0108).
@@ -232,11 +232,13 @@ impl App {
             self.editor.message(said);
         }
         self.configuration.troubled = outcome.troubled;
-        // The first look lets opens settle, now with the person's `[lsp]`.
+        // The first look lets opens settle, now with the person's `[lsp]`, and what started
+        // meanwhile start with the person's settings (ADR 0173).
         if !self.configuration.looked {
             self.configuration.looked = true;
             self.starting.ask();
             self.settle_opens();
+            self.release_held_starts();
         }
     }
 

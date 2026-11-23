@@ -64,6 +64,7 @@ mod space_move;
 mod space_tools;
 mod spaces;
 mod starts;
+mod starts_wait;
 mod terminal;
 mod undo;
 mod windows;

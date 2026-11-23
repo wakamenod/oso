@@ -225,7 +225,7 @@ impl App {
         if ending || spaces.probing.contains(id) {
             return Some("Its orchestrator is being replaced".to_owned());
         }
-        (spaces.starting.values().any(|space| space == id))
+        (spaces.starting.values().any(|space| space == id) || spaces.waiting.contains(id))
             .then(|| "Its orchestrator is starting".to_owned())
     }
 
@@ -246,5 +246,6 @@ impl App {
         spaces.replacing.retain(|_, next| next.space != id);
         spaces.start_after.remove(&id);
         spaces.probing.remove(&id);
+        spaces.waiting.remove(&id);
     }
 }

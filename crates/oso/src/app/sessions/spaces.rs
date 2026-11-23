@@ -72,6 +72,9 @@ pub(in crate::app) struct SpaceWork {
     show_directory: HashSet<SpaceId>,
     /// The spaces whose orchestrator starts once their directory is made (step 3).
     pub(in crate::app) start_after: HashSet<SpaceId>,
+    /// The spaces whose orchestrator's start waits for the configuration's first look: it is
+    /// starting for every other start's checks (ADR 0173).
+    pub(in crate::app) waiting: HashSet<SpaceId>,
     /// The sessions being got ready as an orchestrator, by key: their space.
     pub(in crate::app) starting: HashMap<crate::sessions::worker::SessionKey, SpaceId>,
     /// What the question the host asked last offers, which `y` does (`SpaceRequest::Confirmed`):
@@ -260,6 +263,15 @@ impl App {
         let Some(id) = self.watch.spaces().stored(at).map(|s| s.id.clone()) else {
             return;
         };
+        // Under `[spaces] root` as the person has it (ADR 0173): the space found again by its
+        // id, as others may have come or gone meanwhile.
+        if self.starts_wait() {
+            return self.hold_start(move |app| {
+                if let Some(at) = app.watch.spaces().find(&id) {
+                    app.make_space_directory(at, show, start);
+                }
+            });
+        }
         if self.hosting.spaces.making.contains(&id) {
             return self
                 .editor
