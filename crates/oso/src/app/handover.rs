@@ -70,7 +70,9 @@ impl App {
         if self.hand_review_saves() {
             self.wait_review_saves(REVIEWS_WAIT);
         }
-        let (state, exported) = self.export_texts(None)?;
+        let (mut state, exported) = self.export_texts(None)?;
+        // Last, as they never refuse the restart (ADR 0165, part 4c).
+        carry::natives::add(&mut state, &self.native_resumes());
         self.keep_export(exported);
         Ok(state)
     }
@@ -84,7 +86,7 @@ impl App {
         // What a native session's queue holds is lost by a restart: it is refused instead.
         self.refuse_unsent_queues()?;
         let reviews = self.reviews_to_hand_over();
-        let (mut state, exported) = carry::export(
+        carry::export(
             &self.editor,
             self.dispatcher.pending_to_carry(),
             self.frame(),
@@ -92,10 +94,7 @@ impl App {
             self.handover.exports + 1,
             terminals,
             &reviews,
-        )?;
-        // The native sessions the new instance resumes (ADR 0165, part 4c).
-        carry::natives::add(&mut state, &self.native_resumes());
-        Ok((state, exported))
+        )
     }
 
     /// Keeps `exported` for `export-text`, as the latest export, dropping the one before.
@@ -120,7 +119,7 @@ impl App {
                 return self.carry_text(op, reply, passed.parent);
             }
             Op::HandOverTerminals { generation } => self.hand_over_terminals(generation, &passed),
-            Op::ImportTerminals { count } => self.import_terminals(count, passed),
+            Op::ImportTerminals { count } => self.before_gone(count, passed),
             #[cfg(feature = "dev")]
             Op::CheckHandover { terminals } => self.check_handover(terminals, passed.parent),
             Op::ImportState(state) => {
@@ -128,6 +127,19 @@ impl App {
             }
         };
         Some((reply, result))
+    }
+
+    /// `import-terminals`: the instance before has gone, with `count` the masters of the
+    /// terminals the import carried, or stays (`None`). The native sessions the import named
+    /// resume here once it has gone (ADR 0165, part 4c), with no terminal too (a count of 0),
+    /// and stay stopped otherwise, or if the masters do not match.
+    fn before_gone(&mut self, count: Option<usize>, passed: Passed) -> Reply {
+        let parent = passed.parent;
+        let taken = self.import_terminals(count, passed);
+        if parent {
+            self.natives_before_gone(count.is_some() && taken.is_ok());
+        }
+        taken
     }
 
     /// The exit of a restart, checked here on the UI thread, and nothing runs after it, so no

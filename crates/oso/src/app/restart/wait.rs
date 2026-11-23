@@ -6,7 +6,9 @@
 //! it would have. Terminals do not hold it, as they are carried. Meanwhile a session's queue
 //! waits, as for an exit that waits (`Turn::leaving`), and the person's send starts the hold
 //! again. The editor holds the wait (`Editor::restart_when_idle`), so that `C-g` and `C-x C-c`
-//! cancel it as they cancel an exit's.
+//! cancel it as they cancel an exit's. Once it begins, the restart ends the native sessions
+//! first (part 4c): the bound of that is looked at here too, before the loop waits, and its
+//! deadline is the loop's.
 //!
 //! Must not depend on: the renderer or the window. [`due_now`] is told the time, so it is
 //! tested with no clock.
@@ -38,8 +40,9 @@ impl App {
     /// Before the loop waits: begins the restart that waits once nothing has held it for the
     /// hold.
     pub(in crate::app) fn restart_if_idle(&mut self, event_loop: &Loop<'_>) {
-        // A restart that ends its native sessions first is no longer waiting (part 4c).
-        self.restart_ending_due(Instant::now());
+        // A restart that ends its native sessions first is no longer waiting, and stays here
+        // if they do not end (part 4c).
+        self.restart_ending_due();
         let waits = self.editor.restart_when_idle();
         if !waits || self.is_leaving(event_loop) || self.restart_holds() {
             self.restart.wait.stop();

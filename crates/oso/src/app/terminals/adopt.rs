@@ -157,8 +157,8 @@ impl App {
 
     /// `import-terminals`: the masters of the terminals the import carried, in their order,
     /// as the instance before has gone, or, with `None`, word that they stay with it. Only the
-    /// parent may bring them. It says the same of the native sessions the import named, which
-    /// resume here once it has gone (ADR 0165, part 4c), even with no terminal: a count of 0.
+    /// parent may bring them. With no terminal carried, a count of 0 takes none, and
+    /// `handover`'s `before_gone` resumes the native sessions named then (ADR 0165, part 4c).
     pub(in crate::app) fn import_terminals(
         &mut self,
         count: Option<usize>,
@@ -169,8 +169,6 @@ impl App {
         }
         let Some(count) = count else {
             self.abandon_terminals();
-            // The instance before stays: the native sessions it ended resume there.
-            self.natives_before_gone(false);
             return Ok(Value::Null);
         };
         let coming = &mut self.handover.coming;
@@ -189,9 +187,6 @@ impl App {
         }
         self.attach_masters();
         self.write_follows();
-        // The instance before has gone: the native sessions it ended resume here (ADR 0165,
-        // part 4c).
-        self.natives_before_gone(true);
         Ok(json!({ "terminals": count }))
     }
 

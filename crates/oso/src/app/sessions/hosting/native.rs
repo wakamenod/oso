@@ -95,7 +95,7 @@ pub(in crate::app) struct NativeSessions {
     /// The replies highlighted as Markdown that wait or are open (part 2g).
     replies: markdown::Replies,
     /// In a new instance: the sessions the restart's state resumes (part 4c).
-    carried: restarting::Carried,
+    resuming: restarting::Resuming,
 }
 
 /// A native session's buffer, rows and process.

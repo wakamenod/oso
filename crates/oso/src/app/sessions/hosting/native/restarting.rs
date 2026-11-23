@@ -12,27 +12,29 @@
 //!   Its end is no failure, and nothing resumes of itself while the restart holds. The
 //!   restart's thread starts once each has ended. One given no message has no conversation to
 //!   resume, and the exit ends it as before.
+//!   Nothing resumes here while the restart goes on, and a session started meanwhile keeps
+//!   the restart here.
 //! - **Staying.** A restart that stays here, for any reason, resumes each session it ended
-//!   here, under the trust judged now (part 4a).
+//!   here, under the trust judged now (part 4a), unless it has not ended yet.
 //! - **Coming.** The state names each session by its id, with its mode, model and effort, and
 //!   only the parent's state is read. Once the instance before has gone, and the record is
 //!   read, each id the record has as a native session, stopped, with its buffer, is resumed
 //!   with `session-resume`'s checks: its directory and root are the record's, never the
 //!   state's, its trust is judged (part 4a), its start may wait for the configuration's first
 //!   look (ADR 0173), and the start thread refuses a conversation live elsewhere. A refusal
-//!   leaves it stopped, saying why. A session the state does not name stays as it came back:
-//!   stopped.
+//!   leaves it stopped, saying why, in the mode it had. A session the state does not name
+//!   stays as it came back: stopped; so does one resumed meanwhile by anyone else.
 
-use super::draw;
 use crate::app::App;
 use crate::carry::natives::NativeResume;
+use crate::sessions::hosted::Run;
 use crate::sessions::native::choice::Choice;
 use crate::sessions::native::mode::ModeState;
 use crate::sessions::worker::SessionKey;
 
 /// What the new instance holds of the native sessions a restart resumes.
 #[derive(Debug, Default)]
-pub(in crate::app) struct Carried {
+pub(in crate::app) struct Resuming {
     /// What the state named, until they are resumed.
     resumes: Vec<NativeResume>,
     /// The instance before has gone.
@@ -43,14 +45,19 @@ pub(in crate::app) struct Carried {
 const RESUMED: &str = "Resumed after oso-restart.";
 
 impl App {
+    /// The native sessions whose `claude -p` runs and that were given a message: those a
+    /// restart ends and resumes.
+    fn natives_to_resume(&self) -> impl Iterator<Item = SessionKey> + '_ {
+        (self.hosting.natives.map.iter())
+            .filter(|(_, native)| native.stream.is_some() && native.spoke)
+            .map(|(key, _)| *key)
+    }
+
     /// The instance going: ends each native session that runs and was given a message, as
     /// the session list's stop does, and returns each, with what the new instance resumes
     /// it with.
     pub(in crate::app) fn end_natives_for_restart(&mut self) -> Vec<(SessionKey, NativeResume)> {
-        let running: Vec<SessionKey> = (self.hosting.natives.map.iter())
-            .filter(|(_, native)| native.stream.is_some() && native.spoke)
-            .map(|(key, _)| *key)
-            .collect();
+        let running: Vec<SessionKey> = self.natives_to_resume().collect();
         let mut ended = Vec::with_capacity(running.len());
         for key in running {
             let Some(resume) = self.native_resume_of(key) else {
@@ -62,12 +69,17 @@ impl App {
         ended
     }
 
+    /// Whether a native session given a message runs, or any session is starting: once the
+    /// restart has ended the native sessions, one started meanwhile keeps it here.
+    pub(in crate::app) fn native_runs_or_starts(&self) -> bool {
+        self.natives_to_resume().next().is_some() || self.sessions_starting()
+    }
+
     /// What the state says of each native session that runs and was given a message now,
     /// which the exit ends: those `oso dev`'s restart carries, as its order ends none first.
     pub(in crate::app) fn running_native_resumes(&self) -> Vec<NativeResume> {
-        (self.hosting.natives.map.iter())
-            .filter(|(_, native)| native.stream.is_some() && native.spoke)
-            .filter_map(|(key, _)| self.native_resume_of(*key))
+        (self.natives_to_resume())
+            .filter_map(|key| self.native_resume_of(key))
             .collect()
     }
 
@@ -100,65 +112,83 @@ impl App {
         }
     }
 
+    /// The restart stays while native session `key` has not ended: it is not resumed, and
+    /// says so.
+    pub(in crate::app) fn native_still_ending(&mut self, key: SessionKey) {
+        self.native_note_row(
+            key,
+            "oso-restart stayed here before this session ended: session-resume resumes it",
+        );
+    }
+
     /// The new instance took over a state that names `resumes`, from its parent: kept until
     /// the instance before has gone.
     pub(in crate::app) fn natives_carried(&mut self, resumes: Vec<NativeResume>) {
-        self.hosting.natives.carried = Carried {
+        self.hosting.natives.resuming = Resuming {
             resumes,
             gone: false,
         };
     }
 
+    /// Session `key` is resumed now by another's asking: not again as a restart's.
+    pub(in crate::app) fn forget_restart_resume(&mut self, key: SessionKey) {
+        let Some(session) = self.hosting.table.get(key) else {
+            return;
+        };
+        let id = session.id.as_str();
+        (self.hosting.natives.resuming.resumes).retain(|resume| resume.id != id);
+    }
+
     /// The new instance: the instance before has gone, if `gone`, and the sessions named
     /// resume once the record is read; or it stays, and none does.
     pub(in crate::app) fn natives_before_gone(&mut self, gone: bool) {
-        let carried = &mut self.hosting.natives.carried;
+        let resuming = &mut self.hosting.natives.resuming;
         if !gone {
-            carried.resumes.clear();
+            resuming.resumes.clear();
             return;
         }
-        carried.gone = true;
+        resuming.gone = true;
         self.resume_natives_carried();
     }
 
     /// The new instance: once the instance before has gone and the record is read, resumes
     /// each session the state names that the record has as a stopped native one.
     pub(in crate::app) fn resume_natives_carried(&mut self) {
-        let carried = &self.hosting.natives.carried;
-        if !carried.gone || carried.resumes.is_empty() || !self.hosting.adopting.recalled {
+        let resuming = &self.hosting.natives.resuming;
+        if !resuming.gone || resuming.resumes.is_empty() || !self.hosting.adopting.recalled {
             return;
         }
-        for resume in std::mem::take(&mut self.hosting.natives.carried.resumes) {
+        for resume in std::mem::take(&mut self.hosting.natives.resuming.resumes) {
             let key = (self.hosting.table.iter())
                 .find(|session| session.id.as_str() == resume.id)
-                .filter(|session| session.native && !session.runs())
+                .filter(|session| session.native && session.run == Run::Stopped)
                 .map(|session| session.key);
             let Some(key) = key.filter(|key| self.hosting.natives.has(*key)) else {
-                log::debug!(
-                    "oso-restart: no stopped native session {} to resume",
-                    resume.id
-                );
+                log::debug!("oso-restart: no stopped native session named so to resume");
                 continue;
             };
             self.resume_native_carried(key, &resume);
         }
     }
 
-    /// Resumes native session `key` as `resume` says, saying so in its transcript.
+    /// Resumes native session `key` as `resume` says, saying so in its transcript; refused,
+    /// it keeps the mode and choice it had.
     fn resume_native_carried(&mut self, key: SessionKey, resume: &NativeResume) {
-        if let Some(native) = self.hosting.natives.map.get_mut(&key) {
-            native.mode = ModeState::restarted(resume.mode);
-            native.choice = Choice::restarted(resume.model.as_deref(), resume.effort.as_deref());
-        }
+        let before = self.hosting.natives.map.get_mut(&key).map(|native| {
+            let mode = std::mem::replace(&mut native.mode, ModeState::restarted(resume.mode));
+            let choice = Choice::restarted(resume.model.as_deref(), resume.effort.as_deref());
+            (mode, std::mem::replace(&mut native.choice, choice))
+        });
         let said = match self.resume_hosted(key, false) {
             Ok(()) => RESUMED.to_owned(),
-            Err(why) => format!("It did not resume after oso-restart: {why}"),
+            Err(why) => {
+                let native = self.hosting.natives.map.get_mut(&key);
+                if let (Some(native), Some((mode, choice))) = (native, before) {
+                    (native.mode, native.choice) = (mode, choice);
+                }
+                format!("It did not resume after oso-restart: {why}")
+            }
         };
-        let Some(native) = self.hosting.natives.map.get_mut(&key) else {
-            return;
-        };
-        let change = native.rows.note(&said);
-        draw(&mut self.editor, native, [change]);
-        self.request_redraw();
+        self.native_note_row(key, &said);
     }
 }

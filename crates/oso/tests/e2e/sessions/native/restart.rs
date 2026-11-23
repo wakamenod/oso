@@ -1,14 +1,16 @@
 //! A native session across `oso-restart` (ADR 0165, part 4c), with the modes' fake `claude -p`,
 //! whose run `N` writes its arguments to `run.N` and ends once its input does: the instance
 //! going ends the idle session's process, and the new instance resumes it, with `--resume` and
-//! the mode the person chose; a restart that stays (a dev build's `OSO_DEV_RESTART_FAIL`)
-//! resumes it in the instance going instead.
+//! the mode the person chose; a restart that stays (a dev build's `OSO_DEV_RESTART_FAIL`),
+//! before the new instance took the state or after, resumes it in the instance going instead,
+//! and the new instance resumes nothing.
 //!
 //! Must not depend on: the app's internals; the state's field, the order's signals and the
 //! mode carried have their own tests.
 
 use std::ffi::OsStr;
 use std::fs;
+use std::time::{Duration, Instant};
 
 use super::super::super::harness::{App, sockets};
 use super::super::super::spaces::trust_restricted;
@@ -92,6 +94,21 @@ fn a_native_session_resumes_in_the_instance_oso_restart_starts_in_its_mode() {
     let _ = new.exchange("exit", None);
 }
 
+/// Waits until `app`'s restart has stayed, and its session resumed there.
+fn stayed_and_resumed(flow: &Flow, app: &mut App, id: &str) {
+    app.wait_for("the restart to stay", |state| {
+        state["echo"]
+            .as_str()
+            .is_some_and(|echo| echo.contains("everything stays here"))
+    });
+    resumed_in_accept_edits(flow, id);
+    transcript_says(app, "oso-restart stayed here: resumed.");
+    app.send_keys("i");
+    app.wait_for("the composer", in_composer);
+    send(app, "two");
+    assert_eq!(flow.wait_for_file("sent.2.1").trim(), "two");
+}
+
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
 fn a_restart_that_stays_resumes_the_native_session_in_the_instance_going() {
@@ -99,17 +116,31 @@ fn a_restart_that_stays_resumes_the_native_session_in_the_instance_going() {
     let id = session_id(&flow);
     app.run_command("oso-restart", None)
         .expect("oso-restart runs");
-    app.wait_for("the restart to stay", |state| {
-        state["echo"]
-            .as_str()
-            .is_some_and(|echo| echo.contains("everything stays here"))
-    });
-    resumed_in_accept_edits(&flow, &id);
-    transcript_says(&mut app, "oso-restart stayed here: resumed.");
-    app.send_keys("i");
-    app.wait_for("the composer", in_composer);
-    send(&mut app, "two");
-    assert_eq!(flow.wait_for_file("sent.2.1").trim(), "two");
+    stayed_and_resumed(&flow, &mut app, &id);
     let _ = app.exchange("exit", None);
     app.wait_for_exit();
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_new_instance_told_to_stay_out_resumes_nothing() {
+    let (flow, mut old) = idle_in_accept_edits("native-restart-stay-out", Some("exit"));
+    let id = session_id(&flow);
+    let before = sockets();
+    old.run_command("oso-restart", None)
+        .expect("oso-restart runs");
+    let mut new = App::started_by_a_restart(&before);
+    stayed_and_resumed(&flow, &mut old, &id);
+    // The new instance closes, as nothing changed in it, and starts no run of its own.
+    let since = Instant::now();
+    while !new.exited() {
+        assert!(since.elapsed() < Duration::from_secs(20), "it stays");
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    assert!(
+        !flow.scratch.path().join("run.3").exists(),
+        "a second writer"
+    );
+    let _ = old.exchange("exit", None);
+    old.wait_for_exit();
 }

@@ -56,6 +56,9 @@ struct Ending {
     waiting: HashSet<SessionKey>,
     /// When the restart stays if one has still not ended.
     by: Instant,
+    /// When they were stopped, for the log.
+    since: Instant,
+    /// What the restart's thread starts, once they have ended.
     start: carry::going::Start,
 }
 
@@ -153,10 +156,16 @@ impl App {
         holds
     }
 
+    /// Whether this instance is going: a restart under way here, ending the native sessions
+    /// first or not. Nothing resumes then (ADR 0165, part 4c).
+    pub(in crate::app) fn restart_going(&self) -> bool {
+        self.restart.under_way || self.restart.ending.is_some()
+    }
+
     /// Whether a restart is under way here, ending the native sessions first or not, or this
     /// instance still takes over.
     pub(in crate::app) fn restart_holds(&self) -> bool {
-        self.restart.under_way || self.restart.ending.is_some() || self.restart.taking_over
+        self.restart_going() || self.restart.taking_over
     }
 
     /// Starts the agent channel if it was asked for while a restart held it off.
@@ -171,7 +180,7 @@ impl App {
     /// `oso-restart`: starts the restart's thread, if this instance may hand over, or waits
     /// for the native sessions to be idle first (ADR 0165, part 4b).
     pub(super) fn begin_restart(&mut self) {
-        let refused = if self.restart.under_way || self.restart.ending.is_some() {
+        let refused = if self.restart_going() {
             Err("a restart is under way".to_owned())
         } else {
             self.check_handover(true, true).map(drop)
@@ -205,6 +214,7 @@ impl App {
             self.restart.ending = Some(Ending {
                 waiting: self.restart.ended.iter().map(|(key, _)| *key).collect(),
                 by: Instant::now() + ENDING_TIME,
+                since: Instant::now(),
                 start,
             });
             self.editor
@@ -229,8 +239,18 @@ impl App {
         let Some(ending) = self.restart.ending.take() else {
             return;
         };
-        match self.check_handover(true, true) {
-            Ok(_) => self.start_the_restart(ending.start),
+        log::info!(
+            "oso-restart: the native sessions ended in {:?}",
+            ending.since.elapsed()
+        );
+        // A session started or resumed meanwhile would be a second writer once the new oso
+        // resumes it, or would be killed part way.
+        let checked = match self.native_runs_or_starts() {
+            true => Err("a session started while the native sessions ended".to_owned()),
+            false => self.check_handover(true, true).map(drop),
+        };
+        match checked {
+            Ok(()) => self.start_the_restart(ending.start),
             Err(why) => self.restart_stays(why),
         }
         self.request_redraw();
@@ -238,20 +258,27 @@ impl App {
 
     /// Before the loop waits: a restart whose native sessions have not all ended in
     /// [`ENDING_TIME`] stays here.
-    pub(in crate::app) fn restart_ending_due(&mut self, now: Instant) {
-        if self
-            .restart
-            .ending
-            .as_ref()
-            .is_some_and(|ending| now >= ending.by)
-        {
-            self.restart.ending = None;
-            self.restart_stays(format!(
-                "a native session did not end in {} s",
-                ENDING_TIME.as_secs()
-            ));
-            self.request_redraw();
+    pub(in crate::app) fn restart_ending_due(&mut self) {
+        let Some(ending) = &self.restart.ending else {
+            return;
+        };
+        if Instant::now() < ending.by {
+            return;
         }
+        let Some(ending) = self.restart.ending.take() else {
+            return;
+        };
+        // Those still ending resume nothing: their end is a stop, and the person resumes them.
+        let waiting = ending.waiting;
+        self.restart.ended.retain(|(key, _)| !waiting.contains(key));
+        for key in waiting {
+            self.native_still_ending(key);
+        }
+        self.restart_stays(format!(
+            "a native session did not end in {} s",
+            ENDING_TIME.as_secs()
+        ));
+        self.request_redraw();
     }
 
     /// When the loop wakes for a restart's native sessions to have ended.
@@ -349,6 +376,8 @@ impl App {
         if let Err(why) = self.import_terminals(None, passed) {
             log::debug!("oso-restart: the carried terminals were not given up: {why}");
         }
+        // The native sessions it named resume there (ADR 0165, part 4c).
+        self.natives_before_gone(false);
         let allowed = carry::exit_allowed(&self.editor, generation)
             .and_then(|()| self.refuse_unsent_queues());
         if generation.is_some() && allowed.is_ok() {

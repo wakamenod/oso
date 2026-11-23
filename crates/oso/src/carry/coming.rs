@@ -188,7 +188,10 @@ impl<P: Fn(Asked) -> bool> Coming<P> {
         };
         let brought = if gone { masters } else { Vec::new() };
         if let Err(why) = self.ask(op, brought) {
-            log::warn!("oso-restart: the terminals carried here did not take over: {why}");
+            log::warn!(
+                "oso-restart: the terminals or native sessions carried here did not take over: \
+                 {why}"
+            );
         }
     }
 }

@@ -25,6 +25,9 @@ const MAX_MODEL: usize = 256;
 /// The longest effort level a state carries: `--effort`'s are shorter.
 const MAX_EFFORT: usize = 16;
 
+/// The longest permission mode a state carries: the modes oso sends are shorter.
+const MAX_MODE: usize = 16;
+
 /// A native session the new instance resumes, once the instance going has gone.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeResume {
@@ -38,7 +41,7 @@ pub struct NativeResume {
 }
 
 /// The state's field for `resumes`, the first [`MAX_NATIVE_RESUMES`].
-pub fn state(resumes: &[NativeResume]) -> Value {
+fn state(resumes: &[NativeResume]) -> Value {
     resumes
         .iter()
         .take(MAX_NATIVE_RESUMES)
@@ -87,9 +90,9 @@ pub(super) fn parse(state: &Map<String, Value>) -> Vec<NativeResume> {
 }
 
 fn parse_entry(entry: &Map<String, Value>) -> Option<NativeResume> {
-    // A session's id is 36 characters (ADR 0121); the app reads it as one.
+    // A session's id is 36 hexadecimal digits and dashes (ADR 0121); the app reads it as one.
     let id = entry.get("id")?.as_str()?;
-    if id.len() != 36 || !id.is_ascii() {
+    if id.len() != 36 || !id.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-') {
         return None;
     }
     // A field that is there is a string that reads, or null.
@@ -100,7 +103,7 @@ fn parse_entry(entry: &Map<String, Value>) -> Option<NativeResume> {
         }
         Some(_) => None,
     };
-    let mode = match text("mode", MAX_EFFORT)? {
+    let mode = match text("mode", MAX_MODE)? {
         Some(name) => Some(PermissionMode::named(&name)?),
         None => None,
     };
@@ -167,6 +170,8 @@ mod tests {
             json!({ "id": "short" }),
             json!({ "id": 7 }),
             json!({ "id": "é123abcd-0000-4000-8000-00000000001" }),
+            json!({ "id": "0123abcd-0000-4000-8000-00000000000\n" }),
+            json!({ "id": "0123abcd-0000-4000-8000-00000000000g" }),
             // Modes oso never sends, and what is not a mode.
             json!({ "id": ID, "mode": "bypassPermissions" }),
             json!({ "id": ID, "mode": "dontAsk" }),
