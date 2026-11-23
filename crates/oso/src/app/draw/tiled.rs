@@ -26,6 +26,7 @@ use oso_render::{
     TextMarks, TextView,
 };
 
+use super::card::CardFills;
 use super::spaces::SpacesFills;
 use crate::sessions::list::SpaceBands;
 use crate::terminal::hosted::Terminals;
@@ -83,6 +84,7 @@ pub(super) struct WindowCells {
     review: ReviewCells,
     /// `*Spaces*`' bands, in the side window (ADR 0140).
     pane: SpacesFills,
+    card: CardFills,
     screen: Screen,
     gutter: Gutter,
     diagnostics: DiagnosticCells,
@@ -113,6 +115,7 @@ impl WindowCells {
         self.band.extend(editor.current_line_cells(id, screen));
         self.pane
             .fill((editor, bands), (id, screen), &mut self.band);
+        self.card.fill(editor, (id, screen), &mut self.band);
     }
 }
 
@@ -181,6 +184,9 @@ fn fills_of(cells: &WindowCells) -> [(Face, &[CellRect]); FILLS] {
         // A waiting row's mark and name on the blink's lit beat, over the point's band.
         (Face::SessionAlertLit, &cells.pane.lit[..]),
         (Face::CurrentLine, &cells.band[..]),
+        // A permission card's title and keys (ADR 0180).
+        (Face::CardTitle, &cells.card.title[..]),
+        (Face::MenuKey, &cells.card.keys[..]),
         (Face::DiffAdded, &cells.review.added[..]),
         (Face::DiffRemoved, &cells.review.removed[..]),
         (Face::DiffFiller, &cells.review.fillers[..]),
@@ -198,7 +204,7 @@ fn fills_of(cells: &WindowCells) -> [(Face, &[CellRect]); FILLS] {
 }
 
 /// How many lists of cells a window fills behind its text.
-const FILLS: usize = 19;
+const FILLS: usize = 21;
 
 /// Room for what a frame lists of the tiled windows, empty between frames, which each frame
 /// takes at its own lifetime ([`super::reuse`]), so that a frame allocates nothing once warm.
@@ -371,7 +377,7 @@ pub(super) fn panes<'a>(editor: &'a Editor, drawn: &Drawn<'a>, list: &mut Vec<Pa
         .filter(|window| window.docked().is_some())
         .map(oso_core::window::Window::id)
         .collect();
-    let docked_face = |id: WindowId| docked.contains(&id).then_some(Face::Float);
+    let docked_face = |id: WindowId| super::card::dock_face(editor, id);
     // The selected window's text last, or the text of the one beneath the prompts.
     let tiled = editor.tiled().0.id();
     for last in [false, true] {

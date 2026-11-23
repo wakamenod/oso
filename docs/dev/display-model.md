@@ -214,7 +214,9 @@ one layer:
 - A docked window is a window the tree does not hold: it is laid out inside the tiled window
   that shows its host buffer, from rows that window gives up at its bottom, above its
   modeline, as a native session's composer is under its transcript
-  ([ADR 0170](adr/0170-docked-windows-under-a-sessions-transcript.md)).
+  ([ADR 0170](adr/0170-docked-windows-under-a-sessions-transcript.md)). It takes as many rows as its
+  text wraps to, but a permission card a row a line: its host breaks its rows at its width, and it
+  never wraps ([ADR 0180](adr/0180-a-permission-card-that-stands-out-and-is-read-as-it-is.md)).
 - Each window has its own selection set, so the same buffer in two windows can
   be edited at different places.
 - Two windows can be a pair that scrolls together, as a review's two sides do: one run of two

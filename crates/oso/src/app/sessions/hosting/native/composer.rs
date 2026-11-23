@@ -172,6 +172,7 @@ impl App {
             | NativeAction::Note
             | NativeAction::Choose(_)
             | NativeAction::Other
+            | NativeAction::Page(_)
             | NativeAction::Todo
             | NativeAction::EditPlan
             | NativeAction::Approve(_)

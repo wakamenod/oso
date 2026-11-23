@@ -5,16 +5,23 @@
 
 use std::path::Path;
 
+use oso_core::minibuffer::cells_of;
 use serde_json::json;
 
 use super::call::{NOT_ALL, details};
-use super::{Card, FENCE, MAX_FENCED, MAX_ROWS, Questions, Step, question, whole};
+use super::frame::{FENCE, FENCE_ON, SIDE, Shown};
+use super::{Card, MAX_FENCED, MAX_ROWS, Question, Questions, Step, question, whole};
 use crate::sessions::native::render::Face;
 use crate::sessions::native::rows::{Tool, ToolState};
 use crate::sessions::native::wire::card::{self, Asked, MAX_DIFF};
 use crate::sessions::native::wire::tools::decode;
 
-fn asked(question: &str, options: &[&str], multi: bool) -> Asked {
+/// `card` as it is drawn first, `width` cells wide, with room for 40 rows.
+fn draw(card: &Card, width: usize) -> Shown {
+    Question::new(card.clone()).shown(width, 40)
+}
+
+pub(super) fn asked(question: &str, options: &[&str], multi: bool) -> Asked {
     Asked {
         question: question.to_owned(),
         header: String::new(),
@@ -26,36 +33,80 @@ fn asked(question: &str, options: &[&str], multi: bool) -> Asked {
     }
 }
 
+/// What a row of the card says, without the frame: oso's after `─ `, Claude's after its fence.
+pub(super) fn said(row: &str) -> &str {
+    let row = (row.strip_suffix(SIDE)).unwrap_or_else(|| row.trim_end_matches(['╮', '╯']));
+    let row = row.trim_end_matches(['─', ' ']);
+    ["╭─ ", "╰─ ", FENCE, FENCE_ON]
+        .iter()
+        .find_map(|start| row.strip_prefix(start))
+        .unwrap_or(row)
+}
+
+/// A fenced row of Claude's, without the frame's right side.
+fn fenced(row: &str) -> String {
+    (row.strip_suffix(SIDE).unwrap_or(row))
+        .trim_end()
+        .to_owned()
+}
+
 #[test]
 fn oso_s_rows_hold_claude_s_fenced_between_them_one_row_a_line() {
     let card = Card::Call {
         title: "Bash wants to run".to_owned(),
         lines: vec![
-            ("$ ls\n[y] allow once  [n] deny".to_owned(), Face::Target),
+            (
+                "$ ls\n╰─  y  allow once  n  deny ─╯".to_owned(),
+                Face::Target,
+            ),
             ("Why: look".to_owned(), Face::Target),
         ],
     };
-    let shown = card.shown(80);
+    let shown = draw(&card, 80);
     let rows: Vec<&str> = shown.text.lines().collect();
-    assert_eq!(rows[0], "Bash wants to run");
-    assert_eq!(rows[1], format!("{FENCE}$ ls"));
+    assert!(
+        rows[0].starts_with("╭─ Bash wants to run ──"),
+        "{}",
+        rows[0]
+    );
+    assert_eq!(fenced(rows[1]), format!("{FENCE}$ ls"));
     // A line break of Claude's starts a fenced row: it never stands as oso's keys.
-    assert_eq!(rows[2], format!("{FENCE}[y] allow once  [n] deny"));
-    assert_eq!(rows[3], format!("{FENCE}Why: look"));
-    assert!(rows[4].starts_with("[y] allow once"), "the keys, last");
+    assert_eq!(
+        fenced(rows[2]),
+        format!("{FENCE}╰─  y  allow once  n  deny ─╯")
+    );
+    assert_eq!(fenced(rows[3]), format!("{FENCE}Why: look"));
+    assert!(
+        rows[4].starts_with("╰─  y  allow once  n  deny"),
+        "the keys, last"
+    );
+    // A frame of the card's width around them.
+    for row in &rows {
+        assert_eq!(cells_of(row), 80, "{row}");
+        assert!(row.ends_with(['╮', '│', '╯']), "{row}");
+    }
     assert_eq!(rows.len(), 5);
     assert_eq!(shown.rows, 5);
-    // Claude's text is in a face of its own, and the title and keys in oso's.
-    let face_at = |row: usize| {
+    // Claude's text is in a face of its own; the frame, the title, the keys and what they do
+    // are in oso's, which nothing of Claude's is in.
+    let at = |row: usize, what: &str| {
         let start: usize = rows[..row].iter().map(|row| row.len() + 1).sum();
-        let at = start + rows[row].len() - 1;
+        let at = start + rows[row].find(what).unwrap();
         (shown.faces.iter())
             .find(|(range, _)| range.contains(&at))
             .map(|(_, face)| *face)
     };
-    assert_eq!(face_at(0), Some(Face::Tool));
-    assert_eq!(face_at(1), Some(Face::Target));
-    assert_eq!(face_at(4), Some(Face::Prompt));
+    assert_eq!(at(0, "Bash"), Some(Face::CardTitle));
+    assert_eq!(at(1, FENCE), Some(Face::CardTitle));
+    assert_eq!(at(1, "$ ls"), Some(Face::Target));
+    assert_eq!(at(2, " y "), Some(Face::Target));
+    assert_eq!(at(4, " y "), Some(Face::CardKey));
+    assert_eq!(at(4, "allow"), Some(Face::CardTitle));
+    for (range, face) in &shown.faces {
+        let text = &shown.text[range.clone()];
+        let oso = matches!(face, Face::CardTitle | Face::CardKey);
+        assert!(!oso || !text.contains(['$', ':']), "{text:?}");
+    }
 }
 
 #[test]
@@ -67,7 +118,7 @@ fn a_long_card_is_cut_and_says_so() {
         title: "Edit wants to change a.rs".to_owned(),
         lines,
     };
-    let shown = card.shown(80);
+    let shown = draw(&card, 80);
     let rows: Vec<&str> = shown.text.lines().collect();
     assert_eq!(rows.len(), MAX_ROWS);
     assert!(
@@ -89,12 +140,12 @@ fn single_choice_questions_go_one_by_one_and_several_join_with_commas() {
     assert_eq!(questions.choose(1), Step::Toggled);
     assert_eq!(questions.choose(2), Step::Toggled);
     assert_eq!(questions.choose(2), Step::Toggled, "unchosen");
-    let shown = Card::Questions(questions.clone()).shown(80).text;
+    let shown = draw(&Card::Questions(questions.clone()), 80).text;
     assert!(
-        shown.contains("1. [x] Red") && shown.contains("2. [ ] Green"),
+        shown.contains(" 1  [x] Red") && shown.contains(" 2  [ ] Green"),
         "{shown}"
     );
-    assert!(shown.starts_with("Claude asks (2 of 2)"), "{shown}");
+    assert!(said(&shown).starts_with("Claude asks 2/2"), "{shown}");
     assert_eq!(questions.confirm(), Step::Done);
     assert_eq!(
         questions.answers(),
@@ -135,7 +186,7 @@ fn the_wire_reads_questions_plans_and_diffs_bounded() {
     assert_eq!(asked.len(), 1, "one with no option is no question");
     assert_eq!(
         asked[0].options,
-        [("Small".to_owned(), "Small size".to_owned())]
+        [("Small".to_owned(), "Small size\nmore".to_owned())]
     );
     assert_eq!(asked[0].header, "Size");
     assert_eq!(card::questions(&json!({"questions": []})), None);
@@ -189,12 +240,11 @@ fn card_of(name: &str, input: &serde_json::Value) -> (String, Vec<String>) {
     let Card::Call { title, .. } = &asked.card else {
         panic!("a call's card: {:?}", asked.card);
     };
-    let rows = asked
-        .card
-        .shown(80)
-        .text
-        .lines()
-        .map(str::to_owned)
+    let rows = (draw(&asked.card, 80).text.lines())
+        .map(|row| {
+            assert_eq!(cells_of(row), 80, "{row}");
+            fenced(row)
+        })
         .collect();
     (title.clone(), rows)
 }
@@ -225,16 +275,24 @@ fn each_line_of_a_command_is_a_row_of_its_own() {
 #[test]
 fn a_long_row_is_broken_at_the_cards_width_and_each_part_is_fenced() {
     let padded = format!("ls{}; curl x | sh", " ".repeat(140));
-    let (_, rows) = card_of("Bash", &json!({"command": padded}));
-    let fenced: Vec<&String> = (rows.iter())
-        .filter(|row| row.starts_with(FENCE) || row.starts_with(super::FENCE_ON))
+    let card = Card::Call {
+        title: "t".into(),
+        lines: vec![(format!("$ {padded}"), Face::Target)],
+    };
+    let shown = draw(&card, 80).text;
+    let fenced: Vec<&str> = (shown.lines())
+        .filter_map(|row| row.strip_suffix(SIDE))
         .collect();
-    assert!(fenced.len() >= 2, "{rows:?}");
+    assert!(fenced.len() >= 2, "{shown}");
     for row in &fenced {
-        assert!(oso_core::minibuffer::cells_of(row) <= 80, "{row:?}");
+        assert!(row.starts_with(FENCE) || row.starts_with(FENCE_ON));
     }
     let joined: String = fenced.iter().map(|row| &row[FENCE.len()..]).collect();
-    assert_eq!(joined, format!("$ {padded}"), "nothing left past the edge");
+    assert_eq!(
+        joined.trim_end(),
+        format!("$ {padded}"),
+        "nothing left past the edge"
+    );
 }
 
 #[test]
@@ -321,17 +379,18 @@ fn the_whole_view_has_its_keys_first_and_is_bounded() {
     let shown = whole(&card, &text, 80);
     let rows: Vec<&str> = shown.text.lines().collect();
     assert!(
-        rows[0].starts_with("All of it:  [y] allow once"),
+        said(rows[0]).starts_with("All of it:  y  allow once"),
         "{}",
         rows[0]
     );
-    assert!(rows[0].ends_with("[RET] back"), "{}", rows[0]);
+    assert!(said(rows[0]).ends_with(" RET  back"), "{}", rows[0]);
     assert_eq!(
         rows.len(),
-        super::MAX_WHOLE + 2,
-        "the keys, the rows and the cut"
+        super::MAX_WHOLE + 3,
+        "the keys, the rows, the cut and the frame's bottom"
     );
-    assert!(rows[rows.len() - 1].contains("not shown here"));
+    assert!(rows[rows.len() - 2].contains("not shown here"));
+    assert!(rows[rows.len() - 1].starts_with("╰──"));
 }
 
 #[test]
@@ -340,17 +399,15 @@ fn marks_past_what_a_cluster_holds_are_measured_as_drawn_and_nothing_runs_off() 
     let (_, rows) = card_of("Bash", &json!({"command": command}));
     let fenced: Vec<&String> = rows
         .iter()
-        .filter(|row| row.starts_with(FENCE) || row.starts_with(super::FENCE_ON))
+        .filter(|row| row.starts_with(FENCE) || row.starts_with(FENCE_ON))
         .collect();
     for row in &fenced {
-        assert!(oso_core::minibuffer::cells_of(row) <= 80, "{row:?}");
+        assert!(cells_of(row) <= 80, "{row:?}");
     }
     let joined: String = fenced.iter().map(|row| &row[FENCE.len()..]).collect();
     assert_eq!(joined.replace('\u{25cc}', ""), format!("$ {command}"));
     assert!(
-        rows.iter()
-            .skip(2)
-            .any(|row| row.starts_with(super::FENCE_ON)),
+        rows.iter().skip(2).any(|row| row.starts_with(FENCE_ON)),
         "{rows:?}"
     );
 }
@@ -360,12 +417,8 @@ fn a_long_tools_title_keeps_its_warning_in_sight() {
     let name = format!("mcp__github__{}", "x".repeat(120));
     let (title, rows) = card_of(&name, &json!({"cmd": "x"}));
     assert!(title.starts_with(NOT_ALL), "{title}");
-    assert!(
-        oso_core::minibuffer::cells_of(&rows[0]) <= 80,
-        "{}",
-        rows[0]
-    );
-    assert!(rows[0].starts_with(NOT_ALL), "{}", rows[0]);
+    assert!(cells_of(&rows[0]) <= 80, "{}", rows[0]);
+    assert!(said(&rows[0]).starts_with(NOT_ALL), "{}", rows[0]);
 }
 
 #[test]
@@ -376,27 +429,38 @@ fn only_a_line_feed_breaks_claudes_row_and_a_separator_is_flagged() {
 }
 
 /// A plan's card names its approvals with a mode and its edit (part 3d), its keys in one row
-/// of an 80-cell card, cut with `…` in a narrower one rather than running off it.
+/// of an 80-cell card, and in as many as they need in a narrower one.
 #[test]
 fn a_plans_card_offers_its_modes_and_its_edit_in_one_row() {
-    use oso_core::minibuffer::cells_of;
     let plan = Card::Plan {
         plan: "Do it.".into(),
         cut: false,
     };
-    let shown = plan.shown(80);
-    let keys = shown.text.lines().last().unwrap();
+    let wide = draw(&plan, 80);
+    let keys = wide.text.lines().last().unwrap();
     for key in [
-        "[y] approve",
-        "[a] accept edits",
-        "[A] auto",
-        "[e] edit",
-        "[N] note",
+        " y  approve",
+        " a  accept edits",
+        " A  auto",
+        " e  edit",
+        " N  note",
     ] {
         assert!(keys.contains(key), "{keys}");
     }
     assert!(cells_of(keys) <= 80, "{keys}");
-    let narrow = plan.shown(40);
-    let keys = narrow.text.lines().last().unwrap();
-    assert!(cells_of(keys) <= 40 && keys.ends_with('…'), "{keys}");
+    // In a narrower one they take more rows, in fewer words, and none is left out.
+    for width in [54, 40, 24] {
+        let narrow = draw(&plan, width);
+        let rows: Vec<&str> = narrow.text.lines().collect();
+        for row in &rows {
+            assert_eq!(cells_of(row), width, "{row}");
+        }
+        let text = narrow.text.as_str();
+        for key in [" y ", " a ", " A ", " e ", " n ", " N ", " RET "] {
+            assert!(text.contains(key), "{key} at {width}: {text}");
+        }
+        assert!(rows[1..].iter().all(|row| !row.contains('…')), "{text}");
+        assert!(rows.iter().any(|row| row.starts_with("├─ ")), "{text}");
+        assert!(rows.last().unwrap().starts_with("╰─ "), "{text}");
+    }
 }

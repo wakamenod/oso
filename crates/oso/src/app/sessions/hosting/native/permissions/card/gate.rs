@@ -1,25 +1,29 @@
 //! Whether a native session's permission card takes an answer now (ADR 0165, step 2e-2): the
-//! one check of both the card's keys and the dev state, so that end-to-end flows wait for
-//! exactly what the card checks.
+//! one check of the card's keys, of the composer's that answer it (ADR 0180) and of the dev state,
+//! so that end-to-end flows wait for exactly what the card checks.
 //!
 //! Must not depend on: key presses or how a frame is drawn; the card's keys ask, and this
 //! answers.
 
 use std::time::Instant;
 
+use oso_core::buffer::BufferId;
 use oso_core::window::DockSlot;
 
 use super::plan::answered_in_time;
 use crate::app::App;
+use crate::sessions::native::card::NARROWEST;
 use crate::sessions::worker::SessionKey;
 
 impl App {
-    /// The gate of session `key`'s card's answers: whether it takes one now; else the echo
-    /// area says why.
-    pub(super) fn card_admits_answer(&mut self, key: SessionKey) -> bool {
-        // The key being answered is the last one: the quiet moment is since the one before.
-        let (before, now) = (self.agent_key_before(), Instant::now());
-        let Some(refusal) = self.card_refusal(key, before, now) else {
+    /// The gate of session `key`'s card's answers: whether it takes one from buffer `from`, the
+    /// card or the session's composer (ADR 0180), now; else the echo area says why.
+    pub(super) fn card_admits_answer(&mut self, key: SessionKey, from: BufferId) -> bool {
+        // The key being answered is the last one: the quiet moment is since the one before, up to
+        // when the person pressed it, also where it was held back and comes later.
+        let before = self.agent_key_before();
+        let now = self.agent_person_typed().unwrap_or_else(Instant::now);
+        let Some(refusal) = self.card_refusal(key, from, before, now) else {
             return true;
         };
         // Which check refused, and how long since what it measures, so that an end-to-end
@@ -46,21 +50,22 @@ impl App {
         false
     }
 
-    /// Why session `key`'s card takes no answer at `now`, if it takes none; `before` is when
-    /// the person typed the key before the answer. The one check of both the card's keys and the dev
-    /// state, so that end-to-end flows wait for exactly what the card checks.
-    fn card_refusal(
+    /// Why session `key`'s card takes no answer from buffer `from` at `now`, if it takes none;
+    /// `before` is when the person typed the key before the answer. The one check of the card's
+    /// keys, of the composer's that answer it and of the dev state, so that end-to-end flows wait
+    /// for exactly what the card checks.
+    pub(super) fn card_refusal(
         &self,
         key: SessionKey,
+        from: BufferId,
         before: Option<Instant>,
         now: Instant,
     ) -> Option<Refusal> {
         if self.editor.macro_replaying() {
             return Some(Refusal::Macro);
         }
-        let card = (self.hosting.natives.map.get(&key)).and_then(|native| native.card);
         let current = self.hosting.natives.permissions.current;
-        let Some(current) = current.filter(|current| card == Some(current.card)) else {
+        let Some(current) = current.filter(|now| now.key == key && now.place == from) else {
             return Some(Refusal::NotCurrent);
         };
         if !answered_in_time(current.since, before, now) {
@@ -68,6 +73,10 @@ impl App {
         }
         if !self.card_shows_all(key) {
             return Some(Refusal::Cut);
+        }
+        // Whole only since it was last looked at: the person has not seen it.
+        if !current.whole {
+            return Some(Refusal::Wait);
         }
         None
     }
@@ -89,8 +98,9 @@ impl App {
             return false;
         };
         let drawn = (self.hosting.natives.permissions.drawn.iter())
-            .find_map(|&(drawn, width)| (drawn == key).then_some(width));
-        if drawn.is_none_or(|width| regions.text.columns < width) || buffer.wraps() {
+            .find_map(|&(drawn, (width, _))| (drawn == key).then_some(width));
+        let columns = regions.text.columns;
+        if columns < NARROWEST || drawn.is_none_or(|width| columns < width) || buffer.wraps() {
             return false;
         }
         let whole = (self.hosting.natives.permissions.asks.shown(key))
@@ -108,25 +118,27 @@ impl App {
         }
     }
 
-    /// Whether the selected card, if one is, takes an answer now: what its keys check, with
-    /// the next key the answer. For end-to-end flows.
+    /// Whether the selected card, or the card of the selected composer's session, if one is,
+    /// takes an answer from there now: what its keys check, with the next key the answer. For
+    /// end-to-end flows.
     #[cfg(feature = "dev")]
     pub(in crate::app) fn card_takes_answer(&self) -> Option<bool> {
-        let key = self.card_session(self.editor.window().buffer())?;
+        let from = self.editor.window().buffer();
+        let key = (self.card_session(from)).or_else(|| self.composer_session(from))?;
         // A card with no call shown takes no answer, as its keys say before this gate.
         (self.hosting.natives.permissions.asks.shown(key)).and_then(|ask| ask.question.as_ref())?;
         // The next key's key before is the last one now.
-        let refusal = self.card_refusal(key, self.agent_person_typed(), Instant::now());
+        let refusal = self.card_refusal(key, from, self.agent_person_typed(), Instant::now());
         Some(refusal.is_none())
     }
 }
 
 /// Why a card takes no answer yet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Refusal {
+pub(super) enum Refusal {
     /// A macro replays.
     Macro,
-    /// The card is not the selected one point came to.
+    /// The card, or its session's empty composer, is not the selected buffer point came to.
     NotCurrent,
     /// Its quiet moment has not passed since point came to it or since the last key.
     Wait,

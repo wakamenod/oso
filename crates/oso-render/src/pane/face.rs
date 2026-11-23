@@ -151,6 +151,11 @@ pub enum Face {
     /// The fill behind a dictation's text while Claude fixes it (ADR 0175, step 2): a faint
     /// tint of its own, behind the text, which keeps its colour.
     DictationProvisional,
+    /// A native session's permission card (ADR 0180): the background of its own it is drawn
+    /// on, apart from the text's and a float's.
+    Card,
+    /// The card's frame and what oso says in it, and the band behind its title row.
+    CardTitle,
     /// A waiting session's mark and name on the lit beat of its blink (ADR 0140, as amended):
     /// in the text's background colour, on a fill in the alert's red, as inverse video.
     SessionAlertLit,

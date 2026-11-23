@@ -540,7 +540,8 @@ A window shows a view. A text view renders a buffer through the display model.
 A docked window (`editor/sessions/docks.rs`, `frame/docks.rs`) is a window the
 split tree does not hold, laid out inside the tiled window that shows its host
 buffer, from that window's bottom rows: a native session's card, to-do strip
-and composer ([ADR 0170](adr/0170-docked-windows-under-a-sessions-transcript.md)).
+and composer ([ADR 0170](adr/0170-docked-windows-under-a-sessions-transcript.md)),
+the card on a face of its own.
 A terminal view renders a cell grid that the terminal's thread publishes as
 snapshots, at most one in flight, so the UI thread never parses, searches or
 touches the PTY. `C-s` searches the screen and scrollback on that thread, and
@@ -1275,7 +1276,10 @@ Full details are in [`security.md`](security.md).
     of requests is `sessions::native::asks`, and the app finds each request's call in the
     session's rows (`app/sessions/hosting/native/permissions.rs`) and asks on the session's
     docked card (`permissions/card.rs`), whose text and questions are
-    `sessions::native::card`'s, from what `sessions::native::wire::card` reads of the call.
+    `sessions::native::card`'s, from what `sessions::native::wire::card` reads of the call. A key typed
+    in the session's empty composer may answer it: the app judges it just before the dispatcher
+    (`card/composer.rs`), which runs the card's command in place of typing it (`dispatch/card.rs`)
+    ([ADR 0180](adr/0180-a-permission-card-that-stands-out-and-is-read-as-it-is.md)).
   - `oso mcp` (`channel/mcp.rs`) is a subcommand of the oso binary that opens no window: MCP's
     JSON-RPC on stdin and stdout, with the tools `state`, `text`, `diagnostics`, `commands`, `look`,
     `change`, `open` and `cancel`, which takes back a question the agent's change opened

@@ -1,7 +1,8 @@
 //! A native session's permission card, as keys (ADR 0165, step 2e-2; ADR 0170's card dock): `y`
 //! allows the call or approves the plan, `n` denies it, declines the questions or keeps
 //! planning, `N` denies with a note, a digit chooses a question's option, `o` answers it in the
-//! person's own words, and `RET` shows the whole call or plan. A plan's card (part 3d) also
+//! person's own words, and `RET` shows the whole call or plan. A question or a plan longer than
+//! its card pages with `SPC` and `DEL` (ADR 0180). A plan's card (part 3d) also
 //! approves with accept edits (`a`) or auto (`A`, after `y` to a question) after it, or edits
 //! it (`e`) in `*plan: NAME*`, where `C-c C-c` approves the edit, `C-c C-a` and `C-c C-A` with
 //! those modes, and `C-c C-k` gives it up. Each asks the host,
@@ -74,6 +75,22 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: whole,
+        state: None,
+    },
+    Command {
+        name: "native-card-page-down",
+        doc: "Show the next page of a native session's question or plan card; with a prefix argument, as many pages on.",
+        args: ArgSpec::Count,
+        reach: Reach::Person,
+        run: page_down,
+        state: None,
+    },
+    Command {
+        name: "native-card-page-up",
+        doc: "Show the page before of a native session's question or plan card; with a prefix argument, as many pages back.",
+        args: ArgSpec::Count,
+        reach: Reach::Person,
+        run: page_up,
         state: None,
     },
     Command {
@@ -174,6 +191,14 @@ fn other(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 
 fn whole(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     at_point(ctx, NativeAction::Open)
+}
+
+fn page_down(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
+    at_point(ctx, NativeAction::Page(args.count()))
+}
+
+fn page_up(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
+    at_point(ctx, NativeAction::Page(args.count().saturating_neg()))
 }
 
 fn leave(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {

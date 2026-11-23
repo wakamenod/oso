@@ -277,6 +277,11 @@ impl Keymaps {
         }
     }
 
+    /// A native session's permission card's keys, some of which its composer takes (ADR 0180).
+    pub(super) fn card(&self) -> &Keymap {
+        self.modes.card()
+    }
+
     /// The keymap of a terminal's buffer: session mode's over the terminal's in one that hosts
     /// a session (ADR 0132), else the terminal's.
     pub(super) fn terminal_keys(&self, buffer: &Buffer) -> &Keymap {

@@ -19,6 +19,8 @@ impl Face {
             Self::Removed => Highlight::DiffRemoved,
             Self::Hunk => Highlight::DiffHunkHeader,
             Self::Error => Highlight::SessionAlert,
+            Self::CardTitle => Highlight::CardTitle,
+            Self::CardKey => Highlight::CardKey,
         }
     }
 }
