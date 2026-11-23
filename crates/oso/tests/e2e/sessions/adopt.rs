@@ -54,23 +54,30 @@ fn rows(state: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// Opens `session-adopt` once its list holds `name`, and picks it.
+/// Opens `session-adopt` once its list holds `name`, and picks it. A prompt that does not open,
+/// or does not list it yet, is closed and opened again: the list is made on a thread of its
+/// own once the instance has read its record.
 pub(super) fn adopt(app: &mut App, name: &str) {
     let deadline = Instant::now() + Duration::from_secs(20);
     loop {
         app.send_keys("C-c a a");
-        let state = app.wait_for("the prompt", |state| {
-            state["prompts"][0]["completion"].is_object()
-        });
-        let rows = rows(&state);
-        if let Some(at) = rows.iter().position(|row| row == name) {
-            for _ in 0..at {
-                app.send_keys("C-n");
+        let opened = Instant::now() + Duration::from_secs(2);
+        let mut seen = Vec::new();
+        while Instant::now() < opened {
+            let state = app.state();
+            if state["prompts"][0]["completion"].is_object() {
+                seen = rows(&state);
+                if let Some(at) = seen.iter().position(|row| row == name) {
+                    for _ in 0..at {
+                        app.send_keys("C-n");
+                    }
+                    app.send_keys("RET");
+                    return;
+                }
             }
-            app.send_keys("RET");
-            return;
+            std::thread::sleep(Duration::from_millis(100));
         }
-        assert!(Instant::now() < deadline, "{name} is not listed: {rows:?}");
+        assert!(Instant::now() < deadline, "{name} is not listed: {seen:?}");
         app.send_keys("C-g");
         std::thread::sleep(Duration::from_millis(200));
     }

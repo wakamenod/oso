@@ -1777,8 +1777,11 @@ The author's Q4-9 (a), and two answers of 2026-11-23 through the orchestrator:
   person's `claude`, `session-worktree`, an agent's `session_start` and
   `start_worktree_session` with a brief) and a fork; and now an adoption, below. `mode = "tui"`
   opts out: each of them hosts Claude Code's TUI in a terminal, as before step 1. A restricted
-  project, a directory below a project's root, an agent's start with no brief, and a space's
-  orchestrator, whose directory is no project, keep the terminal (Q5). The configuration keeps
+  project, a directory below a project's root, and an agent's start with no brief keep the
+  terminal (Q5). A space's orchestrator keeps it too, only because a space's directory has no
+  `.git` yet and so is no project oso trusts: nothing else excludes it. The author wants
+  orchestrators native as well; that needs the space's trust, its directory and the
+  orchestrator's tools and flows, and is a follow-up of its own. The configuration keeps
   `Sessions::tui` in place of `Sessions::native`, so a configuration not read in time, or
   none, gives native too.
 - **A wrong value** (`"chat"`, `"TUI"`, `true`) is said as a problem of the configuration, and
@@ -1815,8 +1818,11 @@ The author's Q4-9 (a), and two answers of 2026-11-23 through the orchestrator:
   change; `sessions::native::adopt` adopts a conversation in a terminal at a restricted
   project's root, natively once it is trusted, and in a terminal below its root. No test
   covers an adoption that waits whole, at the app's level or end to end.
-- **The benchmark** (`examples/perf/bench/sessions.rs`) sets no mode, and its project is never
-  trusted, so its sessions still host the TUI: unchanged, and not edited.
+- **The benchmark** (`examples/perf/bench/sessions.rs`) measures terminal sessions. Its project
+  is never trusted, so they stayed terminals with no mode, but its configuration now says
+  `mode = "tui"` (the author's approval), so that a later step that trusts its project does
+  not change what its numbers mean. A benchmark of native sessions, the default path now, is
+  wanted in a change of its own.
 - **New public items:** none.
 
 ## Questions
