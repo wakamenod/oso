@@ -94,6 +94,13 @@ fn a_tui_carried_over_a_restart_and_switched_to_native_asks_the_person() {
     app.send_keys(&keys("*claude: proj*"));
     app.send_keys("RET");
     tui_idle(&mut app);
+    // The new instance takes over for a moment after it draws, when no session switches. The
+    // channel its sessions want, off since the restart, comes on once that is over.
+    app.wait_for("the takeover's end", |state| {
+        state["modeline"]
+            .as_str()
+            .is_some_and(|modeline| modeline.starts_with("Agent  "))
+    });
 
     // Switched to native: `claude -p` is the new instance's own child, and its bridge asks.
     switch_back(&mut app);
