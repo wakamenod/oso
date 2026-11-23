@@ -404,9 +404,20 @@ to its program), and the busy state kept as a session's turn and a terminal's jo
   set_quit_when_idle, quit_when_idle, ask_with_third, answer_question_third}`,
   `minibuffer::Third` and `Kind::Question`'s `third`; `minibuffer::KEYS` and `PromptLayout`'s
   `keys` and `verbs` hold three.
+- **Native sessions** (ADR 0165, fixed 2026-11-23). A native session's buffer takes a
+  terminal's session flags, but the host never marks it as hosting a terminal's session, so
+  `Buffer::is_busy` read its job, which it never has: `C-x C-c` named none of its turns, and
+  with nothing else at risk exited at once, ending a turn under way, and `quit-when-idle` did
+  not wait for one. `is_busy` now reads a native session's turn, or its question, as a hosted
+  session's, so `C-x C-c` names it among the turns, offers `w`, and counts the terminals that
+  end apart from it. An idle native session holds nothing: Claude Code keeps its
+  conversation.
 - **Tests.** A job in the foreground and a shell at its prompt (`oso-term`); a session busy by
   its turn and another terminal by its job, and the third key's place and label (`oso-core`);
   the question's text, `w`, `C-g` and a second `C-x C-c` (`commands::session`); `C-x C-c w` by
   keys, the exit once idle, a buffer edited after `w`, and a cancelled wait (`dispatch`); the
   2 s hold (`app::idle_quit`); end to end, `w` exits once a `sleep` ends, and `C-x C-c n` from
-  the terminal stops the wait (`tests/e2e/terminal/quit_idle.rs`).
+  the terminal stops the wait (`tests/e2e/terminal/quit_idle.rs`). For native sessions: busy
+  by the turn alone, and not once its process ended (`oso-core`); the turn named apart from
+  the terminals that end, and `w` (`commands::session`); end to end, `C-x C-c` asks while a
+  native turn runs and exits once it ended (`tests/e2e/sessions/native/quit.rs`).

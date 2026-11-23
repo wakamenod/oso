@@ -422,7 +422,11 @@ Part 1b-1, the editor's part:
   follows new rows.
 - **A terminal's session flags** (hosting a session, running, a turn under way, agents' reads)
   apply to a native session's buffer too, so ADR 0132's keys, ADR 0133's quit-wait and the
-  agents' read gate take it; carrying over a restart still takes terminals only.
+  agents' read gate take it; carrying over a restart still takes terminals only. As built, the
+  host never marks a native buffer as hosting a session, so ADR 0132's session keys do not
+  apply there, and the quit-wait and `C-x C-c`'s question saw its turn only once
+  `Buffer::is_busy` read it by the buffer's kind (2026-11-23; ADR 0133, step 5, "Native
+  sessions").
 
 Part 1b-2a, the session itself:
 

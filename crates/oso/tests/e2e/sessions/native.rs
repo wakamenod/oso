@@ -474,6 +474,7 @@ mod composed;
 mod interrupt;
 mod markdown;
 mod plan;
+mod quit;
 mod resume;
 mod slash;
 mod status;

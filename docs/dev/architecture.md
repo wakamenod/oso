@@ -1093,12 +1093,13 @@ changed asks before going over it, and replaces it only if it is still what that
 [ADR 0059](adr/0059-safe-save-and-the-exit-guard.md) and
 [ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md).
 
-The exit's question also names the work under way in terminals, which the host notes on each
-terminal buffer and `oso-core` judges (`Buffer::is_busy`): a hosted session's turn, or a
-question it asks, from the sessions' worker (`Editor::set_session_turn`), and in another
+The exit's question also names the work under way in terminals and native sessions, which the
+host notes on each buffer and `oso-core` judges (`Buffer::is_busy`): a hosted or native
+session's turn, or a question it asks, from the sessions' worker (`Editor::set_session_turn`),
+and in another
 terminal a job, which `oso-term` reads from the PTY's foreground process group when it looks at
 its flags (`Editor::set_terminal_job`). `w` (`quit-when-idle`) leaves a flag on the editor; the
-host exits as a confirmed `C-x C-c` once no terminal has been busy, no session has printed and
+host exits as a confirmed `C-x C-c` once no terminal or session has been busy, no session has printed and
 none is starting for 2 s, with no prompt open. If more is at risk by then than the question
 named, it asks nothing, as no question opens from a background event: the wait stops and the
 echo area says why (`app/idle_quit.rs`, [ADR 0133](adr/0133-keeping-terminals-over-an-update.md),
