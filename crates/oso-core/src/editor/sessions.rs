@@ -319,6 +319,8 @@ pub enum NativeAction {
     /// Show the whole result of the call, read-only, in `*result: NAME*`; on a queued
     /// message's row (step 2), take it back into the composer.
     Open,
+    /// Copy the Markdown of the reply, as Claude wrote it, to the kill ring and the clipboard.
+    CopyMarkdown,
     /// Move to the start of the person's message this many after, before if negative.
     Prompt(isize),
     /// Move to the start of the tool row this many after, before if negative.

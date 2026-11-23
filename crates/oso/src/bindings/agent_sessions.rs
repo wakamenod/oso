@@ -39,6 +39,7 @@ pub const SESSION: &[(&str, &str)] = &[
 pub const NATIVE: &[(&str, &str)] = &[
     ("TAB", "native-session-toggle"),
     ("RET", "native-session-result"),
+    ("w", "native-session-copy-markdown"),
     ("n", "native-session-next-prompt"),
     ("p", "native-session-previous-prompt"),
     ("]", "native-session-next-tool"),

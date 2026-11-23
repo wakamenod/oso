@@ -793,8 +793,8 @@ The UI thread never blocks on I/O or parsing:
   where they came from (a text that may hold secrets is refused). They run only where buffers
   no window shows do, at most 4 hold a tree at once, and a finished one gives its tree to a
   thread to free ([ADR 0122](adr/0122-agent-review.md), step 8). A native session's whole
-  replies are such documents too, their runs put on each reply's row
-  ([ADR 0165](adr/0165-native-claude-sessions-the-route.md), part 2g).
+  replies are such documents too, their runs put on each reply's row, over its code and
+  what is drawn as written ([ADR 0165](adr/0165-native-claude-sessions-the-route.md), part 2g).
 - A hosted agent session's state is read from its screen on `oso-sessions`
   (`crates/oso/src/sessions/`, glue in `app/sessions.rs`), never on the UI thread
   ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)). `sessions::screen::Evidence` is the last 40

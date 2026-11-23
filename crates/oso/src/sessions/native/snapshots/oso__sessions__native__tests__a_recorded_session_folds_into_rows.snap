@@ -9,13 +9,13 @@ expression: shown(&recorded())
 ▸ Bash echo hello
 ▸ Bash python3 -c 'print(1)' · denied: This command requires approval
 ∴ Thought for 369 ms
-● All four steps ran in order. Read `notes.txt`, replaced `apple` with `pear` via Edit, and `echo hello` printed `hello`. The `python3 -c 'print(1)'` command was denied: it requires approval.
+● All four steps ran in order. Read notes.txt, replaced apple with pear via Edit, and echo hello printed hello. The python3 -c 'print(1)' command was denied: it requires approval.
   4.0 s · $0.0023 · 1 denied
 
 › Use the Agent tool (subagent_type general-purpose) with the prompt 'Count the lines of notes.txt with the Read tool and answer with the number only.' Then tell me the number.
 ▸ Agent general-purpose · Count lines in notes.txt
   ▸ Read notes.txt · 3 lines
-● The subagent reports that `notes.txt` has **3** lines.
+● The subagent reports that notes.txt has 3 lines.
   4.7 s · $0.0050
 
 ── compacted · 20.2k → 3.9k tokens ──
@@ -23,5 +23,5 @@ expression: shown(&recorded())
 
 › In one sentence: what fruit is in notes.txt now? Think briefly first.
 ∴ Thought for 476 ms
-● The fruits in `notes.txt` are pear, banana, and cherry: the first line now reads "pear banana" and the second line is "cherry."
+● The fruits in notes.txt are pear, banana, and cherry: the first line now reads "pear banana" and the second line is "cherry."
   1.2 s · $0.0076

@@ -158,6 +158,7 @@ impl App {
                 }
             }
             NativeAction::Toggle
+            | NativeAction::CopyMarkdown
             | NativeAction::Prompt(_)
             | NativeAction::Tool(_)
             | NativeAction::Allow

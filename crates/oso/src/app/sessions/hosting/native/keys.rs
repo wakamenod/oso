@@ -1,7 +1,7 @@
 //! A native session's buffer's keys carried out (ADR 0165, ADR 0130's design): `TAB` folds the
 //! row at point, or the call of an open row of several that point is on, `RET` shows a call's
-//! whole result in `*result: NAME*`, and `n`/`p`, `]`/`[` move to the start of a prompt's row
-//! or a tool row. The composer's keys and the queue's (step 2) go to `composer` first: from
+//! whole result in `*result: NAME*`, `w` copies a reply's Markdown, and `n`/`p`, `]`/`[` move
+//! to the start of a prompt's row or a tool row. The composer's keys and the queue's (step 2) go to `composer` first: from
 //! the composer, for the session it is docked under; from the transcript, at point's line. A
 //! plan's edit's keys (part 3d) and a card's (step 2e-2) go to `permissions` first.
 //!
@@ -85,6 +85,7 @@ impl App {
         match action {
             NativeAction::Toggle => self.native_toggle(key, offset),
             NativeAction::Open => self.native_result(key, offset),
+            NativeAction::CopyMarkdown => self.native_copy(key, offset),
             NativeAction::Prompt(count) => self.native_move(key, offset, count, Wanted::Prompt),
             NativeAction::Tool(count) => self.native_move(key, offset, count, Wanted::Tools),
             // The composer's and the queue's, carried out above.
@@ -152,6 +153,21 @@ impl App {
             &text,
         );
         native.result_of = shown.then_some(id);
+    }
+
+    /// Copies the Markdown of the reply at `offset`, as it came, to the kill ring and the
+    /// clipboard, as `M-w` copies what is shown: only the person's key comes here.
+    fn native_copy(&mut self, key: SessionKey, offset: usize) {
+        let Some(native) = self.hosting.natives.map.get(&key) else {
+            return;
+        };
+        let row = (native.placed.row_at(offset)).and_then(|row| native.rows.rows().get(row));
+        let Some(text) = row.and_then(point::markdown) else {
+            return self.editor.message("No reply here");
+        };
+        let secret = (self.editor.buffer(native.buffer)).is_some_and(Buffer::is_secret);
+        self.editor.kill_new(text, secret);
+        self.editor.message("Copied the reply's Markdown");
     }
 
     /// Moves point `count` rows of `wanted` on from `offset`, back if negative.

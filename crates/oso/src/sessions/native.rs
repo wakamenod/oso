@@ -11,8 +11,8 @@
 //! - `rows`: the events folded into a session's rows, and what changed with each event.
 //! - `render`: a row as text and faces, folded or unfolded, as ADR 0130 has them, and
 //!   `placed`: where each row is in the buffer.
-//! - `point`: what the buffer's keys find at point: a row's call, the row a move goes to, and
-//!   a call's whole result.
+//! - `point`: what the buffer's keys find at point: a row's call, the row a move goes to, a
+//!   reply's Markdown and a call's whole result.
 //! - `turns`: what an event says of the session's state.
 //! - `card`: a permission card's text and an `AskUserQuestion`'s answers (step 2e-2).
 //! - `asks`: the permission requests of the sessions' bridges, from their coming to their
@@ -24,6 +24,7 @@
 //! - `control`: whether a session's CLI speaks the control layer, for which requests, and
 //!   which request an answer is to; `interrupt`: an interrupt from its request to its
 //!   fallback, a signal and a resume (step 2c).
+//! - `shown`: a reply's Markdown as it is drawn, its marks hidden, a line at a time.
 //! - `markdown`: which replies are highlighted as Markdown, and their runs on their row
 //!   (step 2, part 2g).
 //! - `status`: the status line, model, mode, context, cost and rate limit (part 3a); `usage`:
@@ -55,6 +56,7 @@ pub mod queue;
 pub mod recap;
 pub mod render;
 pub mod rows;
+pub mod shown;
 pub mod slash;
 pub mod status;
 pub mod suggest;

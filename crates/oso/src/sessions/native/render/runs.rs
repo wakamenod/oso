@@ -6,6 +6,7 @@
 use oso_core::syntax::Highlight;
 
 use super::{Face, Rendered};
+use crate::sessions::native::shown::Style;
 
 impl Face {
     /// The highlight the theme draws this face with.
@@ -19,6 +20,10 @@ impl Face {
             Self::Removed => Highlight::DiffRemoved,
             Self::Hunk => Highlight::DiffHunkHeader,
             Self::Error => Highlight::SessionAlert,
+            Self::Reply(Style::Heading) => Highlight::Heading,
+            Self::Reply(Style::Strong | Style::Mark) => Highlight::Markup,
+            Self::Reply(Style::Code) => Highlight::String,
+            Self::Reply(Style::Link) => Highlight::Link,
         }
     }
 }

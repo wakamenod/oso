@@ -726,7 +726,8 @@ Code asks its own trust question. A start with no brief starts at once, with the
 under the conversation selected for your first message; a session you end before writing one
 leaves nothing behind. In the session's buffer, `TAB` folds
 or unfolds the row at point, `RET` shows a tool call's whole result in `*result: NAME*`, which
-agents cannot read, `n` and `p` move between your messages, and `]` and `[` between tool rows.
+agents cannot read, `w` copies a reply as the Markdown Claude wrote, `n` and `p` move between your messages, and `]` and `[` between tool rows.
+Replies show without their Markdown's marks; `M-w` copies what shows.
 The `C-c` keys of a session's terminal work there too, except `C-c +` and `C-c -`.
 
 You write the next messages in the composer under the conversation, which agents cannot read.
