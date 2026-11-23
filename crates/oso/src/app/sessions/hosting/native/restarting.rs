@@ -46,11 +46,17 @@ const RESUMED: &str = "Resumed after oso-restart.";
 
 impl App {
     /// The native sessions whose `claude -p` runs and that were given a message: those a
-    /// restart ends and resumes.
+    /// restart ends and resumes. Not one oso is stopping already, or that the person is asked
+    /// whether to stop, or an orchestrator being replaced: their stop wins.
     fn natives_to_resume(&self) -> impl Iterator<Item = SessionKey> + '_ {
         (self.hosting.natives.map.iter())
             .filter(|(_, native)| native.stream.is_some() && native.spoke)
             .map(|(key, _)| *key)
+            .filter(|key| {
+                !self.watch.is_hung_up(*key)
+                    && !self.watch.stop_asked(*key)
+                    && !self.hosting.spaces.replacing.contains_key(key)
+            })
     }
 
     /// The instance going: ends each native session that runs and was given a message, as
@@ -100,6 +106,10 @@ impl App {
     /// The restart stays here: each of `ended`, which it ended, resumes in its buffer, under
     /// the trust judged now, or stays stopped, saying why.
     pub(in crate::app) fn resume_natives_ended(&mut self, ended: Vec<SessionKey>) {
+        // Nothing starts in an instance that is going.
+        if self.leaving.is_under_way() {
+            return;
+        }
         for key in ended {
             if !self.hosting.natives.has(key) {
                 continue;
@@ -171,23 +181,23 @@ impl App {
         }
     }
 
-    /// Resumes native session `key` as `resume` says, saying so in its transcript; refused,
-    /// it keeps the mode and choice it had.
+    /// Resumes native session `key` as `resume` says, saying so in its transcript. The mode,
+    /// model and effort carried are the session's whether it resumes or not, as they were
+    /// before the restart, and its next resume starts with them: a refusal names the mode.
     fn resume_native_carried(&mut self, key: SessionKey, resume: &NativeResume) {
-        let before = self.hosting.natives.map.get_mut(&key).map(|native| {
-            let mode = std::mem::replace(&mut native.mode, ModeState::restarted(resume.mode));
-            let choice = Choice::restarted(resume.model.as_deref(), resume.effort.as_deref());
-            (mode, std::mem::replace(&mut native.choice, choice))
-        });
+        if let Some(native) = self.hosting.natives.map.get_mut(&key) {
+            native.mode = ModeState::restarted(resume.mode);
+            native.choice = Choice::restarted(resume.model.as_deref(), resume.effort.as_deref());
+        }
         let said = match self.resume_hosted(key, false) {
             Ok(()) => RESUMED.to_owned(),
-            Err(why) => {
-                let native = self.hosting.natives.map.get_mut(&key);
-                if let (Some(native), Some((mode, choice))) = (native, before) {
-                    (native.mode, native.choice) = (mode, choice);
-                }
-                format!("It did not resume after oso-restart: {why}")
-            }
+            Err(why) => match resume.mode {
+                Some(mode) => format!(
+                    "It did not resume after oso-restart: {why}. Its next resume starts in {}.",
+                    mode.name()
+                ),
+                None => format!("It did not resume after oso-restart: {why}"),
+            },
         };
         self.native_note_row(key, &said);
     }

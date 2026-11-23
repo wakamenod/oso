@@ -155,6 +155,11 @@ impl App {
         let allowed = carry::exit_allowed(&self.editor, generation).and_then(|()| {
             if generation.is_some() {
                 self.refuse_unsent_queues()?;
+                // A session started during `oso-restart` would be killed part way, and its
+                // conversation is not the state's (ADR 0165, part 4c).
+                if self.restart_going() && self.native_runs_or_starts() {
+                    return Err("a session started during the restart".into());
+                }
                 self.exit_with_terminals()
             } else {
                 Ok(())

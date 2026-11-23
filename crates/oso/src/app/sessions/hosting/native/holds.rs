@@ -1,6 +1,8 @@
 //! What holds an `oso-restart` back of the native sessions (ADR 0165, part 4b): a session
 //! whose process is starting, that is being interrupted, that has a turn under way, or that
-//! asks the person (a permission, question or plan card). The restart waits for them, as an
+//! asks the person (a permission, question or plan card), or that oso is stopping, as the
+//! person or an orchestrator's replacement asked (part 4c: so that the restart neither
+//! resumes it nor starts its successor part way). The restart waits for them, as an
 //! exit that waits does for a turn (ADR 0133, step 5), and ends their processes only once
 //! they are idle. A stopped or failed session, with no process, holds nothing.
 //!
@@ -28,10 +30,12 @@ struct Doing {
     turn: bool,
     /// The sessions' worker found it working or asking the person (ADR 0133's busy).
     busy: bool,
+    /// oso hung it up, and its end has not come yet.
+    stopping: bool,
 }
 
 impl Doing {
-    fn of(native: &Native, busy: bool) -> Self {
+    fn of(native: &Native, busy: bool, stopping: bool) -> Self {
         let starting = native.state == NativeState::Starting;
         Self {
             live: native.stream.is_some() || starting,
@@ -39,12 +43,13 @@ impl Doing {
             interrupting: native.interrupt.interrupting(),
             turn: native.composing.busy,
             busy,
+            stopping,
         }
     }
 
     /// Whether it holds a restart back.
     fn holds(self) -> bool {
-        self.live && (self.starting || self.interrupting || self.turn || self.busy)
+        self.live && (self.starting || self.interrupting || self.turn || self.busy || self.stopping)
     }
 }
 
@@ -53,7 +58,9 @@ impl App {
     /// the look before each wait of the loop, while a restart waits. O(buffers + sessions).
     pub(in crate::app) fn natives_hold_restart(&self) -> bool {
         // A busy buffer runs (`Buffer::is_busy`), so it is a live session's.
-        (self.hosting.natives.map.values()).any(|native| Doing::of(native, false).holds())
+        let stopping = |key| self.watch.is_hung_up(key);
+        (self.hosting.natives.map.iter())
+            .any(|(key, native)| Doing::of(native, false, stopping(*key)).holds())
             || self.editor.busy_native_sessions().next().is_some()
     }
 
@@ -64,9 +71,12 @@ impl App {
             return Vec::new();
         }
         let busy: HashSet<BufferId> = self.editor.busy_native_sessions().collect();
-        let mut holding: Vec<BufferId> = (self.hosting.natives.map.values())
-            .filter(|native| Doing::of(native, busy.contains(&native.buffer)).holds())
-            .map(|native| native.buffer)
+        let mut holding: Vec<BufferId> = (self.hosting.natives.map.iter())
+            .filter(|(key, native)| {
+                let stopping = self.watch.is_hung_up(**key);
+                Doing::of(native, busy.contains(&native.buffer), stopping).holds()
+            })
+            .map(|(_, native)| native.buffer)
             .collect();
         // Ids are given in the order buffers are made.
         holding.sort_unstable();
@@ -84,6 +94,7 @@ mod tests {
         interrupting: false,
         turn: false,
         busy: false,
+        stopping: false,
     };
 
     #[test]
@@ -101,6 +112,11 @@ mod tests {
             Doing { turn: true, ..LIVE },
             // A card waits for the person: the worker finds it asking.
             Doing { busy: true, ..LIVE },
+            // Hung up, until it has ended (part 4c).
+            Doing {
+                stopping: true,
+                ..LIVE
+            },
         ];
         for doing in holding {
             assert!(doing.holds(), "{doing:?}");

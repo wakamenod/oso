@@ -232,6 +232,11 @@ impl App {
         let Some(ending) = &mut self.restart.ending else {
             return;
         };
+        // An instance that is going starts no restart, and resumes nothing.
+        if self.leaving.is_under_way() {
+            self.restart.ending = None;
+            return;
+        }
         ending.waiting.remove(&key);
         if !ending.waiting.is_empty() {
             return;
@@ -287,11 +292,15 @@ impl App {
     }
 
     /// The native sessions the state resumes in the new instance: those ended for this
-    /// restart, and those that run still, which the exit ends (`oso dev`'s order).
+    /// restart, or, under `oso dev`'s order, which ends none first, those that run still,
+    /// which the exit ends.
     pub(in crate::app) fn native_resumes(&self) -> Vec<NativeResume> {
         let mut resumes: Vec<NativeResume> = (self.restart.ended.iter())
             .map(|(_, resume)| resume.clone())
             .collect();
+        if self.restart.under_way {
+            return resumes;
+        }
         for running in self.running_native_resumes() {
             if resumes.iter().all(|resume| resume.id != running.id) {
                 resumes.push(running);

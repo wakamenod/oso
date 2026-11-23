@@ -1612,9 +1612,14 @@ the restart; Q4-10 (a), the resume is judged by part 4a's trust.
   Nothing resumes in the instance going while its restart goes on: `session-resume` says
   "oso-restart is under way" (the security review's finding: a resume then would be a second
   writer once the new instance resumed it too), and a session started meanwhile keeps the
-  restart here. One not ended within 10 s keeps the restart here; it is not resumed, and
-  says that `session-resume` resumes it.
-- **The state** (`carry/natives.rs`) names each session ended so, and under `oso dev`, whose
+  restart here, as does one that runs at the exit. One not ended within 10 s keeps the
+  restart here; it is not resumed, and says that `session-resume` resumes it. A session oso
+  is stopping already, at the person's word or for an orchestrator's successor (ADR 0136),
+  holds the restart's wait (part 4b) until it has ended, and is not resumed: the stop wins,
+  and a successor starts before the restart, not during it. Nor is one the person is asked
+  whether to stop. An instance that is going (its window closed meanwhile) resumes nothing
+  and starts no restart.
+- **The state** (`carry/natives.rs`) names each session ended so, or under `oso dev`, whose
   order ends none first, each that runs at the export, which the exit ends: its session id,
   and the permission mode its next process would have been given (part 3b's rules), its
   model and its effort level (part 3c). It is an optional field, `native_resumes`, at most 64
@@ -1642,7 +1647,9 @@ the restart; Q4-10 (a), the resume is judged by part 4a's trust.
   the project decides; else the record of trusted projects, by path and identity); its start
   waits for the configuration's first look (ADR 0173); and the start thread refuses a
   conversation live elsewhere, by Claude Code's registry. A refusal leaves it stopped, its
-  row saying why, with the mode, model and effort it had. Only a stopped session is resumed,
+  row saying why. The mode, model and effort carried are its own either way, as they were in
+  the instance before, and its next resume starts with them: the refusal's row names the
+  mode. Only a stopped session is resumed,
   and one the person or an agent resumed meanwhile is not resumed again. Its next process
   starts in the mode carried, taken as the person's choice,
   so that a mode that asks less is not carried from what its stream says later, and with the
