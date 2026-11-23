@@ -85,15 +85,17 @@ pub struct Hosted {
     /// permission for its calls (ADR 0165, step 2), at most one. A connection of that socket,
     /// never of the agent channel's, whose numbers it may share.
     pub permission_bridge: Option<Connection>,
-    /// Whether it came over `oso dev`'s restart: its `claude` is no longer oso's child, so its
-    /// id could be another's once it ends (ADR 0120, step 11).
+    /// Whether its running `claude` came over a restart, `oso dev`'s or `oso-restart`'s: it is
+    /// no longer oso's child, so its id could be another's once it ends (ADR 0120, step 11).
+    /// Until [`Hosted::started_here`]: a `claude` started in this instance is oso's own.
     pub carried: bool,
     /// The name its running `claude` was given with `--name`, once a rename changed the
     /// record's since it started (ADR 0155): what Claude Code knows it by until its next start
     /// or resume, where the registry does not say. `None`: the record's name.
     pub launched_as: Option<String>,
-    /// When that `claude` started, as the instance before read it: a bridge's parent must
-    /// have started then too, and with no start known, no bridge is believed unasked.
+    /// While `carried`, when that `claude` started, as the instance before read it: a bridge's
+    /// parent must have started then too, and with no start known, no bridge is believed
+    /// unasked.
     pub started: Option<std::time::SystemTime>,
     /// Its TUI's `claude` (ADR 0165, part 4d-2), from its start until its end is seen reaped,
     /// or a native resume saw it gone: a native resume of the session waits for it first.
@@ -133,6 +135,15 @@ impl Hosted {
     /// Whether its `claude` runs, or is being started.
     pub fn runs(&self) -> bool {
         matches!(self.run, Run::Starting | Run::Running { .. })
+    }
+
+    /// Its start thread started its `claude` in this instance, as `child`: oso's own child,
+    /// so whatever came over a restart (`carried`, `started`) no longer says anything of it,
+    /// and its bridges are judged as any started here are.
+    pub fn started_here(&mut self, child: Option<u32>) {
+        self.run = Run::Running { child };
+        self.carried = false;
+        self.started = None;
     }
 }
 
@@ -619,6 +630,66 @@ mod tests {
         assert!(table.admit(second, &peer, Some(&id), None).is_some());
         assert_eq!(table.ended(key, Some(0), 2), Some(Exit::Stopped));
         assert!(table.by_connection(second).is_none());
+    }
+
+    /// A session carried over a restart, whose `claude` oso starts again in this instance (a
+    /// TUI switched to native, or resumed), takes its new child's bridge unasked: what the
+    /// carried `claude` started at says nothing of it (ADR 0165, part 4d-2).
+    #[test]
+    fn a_carried_sessions_new_claude_is_judged_as_one_started_here() {
+        use super::PermissionClaim;
+        let mut table = Table::default();
+        let key = add(&mut table, 1, "/p", "p");
+        let id = table.get(key).unwrap().id.clone();
+        let carried_at = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(100);
+        let session = table.get_mut(key).unwrap();
+        session.run = Run::Running { child: Some(77) };
+        session.carried = true;
+        session.started = Some(carried_at);
+        let peer = |parent| Peer {
+            process: Some(PeerProcess::new(9, Some("oso"))),
+            parent: Some(PeerProcess::new(parent, Some("claude"))),
+            runs_this_program: true,
+        };
+        let connection = |number| Connection { run: 1, number };
+        // The carried `claude`'s bridge: only with its start.
+        let later = carried_at + std::time::Duration::from_secs(5);
+        assert!(
+            (table.admit(connection(1), &peer(77), Some(&id), Some(later))).is_none(),
+            "another start"
+        );
+        assert!((table.admit(connection(1), &peer(77), Some(&id), Some(carried_at))).is_some());
+        table.bridge_gone(connection(1));
+        // It ended; the switch starts `claude -p` here, which asks on the sessions' socket.
+        assert_eq!(table.ended(key, Some(0), 2), Some(Exit::Stopped));
+        let session = table.get_mut(key).unwrap();
+        session.native = true;
+        session.started_here(Some(88));
+        let claim =
+            table.answer_permission_claim(connection(2), &peer(88), Some(&id), Some(later), |_| {
+                true
+            });
+        assert_eq!(claim, PermissionClaim::Holds(key));
+        let session = table.get(key).unwrap();
+        assert!(!session.carried && session.started.is_none());
+        // The carried `claude`'s id is no longer believed, with its start or with none; the
+        // new child's is, with no start known.
+        table.permission_bridge_gone(connection(2));
+        for started in [Some(carried_at), None] {
+            let claim =
+                table.answer_permission_claim(connection(3), &peer(77), Some(&id), started, |_| {
+                    true
+                });
+            assert_eq!(claim, PermissionClaim::No, "{started:?}");
+            assert!(
+                table
+                    .admit(connection(3), &peer(77), Some(&id), started)
+                    .is_none()
+            );
+        }
+        let claim =
+            table.answer_permission_claim(connection(4), &peer(88), Some(&id), None, |_| true);
+        assert_eq!(claim, PermissionClaim::Holds(key));
     }
 
     /// A running native session's bridge asks on the sessions' socket beside its connection to

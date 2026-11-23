@@ -1814,7 +1814,10 @@ of "One session, and the TUI as a hand-off" (Q3).
   process with the id started when it did (a process id is reused only once reaped, and two
   reads of a start time agree, within a second on Linux; on macOS a change of the wall clock
   moves neither; with no start time known, any process with the id counts). A TUI carried
-  over an `oso-restart` is waited for by the id and start the restart carried. Past the bound the
+  over an `oso-restart` is waited for by the id and start the restart carried; it is judged
+  carried (ADR 0120, step 11) only while that `claude` runs: the native `claude -p` the switch
+  starts, as any started in the new instance, is oso's own child, whose bridges are let in as
+  any such child's (`Hosted::started_here`). Past the bound the
   resume is refused, saying why, the session stays stopped, and its next native resume waits
   again; meanwhile, as any start does, it holds `oso-restart` and an exit that waits (part
   4b), up to those 10 s. The record says native only once the native process started, so a
@@ -1853,10 +1856,13 @@ of "One session, and the TUI as a hand-off" (Q3).
   counts the TUI exits at its start), the transcript taken back and answering; the same TUI
   stopped with `k` first, shown stopped a second before it ends, then switched; its buffer
   killed while it ends, which starts nothing and archives the session; and a TUI the hand-off
-  started that exits 0 of itself.
+  started that exits 0 of itself. `sessions::native::carried`: a TUI carried over
+  `oso-restart`, switched, whose `claude -p` asks the person through its bridge and gets a
+  card (its claim was refused before `Hosted::started_here`, so every call was denied).
 - **Not done:** app-level tests of a switch given up by a stop asked or a restart asked, and
   of trust taken back while the TUI ends, as the app has no harness of its own beside the
-  end-to-end flows.
+  end-to-end flows; and an end-to-end flow of a carried TUI resumed as a TUI, whose channel
+  bridge `Hosted::started_here` lets in unasked too (the table's test covers the rule).
 
 ### Part 4e: native is the default
 
