@@ -163,6 +163,10 @@ pub struct NativeOrder {
     /// The permission mode it starts in, `--permission-mode` (ADR 0165, part 3b): the mode a
     /// resumed session was in or was switched to; `None` for the person's settings' own.
     pub permission_mode: Option<crate::channel::protocol::mode::PermissionMode>,
+    /// The model and effort level it starts with, `--model` and `--effort` (part 3c): what the
+    /// person chose with `/model` and `/effort` in a process before; `None` for the settings'.
+    pub model: Option<String>,
+    pub effort: Option<&'static str>,
 }
 
 /// The terminal a session runs in, as the app gives it.
@@ -477,6 +481,10 @@ fn launch_of(
         },
     )
     .map_err(|e| format!("The session did not start: {e}"))?;
+    let native = match &order.runs {
+        Runs::Native(native) => Some(native),
+        Runs::Terminal(_) => None,
+    };
     let line = Line {
         start,
         name: &order.name,
@@ -487,10 +495,9 @@ fn launch_of(
         settings: settings.as_deref(),
         add_dirs: &extra.add_dirs,
         native: order.runs.native(),
-        permission_mode: match &order.runs {
-            Runs::Native(native) => native.permission_mode,
-            Runs::Terminal(_) => None,
-        },
+        permission_mode: native.and_then(|native| native.permission_mode),
+        model: native.and_then(|native| native.model.as_deref()),
+        effort: native.and_then(|native| native.effort),
     };
     let args = command::arguments(&line).map_err(|e| format!("The session did not start: {e}"))?;
     launch::launch(shell, claude.as_ref(), args, order.project.as_deref())

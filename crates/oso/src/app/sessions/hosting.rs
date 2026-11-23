@@ -1,8 +1,9 @@
 //! Hosted sessions in the app (ADR 0121): starting, resuming and forking them at the person's
 //! command, or at an agent's tool's (ADR 0153), the start thread's reports and the remembered
 //! set; `bridge`: the connections that hold a session; `naming`: a rename the person was asked
-//! about, and what Claude Code's registry calls oso's running sessions (ADR 0155). The work that touches files and processes is on the start thread and the
-//! sessions worker; this only decides and carries out.
+//! about, and what Claude Code's registry calls oso's running sessions (ADR 0155); `shared`:
+//! the questions asked where another session runs. The work that touches files and processes
+//! is on the start thread and the sessions worker; this only decides and carries out.
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 
@@ -33,6 +34,7 @@ mod naming;
 mod native;
 mod record;
 mod resume;
+mod shared;
 mod terminal;
 mod trust;
 pub(in crate::app) use terminal::buffer_name;
@@ -76,8 +78,8 @@ pub(in crate::app) struct Hosting {
     /// How sessions being started by an agent's tool start, with the brief of one that starts
     /// without asking (ADR 0135).
     origins: HashMap<SessionKey, (Origin, Option<Arc<str>>)>,
-    /// A start the person was asked about, as another session runs in its directory.
-    shared: Option<Begin>,
+    /// The questions asked as another session runs in a start's directory (ADR 0121).
+    shared: shared::Shared,
     /// Worktree sessions: briefs, the jobs, `*Worktrees*` and a removal (ADR 0121 step 4).
     pub(in crate::app) worktrees: super::worktrees::Worktrees,
     /// The trust each session started under, for its agent's worktree tools (step 6), until
@@ -131,7 +133,7 @@ impl Hosting {
             explain: None,
             parents: HashMap::new(),
             origins: HashMap::new(),
-            shared: None,
+            shared: shared::Shared::default(),
             worktrees: super::worktrees::Worktrees::default(),
             trusts: HashMap::new(),
             tools: super::tools::Tools::default(),
@@ -240,7 +242,9 @@ impl App {
     /// starts under, unless it was refused at once or waits for the person's answer.
     fn begin_in(&mut self, begin: Begin, directory: PathBuf) -> Option<SessionKey> {
         if begin.check_shared && self.hosting.table.runs_in(&directory) {
-            self.ask_shared(begin);
+            // Where the person was when they pressed the key, though they answer elsewhere.
+            let directory = Some(directory);
+            self.ask_shared(Begin { directory, ..begin });
             return None;
         }
         let project = self.project_at_root(&directory);
@@ -257,7 +261,12 @@ impl App {
             self.hosting.origins.insert(key, (begin.origin, brief));
         }
         if begin.check_shared {
-            self.hosting.shared = Some(begin.clone());
+            let directory = Some(directory.clone());
+            let asked = Begin {
+                directory,
+                ..begin.clone()
+            };
+            self.hosting.shared.under_way(key, asked);
         }
         self.turn_agent_channel_on_for_a_session();
         // An agent's tool's start stays behind what the person is doing (ADR 0144).
@@ -335,34 +344,6 @@ impl App {
         })
     }
 
-    /// Asks before `begin` starts a session where another live one runs (ADR 0121).
-    fn ask_shared(&mut self, begin: Begin) {
-        self.hosting.shared = Some(begin);
-        let worktree = self.dispatcher.where_is(&self.editor, "session-worktree");
-        let question = format!(
-            "Another session runs in this directory. A worktree keeps their changes apart \
-             ({worktree}). Start here anyway?"
-        );
-        if let Err(e) = self.editor.ask(&question, "session-start-shared") {
-            self.hosting.shared = None;
-            self.editor.message(e.to_string());
-        }
-    }
-
-    /// The person's `y` to starting where another session runs.
-    pub(in crate::app) fn start_shared(&mut self) {
-        match self.hosting.shared.take() {
-            Some(begin) => {
-                let begin = Begin {
-                    check_shared: false,
-                    ..begin
-                };
-                self.begin_session(begin, Then::Nothing);
-            }
-            None => self.editor.message("No session waits to start"),
-        }
-    }
-
     /// What a session's start thread found.
     pub(in crate::app) fn session_start_reported(&mut self, report: Report) {
         if let Report::Ready(ready) = &report {
@@ -373,6 +354,7 @@ impl App {
         match report {
             Report::Ready(ready) => {
                 let key = ready.token;
+                self.hosting.shared.take_under_way(key);
                 self.session_ready(*ready);
                 if let Some(adopted) = self.take_adoption(key)
                     && self.hosting.table.get(key).is_some()
@@ -412,7 +394,7 @@ impl App {
                 self.session_not_started(token);
                 self.hosting.parents.remove(&token);
                 self.hosting.origins.remove(&token);
-                if let Some(begin) = self.hosting.shared.take() {
+                if let Some(begin) = self.hosting.shared.take_under_way(token) {
                     self.ask_shared(begin);
                 }
             }
@@ -503,6 +485,7 @@ impl App {
     /// The agent channel goes off again if this start turned it on and nothing else needs it.
     fn session_not_started(&mut self, token: SessionKey) {
         self.forget_agent_resume(token);
+        self.hosting.shared.take_under_way(token);
         if self.hosting.natives.has(token) {
             self.session_native_not_started(token);
         } else {

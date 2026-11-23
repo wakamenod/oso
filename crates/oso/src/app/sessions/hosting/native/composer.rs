@@ -28,8 +28,9 @@ use super::note::NativeState;
 use crate::app::App;
 use crate::app::sessions::withheld_draft;
 use crate::sessions::native::queue::{MAX_MESSAGE, Queue, Refusal, Run, Sent, Turn};
+use crate::sessions::state::Target;
 use crate::sessions::stream::NotSent;
-use crate::sessions::worker::SessionKey;
+use crate::sessions::worker::{Job, SessionKey};
 
 /// The most messages the composer's history keeps.
 const MAX_HISTORY: usize = 100;
@@ -278,7 +279,14 @@ impl App {
                 } else {
                     native.rows.sent(text);
                 }
+                // A `/model` or `/effort` is noted once its turn's result says it was taken.
+                native.choice.sent(&native.commands, text);
                 native.composing.busy = true;
+                // So that an exit asks about it at once, before the stream replays it (ADR
+                // 0133); a local command's result ends it again.
+                if let Some(worker) = &self.sessions {
+                    worker.send(Job::Stream(key, Target::Working));
+                }
                 native.spoke = true;
                 // Drawn away by the queue's drawing that follows each send.
                 native.composing.suggestion = None;

@@ -10,6 +10,12 @@
 //!   only when the selected composer's session, or its list, changed: not per event.
 //! - A row says each command's argument hint and description in its annotation, and marks a
 //!   command that is not the CLI's own: a project's skill may take a built-in's name.
+//! - `/model`'s and `/effort`'s arguments are listed the same way (part 3c): the models the
+//!   session's `initialize` listed, each with its name and description, and the effort levels
+//!   of the model chosen, else shown, else the five `--effort` takes. The models' rows are made
+//!   again when the session or its list changed, the levels' also when the model they are of
+//!   did; which model that is is looked for after each event, over at most 64, with no
+//!   allocation.
 
 use std::sync::Arc;
 
@@ -18,10 +24,12 @@ use oso_core::complete::Candidate;
 
 use super::Native;
 use crate::app::App;
-use crate::commands::agent_sessions::SLASH_LIST;
+use crate::commands::agent_sessions::{EFFORT_LIST, MODEL_LIST, SLASH_LIST};
+use crate::sessions::native::choice::{EFFORTS, effort_source};
 use crate::sessions::native::rows::RowChange;
 use crate::sessions::native::wire::Event;
 use crate::sessions::native::wire::slash::SlashCommand;
+use crate::sessions::native::wire::status_line::Model;
 use crate::sessions::worker::SessionKey;
 
 /// Notes what `event` of a native session's `system/init` lists of its slash commands, and
@@ -56,6 +64,32 @@ pub(super) fn commands_event(native: &mut Native, event: &mut Event) -> Option<R
 const MOVED: &str = "Claude Code moved this conversation to a new session id, which oso does not \
 follow: a resume would reach the conversation before, so it does not resume.";
 
+/// What the composer's completion lists were last made of: whose, and which version of its
+/// commands and models, and which model's effort levels (`None` for the five).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct Listed {
+    key: SessionKey,
+    commands: u64,
+    models: u64,
+    efforts: Option<usize>,
+}
+
+/// The completion rows of `native`'s commands at `version`, made once a version.
+fn slash_rows(native: &mut Native, version: u64) -> Arc<[Candidate]> {
+    match &native.slash_rows {
+        Some((made, items)) if *made == version => Arc::clone(items),
+        _ => {
+            // Names alone say nothing of whose a command is.
+            let marked = native.commands.says_whose();
+            let items: Arc<[Candidate]> = (native.commands.offered())
+                .map(|c| row(c, marked))
+                .collect();
+            native.slash_rows = Some((version, Arc::clone(&items)));
+            items
+        }
+    }
+}
+
 /// The completion row of `command`.
 fn row(command: &SlashCommand, marked: bool) -> Candidate {
     let mut said = String::new();
@@ -71,8 +105,10 @@ fn row(command: &SlashCommand, marked: bool) -> Candidate {
 }
 
 impl App {
-    /// After each event: the slash commands `native-composer-command` completes over are the
-    /// selected composer's session's, given again when that session or its list changed.
+    /// After each event: the slash commands `native-composer-command` completes over, and the
+    /// models and effort levels of `native-composer-model` and `native-composer-effort`
+    /// (part 3c), are the selected composer's session's, given again when that session or what
+    /// they are made of changed.
     pub(super) fn sync_slash_commands(&mut self) {
         let selected = self.editor.window().buffer();
         let composer = self.editor.buffer(selected).map(|b| b.mode()) == Some(Mode::Composer);
@@ -82,24 +118,42 @@ impl App {
         let Some(native) = self.hosting.natives.map.get_mut(&key) else {
             return;
         };
-        let version = native.commands.version();
-        if self.hosting.natives.slash_listed == Some((key, version)) {
+        let (models, listed) = native.status.line.models();
+        let chosen = native.choice.model();
+        let efforts = effort_source(models, chosen, native.status.line.model());
+        let now = Listed {
+            key,
+            commands: native.commands.version(),
+            models: listed,
+            efforts,
+        };
+        let was = self.hosting.natives.slash_listed.replace(now);
+        if was == Some(now) {
             return;
         }
-        let items = match &native.slash_rows {
-            Some((made, items)) if *made == version => Arc::clone(items),
-            _ => {
-                // Names alone say nothing of whose a command is.
-                let marked = native.commands.says_whose();
-                let items: Arc<[Candidate]> = (native.commands.offered())
-                    .map(|c| row(c, marked))
-                    .collect();
-                native.slash_rows = Some((version, Arc::clone(&items)));
-                items
-            }
-        };
-        self.editor.set_listed(SLASH_LIST, items);
-        self.hosting.natives.slash_listed = Some((key, version));
+        if was.is_none_or(|was| (was.key, was.commands) != (key, now.commands)) {
+            let items = slash_rows(native, now.commands);
+            self.editor.set_listed(SLASH_LIST, items);
+        }
+        let models = native.status.line.models().0;
+        if was.is_none_or(|was| (was.key, was.models) != (key, listed)) {
+            let row = |model: &Model| {
+                let said = format!("{}  {}", model.display, model.description);
+                Candidate::new(model.value.as_str(), "", said)
+            };
+            self.editor
+                .set_listed(MODEL_LIST, models.iter().map(row).collect());
+        }
+        if was.is_none_or(|was| (was.key, was.models, was.efforts) != (key, listed, efforts)) {
+            let levels = efforts.and_then(|at| models[at].efforts.as_deref());
+            let levels: Arc<[Candidate]> = match levels {
+                Some(levels) => (levels.iter())
+                    .map(|l| Candidate::new(l.as_str(), "", ""))
+                    .collect(),
+                None => EFFORTS.iter().map(|l| Candidate::new(*l, "", "")).collect(),
+            };
+            self.editor.set_listed(EFFORT_LIST, levels);
+        }
     }
 
     /// Puts `text`, a first message that would clear the conversation, in native session

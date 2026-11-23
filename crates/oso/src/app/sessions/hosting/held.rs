@@ -30,6 +30,7 @@ impl App {
     /// nothing if its session was forgotten meanwhile, and refused if its buffer was killed.
     fn order_held_session(&mut self, mut order: Order) {
         if !self.hosting.starting.contains_key(&order.token) {
+            self.hosting.shared.take_under_way(order.token);
             return;
         }
         let buffer = match &order.runs {

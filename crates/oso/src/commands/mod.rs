@@ -458,6 +458,8 @@ mod tests {
         "native-plan-confirmed",
         "native-composer-cancel",
         "native-composer-command",
+        "native-composer-effort",
+        "native-composer-model",
         "native-composer-next",
         "native-composer-previous",
         "native-composer-send",

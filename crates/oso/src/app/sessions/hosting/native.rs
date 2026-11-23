@@ -18,7 +18,8 @@
 //!   archived or forgotten, `end`'s; its interrupt, `interrupting`'s (step 2c); its slash
 //!   commands, `slash`'s (step 2d); its replies' Markdown highlighting, once each is whole,
 //!   `markdown`'s (part 2g); its status line, `status`'s (part 3a); its permission mode,
-//!   `mode`'s (part 3b); its to-do strip, `todo`'s (part 3e).
+//!   `mode`'s (part 3b); its `/model` and `/effort` completion, `slash`'s (part 3c); its
+//!   to-do strip, `todo`'s (part 3e).
 //! - Its prompt suggestion is `suggesting`'s, and the recap of a turn that ended out of sight
 //!   `recap`'s (part 3f).
 //! - Its bridge asks the person's permission for its calls on the sessions' socket, in
@@ -59,6 +60,7 @@ use crate::app::{App, UserEvent};
 use crate::git::TrustedRoot;
 use crate::sessions::hosted::Run;
 use crate::sessions::identity::Origin;
+use crate::sessions::native::choice::Choice;
 use crate::sessions::native::control::Control;
 use crate::sessions::native::interrupt::Interrupt;
 use crate::sessions::native::mode::ModeState;
@@ -83,8 +85,8 @@ pub(in crate::app) struct NativeSessions {
     /// The sessions' socket and the permission questions asked on it (ADR 0165, step 2).
     permissions: permissions::Permissions,
     /// Whose slash commands, at which version, `native-composer-command` completes over
-    /// (step 2d).
-    slash_listed: Option<(SessionKey, u64)>,
+    /// (step 2d), and its models and effort levels (part 3c).
+    slash_listed: Option<slash::Listed>,
     /// The replies highlighted as Markdown that wait or are open (part 2g).
     replies: markdown::Replies,
 }
@@ -135,8 +137,10 @@ struct Native {
     todo: todo::TodoStrip,
     /// Its last turn ended out of the person's sight, and no recap said so yet (part 3f).
     unseen: bool,
-    /// Its permission mode, as the CLI says it, and the person's switch of it (part 3b).
+    /// Its permission mode, as the CLI says it, and the person's switch of it (part 3b), and
+    /// the model and effort level the person chose (part 3c).
     mode: ModeState,
+    choice: Choice,
 }
 
 impl NativeSessions {
@@ -150,9 +154,9 @@ impl NativeSessions {
         self.map.get(&key).is_some_and(|native| native.moved)
     }
 
-    /// The permission mode state a fork of native session `key` starts with (part 3b).
-    pub(in crate::app) fn forked_mode(&self, key: SessionKey) -> Option<ModeState> {
-        Some(self.map.get(&key)?.mode.forked())
+    /// What a fork of native session `key` starts with (parts 3b and 3c).
+    pub(super) fn forked(&self, key: SessionKey) -> Option<resume::Forked> {
+        self.map.get(&key).map(resume::Forked::of)
     }
 
     /// The process id of session `key`'s `claude`, while it runs and is not reaped.
@@ -248,10 +252,14 @@ impl App {
             native.commands.new_process();
             native.cli_id = None;
             native.status.new_process();
+            native.choice.new_process();
         }
-        // The mode it was in, as `--resume` keeps none (part 3b).
-        let permission_mode =
-            (self.hosting.natives.map.get_mut(&key)).and_then(|native| native.mode.for_start());
+        // The mode it was in, as `--resume` keeps none (part 3b), and the model and effort
+        // chosen (part 3c).
+        let native = self.hosting.natives.map.get_mut(&key);
+        let (permission_mode, (model, effort)) = native.map_or((None, (None, None)), |native| {
+            (native.mode.for_start(), native.choice.for_start())
+        });
         let waker = self.waker.clone();
         NativeOrder {
             buffer,
@@ -262,6 +270,8 @@ impl App {
                 waker.send(UserEvent::NativeSession(key, out));
             }),
             permission_mode,
+            model,
+            effort,
         }
     }
 
@@ -316,6 +326,7 @@ impl App {
             moved: false,
             status: status::StatusState::default(),
             mode: ModeState::default(),
+            choice: Choice::default(),
             todo: todo::TodoStrip::default(),
         };
         self.hosting.natives.map.insert(key, native);

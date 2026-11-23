@@ -249,6 +249,10 @@ pub struct TurnResult {
     pub session_id: String,
     /// Each model's context window, in tokens, as `modelUsage` gives them (part 3a).
     pub windows: Vec<(String, u64)>,
+    /// The local command whose turn it ends, such as `model` or `effort`, cut to
+    /// [`MAX_NAME`], and the start of its reply, its first line cut to [`MAX_NAME`] (part 3c).
+    pub local_command: Option<String>,
+    pub reply: String,
 }
 
 /// What `rate_limit_event` says.

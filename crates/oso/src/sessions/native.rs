@@ -34,9 +34,12 @@
 //!   to its fallback, a resume in the new mode (part 3b).
 //! - `todo`: the session's to-do list from its to-do tools' results, and the strip that
 //!   shows it (step 3, part 3e).
+//! - `choice`: the model and effort level the person chose with `/model` and `/effort`, once
+//!   the CLI says it took them (part 3c).
 
 pub mod asks;
 pub mod card;
+pub mod choice;
 pub mod control;
 pub mod interrupt;
 pub mod markdown;

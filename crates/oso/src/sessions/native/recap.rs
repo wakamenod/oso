@@ -119,6 +119,8 @@ mod tests {
             denials: 0,
             session_id: String::new(),
             windows: Vec::new(),
+            local_command: None,
+            reply: String::new(),
         })
     }
 

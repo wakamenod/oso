@@ -8,7 +8,7 @@ use serde_json::{Map, Value};
 use super::tools::decode;
 use super::{
     Assistant, Block, BlockKind, Hunk, MAX_DIFF_BYTES, MAX_DIFF_LINES, MAX_TEXT, PartKind, Partial,
-    RateLimit, ToolResult, TurnResult, User, capped, string, text,
+    RateLimit, ToolResult, TurnResult, User, capped, name, string, text,
 };
 
 pub(super) fn partial(object: &Map<String, Value>) -> Option<Partial> {
@@ -313,6 +313,12 @@ pub(super) fn result(object: &Map<String, Value>) -> TurnResult {
             .map_or(0, Vec::len),
         session_id: string(object, "session_id"),
         windows: windows(object.get("modelUsage")),
+        local_command: Some(string(object, "local_command")).filter(|name| !name.is_empty()),
+        // Cut first, so that a reply with no newline is not read to its end.
+        reply: (object.get("result").and_then(Value::as_str))
+            .map(name)
+            .and_then(|reply| reply.lines().next().map(str::to_owned))
+            .unwrap_or_default(),
     }
 }
 

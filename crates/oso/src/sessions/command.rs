@@ -93,6 +93,10 @@ pub struct Line<'a> {
     /// `--permission-mode`, a native session's mode once it ran (part 3b); never a
     /// terminal's.
     pub permission_mode: Option<PermissionMode>,
+    /// `--model` and `--effort`, what the person chose in a native session with `/model` and
+    /// `/effort` once the CLI took it (part 3c); never a terminal's.
+    pub model: Option<&'a str>,
+    pub effort: Option<&'a str>,
 }
 
 /// Why a command line cannot be built.
@@ -171,6 +175,13 @@ pub fn arguments(line: &Line<'_>) -> Result<Vec<OsString>, LineError> {
         if let Some(mode) = line.permission_mode {
             args.push(format!("--permission-mode={}", mode.name()).into());
         }
+        // One argument each, `=` joined, as the values are the person's.
+        if let Some(model) = line.model {
+            args.push(format!("--model={model}").into());
+        }
+        if let Some(effort) = line.effort {
+            args.push(format!("--effort={effort}").into());
+        }
     }
     if let Some(settings) = line.settings {
         args.push(format!("--settings={settings}").into());
@@ -209,6 +220,8 @@ mod tests {
             add_dirs: &[],
             native: false,
             permission_mode: None,
+            model: None,
+            effort: None,
         }
     }
 
@@ -348,6 +361,8 @@ mod tests {
             add_dirs: &dirs,
             native: false,
             permission_mode: None,
+            model: None,
+            effort: None,
         };
         let args = arguments(&line).unwrap();
         let at = |text: &str| {
@@ -408,6 +423,25 @@ mod tests {
             modes(true, Some(PermissionMode::AcceptEdits)),
             ["--permission-mode=acceptEdits"]
         );
+        // The model and effort chosen go beside it, a native line's alone (part 3c).
+        let chosen = |native: bool| {
+            let line = Line {
+                native,
+                model: Some("claude-opus-5-5[1m]"),
+                effort: Some("high"),
+                ..line(Start::Resume { id: &a })
+            };
+            let args = strings(&arguments(&line).unwrap());
+            (args.iter())
+                .filter(|arg| arg.starts_with("--model") || arg.starts_with("--effort"))
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            chosen(true),
+            ["--model=claude-opus-5-5[1m]", "--effort=high"]
+        );
+        assert!(chosen(false).is_empty());
         assert_eq!(
             modes(true, Some(PermissionMode::Auto)),
             ["--permission-mode=auto"]

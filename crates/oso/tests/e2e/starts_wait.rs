@@ -1,7 +1,8 @@
 //! Starts that wait for the configuration's first look (ADR 0173): a session and a terminal
 //! started before the configuration's thread has read the file run with `[sessions]` and
 //! `[terminal]` as the file has them once it has, and with the built-in settings once the wait
-//! runs out. A dev build's `OSO_DEV_CONFIG_DELAY_MS` holds the first look back.
+//! runs out; and several released together ask about a shared directory one at a time. A dev
+//! build's `OSO_DEV_CONFIG_DELAY_MS` holds the first look back.
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test: the queue and
 //! its deadline have their own tests.
@@ -203,4 +204,65 @@ fn a_look_that_never_comes_holds_a_start_five_seconds_at_most() {
         flow.written("shell.").is_empty(),
         "the configured shell ran before the look"
     );
+}
+
+/// The hosted sessions `state` lists.
+fn sessions(state: &Value) -> usize {
+    state["sessions"]["sessions"].as_array().map_or(0, Vec::len)
+}
+
+/// The open prompts' questions in `state`, the outermost first.
+fn questions(state: &Value) -> Vec<String> {
+    state["prompts"]
+        .as_array()
+        .map(|prompts| {
+            prompts
+                .iter()
+                .map(|prompt| prompt["prompt"].as_str().unwrap_or_default().to_owned())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Whether `state` shows the shared-directory question alone.
+fn asked_alone(state: &Value) -> bool {
+    let asked = questions(state);
+    asked.len() == 1 && asked[0].starts_with("Another session runs in this directory.")
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn starts_released_together_ask_about_a_shared_directory_one_at_a_time() {
+    let flow = Flow::new("starts-wait-shared");
+    let mut app = flow.start("3000");
+    // Four presses before the look, all in the project: once it comes, the first starts and
+    // each of the others would ask.
+    for _ in 0..4 {
+        app.run_command("claude", None).unwrap();
+    }
+    app.wait_for("the first session and one question", |state| {
+        sessions(state) == 1 && asked_alone(state)
+    });
+    // The others wait their turn: nothing is asked over the second.
+    thread::sleep(Duration::from_millis(500));
+    let state = app.state();
+    assert!(asked_alone(&state), "{:?}", questions(&state));
+    // `y` starts the second, and then the third is asked.
+    app.send_keys("y");
+    app.wait_for("the second session and the third's question", |state| {
+        sessions(state) == 2 && asked_alone(state)
+    });
+    // `n` drops it and the fourth, which waits for the same directory: nothing more is asked
+    // or started.
+    app.send_keys("n");
+    app.wait_for("no question", |state| questions(state).is_empty());
+    thread::sleep(Duration::from_millis(500));
+    let state = app.state();
+    assert_eq!(sessions(&state), 2, "{state}");
+    assert!(questions(&state).is_empty(), "{:?}", questions(&state));
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while flow.written("run.").len() < 2 {
+        assert!(Instant::now() < deadline, "{:?}", flow.written("run."));
+        thread::sleep(Duration::from_millis(100));
+    }
 }

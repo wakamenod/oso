@@ -667,6 +667,21 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   `get_usage`'s cost and two windows; it answers no request of the CLI's. `SIGINT` goes to the session's
   process alone, never its group, and only on Unix: on Windows it would end the process at
   once and leave its tools running.
+- A native session's model and effort level (ADR 0165, part 3c) go on a later process's
+  command line, `--model=` and `--effort=`, one argument each, only from the person's own
+  `/model` or `/effort`, sent from the composer, and only once the `result` that ends that
+  command's turn names it, is no error, and its reply says the CLI set it. What a stream line
+  says alone notes nothing: the model or level is the one the person sent, a model one word of
+  ASCII letters, digits and `._:/@[]-` that does not start with `-`, a level one of the five
+  `--effort` takes; an effort's reply must name the level asked. A forged `result` can at most
+  note what the person asked, though it can do so where the CLI refused or capped it: a model
+  or level the person's settings would not take on `/model` or `/effort` then goes on the
+  command line, where whether the CLI holds it to those settings is not measured. The person's
+  own command includes text an agent put in the composer (part 2f escapes only the start of
+  what it puts) that the person then sent. Nothing of it is
+  in the record across oso's restart. Completion over the models and levels shows the CLI's
+  text as completion rows show any text, escaped, and puts the one chosen in the composer,
+  unsent.
 - oso changes a native session's permission mode (ADR 0165, Q4, part 3b) only on the
   person's key: `native-session-cycle-mode` (`S-TAB`, `Person`); no agent or channel method
   sets one, and a plan the person approves with `acceptEdits` or `auto` (part 3d) counts as
@@ -912,7 +927,8 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   controls, never from text an agent gave, and passes no permission option, so a session starts
   in the mode the person's own settings give it; only a native session's later process is
   given `--permission-mode`, the mode it was in or the person switched it to (ADR 0165,
-  part 3b). Through the login shell, its arguments are
+  part 3b), and `--model` and `--effort`, the ones the person chose with `/model` and
+  `/effort` (part 3c). Through the login shell, its arguments are
   positional parameters of a fixed script, never script text, and `claude` is found on the
   shell's `PATH` as in any terminal the person opens, outside the session's directory and its
   project, unless `[sessions] claude` names it by absolute path. `[sessions] env` cannot pass `PATH` or the loader's variables. Starting,
