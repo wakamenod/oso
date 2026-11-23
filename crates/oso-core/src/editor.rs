@@ -238,6 +238,8 @@ pub struct Editor {
     exit_attempt: Option<Vec<(BufferId, ContentId)>>,
     /// The person asked to exit once no terminal is busy (ADR 0133).
     quit_when_idle: bool,
+    /// The person asked to restart once no native session is busy (ADR 0165, part 4b).
+    restart_when_idle: bool,
     /// What an input method is composing, shown at the selected window's primary
     /// cursor and in no buffer (ADR 0069).
     preedit: Option<Preedit>,
@@ -374,6 +376,7 @@ impl Editor {
             save_jobs: Vec::new(),
             exit_attempt: None,
             quit_when_idle: false,
+            restart_when_idle: false,
             preedit: None,
             prompts: Vec::new(),
             histories: Histories::default(),

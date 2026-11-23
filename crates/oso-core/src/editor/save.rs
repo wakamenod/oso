@@ -473,4 +473,16 @@ impl Editor {
     pub fn quit_when_idle(&self) -> bool {
         self.quit_when_idle
     }
+
+    /// Asks to restart (`oso-restart`) once no native session is busy, or no longer (ADR
+    /// 0165, part 4b). The host waits for it, and `C-g` and `C-x C-c` cancel it, as they
+    /// cancel [`Editor::set_quit_when_idle`]'s wait.
+    pub fn set_restart_when_idle(&mut self, waiting: bool) {
+        self.restart_when_idle = waiting;
+    }
+
+    /// Whether a restart waits for every native session to be idle.
+    pub fn restart_when_idle(&self) -> bool {
+        self.restart_when_idle
+    }
 }

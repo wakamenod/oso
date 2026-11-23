@@ -141,3 +141,18 @@ fn an_exit_once_idle_stops_for_a_comment_not_sent() {
         "Not quit: 1 comment of yours not sent; C-x C-c asks"
     );
 }
+
+#[test]
+fn c_g_in_a_native_session_or_c_x_c_c_cancels_a_restart_that_waits() {
+    let (mut dispatcher, mut editor) = (Dispatcher::new(), Editor::default());
+    let transcript = editor.add_native_session_buffer("*claude: s*");
+    editor.show(transcript);
+    // The host waits for the native sessions (ADR 0165, part 4b).
+    editor.set_restart_when_idle(true);
+    send(&mut dispatcher, &mut editor, "C-g");
+    assert!(!editor.restart_when_idle());
+    assert_eq!(echo(&editor), "Restart when idle cancelled");
+    editor.set_restart_when_idle(true);
+    send(&mut dispatcher, &mut editor, QUIT);
+    assert!(!editor.restart_when_idle());
+}

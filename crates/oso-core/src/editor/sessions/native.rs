@@ -89,7 +89,7 @@ impl Editor {
 
     /// The native session buffers whose session has a turn under way or asks a question, in
     /// the order they were made: quitting when idle waits for them, as for a terminal's
-    /// (ADR 0133).
+    /// (ADR 0133), and so does `oso-restart` (ADR 0165, part 4b).
     pub fn busy_native_sessions(&self) -> impl Iterator<Item = BufferId> + '_ {
         self.buffers
             .iter()

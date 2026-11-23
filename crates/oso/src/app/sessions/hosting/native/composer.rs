@@ -169,7 +169,11 @@ impl App {
         Some(Turn {
             busy: native.composing.busy,
             run,
-            leaving: self.editor.quit_when_idle(),
+            // An exit or a restart that waits for the sessions, or a restart under way, sends
+            // nothing queued (part 4b).
+            leaving: self.editor.quit_when_idle()
+                || self.editor.restart_when_idle()
+                || self.restart_holds(),
         })
     }
 
@@ -282,8 +286,10 @@ impl App {
                 }
                 history.push_back(text.to_owned());
                 native.composing.at = None;
-                // A turn starts: an exit that waits for the sessions waits for it too.
+                // A turn starts: an exit or a restart that waits for the sessions waits for
+                // it too.
                 self.idle_quit.restart();
+                self.restart.wait.restart();
                 true
             }
             Err(NotSent::Full) => {

@@ -27,15 +27,20 @@ pub(super) struct IdleClock {
 }
 
 impl IdleClock {
-    /// Whether the exit is due at `now`, everything being `idle` or not. Not idle, the
-    /// clock starts again.
-    fn due(&mut self, idle: bool, now: Instant) -> bool {
+    /// Whether the exit (or a restart that waits, ADR 0165 part 4b) is due at `now`,
+    /// everything being `idle` or not. Not idle, the clock starts again.
+    pub(super) fn due(&mut self, idle: bool, now: Instant) -> bool {
         if !idle {
             self.since = None;
             return false;
         }
         let since = *self.since.get_or_insert(now);
         now.duration_since(since) >= HOLD
+    }
+
+    /// Stops the clock: nothing waits for it, or what waited was tried.
+    pub(super) fn stop(&mut self) {
+        self.since = None;
     }
 
     /// Starts the hold again: a hosted session printed, so its turn may not be over.
@@ -52,19 +57,23 @@ impl IdleClock {
 }
 
 impl App {
+    /// Whether a session is being started: one still starting has said nothing of a turn yet,
+    /// nor one that waits for the configuration's first look (ADR 0173). An exit and a restart
+    /// that wait (ADR 0165, part 4b) wait for it.
+    pub(super) fn sessions_starting(&self) -> bool {
+        self.starts_held()
+            || (self.hosting.table().iter()).any(|session| session.run == Run::Starting)
+    }
+
     /// Before the loop waits: exits if an exit waits for the terminals and they have been
     /// idle long enough.
     pub(super) fn quit_if_idle(&mut self, event_loop: &Loop<'_>) {
         // While `oso-restart` moves the terminals, their snapshots stop: none is idle then.
         if !self.editor.quit_when_idle() || self.is_leaving(event_loop) || self.restart_holds() {
-            self.idle_quit.since = None;
+            self.idle_quit.stop();
             return;
         }
-        // A session that is still starting has said nothing of a turn yet, nor one that waits
-        // for the configuration's first look (ADR 0173).
-        let starting = self.starts_held()
-            || (self.hosting.table().iter()).any(|session| session.run == Run::Starting);
-        let idle = !starting
+        let idle = !self.sessions_starting()
             && self.editor.busy_terminals().next().is_none()
             && self.editor.busy_native_sessions().next().is_none()
             && self.editor.git_runs().next().is_none();
@@ -73,10 +82,10 @@ impl App {
         }
         // A prompt open or input held: the clock starts again, and it is tried once more.
         let Some(effects) = self.dispatcher.exit_when_idle(&mut self.editor) else {
-            self.idle_quit.since = None;
+            self.idle_quit.stop();
             return;
         };
-        self.idle_quit.since = None;
+        self.idle_quit.stop();
         self.editor.set_quit_when_idle(false);
         if effects.exit {
             self.leave(event_loop, false);

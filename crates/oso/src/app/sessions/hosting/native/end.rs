@@ -28,8 +28,9 @@ impl App {
         // Its bridge asks nothing any more.
         self.drop_permissions_of(key);
         let in_table = self.hosting.table.get(key).is_some();
-        // Nothing new runs while the person is asked to stop it, or oso waits to quit or
-        // restart.
+        // Nothing new runs while the person is asked to stop it, oso waits to quit, or a
+        // restart is under way. A restart that waits lets it resume, and waits for that (part
+        // 4b): a session that ran then is one the restart carries as running.
         let free =
             !self.watch.stop_asked(key) && !self.editor.quit_when_idle() && !self.restart_holds();
         let Some(native) = self.hosting.natives.map.get_mut(&key) else {
@@ -43,7 +44,7 @@ impl App {
         let hung_up = self.watch.take_hung_up(key);
         // Interrupted with a signal, it ended as asked, and resumes (step 2c): unless the
         // person stopped it or is asked whether to, their replacement of an orchestrator waits
-        // for its end, or oso waits to quit or restart.
+        // for its end, oso waits to quit, or a restart is under way.
         native.control = None;
         let resumes = std::mem::replace(&mut native.interrupt, Interrupt::new(SIGNALS)).resumes()
             && native.spoke
