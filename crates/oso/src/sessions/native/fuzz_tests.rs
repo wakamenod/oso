@@ -202,7 +202,7 @@ proptest! {
             whole.extend_from_slice(&line);
             whole.push(b'\n');
         }
-        let chosen = index.chosen();
+        let chosen = index.chosen(&[]);
         prop_assert!(chosen.lines.len() <= lines.len());
         let mut said = Vec::new();
         for shown in &chosen.lines {

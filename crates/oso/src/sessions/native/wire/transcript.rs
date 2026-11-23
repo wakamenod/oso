@@ -69,16 +69,23 @@ pub struct Head {
 /// What a line shown says.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Said {
-    /// A message the person sent: its text.
-    Prompt(String),
-    /// A message from another session: its text.
-    Note(String),
+    /// A message the person sent: its text and its line's id.
+    Prompt {
+        text: String,
+        uuid: Option<String>,
+    },
+    /// A message from another session: its text and its line's id.
+    Note {
+        text: String,
+        uuid: Option<String>,
+    },
     /// Tool results, or a message that is not the person's.
     User(User),
     Assistant(Assistant),
     Compacted {
         pre: Option<u64>,
         post: Option<u64>,
+        uuid: Option<String>,
     },
 }
 
@@ -211,8 +218,12 @@ pub fn said(line: &[u8], shows: Shows) -> Result<Option<Said>, Unreadable> {
             assistant(&object).map(Said::Assistant)
         }
         Shows::Message => user(&object).map(Said::User),
-        Shows::Prompt => user(&object).and_then(|user| user.text).map(Said::Prompt),
-        Shows::Peer => user(&object).and_then(|user| user.text).map(Said::Note),
+        Shows::Prompt => user(&object)
+            .and_then(|user| Some((user.text?, user.uuid)))
+            .map(|(text, uuid)| Said::Prompt { text, uuid }),
+        Shows::Peer => user(&object)
+            .and_then(|user| Some((user.text?, user.uuid)))
+            .map(|(text, uuid)| Said::Note { text, uuid }),
         Shows::Nothing => None,
     })
 }
@@ -223,6 +234,7 @@ fn compacted(object: &Map<String, Value>) -> Said {
     Said::Compacted {
         pre: number("preTokens"),
         post: number("postTokens"),
+        uuid: Some(string(object, "uuid")).filter(|id| !id.is_empty()),
     }
 }
 

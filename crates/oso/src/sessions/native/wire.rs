@@ -65,6 +65,8 @@ pub enum Event {
         pre_tokens: Option<u64>,
         post_tokens: Option<u64>,
         manual: bool,
+        /// Its line's id in the conversation (part 5b).
+        uuid: Option<String>,
     },
     /// `system/permission_denied`: a tool call was refused before it ran.
     Denied {
@@ -168,6 +170,8 @@ pub enum BlockKind {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Assistant {
     pub message_id: String,
+    /// Its line's id in the conversation, which the transcript's line of it has too (step 5).
+    pub uuid: Option<String>,
     pub parent: Option<String>,
     pub model: String,
     pub blocks: Vec<Block>,
@@ -198,6 +202,8 @@ pub enum Block {
 #[derive(Clone, Debug, PartialEq)]
 pub struct User {
     pub parent: Option<String>,
+    /// Its line's id in the conversation, which the transcript's line of it has too (step 5).
+    pub uuid: Option<String>,
     /// Its text, for a message of the person's or the CLI's.
     pub text: Option<String>,
     /// The CLI echoes a message it took (`--replay-user-messages`).
@@ -347,6 +353,7 @@ fn system(object: &Map<String, Value>) -> Event {
                 pre_tokens: number("pre_tokens"),
                 post_tokens: number("post_tokens"),
                 manual: meta.is_some_and(|meta| string(meta, "trigger") == "manual"),
+                uuid: Some(string(object, "uuid")).filter(|id| !id.is_empty()),
             }
         }
         "permission_denied" => Event::Denied {

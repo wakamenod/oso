@@ -166,6 +166,7 @@ impl App {
             choice: Choice::default(),
             todo: todo::TodoStrip::default(),
             notes_after_past: None,
+            may_have_gone_on: false,
         };
         self.hosting.natives.map.insert(key, native);
         // Its composer, docked under it (ADR 0170).

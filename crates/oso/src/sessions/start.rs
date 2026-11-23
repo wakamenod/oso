@@ -175,8 +175,9 @@ pub struct NativeOrder {
     pub effort: Option<&'static str>,
     /// The conversation whose earlier turns are read from its transcript once its process is
     /// spawned, and handed on before its stream (step 5): a resume's own, or the one a fork
-    /// copies; `None` when the rows hold them already, or for a new conversation.
-    pub past: Option<SessionId>,
+    /// copies, all of it or what follows the rows' newest messages (part 5b); `None` for a new
+    /// conversation, or rows its conversation cannot have gone on from.
+    pub past: Option<crate::sessions::native::past::PastAsk>,
     /// The session's TUI `claude`, which may still run: the start waits for it to be gone
     /// first (part 4d-2).
     pub tui_to_end: Option<super::hosted::TuiProcess>,

@@ -25,7 +25,8 @@
 //!   no text from elsewhere is shown as the person's words.
 //! - Rows are kept for the session's life; each holds at most what `wire`'s limits let in.
 //! - A session's earlier turns, read from its transcript at its start, are folded in by
-//!   `past` before anything its process says (step 5).
+//!   `past` before anything its process says, and the ids of its newest messages are kept so
+//!   that a later start reads only the turns after them (step 5).
 
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -204,6 +205,9 @@ pub struct Rows {
     sent: VecDeque<String>,
     /// The calls of the turn under way, which its end closes.
     turn: Vec<String>,
+    /// The ids of the session's own newest messages, the newest last: where its transcript's
+    /// later turns follow on (step 5).
+    kept: VecDeque<String>,
 }
 
 /// A block that started: its message's id, its index, its row and its place in the row; for
@@ -228,6 +232,7 @@ impl Rows {
             calls: HashMap::new(),
             sent: VecDeque::new(),
             turn: Vec::new(),
+            kept: VecDeque::new(),
         }
     }
 
@@ -277,8 +282,10 @@ impl Rows {
             Event::Compacted {
                 pre_tokens,
                 post_tokens,
+                uuid,
                 ..
             } => {
+                self.keep(uuid, true);
                 let kind = Kind::Compacted {
                     pre: pre_tokens,
                     post: post_tokens,
@@ -392,8 +399,9 @@ impl Rows {
         }
     }
 
-    fn assistant(&mut self, message: Assistant) -> Vec<RowChange> {
+    fn assistant(&mut self, mut message: Assistant) -> Vec<RowChange> {
         let depth = u8::from(message.parent.is_some());
+        self.keep(message.uuid.take(), depth == 0);
         let mut changes = Vec::new();
         for block in message.blocks {
             let open = self.take_open(&message.message_id, &block);
@@ -483,7 +491,8 @@ impl Rows {
         }
     }
 
-    fn user(&mut self, message: User) -> Vec<RowChange> {
+    fn user(&mut self, mut message: User) -> Vec<RowChange> {
+        self.keep(message.uuid.take(), message.parent.is_none());
         let mut changes = Vec::new();
         for mut result in message.results {
             let id = result.tool_use_id.clone();

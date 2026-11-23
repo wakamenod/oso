@@ -134,7 +134,8 @@ fn a_compaction_follows_the_line_before_it() {
         said(line.as_bytes(), Shows::Compacted),
         Ok(Some(Said::Compacted {
             pre: Some(1200),
-            post: Some(300)
+            post: Some(300),
+            uuid: Some(uuid(2)),
         }))
     );
 }
@@ -160,7 +161,10 @@ fn a_line_shown_says_what_the_streams_would() {
     };
     assert_eq!(
         said_of(lines[1]),
-        Some(Said::Prompt("Reply with the single word apple.".into()))
+        Some(Said::Prompt {
+            text: "Reply with the single word apple.".into(),
+            uuid: Some(uuid(1)),
+        })
     );
     let edit = lines
         .iter()
@@ -208,7 +212,10 @@ fn a_peer_is_a_note_and_a_line_that_does_not_read_says_so() {
     );
     assert_eq!(
         said(peer.as_bytes(), Shows::Peer),
-        Ok(Some(Said::Note("Another session".into())))
+        Ok(Some(Said::Note {
+            text: "Another session".into(),
+            uuid: Some(uuid(2)),
+        }))
     );
     // A prompt with no text, such as an image's alone, shows nothing.
     let image = user_line(r#""promptSource":"sdk","#, r#"[{"type":"image"}]"#);

@@ -673,7 +673,8 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   it decoded. Attachment
   lines, which hold the account's email and organisation ids, and the CLI's own records are
   never decoded, and nothing read is logged. A message shows as the person's only where the
-  transcript marks it so.
+  transcript marks it so. Rows that hold the conversation read only what follows the ids of
+  their newest messages (part 5b), by the same rules.
 - A native session's control layer (ADR 0165, step 2c) writes only `initialize`,
   `interrupt`, `get_usage` (part 3a) and `set_permission_mode` (part 3b), and reads of an
   answer only its id, its success, its error, cut to 256 bytes and logged escaped,

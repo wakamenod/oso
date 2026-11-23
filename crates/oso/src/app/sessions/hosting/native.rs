@@ -29,7 +29,8 @@
 //! - Its side of a switch to the TUI, and its transcript set aside meanwhile, are
 //!   `switching`'s (part 4d).
 //! - Its earlier turns, read from Claude Code's transcript at a start whose rows hold none of
-//!   them, are `past`'s (step 5).
+//!   them, and the turns after its rows when its conversation may have gone on elsewhere, are
+//!   `past`'s (step 5).
 //! - Its bridge asks the person's permission for its calls on the sessions' socket, in
 //!   `permissions` (step 2).
 //! - Its first message is its brief, if it was given one; else the person writes it in its
@@ -160,6 +161,9 @@ struct Native {
     choice: Choice,
     /// Its start reads its earlier turns (step 5): the notes said meanwhile, drawn after them.
     notes_after_past: Option<Vec<String>>,
+    /// Its conversation may have gone on elsewhere since its rows: its process ended other
+    /// than to resume at once, or the TUI ran it (part 5b).
+    may_have_gone_on: bool,
 }
 
 impl Native {

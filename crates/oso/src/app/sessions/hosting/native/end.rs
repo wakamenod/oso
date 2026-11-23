@@ -54,6 +54,8 @@ impl App {
         let interrupted =
             std::mem::replace(&mut native.interrupt, Interrupt::new(SIGNALS)).resumes();
         let resumes = (interrupted || native.mode.respawns()) && native.spoke && !hung_up && !held;
+        // Ended other than to resume at once: its conversation may go on elsewhere (part 5b).
+        native.may_have_gone_on = !resumes;
         // A switch it was stopped for that does not resume is over, and says so.
         if native.mode.ended(resumes) {
             let change = (native.rows).note("The mode did not change: claude did not resume.");
@@ -140,6 +142,8 @@ impl App {
             return;
         };
         self.composer_ended(key);
+        // Stopped now, it may be resumed elsewhere (part 5b).
+        self.native_may_have_gone_on(key, true);
         if let Some(native) = self.hosting.natives.map.get_mut(&key) {
             let mut changes = vec![native.rows.note(&format!("It did not resume: {why}"))];
             // A switch it was stopped for is over (part 3b).
