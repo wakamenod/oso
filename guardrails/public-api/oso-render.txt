@@ -65,6 +65,8 @@ impl core::marker::Copy for oso_render::CursorStyle
 impl core::marker::StructuralPartialEq for oso_render::CursorStyle
 pub enum oso_render::Face
 pub oso_render::Face::Boxed
+pub oso_render::Face::Card
+pub oso_render::Face::CardTitle
 pub oso_render::Face::CompletionAnnotation
 pub oso_render::Face::CompletionBinding
 pub oso_render::Face::CompletionMatch

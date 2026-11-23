@@ -358,6 +358,8 @@ pub enum NativeAction {
     Choose(u8),
     /// From a question's card: answer it in the person's own words, read in the minibuffer.
     Other,
+    /// Turns this many pages of the permission card at point on, back if negative (ADR 0180).
+    Page(isize),
     /// From the transcript or the composer (ADR 0165, part 3b): switch the session to its
     /// next permission mode.
     CycleMode,

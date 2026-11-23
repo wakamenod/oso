@@ -82,7 +82,13 @@ impl App {
             if self.asked_remotely(key) {
                 return;
             }
+            let answers = !input.repeat && self.composer_key_answers(key);
+            self.dispatcher.set_key_answers_card(answers);
             self.handle_key(event_loop, key);
+            // A key that answered a card from the composer answers once too (ADR 0180).
+            if self.dispatcher.take_key_answered_card() {
+                self.answering = Some(key);
+            }
         } else if let Some(text) = keys::typed_text(input, self.modifiers) {
             self.handle_text(event_loop, text);
         } else if !input.repeat {

@@ -828,11 +828,22 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     stands as a key row or passes for oso's words; no agent command runs while a card is
     selected, a look included; the title says
     when it does not show all the call does, and `RET` shows the input that runs whole in the
-    card. Its keys are `Person`, and answer only from the keyboard, after 500 ms with no key and
-    since the card became the selected buffer, however point came (longer after a prompt an
-    agent opened over it); never from a macro, nor from a window that shows less than all of
-    the card from its start, unwrapped; a held key answers once. Point moves
-    to it only from that session's transcript, or its composer with no draft. Whatever goes
+    card. The frame, oso's words and the keys' chips are in faces that only oso's own spans take,
+    and what is drawn behind them comes from those, never from what a text holds; an option's
+    number and mark are oso's too (ADR 0180). Its keys are `Person`, and answer only from the
+    keyboard, after 500 ms with no key and
+    since the card became the selected buffer, however point came, or oso's window came in front
+    again, or the card's came to show all of it (longer after a prompt an agent opened closed);
+    never from a macro, nor from a window that shows less than all of
+    the card from its start, unwrapped, or is under 20 cells wide; a held key answers once. From the session's composer,
+    `y`, `n`, `N` and a question's `o` and digits answer only while it is empty and selected, with
+    one cursor and no composition, under the same gate, measured since it was so, which looks at
+    the card's window, as an agent's looks run there, and only as a
+    key that would be typed: never text an input method commits, a held key's repeat, nor what a
+    macro replays. Never a plan's `a`, `A` or `e`. Point moves
+    to it only from that session's transcript, or its composer with no draft, at once as it
+    appears and never in the middle of a key sequence, a prompt, a search, a composition or a
+    drag. A question's digit chooses only an option whose every row has been on screen. Whatever goes
     wrong, the bridge denies: a call runs only on the person's `y` or answers, an `allow`
     gives the CLI back the input it sent, and only an `AskUserQuestion`'s takes answers, the
     person's alone, and an `ExitPlanMode`'s the person's edit and mode (part 3d, below). A

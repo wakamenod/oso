@@ -24,7 +24,7 @@ mod queued;
 use std::collections::VecDeque;
 
 use oso_core::buffer::{Buffer, BufferId, Mode, Replacement};
-use oso_core::editor::NativeAction;
+use oso_core::editor::{Editor, NativeAction};
 use oso_core::window::{DockSlot, WindowId};
 
 use super::interrupting::Interrupted;
@@ -87,14 +87,21 @@ impl Composing {
     }
 }
 
+/// A new composer of the session named `name`, docked under its transcript `transcript`. Its
+/// long lines wrap, as its window's height counts them (ADR 0170).
+fn new_docked_composer(editor: &mut Editor, transcript: BufferId, name: &str) -> BufferId {
+    let name = format!("*compose: {name}*");
+    let id = withheld_draft(editor, &name, Mode::Composer, "");
+    editor.set_wraps(id, true);
+    editor.set_dock(transcript, DockSlot::Composer, Some(id));
+    id
+}
+
 impl App {
     /// Makes native session `key`'s composer, `*compose: NAME*`, and docks it under its
     /// transcript `transcript`.
     pub(super) fn dock_composer(&mut self, key: SessionKey, transcript: BufferId, name: &str) {
-        let name = format!("*compose: {name}*");
-        let id = withheld_draft(&mut self.editor, &name, Mode::Composer, "");
-        self.editor
-            .set_dock(transcript, DockSlot::Composer, Some(id));
+        let id = new_docked_composer(&mut self.editor, transcript, name);
         if let Some(native) = self.hosting.natives.map.get_mut(&key) {
             native.composing.buffer = Some(id);
         }
@@ -166,6 +173,7 @@ impl App {
             | NativeAction::Note
             | NativeAction::Choose(_)
             | NativeAction::Other
+            | NativeAction::Page(_)
             | NativeAction::Todo
             | NativeAction::EditPlan
             | NativeAction::Approve(_)
@@ -569,3 +577,6 @@ fn not_queued(why: Refusal) -> &'static str {
         Refusal::Editing => "A queued message is edited here: C-c C-c puts it back first",
     }
 }
+
+#[cfg(test)]
+mod tests;

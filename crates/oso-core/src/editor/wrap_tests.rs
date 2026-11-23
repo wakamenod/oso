@@ -127,6 +127,32 @@ fn edits_keep_the_rows_in_step_and_a_report_takes_the_edits_since_its_job() {
 }
 
 #[test]
+fn the_first_text_of_an_empty_buffer_is_wrapped_within_the_budget() {
+    // More than a command's budget: the rows in view at most, the rest by a job.
+    let long = "word ".repeat(200);
+    let (mut editor, id) = wrapped("", ViewSize::new(4, 16));
+    editor.begin_undo_group();
+    editor.apply_edits(id, &[edit(0..0, &long)]).unwrap();
+    editor.end_undo_group();
+    assert!(
+        rows(&editor).len() < fresh(&editor).len() / 2,
+        "not all at once"
+    );
+    settle(&mut editor);
+    assert_eq!(rows(&editor), fresh(&editor));
+    // A short one needs no job.
+    let (mut editor, id) = wrapped("", ViewSize::new(4, 16));
+    settle(&mut editor);
+    editor.begin_undo_group();
+    editor
+        .apply_edits(id, &[edit(0..0, "word word word word")])
+        .unwrap();
+    editor.end_undo_group();
+    assert!(editor.take_wrap_jobs().is_empty());
+    assert_eq!(rows(&editor), fresh(&editor));
+}
+
+#[test]
 fn an_edit_above_the_view_keeps_the_text_at_its_top() {
     let text: String = (0..100).map(|i| format!("line {i:03}\n")).collect();
     let (mut editor, id) = editor_with(&text);

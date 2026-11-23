@@ -361,6 +361,8 @@ fn no_style_has_a_highlight_of_a_row_s_own() {
             Face::Removed,
             Face::Hunk,
             Face::Error,
+            Face::CardTitle,
+            Face::CardKey,
         ] {
             assert_ne!(highlight, face.highlight(), "{style:?}");
         }

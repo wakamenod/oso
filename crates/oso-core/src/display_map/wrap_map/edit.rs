@@ -62,8 +62,8 @@ impl WrapSnapshot {
     ) -> Option<(Self, Option<Range<usize>>, usize)> {
         let old_end = self.tree.summary().bytes;
         if old_end == 0 {
-            // An empty buffer's one row has no bytes to place a splice by.
-            return Some((Self::with_width(display, self.width), None, display.len()));
+            let (wrap, stale) = self.filled(display, budget);
+            return Some((wrap, stale, display.len()));
         }
         let delta = edit.new.len() as isize - edit.old.len() as isize;
         let from = self.rewrap_start(display, edit.old.start.min(old_end));
@@ -136,8 +136,7 @@ impl WrapSnapshot {
     ) -> (Self, Option<Range<usize>>) {
         let old_end = self.tree.summary().bytes;
         if old_end == 0 || display.len() == 0 {
-            // An empty buffer's one row has no bytes to place a splice by.
-            return (Self::with_width(display, self.width), None);
+            return self.filled(display, &mut 0);
         }
         let row = self.row_of(before, old.start.min(old_end));
         let from = self.row_span(before, row).0;
@@ -158,6 +157,23 @@ impl WrapSnapshot {
             width: self.width,
         };
         (wrap, Some(now(stale_from)..join_now))
+    }
+
+    /// The rows of `display` where these, of an empty buffer, have no bytes to place a splice by,
+    /// and what is stale of them: wrapped if they are within `budget`, which it takes from, and
+    /// provisional past it, all of them stale, as a transcript's earlier turns or a yank may be
+    /// of any length.
+    fn filled(
+        &self,
+        display: &DisplaySnapshot,
+        budget: &mut usize,
+    ) -> (Self, Option<Range<usize>>) {
+        let len = display.len();
+        if len <= *budget || !self.wraps() {
+            *budget -= len.min(*budget);
+            return (Self::with_width(display, self.width), None);
+        }
+        (Self::provisional(display, self.width), Some(0..len))
     }
 
     /// Joins the new rows, which reach `at`, to the old ones at the first old row boundary at

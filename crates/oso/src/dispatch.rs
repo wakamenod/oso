@@ -24,6 +24,7 @@ mod agent;
 mod args;
 mod branches;
 mod buffers;
+mod card;
 pub use crate::terminal::route::ToProgram as TerminalSend;
 pub use agent::{Unshowable, unshowable};
 pub use args::Given;
@@ -135,6 +136,9 @@ pub struct Dispatcher {
     not_input: bool,
     /// A rename waits for its server, or for its preview: `C-g` stops it (ADR 0138, step 14).
     rename_waits: bool,
+    /// The key being handled answers a native session's card from its composer (ADR 0180).
+    key_answers_card: bool,
+    key_answered_card: bool,
     /// A command ran for the agent channel since the host last asked: what it queued is the
     /// agent's, so the saves it queued are checked as the channel's (ADR 0108).
     ran_for_agent: bool,
@@ -203,6 +207,8 @@ impl Dispatcher {
             view_jumped: None,
             not_input: false,
             rename_waits: false,
+            key_answers_card: false,
+            key_answered_card: false,
             ran_for_agent: false,
             terminal_keys: std::collections::HashMap::new(),
             terminal_sends: Vec::new(),
@@ -542,6 +548,7 @@ impl Dispatcher {
                 return Effects::default();
             }
         };
+        let id = self.card_in_place_of(editor, id, key);
         self.drop_branch_wait(editor);
         // The text comes from the key, so keys from the window and from the socket
         // type the same. `KeyEvent.text` would type `q` for an unbound `C-q` (ADR 0051).

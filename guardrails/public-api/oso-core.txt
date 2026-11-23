@@ -1998,6 +1998,7 @@ pub oso_core::editor::NativeAction::MoveQueued(isize)
 pub oso_core::editor::NativeAction::Note
 pub oso_core::editor::NativeAction::Open
 pub oso_core::editor::NativeAction::Other
+pub oso_core::editor::NativeAction::Page(isize)
 pub oso_core::editor::NativeAction::Prompt(isize)
 pub oso_core::editor::NativeAction::Queue
 pub oso_core::editor::NativeAction::Send
@@ -6601,6 +6602,8 @@ impl oso_core::sum_tree::Summary for oso_core::rope::TextSummary
 pub fn oso_core::rope::TextSummary::add_summary(&mut self, &Self)
 pub mod oso_core::syntax
 pub enum oso_core::syntax::Highlight
+pub oso_core::syntax::Highlight::CardKey
+pub oso_core::syntax::Highlight::CardTitle
 pub oso_core::syntax::Highlight::Comment
 pub oso_core::syntax::Highlight::CommentAgent
 pub oso_core::syntax::Highlight::CommentPerson

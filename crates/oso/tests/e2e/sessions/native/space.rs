@@ -25,7 +25,7 @@ use super::super::super::harness::{App, emergency_dir};
 use super::super::super::spaces::{PrivateRoot, switch_space, trust_restricted};
 use super::super::super::worktrees::{asks, keys};
 use super::switch::{args, flag, flow, screen, switch_back};
-use super::{Flow, in_composer, remote_control_off, text};
+use super::{Flow, in_composer, joined, remote_control_off, text};
 
 /// The orchestrator's id, and that of a session an agent started in the space's directory.
 const ORCHESTRATOR: &str = "00000001-0000-4000-8000-000000000000";
@@ -249,13 +249,8 @@ fn a_repository_trusted_while_a_native_orchestrator_runs_is_given_by_a_resume_wi
     assert_eq!(flag(&second, "add-dir"), project.to_str(), "{second:?}");
     select(&mut app, "*claude: fix-login*");
     let added = format!("Resumed with {} added.", project.display());
-    // The row is cut at the narrow window's edge: it starts the text it says.
-    app.wait_for("the row", |state| {
-        text(state)
-            .lines()
-            .map(str::trim)
-            .any(|row| row.starts_with("Resumed with /") && added.starts_with(row))
-    });
+    // It wraps at the narrow window's edge.
+    app.wait_for("the row", |state| joined(state).contains(&added));
     let _ = app.exchange("exit", None);
     app.wait_for_exit();
 }

@@ -10,9 +10,10 @@
 //!   host buffer and slot; the tree never holds it.
 //! - One window carries a host's docks: the one showing the host that was selected last, else
 //!   the first in the frame's order. None showing it hides them; they keep their state.
-//! - The composer is as many rows as its text wraps to, 1 to [`MAX_COMPOSER`]; the card and the
-//!   strip as many as theirs, at most [`MAX_CARD`] and [`MAX_STRIP`]. The composer's rows are
-//!   given first, the card's next.
+//! - The composer is as many rows as its text wraps to, or its lines while it truncates them, 1
+//!   to [`MAX_COMPOSER`], and the strip at most [`MAX_STRIP`]; the card as many as its text has
+//!   lines, at most [`MAX_CARD`]: its host breaks its rows at its width, and it never wraps
+//!   (ADR 0180). The composer's rows are given first, the card's next.
 
 use super::super::Editor;
 use crate::buffer::BufferId;
@@ -23,8 +24,9 @@ use crate::window::{DockSlot, Window, WindowId};
 /// The most rows the composer takes; past them it scrolls: as many as a review's draft takes
 /// (ADR 0122).
 pub(in crate::editor) const MAX_COMPOSER: usize = crate::minibuffer::MAX_DRAFT_ROWS;
-/// The most rows the card takes.
-pub(in crate::editor) const MAX_CARD: usize = 12;
+/// The most rows the card takes: a question's or a plan's grows to what it says, as its host
+/// draws it (ADR 0180).
+pub(in crate::editor) const MAX_CARD: usize = 60;
 /// The most rows the strip takes.
 pub(in crate::editor) const MAX_STRIP: usize = 6;
 
@@ -175,7 +177,7 @@ impl Editor {
     /// What the docked window at `at`, in `slot`, asks of a host `columns` wide.
     fn dock_ask(&self, slot: DockSlot, at: usize, columns: usize) -> DockAsk {
         let window = &self.windows[at];
-        let display = self.shown(window).display();
+        let buffer = self.shown(window);
         let (most, least, rank) = match slot {
             DockSlot::Composer => (MAX_COMPOSER, 1, 0),
             DockSlot::Card => (MAX_CARD, 0, 1),
@@ -183,7 +185,14 @@ impl Editor {
         };
         let gutter = super::super::gutter::dock_gutter(slot);
         let width = columns.saturating_sub(gutter).max(1);
-        let rows = wrap_map::rows_at_most(&display, width, most).max(least);
+        let rows = match slot {
+            // A row a line: its host breaks its rows at its width, and fills them (ADR 0180).
+            DockSlot::Card => buffer.text().line_count().min(most),
+            // As its window shows them: a person may truncate its lines (ADR 0165).
+            DockSlot::Composer if !buffer.wraps() => buffer.text().line_count().min(most),
+            _ => wrap_map::rows_at_most(&buffer.display(), width, most),
+        };
+        let rows = rows.max(least);
         DockAsk {
             window: window.id(),
             rows,

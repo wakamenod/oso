@@ -12,6 +12,14 @@ use oso_core::selection::{MarkRing, Selection, SelectionSet};
 use oso_core::sum_tree::Bias;
 use oso_core::window::{Scroll, WindowId};
 
+/// Wraps `buffer`'s long lines if the state's entry that named it says it `wraps` (ADR 0100). One
+/// that does not leaves it as it is: an entry that only stands for `*scratch*` says nothing of it.
+pub fn restore_wraps(editor: &mut Editor, buffer: BufferId, wraps: bool) {
+    if wraps {
+        editor.set_wraps(buffer, true);
+    }
+}
+
 /// Positions waiting for their file to load, since a cursor or a mark cannot sit in
 /// text that has not arrived. The file may also have changed since the export, so
 /// they are moved to the nearest place that exists. Carried text is all there, so

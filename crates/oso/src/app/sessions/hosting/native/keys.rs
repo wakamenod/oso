@@ -16,7 +16,7 @@
 //!   finds the call point is on without drawing the row again.
 
 use oso_core::buffer::{Buffer, BufferId};
-use oso_core::editor::NativeAction;
+use oso_core::editor::{Editor, NativeAction};
 
 use super::{Native, draw};
 use crate::app::App;
@@ -24,6 +24,18 @@ use crate::app::sessions::show_withheld;
 use crate::sessions::native::point::{self, Point, Wanted};
 use crate::sessions::native::rows::Kind;
 use crate::sessions::worker::SessionKey;
+
+/// Puts `text`, a call's whole result, in the `*result: NAME*` buffer `kept` names, or in a new
+/// one, whose long lines wrap until the person truncates them there, and shows it. Whether it
+/// showed the text.
+fn show_result(editor: &mut Editor, kept: &mut Option<BufferId>, name: &str, text: &str) -> bool {
+    let before = *kept;
+    let shown = show_withheld(editor, kept, &format!("*result: {name}*"), text);
+    if let Some(made) = kept.filter(|_| *kept != before) {
+        editor.set_wraps(made, true);
+    }
+    shown
+}
 
 impl App {
     /// Carries out `action` at line `line` of native session buffer `buffer`.
@@ -54,7 +66,10 @@ impl App {
         }
         // From the composer, the session it is docked under (step 2).
         if let Some(key) = self.composer_session(buffer) {
-            self.composer_key(key, None, action);
+            // Or a card's answer typed there with nothing written (ADR 0180).
+            if !self.composer_key(key, None, action) {
+                self.card_key(key, buffer, action);
+            }
             return;
         }
         // From a plan's edit, the session whose plan it is (part 3d).
@@ -63,7 +78,7 @@ impl App {
         }
         // From a permission card, the session it asks for (step 2e-2).
         if let Some(key) = self.card_session(buffer) {
-            if !self.card_key(key, action) {
+            if !self.card_key(key, buffer, action) {
                 self.composer_key(key, None, action);
             }
             return;
@@ -146,12 +161,7 @@ impl App {
             return self.editor.message("No result yet");
         };
         let id = tool.id.clone();
-        let shown = show_withheld(
-            &mut self.editor,
-            &mut native.result,
-            &format!("*result: {name}*"),
-            &text,
-        );
+        let shown = show_result(&mut self.editor, &mut native.result, &name, &text);
         native.result_of = shown.then_some(id);
     }
 
@@ -226,4 +236,24 @@ fn at(native: &Native, offset: usize) -> Option<(usize, Option<usize>, usize)> {
         .and_then(|slot| calls.iter().find(|(s, _)| *s == slot))
         .map_or(start, |(_, range)| start + range.start);
     Some((row, slot, call_start))
+}
+
+#[cfg(test)]
+mod tests {
+    use oso_core::editor::Editor;
+
+    use super::show_result;
+
+    #[test]
+    fn a_result_wraps_when_made_and_stays_as_the_person_left_it() {
+        let mut editor = Editor::default();
+        let mut kept = None;
+        assert!(show_result(&mut editor, &mut kept, "s", "one"));
+        let id = kept.unwrap();
+        assert!(editor.buffer(id).unwrap().wraps());
+        editor.set_wraps(id, false);
+        assert!(show_result(&mut editor, &mut kept, "s", "two"));
+        assert_eq!(kept, Some(id));
+        assert!(!editor.buffer(id).unwrap().wraps(), "truncated there");
+    }
 }

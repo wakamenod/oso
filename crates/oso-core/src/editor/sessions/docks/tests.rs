@@ -3,7 +3,7 @@
 //!
 //! Must not depend on: the host's window.
 
-use crate::buffer::{Buffer, BufferId, Replacement};
+use crate::buffer::{Buffer, BufferId, Mode, Replacement};
 use crate::editor::Editor;
 use crate::frame::{FrameSize, Way};
 use crate::window::{DockSlot, WindowId};
@@ -25,6 +25,7 @@ fn rows(editor: &Editor, id: WindowId) -> usize {
 #[test]
 fn a_composer_takes_its_rows_under_the_host_and_grows_with_its_text() {
     let (mut editor, host, input) = docked(30, "");
+    editor.set_wraps(input, true);
     let composer = editor.dock_window(host, DockSlot::Composer).unwrap();
     let carrier = editor.window().id();
     assert_eq!(rows(&editor, composer), 1);
@@ -44,6 +45,11 @@ fn a_composer_takes_its_rows_under_the_host_and_grows_with_its_text() {
     editor.apply_edits(input, &[typed]).unwrap();
     assert_eq!(rows(&editor, composer), super::MAX_COMPOSER);
     assert_eq!(rows(&editor, carrier), host_rows + 1 - super::MAX_COMPOSER);
+    // Truncated, its one line is one row; wrapped again, as many as before.
+    editor.set_wraps(input, false);
+    assert_eq!(rows(&editor, composer), 1);
+    editor.set_wraps(input, true);
+    assert_eq!(rows(&editor, composer), super::MAX_COMPOSER);
 }
 
 #[test]
@@ -122,6 +128,18 @@ fn the_card_and_the_strip_stack_above_the_composer() {
     );
     assert_eq!((card.rows, strip.rows, composer.rows), (3, 1, 1));
     assert!(card.row < strip.row && strip.row < composer.row);
+}
+
+/// A card's rows are as wide as it is (ADR 0180): none counts as two.
+#[test]
+fn a_card_takes_a_row_a_line_however_wide() {
+    let (mut editor, host, _) = docked(20, "");
+    let card = editor.add_internal_buffer("*card: s*", Mode::Card);
+    let wide = "─".repeat(400);
+    editor.set_internal_text(card, &format!("{wide}\n{wide}\n{wide}"));
+    editor.set_dock(host, DockSlot::Card, Some(card));
+    let window = editor.dock_window(host, DockSlot::Card).unwrap();
+    assert_eq!(rows(&editor, window), 3);
 }
 
 #[test]

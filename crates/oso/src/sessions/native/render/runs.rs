@@ -24,6 +24,8 @@ impl Face {
             Self::Reply(Style::Strong | Style::Mark) => Highlight::Markup,
             Self::Reply(Style::Code) => Highlight::String,
             Self::Reply(Style::Link) => Highlight::Link,
+            Self::CardTitle => Highlight::CardTitle,
+            Self::CardKey => Highlight::CardKey,
         }
     }
 }

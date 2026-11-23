@@ -458,6 +458,8 @@ mod tests {
         "native-card-other",
         "native-card-own-text",
         "native-card-leave",
+        "native-card-page-down",
+        "native-card-page-up",
         "native-card-whole",
         // A plan's approvals with a mode, and its edit (part 3d).
         "native-card-approve-accept-edits",

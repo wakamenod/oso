@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use oso_core::buffer::BufferId;
+use oso_core::editor::Editor;
 
 use super::note::NativeState;
 use super::{Native, composer, draw, has_brief, interrupting, markdown, status, todo};
@@ -22,6 +23,14 @@ use crate::sessions::native::rows::Rows;
 use crate::sessions::native::slash::SlashCommands;
 use crate::sessions::start::NativeOrder;
 use crate::sessions::worker::SessionKey;
+
+/// A new transcript buffer of the session named `name`, whose long lines wrap until the person
+/// truncates them there (ADR 0165).
+fn new_transcript(editor: &mut Editor, name: &str) -> BufferId {
+    let id = editor.add_native_session_buffer(super::super::buffer_name(name));
+    editor.set_wraps(id, true);
+    id
+}
 
 impl App {
     /// A new native session `key`'s buffer, as [`App::native_session_buffer`] makes it, with
@@ -131,9 +140,7 @@ impl App {
         directory: PathBuf,
         first: Option<&str>,
     ) -> BufferId {
-        let buffer = self
-            .editor
-            .add_native_session_buffer(super::super::buffer_name(name));
+        let buffer = new_transcript(&mut self.editor, name);
         self.mark_session_buffer(key, buffer);
         let mut rows = Rows::new(directory);
         if let Some(first) = first {
@@ -197,5 +204,20 @@ impl App {
             session.buffer = Some(buffer);
             session.run = Run::Stopped;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use oso_core::editor::Editor;
+
+    use super::new_transcript;
+
+    #[test]
+    fn a_transcript_wraps() {
+        let mut editor = Editor::default();
+        let id = new_transcript(&mut editor, "s");
+        let buffer = editor.buffer(id).unwrap();
+        assert!(buffer.is_native_session() && buffer.wraps());
     }
 }

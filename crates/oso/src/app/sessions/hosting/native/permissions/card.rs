@@ -9,21 +9,27 @@
 //!
 //! - The card is the only place the call is asked (Q1 (a)): elsewhere the session's `needs
 //!   input` leads there, as a terminal's dialog does.
-//! - Point moves to it after [`QUIET`] with no key, while the person is in that session's
-//!   transcript or its composer, and the composer holds no draft.
+//! - Point moves to it as it appears, while the person is in that session's transcript or its
+//!   empty composer and in the middle of nothing, or after [`QUIET`] with no key once that
+//!   holds (`focus`, ADR 0180).
 //! - Its answers (`y`, `n`, `N`, a digit, `o`, `RET`, and a plan's `a`, `A`, `e`) count only
 //!   after [`QUIET`] with no key and since the card became the selected buffer, however point
-//!   came; never from a macro, and never while the card's window shows less than all of it. Other keys, as `C-c C-o` or
-//!   `C-x o` to leave it, are any buffer's.
+//!   came; never from a macro, and never while the card's window shows less than all of it
+//!   (`gate`). Other keys, as `C-c C-o` or `C-x o` to leave it, are any buffer's.
+//! - Some of them answer from the session's empty composer too (`composer`, ADR 0180).
 //! - It is drawn again when its window's width changes, as its rows are broken at it.
 //! - A plan's card approves with a mode after it, or edits the plan first: `plan` (part 3d).
 
+mod composer;
+mod focus;
 mod gate;
+mod pages;
 mod plan;
+mod size;
 
 pub(super) use plan::Plans;
 
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use oso_core::buffer::{BufferId, Mode};
 use oso_core::editor::{Approval, NativeAction};
@@ -32,7 +38,6 @@ use oso_core::window::DockSlot;
 
 use super::DENIED;
 use crate::app::App;
-use crate::app::agent::QUIET;
 use crate::channel::protocol::permission;
 use crate::commands::agent_sessions::{CARD_NOTE, CARD_OWN};
 use crate::git::printable;
@@ -40,10 +45,8 @@ use crate::sessions::native::card::{self, Card, Questions, Shown, Step};
 use crate::sessions::state::Target;
 use crate::sessions::worker::SessionKey;
 
-/// The width a card is drawn at when no window shows it yet, in cells.
-const UNSHOWN_WIDTH: usize = 80;
-/// How much longer a card waits once a prompt an agent opened over it closed.
-const AFTER_AGENT: Duration = Duration::from_millis(1500);
+/// How many times a card is drawn again at most as the docks settle on its rows.
+const SETTLES: usize = 4;
 /// What a denial without a note says on its call's row.
 const BY_THE_PERSON: &str = "by the person";
 
@@ -72,17 +75,21 @@ enum Mark {
     Approved(bool, Approval),
 }
 
-/// What the card in front is.
+/// Where an answer to a card may come from now, and since when: the card, or its session's
+/// empty composer (ADR 0180), whichever is the selected buffer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::app::sessions::hosting::native) struct Current {
-    card: BufferId,
+    key: SessionKey,
+    place: BufferId,
     since: Instant,
+    /// The card's window showed all of it when this was last looked at.
+    whole: bool,
 }
 
 impl App {
     /// After each sync: each request found whose card is not shown gets its card, docked
-    /// under its session's transcript; a shown card whose window's width changed is drawn at
-    /// the new width.
+    /// under its session's transcript; a shown card whose window's size changed is drawn at
+    /// the new one.
     pub(in crate::app::sessions::hosting::native) fn show_cards(&mut self) {
         let now = Instant::now();
         let shown: Vec<SessionKey> = (self.hosting.natives.permissions.asks.unshown())
@@ -103,55 +110,53 @@ impl App {
                 .focus_pending
                 .push((key, now));
             // A new call in the card in front: its wait starts again.
-            let card = (self.hosting.natives.map.get(&key)).and_then(|native| native.card);
-            let current = self.hosting.natives.permissions.current.as_mut();
-            if let Some(current) = current.filter(|current| Some(current.card) == card) {
-                current.since = now;
+            self.wait_on_card_again(key);
+        }
+        // Where the docks gave a row back as a card was drawn, it is drawn once more.
+        let mut drawn_again = 0;
+        while drawn_again < SETTLES {
+            let sized: Vec<SessionKey> = (self.hosting.natives.permissions.drawn.iter())
+                .filter(|&&(key, size)| self.card_size(key).is_some_and(|now| now != size))
+                .map(|&(key, _)| key)
+                .collect();
+            if sized.is_empty() {
+                break;
+            }
+            drawn_again += 1;
+            for &key in &sized {
+                self.draw_card(key);
+                self.wait_on_card_again(key);
             }
         }
-        let resized: Vec<SessionKey> = (self.hosting.natives.permissions.drawn.iter())
-            .filter(|&&(key, width)| self.card_width(key) != width)
-            .map(|&(key, _)| key)
-            .collect();
-        for &key in &resized {
-            self.draw_card(key);
+        if drawn_again == SETTLES {
+            log::debug!("native sessions: a card's size had not settled");
         }
+        for &key in &shown {
+            self.focus_card_at_once(key);
+        }
+        self.note_cards_on_screen();
         // A frame only for a card just drawn.
-        if !shown.is_empty() || !resized.is_empty() {
+        if !shown.is_empty() || drawn_again > 0 {
             self.request_redraw();
         }
     }
 
-    /// The width session `key`'s card is drawn at: its window's, else its transcript's.
-    fn card_width(&self, key: SessionKey) -> usize {
-        let Some(native) = self.hosting.natives.map.get(&key) else {
-            return UNSHOWN_WIDTH;
-        };
-        let window = (self.editor.dock_window(native.buffer, DockSlot::Card)).or_else(|| {
-            (self.editor.windows())
-                .find(|window| window.buffer() == native.buffer)
-                .map(|window| window.id())
-        });
-        window
-            .and_then(|window| self.editor.regions(window))
-            .map_or(UNSHOWN_WIDTH, |regions| regions.text.columns)
-    }
-
     /// Writes session `key`'s card as its request's question has it, and docks it.
     fn draw_card(&mut self, key: SessionKey) {
-        let width = self.card_width(key);
-        let Some(shown) = (self.hosting.natives.permissions.asks.shown(key))
-            .and_then(|ask| ask.question.as_ref())
-            .map(|question| match (&question.details, question.whole) {
-                (Some(details), true) => card::whole(&question.card, details, width),
-                _ => question.card.shown(width),
-            })
+        let drawn = &self.hosting.natives.permissions.drawn;
+        let before = drawn
+            .iter()
+            .find_map(|&(of, size)| (of == key).then_some(size));
+        let size = (self.card_size(key).or(before)).unwrap_or(size::UNSHOWN);
+        let permissions = &mut self.hosting.natives.permissions;
+        let Some(shown) = (permissions.asks.shown_mut(key))
+            .and_then(|ask| ask.question.as_mut())
+            .map(|question| question.shown(size.0, size.1))
         else {
             return;
         };
-        let permissions = &mut self.hosting.natives.permissions;
         permissions.drawn.retain(|&(drawn, _)| drawn != key);
-        permissions.drawn.push((key, width));
+        permissions.drawn.push((key, size));
         let Some(id) = self.card_buffer(key) else {
             return;
         };
@@ -182,10 +187,21 @@ impl App {
     /// Puts `shown` in card `id`, with its faces.
     fn write_card(&mut self, id: BufferId, shown: &Shown) {
         self.editor.set_internal_text(id, &shown.text);
-        let mut highlights = Highlights::new(shown.text.len());
+        // One list of runs, the line feeds between rows in no face.
+        let mut runs = Vec::with_capacity(2 * shown.faces.len());
+        let mut at = 0;
         for (range, face) in &shown.faces {
-            highlights.replace(range.clone(), [(range.len(), Some(face.highlight()))]);
+            if range.start > at {
+                runs.push((range.start - at, None));
+            }
+            runs.push((range.len(), Some(face.highlight())));
+            at = range.end;
         }
+        if at < shown.text.len() {
+            runs.push((shown.text.len() - at, None));
+        }
+        let mut highlights = Highlights::new(shown.text.len());
+        highlights.replace(0..shown.text.len(), runs);
         let _ = self.editor.set_internal_highlights(id, highlights);
     }
 
@@ -216,12 +232,20 @@ impl App {
         self.request_redraw();
     }
 
-    /// A key of session `key`'s card: `action`. Whether it was one of the card's.
+    /// A key of session `key`'s card, pressed in buffer `from`: `action`. Whether it was one
+    /// of the card's.
     pub(in crate::app::sessions::hosting::native) fn card_key(
         &mut self,
         key: SessionKey,
+        from: BufferId,
         action: NativeAction,
     ) -> bool {
+        // From the composer, only what its keys may ask (ADR 0180).
+        if Some(from) != (self.hosting.natives.map.get(&key)).and_then(|native| native.card)
+            && !composer::takes_action(action)
+        {
+            return false;
+        }
         let answers = matches!(
             action,
             NativeAction::Allow
@@ -229,6 +253,7 @@ impl App {
                 | NativeAction::Note
                 | NativeAction::Choose(_)
                 | NativeAction::Other
+                | NativeAction::Page(_)
                 | NativeAction::Open
                 | NativeAction::EditPlan
                 | NativeAction::Approve(_)
@@ -236,22 +261,16 @@ impl App {
         if !answers {
             return false;
         }
-        let kind = (self.hosting.natives.permissions.asks.shown(key))
-            .and_then(|ask| ask.question.as_ref())
-            .map(|question| {
-                let multi = matches!(&question.card, Card::Questions(q) if q.current().is_some_and(|a| a.multi));
-                let kind = match &question.card {
-                    Card::Questions(_) => Kind::Questions,
-                    Card::Plan { .. } => Kind::Plan,
-                    Card::Call { .. } => Kind::Call,
-                };
-                (kind, multi && !question.whole, question.whole)
-            });
-        let Some((kind, multi, whole)) = kind else {
+        let Some((kind, multi)) = self.card_kind(key) else {
             self.editor.message("No call waits for you here");
             return true;
         };
-        if !self.card_admits_answer(key) {
+        // A page is no answer.
+        if let NativeAction::Page(pages) = action {
+            self.turn_card(key, pages);
+            return true;
+        }
+        if !self.card_admits_answer(key, from) {
             return true;
         }
         let questions = kind == Kind::Questions;
@@ -281,48 +300,34 @@ impl App {
             NativeAction::Note => self.write_for_card(Writing::Note(key)),
             NativeAction::Other if questions => self.write_for_card(Writing::Own(key)),
             NativeAction::Other => self.editor.message("This card asks no question"),
-            NativeAction::Choose(_) if whole => {
-                self.editor.message("RET goes back to the card's options");
-            }
+            NativeAction::Choose(number) if questions && self.turned_to(key, number) => {}
             NativeAction::Choose(number) if questions => {
                 self.step_questions(key, |questions| questions.choose(number));
             }
             NativeAction::Choose(_) => self.editor.message("This card has no options"),
             // A question that takes several is answered with those chosen; else the whole call.
             NativeAction::Open if multi => self.step_questions(key, Questions::confirm),
+            NativeAction::Open if questions => {
+                self.editor
+                    .message("Type an option's number, or o to answer in your words");
+            }
             _ => self.toggle_whole(key),
         }
         true
     }
 
-    /// After each event: which card, if any, is the selected buffer, and since when.
-    pub(in crate::app::sessions::hosting::native) fn note_current_card(&mut self) {
-        let selected = self.editor.window().buffer();
-        let is_card = self
-            .editor
-            .buffer(selected)
-            .is_some_and(|b| b.mode() == Mode::Card);
-        let agents = self
-            .editor
-            .prompt()
-            .is_some_and(|prompt| prompt.from_agent());
-        let card = (is_card && self.editor.prompt().is_none()).then_some(selected);
-        let permissions = &mut self.hosting.natives.permissions;
-        // A prompt an agent opened over a card may leave a key meant for it to the card: the
-        // card waits longer once it closes.
-        permissions.after_agent |= is_card && agents;
-        match card {
-            Some(card)
-                if permissions
-                    .current
-                    .is_some_and(|current| current.card == card) => {}
-            Some(card) => {
-                let longer = std::mem::take(&mut permissions.after_agent);
-                let since = Instant::now() + if longer { AFTER_AGENT } else { Duration::ZERO };
-                permissions.current = Some(Current { card, since });
-            }
-            None => permissions.current = None,
-        }
+    /// What kind of card session `key` shows, if it shows one, and whether its question takes
+    /// several options.
+    fn card_kind(&self, key: SessionKey) -> Option<(Kind, bool)> {
+        let ask = self.hosting.natives.permissions.asks.shown(key)?;
+        Some(match &ask.question.as_ref()?.card {
+            Card::Questions(questions) => (
+                Kind::Questions,
+                questions.current().is_some_and(|asked| asked.multi),
+            ),
+            Card::Plan { .. } => (Kind::Plan, false),
+            Card::Call { .. } => (Kind::Call, false),
+        })
     }
 
     /// Opens `writing`'s prompt, whose answer comes back as [`App::card_written`].
@@ -358,14 +363,18 @@ impl App {
         let Some(question) = asks.shown_mut(key).and_then(|ask| ask.question.as_mut()) else {
             return;
         };
-        question.whole = false;
         let Card::Questions(questions) = &mut question.card else {
             return;
         };
-        match step(questions) {
+        let step = step(questions);
+        let answers = match step {
+            Step::Done => questions.answers(),
+            _ => None,
+        };
+        question.stepped(step);
+        match step {
             Step::Done => {
-                let answers = questions.answers().unwrap_or_default();
-                self.answer_card(key, Answer::Answers(answers));
+                self.answer_card(key, Answer::Answers(answers.unwrap_or_default()));
             }
             Step::Next | Step::Toggled => {
                 self.draw_card(key);
@@ -443,63 +452,6 @@ impl App {
             question.whole = !question.whole;
         }
         self.draw_card(key);
-        self.request_redraw();
-    }
-
-    /// When point is next to move to a card, if one waits for it: [`QUIET`] after it was
-    /// shown and after the person's last key, later than the last look.
-    pub(in crate::app) fn card_focus_deadline(&self) -> Option<Instant> {
-        let permissions = &self.hosting.natives.permissions;
-        let typed = self.agent_person_typed();
-        let looked = permissions.looked;
-        (permissions.focus_pending.iter())
-            .map(|&(_, shown)| typed.map_or(shown, |typed| typed.max(shown)) + QUIET)
-            .filter(|&due| looked.is_none_or(|looked| due > looked))
-            .min()
-    }
-
-    /// Before the loop waits: point goes to a card that waits for it, once [`QUIET`] passed
-    /// with no key, while the person is in its session's transcript, or its composer with no
-    /// draft in it.
-    pub(in crate::app) fn card_focus_due(&mut self, now: Instant) {
-        self.note_current_card();
-        let permissions = &mut self.hosting.natives.permissions;
-        if permissions.focus_pending.is_empty() {
-            return;
-        }
-        permissions.looked = Some(now);
-        if self
-            .agent_person_typed()
-            .is_some_and(|typed| now < typed + QUIET)
-        {
-            return;
-        }
-        let selected = self.editor.window().buffer();
-        let in_session = (self.hosting.natives.map.iter()).find_map(|(key, native)| {
-            let composer = native.composing.buffer == Some(selected);
-            (selected == native.buffer || composer).then_some((*key, composer))
-        });
-        let Some((key, composer)) = in_session else {
-            return;
-        };
-        let due = (self.hosting.natives.permissions.focus_pending.iter())
-            .any(|&(pending, shown)| pending == key && now >= shown + QUIET);
-        // A draft in the composer keeps point there: the card waits, and says so.
-        if !due || (composer && !self.composer_empty(key)) {
-            return;
-        }
-        let Some(native) = self.hosting.natives.map.get(&key) else {
-            return;
-        };
-        let Some(window) = self.editor.dock_window(native.buffer, DockSlot::Card) else {
-            return;
-        };
-        if !self.card_shows_all(key) {
-            return;
-        }
-        self.editor.select_window(window);
-        self.note_current_card();
-        (self.hosting.natives.permissions.focus_pending).retain(|&(pending, _)| pending != key);
         self.request_redraw();
     }
 

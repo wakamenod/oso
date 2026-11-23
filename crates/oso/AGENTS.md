@@ -247,7 +247,10 @@ often, so it must rebuild within 2 s.
   or `Change`. Its server also serves the sessions' socket (`Policy::Sessions`, ADR 0165,
   step 2), which answers only a native session's bridge's `permission`, asked of the person
   by `src/app/sessions/hosting/native/permissions.rs` over `sessions::native::asks`, on the
-  session's card (`permissions/card.rs`, over `sessions::native::card`, step 2e-2), and a plan's
+  session's card (`permissions/card.rs`, over `sessions::native::card`, step 2e-2; when point goes
+  to it in `card/focus.rs`, its keys typed in the session's empty composer in `card/composer.rs` and
+  `dispatch/card.rs`, its pages in `card/pages.rs`, its size in `card/size.rs`, and what is drawn behind it in
+  `app/draw/card.rs`, ADR 0180), and a plan's
   edit and its approvals with a mode in `permissions/card/plan.rs` (part 3d). `src/app/agent.rs` answers it on the UI thread, and
   `src/dispatch/agent.rs` runs its commands. `channel/diagnostics.rs` reads `oso-lsp`'s
   reports and URI rules, the one module of the channel that does (ADR 0138, step 11).
