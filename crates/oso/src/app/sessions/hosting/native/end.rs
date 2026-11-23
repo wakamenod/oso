@@ -120,7 +120,7 @@ impl App {
     /// replacement of an orchestrator waits for its end, or its conversation moved to an id oso
     /// does not follow. A restart that waits (part 4b) holds none: it waits for the resume, so
     /// that a session that ran is one the restart carries as running.
-    pub(super) fn native_resume_held(&self, key: SessionKey) -> bool {
+    pub(in crate::app::sessions::hosting) fn native_resume_held(&self, key: SessionKey) -> bool {
         self.watch.stop_asked(key)
             || self.editor.quit_when_idle()
             || self.restart_holds()

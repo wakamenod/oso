@@ -240,6 +240,8 @@ impl App {
         session.run = Run::Running { child };
         session.archived = false;
         session.native = true;
+        // Its start thread saw its TUI's `claude` gone, if it had one (part 4d-2).
+        session.tui_process = None;
         let name = session.name.clone();
         self.set_native_state(key, NativeState::Running);
         self.editor.note_unlogged(format!(

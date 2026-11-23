@@ -11,7 +11,7 @@ use oso_term::End;
 
 use super::now_ms;
 use crate::app::{App, UserEvent};
-use crate::sessions::hosted::Run;
+use crate::sessions::hosted::{Run, TuiProcess};
 use crate::sessions::start::{Ready, Started, TerminalOrder};
 use crate::sessions::state::Exit;
 use crate::sessions::worker::{Job, SessionKey};
@@ -85,6 +85,7 @@ impl App {
             shell,
             passed_over,
             directory,
+            child_started,
             ..
         } = ready
         else {
@@ -105,6 +106,15 @@ impl App {
         session.buffer = Some(buffer);
         session.run = Run::Running { child };
         session.archived = false;
+        // Its `claude`, which a native resume waits to be gone for (ADR 0165, part 4d-2); with
+        // its id not known yet, an earlier TUI's, which may still run, is kept.
+        let started = child.map(|pid| TuiProcess {
+            pid,
+            started: child_started
+                .filter(|(started_pid, _)| *started_pid == pid)
+                .map(|(_, at)| at),
+        });
+        session.tui_process = started.or(session.tui_process);
         let name = session.name.clone();
         // The path only: the environment's values are never shown (ADR 0120). Not logged: an
         // adopted or forked session's name and directory come from a transcript (ADR 0145).
@@ -149,15 +159,32 @@ impl App {
             // A terminal that failed is a session that failed.
             End::Failed(_) => Some(-1),
         };
-        // A hang-up the session list asked for ends it as stopped (ADR 0121, step 3).
-        let status = if self.watch.take_hung_up(key) {
+        // A hang-up the session list asked for ends it as stopped (ADR 0121, step 3), as does
+        // one for a switch back to native (ADR 0165, part 4d-2).
+        let stopped = self.watch.take_hung_up(key);
+        let switching = self.hosting.natives.switches.ending(key).is_some();
+        let status = if stopped || switching {
             Some(0)
         } else {
             status
         };
+        let child = (self.hosting.table.get(key)).and_then(|session| match session.run {
+            Run::Running { child } => child,
+            _ => None,
+        });
         let Some(exit) = self.hosting.table.ended(key, status, now_ms()) else {
             return;
         };
+        // Reaped: its `claude` is gone (ADR 0165, part 4d-2). An end with no status may have
+        // left it running: kept, by its id alone if its start recorded none (a TUI carried
+        // over an `oso-restart`).
+        if let Some(session) = self.hosting.table.get_mut(key) {
+            session.tui_process = match end {
+                End::Exited(_) => None,
+                _ => (session.tui_process)
+                    .or_else(|| child.map(|pid| TuiProcess { pid, started: None })),
+            };
+        }
         let note = match exit {
             Exit::Stopped => STOPPED.to_owned(),
             Exit::Failed => format!(
@@ -170,6 +197,10 @@ impl App {
             worker.send(Job::Exited(key, exit));
         }
         self.remember_sessions();
+        // Taken back natively, after the event (ADR 0165, part 4d-2).
+        if self.tui_end_comes_back(key, end, stopped) {
+            return;
+        }
         // An orchestrator stopped for its successor: that starts now (ADR 0136, step 5).
         self.replaced_orchestrator_ended(key, matches!(end, End::Exited(_)));
     }
@@ -248,8 +279,10 @@ impl App {
             return;
         }
         for (key, ran, id) in gone {
-            // An archived session's images go (ADR 0142).
+            // An archived session's images go (ADR 0142), and a switch of it is over, with no
+            // TUI a hand-off started (ADR 0165, part 4d).
             self.drop_session_images(id);
+            self.hosting.natives.switches.forget(key);
             if let Some(session) = self.hosting.table.get_mut(key) {
                 session.buffer = None;
                 session.archived = true;

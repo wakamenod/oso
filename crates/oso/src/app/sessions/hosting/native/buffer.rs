@@ -107,6 +107,7 @@ impl App {
             permission_mode,
             model,
             effort,
+            tui_to_end: None,
         }
     }
 

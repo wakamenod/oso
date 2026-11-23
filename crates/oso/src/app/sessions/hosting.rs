@@ -350,9 +350,11 @@ impl App {
     /// What a session's start thread found.
     pub(in crate::app) fn session_start_reported(&mut self, report: Report) {
         if let Report::Ready(ready) = &report {
-            self.start_thread_reported(ready.token);
+            self.native_start_reported(ready.token);
+            self.switch_start_reported(ready.token, true);
         } else if let Report::Refused { token, .. } | Report::Live { token, .. } = &report {
-            self.start_thread_reported(*token);
+            self.native_start_reported(*token);
+            self.switch_start_reported(*token, false);
         }
         match report {
             Report::Ready(ready) => {

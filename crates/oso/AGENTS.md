@@ -118,7 +118,9 @@ often, so it must rebuild within 2 s.
   on each reply's row by `sessions/native/markdown.rs` (part 2g); its to-do strip is
   `native/todo.rs`, over `sessions/native/todo.rs` and `wire/todo.rs` (part 3e); its switch to
   the TUI, `session-switch-mode`, is `app/sessions/hosting/switch.rs`, over the rules in
-  `sessions/native/switch.rs`, its side and its transcript set aside meanwhile `native/switching.rs`
+  `sessions/native/switch.rs`, its side and its transcript set aside meanwhile `native/switching.rs`,
+  and back from the TUI `switch/back.rs`, its start waiting for the TUI's `claude` to be gone
+  (`sessions/start/gone.rs`)
   (part 4d). `app/sessions.rs` and
   `app/sessions/` carry out what the worker, the jobs and the start thread find.
 - `src/review.rs` runs git and diffs for an agent review on `oso-review` (ADR 0122), only for

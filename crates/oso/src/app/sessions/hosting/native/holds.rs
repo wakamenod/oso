@@ -71,9 +71,11 @@ impl App {
         // A busy buffer runs (`Buffer::is_busy`), so it is a live session's.
         let switches = &self.hosting.natives.switches;
         let stopping = |key| self.watch.is_hung_up(key);
+        // A TUI being taken back natively holds it too (part 4d-2).
         (self.hosting.natives.map.iter()).any(|(key, native)| {
             Doing::of(native, false, stopping(*key), switches.under_way(*key)).holds()
-        }) || self.editor.busy_native_sessions().next().is_some()
+        }) || switches.any()
+            || self.editor.busy_native_sessions().next().is_some()
     }
 
     /// The buffers of the native sessions an `oso-restart` waits for, in the order they were
