@@ -1,6 +1,6 @@
 //! The session tools' rules (ADR 0121, "The bridge and the channel"; step 6): each tool's
-//! reach and whether it asks the person, the loop guard, the person's refusals, and what the
-//! person's question says.
+//! reach and whether it asks the person, the person's refusals, and what the person's
+//! question says.
 //!
 //! Must not depend on: `app`, `dispatch`, threads or the disk; the app carries a
 //! call out and asks these rules first.
@@ -9,8 +9,8 @@
 //!   person's configuration lets a session they started start sessions without asking, within
 //!   [`starts_without_asking`]'s rules (ADR 0135). No tool types into a terminal, answers a
 //!   session's dialog, or reads what a terminal withholds.
-//! - The loop guard and the refusals are kept by session, never by connection: a session that
-//!   connects again keeps both.
+//! - The refusals are kept by session, never by connection: a session that connects again
+//!   keeps them. No count of calls bounds a session (ADR 0177).
 //! - Names, branches and paths in a question are the agent's or a repository's text: each is
 //!   quoted, escaped and cut.
 
@@ -59,14 +59,14 @@ pub struct Tool {
 }
 
 impl Tool {
-    /// Whether it counts toward the loop guard: every tool that asks or changes.
-    pub const fn counted(&self) -> bool {
+    /// Whether it asks or changes.
+    const fn asks_or_changes(&self) -> bool {
         matches!(self.reach, Reach::Change) || !matches!(self.asks, Asks::No)
     }
 
     /// The MCP hint that it only reads: it neither changes nor asks.
     pub const fn read_only(&self) -> bool {
-        !self.counted()
+        !self.asks_or_changes()
     }
 }
 
@@ -174,8 +174,6 @@ pub fn tool(name: &str) -> Option<&'static Tool> {
     TOOLS.iter().find(|tool| tool.name == name)
 }
 
-/// The most calls that count a session may make since the person last typed in it.
-pub const MAX_CALLS: u32 = 20;
 /// How long the person's `n` refuses the same call from the same session without asking.
 pub const REFUSED_FOR: Duration = Duration::from_secs(60);
 /// The most refusals kept; the oldest goes first.
@@ -186,8 +184,6 @@ const MAX_REFUSALS: usize = 256;
 pub enum Refusal {
     /// The person refused the same call from this session less than [`REFUSED_FOR`] ago.
     Person,
-    /// The session made [`MAX_CALLS`] since the person last typed in it.
-    Loop,
 }
 
 impl Refusal {
@@ -197,21 +193,19 @@ impl Refusal {
             Self::Person => {
                 "the person refused this a moment ago; it is their decision: do not try it another way"
             }
-            Self::Loop => "waits for the person to type in this session",
         }
     }
 }
 
-/// The loop guard and the person's refusals, by session.
+/// The person's refusals, by session.
 #[derive(Debug, Default)]
 pub struct Guard {
-    calls: HashMap<SessionId, u32>,
     refused: HashMap<(SessionId, &'static str, String), Instant>,
 }
 
 impl Guard {
-    /// Counts a call of `tool` on `target` from `session` at `now`, or says why it is refused.
-    /// A call this refuses is not counted; one it lets through is, whatever stops it later.
+    /// Lets a call of `tool` on `target` from `session` at `now` through, or says why it is
+    /// refused.
     pub fn admit(
         &mut self,
         session: &SessionId,
@@ -229,17 +223,12 @@ impl Guard {
             }
             None => {}
         }
-        let calls = self.calls.entry(session.clone()).or_default();
-        if *calls >= MAX_CALLS {
-            return Err(Refusal::Loop);
-        }
-        *calls += 1;
         Ok(())
     }
 
     /// Whether the person refused `tool` on `target` from `session` less than
     /// [`REFUSED_FOR`] before `now`: for a target only known once a job has looked, such as
-    /// the branch git resolved a name to. It counts nothing.
+    /// the branch git resolved a name to.
     pub fn was_refused(
         &self,
         session: &SessionId,
@@ -250,11 +239,6 @@ impl Guard {
         self.refused
             .get(&(session.clone(), tool, target.to_owned()))
             .is_some_and(|&at| now.saturating_duration_since(at) < REFUSED_FOR)
-    }
-
-    /// The person's input reached `session`'s terminal: it may make [`MAX_CALLS`] again.
-    pub fn person_typed(&mut self, session: &SessionId) {
-        self.calls.remove(session);
     }
 
     /// The person refused `tool` on `target` from `session` at `now`.
@@ -274,12 +258,6 @@ impl Guard {
         }
         self.refused
             .insert((session.clone(), tool, target.to_owned()), now);
-    }
-
-    /// The calls `session` has made since the person last typed in it.
-    #[cfg(test)]
-    pub fn calls(&self, session: &SessionId) -> u32 {
-        self.calls.get(session).copied().unwrap_or(0)
     }
 }
 
@@ -415,7 +393,7 @@ pub struct Unasked {
 pub enum StartLimit {
     /// At most this many.
     Most(u8),
-    /// `"none"`: as many as the loop guard lets the caller start.
+    /// `"none"`: no limit.
     Unlimited,
 }
 

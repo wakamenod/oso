@@ -1,6 +1,6 @@
 # 0144. Agent starts with no limit, and in the background
 
-- Status: Accepted, amended by 0156 and 0169
+- Status: Accepted, amended by 0156, 0169 and 0177
 - Date: 2026-11-16
 
 ## Context

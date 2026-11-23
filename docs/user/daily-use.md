@@ -603,8 +603,7 @@ tools besides oso's editing ones:
 
 A tool that starts a session, or adds a repository to a space, asks you in oso first. The question names the session that asks
 and what would start. `y` allows it, `n` or `C-g` refuses it, and `?` shows the whole brief of a start. A refusal
-holds for the same request for a minute. After 20 such calls, a session's tools wait until you
-type in its terminal. To let sessions you started start sessions without the question, see
+holds for the same request for a minute. To let sessions you started start sessions without the question, see
 [Session settings](#session-settings).
 
 Claude Code run in a plain `M-x terminal`, or outside oso, is not a session. If you gave it
@@ -677,10 +676,10 @@ through `start_worktree_session` and `session_start`, and a space's orchestrator
 session of its space through `session_resume`, without asking you, in a trusted project
 only, up to `agents_start_limit` running sessions each; past that it asks again. It also lets a
 space's orchestrator add a trusted repository oso already knows (one `space-add-repo` would
-offer) to its space through `space_add_repo`, with no limit but the 20 calls; any other
+offer) to its space through `space_add_repo`, with no limit; any other
 repository asks. With
-`agents_start_limit = "none"` no limit makes it ask, but a session can still start at most 20
-sessions each time you type in it. A session started this way asks for its own. A session an
+`agents_start_limit = "none"` no limit makes it ask: a session may start as many sessions as it
+asks for. A session started this way asks for its own. A session an
 agent starts, whether it asked or not, stays in the background: it appears in the pane and the
 modeline marks, and the window you are in keeps its buffer. Each start is said in the echo area
 and `*Messages*`, its row in `*Spaces*` says `unasked`, and `C-c a e` on it shows who started it

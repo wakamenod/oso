@@ -16,7 +16,7 @@
 //! process all the same, and its finished worktree is removed.
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test: the tools' table,
-//! the questions' wording, the loop guard and the refusals have their own tests.
+//! the questions' wording and the refusals have their own tests.
 
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
