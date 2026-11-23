@@ -17,8 +17,8 @@
 //!   `note`'s; its resume and a native fork are `resume`'s; how it ends, stopped, failed,
 //!   archived or forgotten, `end`'s; its interrupt, `interrupting`'s (step 2c); its slash
 //!   commands, `slash`'s (step 2d); its replies' Markdown highlighting, once each is whole,
-//!   `markdown`'s (part 2g); its status line, `status`'s (part 3a); its to-do strip,
-//!   `todo`'s (part 3e).
+//!   `markdown`'s (part 2g); its status line, `status`'s (part 3a); its permission mode,
+//!   `mode`'s (part 3b); its to-do strip, `todo`'s (part 3e).
 //! - Its prompt suggestion is `suggesting`'s, and the recap of a turn that ended out of sight
 //!   `recap`'s (part 3f).
 //! - Its bridge asks the person's permission for its calls on the sessions' socket, in
@@ -30,10 +30,12 @@
 //!   native session comes back at oso's next start as a native buffer with no process.
 
 mod composer;
+mod control;
 mod end;
 mod interrupting;
 mod keys;
 mod markdown;
+mod mode;
 mod note;
 mod permissions;
 mod recap;
@@ -58,6 +60,7 @@ use crate::sessions::hosted::Run;
 use crate::sessions::identity::Origin;
 use crate::sessions::native::control::Control;
 use crate::sessions::native::interrupt::Interrupt;
+use crate::sessions::native::mode::ModeState;
 use crate::sessions::native::placed::Placed;
 use crate::sessions::native::render;
 use crate::sessions::native::rows::{Changes, RowChange, Rows};
@@ -131,6 +134,8 @@ struct Native {
     todo: todo::TodoStrip,
     /// Its last turn ended out of the person's sight, and no recap said so yet (part 3f).
     unseen: bool,
+    /// Its permission mode, as the CLI says it, and the person's switch of it (part 3b).
+    mode: ModeState,
 }
 
 impl NativeSessions {
@@ -142,6 +147,11 @@ impl NativeSessions {
     /// Whether native session `key`'s conversation moved to a session id oso does not follow.
     pub(in crate::app) fn moved(&self, key: SessionKey) -> bool {
         self.map.get(&key).is_some_and(|native| native.moved)
+    }
+
+    /// The permission mode state a fork of native session `key` starts with (part 3b).
+    pub(in crate::app) fn forked_mode(&self, key: SessionKey) -> Option<ModeState> {
+        Some(self.map.get(&key)?.mode.forked())
     }
 
     /// The process id of session `key`'s `claude`, while it runs and is not reaped.
@@ -238,6 +248,9 @@ impl App {
             native.cli_id = None;
             native.status.new_process();
         }
+        // The mode it was in, as `--resume` keeps none (part 3b).
+        let permission_mode =
+            (self.hosting.natives.map.get_mut(&key)).and_then(|native| native.mode.for_start());
         let waker = self.waker.clone();
         NativeOrder {
             buffer,
@@ -247,6 +260,7 @@ impl App {
             out: Box::new(move |out| {
                 waker.send(UserEvent::NativeSession(key, out));
             }),
+            permission_mode,
         }
     }
 
@@ -300,6 +314,7 @@ impl App {
             cli_id: None,
             moved: false,
             status: status::StatusState::default(),
+            mode: ModeState::default(),
             todo: todo::TodoStrip::default(),
         };
         self.hosting.natives.map.insert(key, native);
@@ -421,25 +436,41 @@ impl App {
         }
     }
 
+    /// Adds a row of oso's saying `text` to native session `key`'s transcript, and asks for a
+    /// frame when the row is in sight.
+    fn native_note_row(&mut self, key: SessionKey, text: &str) {
+        let Some(native) = self.hosting.natives.map.get_mut(&key) else {
+            return;
+        };
+        let change = native.rows.note(text);
+        let buffer = native.buffer;
+        draw(&mut self.editor, native, [change]);
+        if (self.editor.windows()).any(|window| window.buffer() == buffer) {
+            self.request_redraw();
+        }
+    }
+
     /// Folds `events` into session `key`'s rows, draws the rows that changed once each, and
     /// gives the worker what they say of its state.
     fn native_events(&mut self, key: SessionKey, events: Vec<Event>) {
         let seen = self.native_in_front(key);
+        let resumable = !self.native_resume_held(key);
         let Some(native) = self.hosting.natives.map.get_mut(&key) else {
             return;
         };
         let mut changes = Changes::default();
         let mut targets = Vec::new();
-        let mut then = Vec::new();
         let mut todo = false;
         let interrupting = |native: &Native| native.interrupt.interrupting();
         let was_interrupting = interrupting(native);
         let (mut noted, mut usage_id) = (false, None);
         let mut suggested = false;
+        let mut follows = Vec::new();
         for mut event in events {
             suggested |= suggesting::suggestion_event(native, &event);
             recap::recap_event(native, &event, seen);
-            interrupting::control_event(native, &mut event, &mut then);
+            noted |= control::control_event(native, &mut event, &mut follows, resumable);
+            noted |= native.mode.event(&event);
             let (changed, ask) = status::status_event(native, &event);
             noted |= changed;
             usage_id = usage_id.or(ask);
@@ -467,8 +498,8 @@ impl App {
         for target in targets {
             self.tell_tracker(key, target);
         }
-        for then in then {
-            self.interrupt_step(key, then);
+        for follow in follows {
+            self.follow(key, follow);
         }
         if todo {
             self.draw_todo(key);

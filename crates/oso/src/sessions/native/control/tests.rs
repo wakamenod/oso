@@ -16,6 +16,7 @@ pub(in crate::sessions::native) fn ok(id: u64) -> Answer {
         commands: None,
         models: None,
         usage: None,
+        mode: None,
     }
 }
 
@@ -26,6 +27,7 @@ pub(in crate::sessions::native) fn refused(id: u64) -> Answer {
         commands: None,
         models: None,
         usage: None,
+        mode: None,
     }
 }
 
@@ -111,12 +113,18 @@ fn an_answer_goes_to_the_request_that_waits_by_its_id_once() {
     assert_ne!(first, INITIALIZE);
     assert_eq!(control.answered(&ok(second + 1)), Answered::Other);
     assert_eq!(
+        control.answered(&ok(INITIALIZE)),
+        Answered::Other,
+        "initialize's answer after one that succeeded"
+    );
+    assert_eq!(
         control.answered(&Answer {
             id: None,
             error: None,
             commands: None,
             models: None,
             usage: None,
+            mode: None,
         }),
         Answered::Other
     );
@@ -165,6 +173,7 @@ fn the_requests_and_their_answers_go_through_the_wire() {
             commands: None,
             models: None,
             usage: None,
+            mode: None,
         }
     );
     assert_eq!(
@@ -177,6 +186,7 @@ fn the_requests_and_their_answers_go_through_the_wire() {
             commands: None,
             models: None,
             usage: None,
+            mode: None,
         },
         "another's id is no answer of oso's"
     );
@@ -200,6 +210,7 @@ fn the_requests_and_their_answers_go_through_the_wire() {
         commands: None,
         models: None,
         usage: None,
+        mode: None,
     }) else {
         panic!("a log line");
     };

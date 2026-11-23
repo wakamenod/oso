@@ -660,12 +660,34 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   The resume that follows an interrupt by signal is such a resume, judged again then, and none
   starts while the person is asked whether to stop the session, or oso waits to quit or
   restart (step 2c).
-- A native session's control layer (ADR 0165, step 2c) writes only `initialize` and
-  `interrupt`, and reads of an answer only its id, its success, its error, cut to 256 bytes
-  and logged escaped, and `initialize`'s slash commands (below); it answers no request of the
-  CLI's. `SIGINT` goes to the session's
+- A native session's control layer (ADR 0165, step 2c) writes only `initialize`,
+  `interrupt`, `get_usage` (part 3a) and `set_permission_mode` (part 3b), and reads of an
+  answer only its id, its success, its error, cut to 256 bytes and logged escaped,
+  `initialize`'s slash commands (below), its models and its permission mode, and
+  `get_usage`'s cost and two windows; it answers no request of the CLI's. `SIGINT` goes to the session's
   process alone, never its group, and only on Unix: on Windows it would end the process at
   once and leave its tools running.
+- oso changes a native session's permission mode (ADR 0165, Q4, part 3b) only on the
+  person's key: `native-session-cycle-mode` (`S-TAB`, `Person`); no agent or channel method
+  sets one, and a plan the person approves with `acceptEdits` or `auto` (part 3d) counts as
+  their choice. The CLI changes it too, as approving a plan does. The modes oso sends, in
+  `set_permission_mode`, `--permission-mode` and the bridge's `setMode` (only `acceptEdits` or
+  `auto`, after a plan), are one type's, which has no value for
+  `bypassPermissions` or `dontAsk`, so neither can be sent. A later process of the session is
+  given the mode it held, as `--resume` keeps none: the one oso gave its process until that
+  process says one, else the one the CLI said last if it is `default` or `plan`, or if the
+  person switched to it here, else `default` once the person switched here. The stream is not
+  authenticated, as a tool the session runs can write to it: a line that says `acceptEdits`
+  or `auto` is shown but never carried unless the person chose it, and once the person
+  switched, a later process never falls back to the settings' mode, which may ask less. Only
+  the first `initialize` answer that succeeded is read; one after a refusal or a wait that
+  ended is still taken, as the CLI speaks the protocol (step 2c). A fork starts as its
+  source's next process would. A tier-1 switch whose resume is refused (the project not
+  trusted now) is over. A new session gets no mode, and starts as the person's Claude
+  Code settings say; so does one that comes back after oso's restart. A tier-1 switch stops
+  only an idle process, and only while a resume may start (no stop asked, no quit or restart
+  waiting); the resume is judged under trust then. A mode that is not readable as itself
+  (ASCII letters, digits, `-`, `_`, at most 256 bytes) is not shown.
 - The slash commands a native session's CLI lists (ADR 0165, step 2d) are the project's text
   as much as the CLI's, as a skill's description is its file's: at most 512 and 8 aliases
   each, each hint and description cut to one line and 256 bytes, a name or alias longer than
@@ -888,7 +910,9 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
 - `claude` hosts a Claude Code session in a terminal
   ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)). Its command line is built from parts oso
   controls, never from text an agent gave, and passes no permission option, so a session starts
-  in the mode the person's own settings give it. Through the login shell, its arguments are
+  in the mode the person's own settings give it; only a native session's later process is
+  given `--permission-mode`, the mode it was in or the person switched it to (ADR 0165,
+  part 3b). Through the login shell, its arguments are
   positional parameters of a fixed script, never script text, and `claude` is found on the
   shell's `PATH` as in any terminal the person opens, outside the session's directory and its
   project, unless `[sessions] claude` names it by absolute path. `[sessions] env` cannot pass `PATH` or the loader's variables. Starting,

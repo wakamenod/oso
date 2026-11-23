@@ -123,20 +123,24 @@ impl App {
         // A fork in a space's directory passes its checks (ADR 0136).
         let space = self.space_checks(&directory);
         self.turn_agent_channel_on_for_a_session();
-        // Native in a trusted project under `mode = "native"`, as a new start (ADR 0165).
-        let (runs, trusted) = match self.start_native_fork(key, &name, &directory, root.as_deref())
-        {
-            Some((order, trusted)) => {
-                if let Some(trusted) = &trusted {
-                    self.hosting.trusts.insert(key, trusted.clone());
+        // Native in a trusted project under `mode = "native"`, as a new start (ADR 0165), in
+        // the permission mode of the native session it copies (part 3b).
+        let mode = (self.hosting.table.iter())
+            .find(|session| session.id == from)
+            .and_then(|session| self.hosting.natives.forked_mode(session.key));
+        let (runs, trusted) =
+            match self.start_native_fork(key, &name, &directory, root.as_deref(), mode) {
+                Some((order, trusted)) => {
+                    if let Some(trusted) = &trusted {
+                        self.hosting.trusts.insert(key, trusted.clone());
+                    }
+                    (Runs::Native(order), trusted)
                 }
-                (Runs::Native(order), trusted)
-            }
-            None => (
-                Runs::Terminal(self.session_terminal(key, &name, None, true)),
-                None,
-            ),
-        };
+                None => (
+                    Runs::Terminal(self.session_terminal(key, &name, None, true)),
+                    None,
+                ),
+            };
         self.order_session(Order {
             token: key,
             kind: Kind::Fork(from),

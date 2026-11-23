@@ -1,5 +1,6 @@
 //! The agent channel's methods (ADR 0085), over the JSON Lines framing in `wire`. There are
-//! only these, and none of the dev socket's.
+//! only these, and none of the dev socket's; and the permission modes oso gives a native
+//! session's `claude`, which no method carries (`mode`).
 //!
 //! Must not depend on: sockets, threads or editor state; it only parses requests.
 //!
@@ -24,6 +25,8 @@
 //! - `move_wait`: no parameters. Held up to [`MOVE_WAIT_WITHIN`] and answered only for the
 //!   bridge of a session that moves into a space, once its turn ended (ADR 0151, step 2). No
 //!   tool names it.
+//! - The permission modes oso ever gives a native session's `claude` are [`mode`]'s (ADR 0165,
+//!   part 3b): no method sets one.
 
 use std::path::PathBuf;
 
@@ -68,6 +71,7 @@ pub const METHODS: [&str; 10] = [
     "permission",
 ];
 
+pub mod mode;
 pub mod permission;
 pub mod sessions;
 

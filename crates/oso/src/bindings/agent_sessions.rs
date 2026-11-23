@@ -50,6 +50,8 @@ pub const NATIVE: &[(&str, &str)] = &[
     ("d", "native-queued-drop"),
     ("M-<up>", "native-queued-up"),
     ("M-<down>", "native-queued-down"),
+    // The permission mode's next (part 3b), as Claude Code's terminal has it.
+    ("S-TAB", "native-session-cycle-mode"),
     // The to-do strip, opened or folded (step 3, part 3e).
     ("C-c C-t", "native-session-todo"),
 ];
@@ -67,6 +69,8 @@ pub const COMPOSER: &[(&str, &str)] = &[
     ("C-c /", "native-composer-command"),
     // The clipboard's image, as session mode's `C-c C-y` (ADR 0142): its `@PATH` at point.
     ("C-c C-y", "session-yank-image"),
+    // The permission mode's next (part 3b), as in the transcript.
+    ("S-TAB", "native-session-cycle-mode"),
     ("C-c C-t", "native-session-todo"),
 ];
 

@@ -160,6 +160,9 @@ pub struct NativeOrder {
     pub env: Vec<String>,
     /// Called from the stream's threads with what they read.
     pub out: stream::Deliver,
+    /// The permission mode it starts in, `--permission-mode` (ADR 0165, part 3b): the mode a
+    /// resumed session was in or was switched to; `None` for the person's settings' own.
+    pub permission_mode: Option<crate::channel::protocol::mode::PermissionMode>,
 }
 
 /// The terminal a session runs in, as the app gives it.
@@ -484,6 +487,10 @@ fn launch_of(
         settings: settings.as_deref(),
         add_dirs: &extra.add_dirs,
         native: order.runs.native(),
+        permission_mode: match &order.runs {
+            Runs::Native(native) => native.permission_mode,
+            Runs::Terminal(_) => None,
+        },
     };
     let args = command::arguments(&line).map_err(|e| format!("The session did not start: {e}"))?;
     launch::launch(shell, claude.as_ref(), args, order.project.as_deref())
