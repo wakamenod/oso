@@ -241,7 +241,7 @@ fn a_reply_is_opened_once_whole_and_its_runs_go_past_its_marks() {
         "the next line's mark"
     );
     assert_eq!(setup.at(7), Some(Highlight::Keyword), "the report's");
-    assert_eq!(setup.at(12), Some(Highlight::String), "inline code");
+    assert_eq!(setup.at(12), Some(Highlight::SessionCode), "inline code");
     assert_eq!(setup.stand.0.borrow().closed, vec![key], "closed once done");
     assert!(setup.natives.replies.open.is_empty());
 }

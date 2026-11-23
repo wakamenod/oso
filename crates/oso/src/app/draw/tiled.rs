@@ -28,7 +28,7 @@ use oso_render::{
 
 use super::card::CardFills;
 use super::spaces::SpacesFills;
-use super::transcript::TranscriptFills;
+use super::transcript::{ICONS, TranscriptFills};
 use crate::sessions::list::SpaceBands;
 use crate::terminal::hosted::Terminals;
 
@@ -190,9 +190,18 @@ fn fills_of(cells: &WindowCells) -> [(Face, &[CellRect]); FILLS] {
         (Face::SessionAlertLit, &cells.pane.lit[..]),
         (Face::CurrentLine, &cells.band[..]),
         // A native session's rows', as a review's (ADR 0165).
-        (Face::SessionHeader, &cells.transcript.prompts[..]),
+        (Face::SessionPrompt, &cells.transcript.prompts[..]),
+        (Face::SessionBrief, &cells.transcript.briefs[..]),
         (Face::DiffAdded, &cells.transcript.added[..]),
         (Face::DiffRemoved, &cells.transcript.removed[..]),
+        (ICONS[0], &cells.transcript.icons[0][..]),
+        (ICONS[1], &cells.transcript.icons[1][..]),
+        (ICONS[2], &cells.transcript.icons[2][..]),
+        (ICONS[3], &cells.transcript.icons[3][..]),
+        (ICONS[4], &cells.transcript.icons[4][..]),
+        (ICONS[5], &cells.transcript.icons[5][..]),
+        (ICONS[6], &cells.transcript.icons[6][..]),
+        (ICONS[7], &cells.transcript.icons[7][..]),
         // A permission card's title and keys (ADR 0180).
         (Face::CardTitle, &cells.card.title[..]),
         (Face::MenuKey, &cells.card.keys[..]),
@@ -213,7 +222,7 @@ fn fills_of(cells: &WindowCells) -> [(Face, &[CellRect]); FILLS] {
 }
 
 /// How many lists of cells a window fills behind its text.
-const FILLS: usize = 24;
+const FILLS: usize = 33;
 
 /// Room for what a frame lists of the tiled windows, empty between frames, which each frame
 /// takes at its own lifetime ([`super::reuse`]), so that a frame allocates nothing once warm.

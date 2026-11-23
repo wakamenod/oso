@@ -27,7 +27,8 @@
 //!   they end.
 //! - A message is the person's only when oso sent its text ([`Rows::sent`]) and the CLI
 //!   replayed it, or as a listed slash command, never replayed (step 2d). Any other replay is a note, or nothing when a command or hook wrapped it, so
-//!   no text from elsewhere is shown as the person's words.
+//!   no text from elsewhere is shown as the person's words. What an agent's tool started the
+//!   session with, which oso sent too, is a brief ([`Rows::sent_brief`]).
 //! - Rows are kept for the session's life; each holds at most what `wire`'s limits let in.
 //! - A session's earlier turns, read from its transcript at its start, are folded in by
 //!   `past` before anything its process says, and the ids of its newest messages are kept so
@@ -46,6 +47,8 @@ mod calls;
 mod changes;
 mod past;
 mod sent;
+
+use sent::Sent;
 
 use calls::new_call;
 pub use changes::{Changes, RowChange};
@@ -76,6 +79,8 @@ pub struct Row {
 pub enum Kind {
     /// A message oso sent as the person's.
     Prompt(String),
+    /// The message an agent's tool started the session with: `from` says whose it is.
+    Brief { from: String, text: String },
     /// The assistant's text; `streaming` while its block is open, `cut` once it reached
     /// `wire`'s limit.
     Reply {
@@ -153,7 +158,10 @@ pub struct Rows {
     /// Each tool call's row and place in it, by its id.
     calls: HashMap<String, (usize, usize)>,
     /// The texts oso sent that the CLI has not replayed yet, oldest first.
-    sent: VecDeque<String>,
+    sent: VecDeque<Sent>,
+    /// Whose the session's first message is, read from its transcript, when an agent's tool
+    /// started it.
+    started_by: Option<String>,
     /// The calls of the turn under way, which its end closes.
     turn: Vec<String>,
     /// The ids of the session's own newest messages, the newest last: where its transcript's
@@ -181,6 +189,7 @@ impl Rows {
             open: Vec::new(),
             calls: HashMap::new(),
             sent: VecDeque::new(),
+            started_by: None,
             turn: Vec::new(),
             kept: VecDeque::new(),
         }

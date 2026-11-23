@@ -34,7 +34,7 @@ pub fn last_reply(rows: &[Row]) -> Option<&str> {
     let mut ended = false;
     for row in rows.iter().rev().take(MAX_ROWS) {
         match &row.kind {
-            Kind::Prompt(_) => return None,
+            Kind::Prompt(_) | Kind::Brief { .. } => return None,
             Kind::Result(_) if ended => return None,
             Kind::Result(_) => ended = true,
             Kind::Reply { text, .. } if row.depth == 0 && !head(text).trim().is_empty() => {

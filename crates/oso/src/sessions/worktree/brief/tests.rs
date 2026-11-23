@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use proptest::prelude::*;
 
-use super::{BriefError, Handoff, Header, MAX_BRIEF, compose};
+use super::{BriefError, Form, Handoff, Header, MAX_BRIEF, compose, for_claude, form, started};
 
 fn header() -> Header<'static> {
     Header {
@@ -252,5 +252,31 @@ proptest! {
             let escape = '\u{1b}';
             prop_assert!(!text.contains(escape) || brief.contains(escape));
         }
+    }
+}
+
+/// Every first prompt oso composes with a brief is known by how it starts, as the session is
+/// given it, and what a person types is not.
+#[test]
+fn a_brief_is_known_by_how_oso_starts_it() {
+    let reads = [PathBuf::from("/other <x>")];
+    for reads in [&[][..], &reads[..]] {
+        let header = Header { reads, ..header() };
+        let composed = compose(&header, None, "Go").unwrap();
+        let started = started("\"oso-2\"", reads, "/clear");
+        for (text, is) in [(composed, Form::Worktree), (started, Form::Directory)] {
+            assert_eq!(form(&text), Some(is), "{text}");
+            assert_eq!(form(&for_claude(&text, None)), Some(is), "{text}");
+        }
+    }
+    for typed in [
+        "",
+        "Go",
+        "Session oso-2 started",
+        "Go\nSession \"a\" started this session through oso, with this brief:",
+        "/clear\nYou can also read: x",
+        "You can also read: x\n\nGo",
+    ] {
+        assert_eq!(form(typed), None, "{typed}");
     }
 }

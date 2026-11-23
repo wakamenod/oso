@@ -384,17 +384,9 @@ impl App {
             rules::also_reads(said, &reads),
         );
         let details = rules::also_reads(details, &reads);
-        // The new session's first prompt starts with oso's line, never with the agent's text,
-        // so that no brief is read as a command of Claude Code's own (`/`, `!`, `#`).
-        let also = crate::sessions::worktree::brief::reads_line(&reads)
-            .map(|line| format!("{line}\n\n"))
-            .unwrap_or_default();
-        begin.brief = begin.brief.map(|brief| {
-            format!(
-                "{also}Session {} started this session through oso, with this brief:\n\n{brief}",
-                rules::quoted(&caller.name)
-            )
-        });
+        let by = rules::quoted(&caller.name);
+        begin.brief = (begin.brief)
+            .map(|brief| crate::sessions::worktree::brief::started(&by, &reads, &brief));
         let words = Words(label, details, said);
         self.ask_or_start(
             pending,

@@ -307,7 +307,7 @@ const FADED_FLOOR: f32 = 4.5;
 /// are not here, so text on them is drawn in [`Face::Text`]'s colour.
 ///
 /// The spaces pane's bands (ADR 0140) follow: its marks and names keep their colours on them.
-pub(crate) const SYNTAX_FILLS: [Face; 11] = [
+pub(crate) const SYNTAX_FILLS: [Face; 21] = [
     Face::CurrentLine,
     Face::DiffAdded,
     Face::DiffRemoved,
@@ -322,6 +322,19 @@ pub(crate) const SYNTAX_FILLS: [Face; 11] = [
     // them.
     Face::CardTitle,
     Face::MenuKey,
+    // A native session's prompt and its badges' chips (ADR 0165): the person's words and mark
+    // are on the one, and only its own badge is on each of the others.
+    Face::SessionPrompt,
+    // An agent's words alone are on its brief's.
+    Face::SessionBrief,
+    Face::SessionIconRead,
+    Face::SessionIconWrite,
+    Face::SessionIconShell,
+    Face::SessionIconSearch,
+    Face::SessionIconAgent,
+    Face::SessionIconWeb,
+    Face::SessionIconTask,
+    Face::SessionIconOther,
 ];
 
 /// `name`'s theme, with text gamma off until its strength is picked beside the OS's text.
@@ -420,8 +433,11 @@ pub(crate) mod tests {
     }
 
     /// Plain text is read on every fill a line of it sits on, and on a selected candidate.
-    const TEXT: [(Face, f32); 15] = [
+    const TEXT: [(Face, f32); 17] = [
         (Face::Text, 7.0),
+        // A native session's prompt (ADR 0165).
+        (Face::SessionPrompt, 7.0),
+        (Face::SessionBrief, 7.0),
         (Face::DictationProvisional, 7.0),
         // The spaces pane's bands (ADR 0140).
         (Face::SessionHeader, 7.0),
@@ -456,9 +472,10 @@ pub(crate) mod tests {
 
     /// An escape's label sits wherever text can: on every fill behind buffer text, a review's
     /// bands among them, in a modeline's name and on a float.
-    const ESCAPE_PAIRS: [(Face, f32); 20] = [
+    const ESCAPE_PAIRS: [(Face, f32); 21] = [
         // A native session's prompt (ADR 0165).
-        (Face::SessionHeader, 4.5),
+        (Face::SessionPrompt, 4.5),
+        (Face::SessionBrief, 4.5),
         (Face::Text, 4.5),
         (Face::DictationProvisional, 4.5),
         (Face::CurrentLine, 4.5),
@@ -482,9 +499,10 @@ pub(crate) mod tests {
     ];
 
     /// A whitespace or wrap mark sits on everything behind buffer text (ADR 0097).
-    const MARK_PAIRS: [(Face, f32); 16] = [
+    const MARK_PAIRS: [(Face, f32); 17] = [
         // A native session's prompt (ADR 0165).
-        (Face::SessionHeader, 3.0),
+        (Face::SessionPrompt, 3.0),
+        (Face::SessionBrief, 3.0),
         (Face::Text, 3.0),
         (Face::DictationProvisional, 3.0),
         (Face::CurrentLine, 3.0),
@@ -631,6 +649,24 @@ pub(crate) mod tests {
                 (Face::SessionFrontTint, LABEL),
                 (Face::SessionPoint, LABEL),
             ],
+            // A native session's rows (ADR 0165): the person's words and inline code are read; a
+            // mark, a tool's name and a bullet are labels, and a badge is one on its own chip.
+            Face::SessionPrompt => &[(Face::SessionPrompt, READ)],
+            Face::SessionPromptMark => &[(Face::SessionPrompt, LABEL)],
+            Face::SessionBrief => &[(Face::SessionBrief, READ)],
+            Face::SessionBriefMark => &[(Face::SessionBrief, LABEL)],
+            Face::SessionCode => &[(Face::Text, READ), (Face::CurrentLine, READ)],
+            Face::SessionTool | Face::SessionBullet | Face::SessionRunning => {
+                &[(Face::Text, LABEL), (Face::CurrentLine, LABEL)]
+            }
+            Face::SessionIconRead => &[(Face::SessionIconRead, LABEL)],
+            Face::SessionIconWrite => &[(Face::SessionIconWrite, LABEL)],
+            Face::SessionIconShell => &[(Face::SessionIconShell, LABEL)],
+            Face::SessionIconSearch => &[(Face::SessionIconSearch, LABEL)],
+            Face::SessionIconAgent => &[(Face::SessionIconAgent, LABEL)],
+            Face::SessionIconWeb => &[(Face::SessionIconWeb, LABEL)],
+            Face::SessionIconTask => &[(Face::SessionIconTask, LABEL)],
+            Face::SessionIconOther => &[(Face::SessionIconOther, LABEL)],
             // A listing's header is read as highlighted text is; its names in a terminal's
             // colours, and its details, as a session's marks and quiet text are (ADR 0134).
             Face::DiredHeader => &SYNTAX_PAIRS,
@@ -861,6 +897,17 @@ pub(crate) mod tests {
                 (Face::SessionHeader, behind_text),
                 (Face::SessionFrontTint, behind_text),
                 (Face::SessionPoint, behind_text),
+                // A native session's prompt and its badges' chips (ADR 0165).
+                (Face::SessionPrompt, behind_text),
+                (Face::SessionBrief, behind_text),
+                (Face::SessionIconRead, behind_text),
+                (Face::SessionIconWrite, behind_text),
+                (Face::SessionIconShell, behind_text),
+                (Face::SessionIconSearch, behind_text),
+                (Face::SessionIconAgent, behind_text),
+                (Face::SessionIconWeb, behind_text),
+                (Face::SessionIconTask, behind_text),
+                (Face::SessionIconOther, behind_text),
                 (Face::SessionPoint, theme.background(Face::SessionHeader)),
                 (Face::SessionPoint, theme.background(Face::SessionFrontTint)),
             ] {
@@ -1251,6 +1298,100 @@ pub(crate) mod tests {
                 theme.background(Face::DiffRemoved),
             );
             assert!(bands >= 0.05, "{name}: the bands {bands:.3}");
+        }
+    }
+
+    /// What only a native session's rows are drawn in (ADR 0165), a tool's name, a prompt's mark
+    /// and a running mark, is in no colour a reply's text has: not its Markdown's, nor a fence's
+    /// code's. And its bands are told apart from a change's.
+    #[test]
+    fn a_native_sessions_rows_are_told_from_a_replys_text() {
+        for theme in &themes() {
+            let name = theme.name();
+            let ink = |face| theme.foreground(face);
+            let replys = [Face::SessionCode, Face::SessionBullet];
+            for row in [
+                Face::SessionTool,
+                Face::SessionPromptMark,
+                Face::SessionBriefMark,
+                Face::SessionRunning,
+            ] {
+                for reply in SYNTAX.into_iter().chain(replys) {
+                    let apart = distance(ink(row), ink(reply));
+                    assert!(apart >= 0.05, "{name}: {row:?} and {reply:?} {apart:.3}");
+                }
+            }
+            let apart = distance(ink(Face::SessionTool), ink(Face::SessionCode));
+            assert!(apart >= 0.09, "{name}: a tool's name and code {apart:.3}");
+            let said = theme.background(Face::SessionPrompt);
+            // Who said it is never in doubt.
+            let apart = distance(said, theme.background(Face::SessionBrief));
+            assert!(
+                apart >= 0.09,
+                "{name}: the person's band and an agent's {apart:.3}"
+            );
+            let changes = [Face::DiffAdded, Face::DiffRemoved, Face::CurrentLine];
+            for (band, floor) in [(Face::SessionPrompt, 0.05), (Face::SessionBrief, 0.04)] {
+                for fill in changes {
+                    let apart = distance(theme.background(band), theme.background(fill));
+                    assert!(apart >= floor, "{name}: {band:?} and {fill:?} {apart:.3}");
+                }
+            }
+        }
+    }
+
+    /// An escape's label is never taken for a native session's inline code, a bullet, a tool's
+    /// name or a brief's heading, which hold text of others' (ADR 0111, ADR 0165).
+    #[test]
+    fn a_native_sessions_text_is_in_no_colour_an_escape_is_drawn_in() {
+        for theme in &themes() {
+            for face in [
+                Face::SessionCode,
+                Face::SessionBullet,
+                Face::SessionTool,
+                Face::SessionBriefMark,
+            ] {
+                for (other, floor) in [
+                    (Face::Whitespace, 0.05),
+                    (Face::WrapMark, 0.05),
+                    (Face::Escape, 0.10),
+                ] {
+                    let apart = distance(theme.foreground(face), theme.foreground(other));
+                    assert!(
+                        apart >= floor,
+                        "{}: {face:?} and {other:?} {apart:.3}",
+                        theme.name()
+                    );
+                }
+            }
+        }
+    }
+
+    /// The badges of a native session's rows are told apart by their colour, besides their
+    /// characters (ADR 0165).
+    #[test]
+    fn a_native_sessions_badges_are_told_apart() {
+        let icons = [
+            Face::SessionIconRead,
+            Face::SessionIconWrite,
+            Face::SessionIconShell,
+            Face::SessionIconSearch,
+            Face::SessionIconAgent,
+            Face::SessionIconWeb,
+            Face::SessionIconTask,
+            Face::SessionIconOther,
+        ];
+        for theme in &themes() {
+            for (i, a) in icons.iter().enumerate() {
+                for b in &icons[i + 1..] {
+                    let apart = distance(theme.foreground(*a), theme.foreground(*b));
+                    assert!(
+                        apart >= 0.04,
+                        "{}: {a:?} and {b:?} {apart:.3}",
+                        theme.name()
+                    );
+                }
+            }
         }
     }
 

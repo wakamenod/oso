@@ -7,7 +7,7 @@ use super::palettes::Name;
 use crate::pane::Face;
 
 /// Every face, in the order of [`index`], so that a theme keeps a table of them.
-pub(super) const FACES: [Face; 120] = [
+pub(super) const FACES: [Face; 136] = [
     Face::Text,
     Face::Escape,
     Face::Boxed,
@@ -128,6 +128,22 @@ pub(super) const FACES: [Face; 120] = [
     Face::DictationProvisional,
     Face::Card,
     Face::CardTitle,
+    Face::SessionPrompt,
+    Face::SessionPromptMark,
+    Face::SessionTool,
+    Face::SessionCode,
+    Face::SessionBullet,
+    Face::SessionRunning,
+    Face::SessionIconRead,
+    Face::SessionIconWrite,
+    Face::SessionIconShell,
+    Face::SessionIconSearch,
+    Face::SessionIconAgent,
+    Face::SessionIconWeb,
+    Face::SessionIconTask,
+    Face::SessionIconOther,
+    Face::SessionBrief,
+    Face::SessionBriefMark,
 ];
 
 /// Where `face` is in [`FACES`]. A match with no wildcard, so that a new face does not
@@ -258,6 +274,22 @@ pub(super) const fn index(face: Face) -> usize {
         Face::DictationProvisional => 117,
         Face::Card => 118,
         Face::CardTitle => 119,
+        Face::SessionPrompt => 120,
+        Face::SessionPromptMark => 121,
+        Face::SessionTool => 122,
+        Face::SessionCode => 123,
+        Face::SessionBullet => 124,
+        Face::SessionRunning => 125,
+        Face::SessionIconRead => 126,
+        Face::SessionIconWrite => 127,
+        Face::SessionIconShell => 128,
+        Face::SessionIconSearch => 129,
+        Face::SessionIconAgent => 130,
+        Face::SessionIconWeb => 131,
+        Face::SessionIconTask => 132,
+        Face::SessionIconOther => 133,
+        Face::SessionBrief => 134,
+        Face::SessionBriefMark => 135,
     }
 }
 
@@ -382,6 +414,26 @@ pub(super) fn faces(face: Face) -> (Name, Name) {
         // A permission card (ADR 0180), in amber as a warning is, apart from every other dock.
         Face::Card => (FgMain, BgAsk),
         Face::CardTitle => (FgAsk, BgAskTitle),
+        // A native session's rows (ADR 0165): the person's words on a green band, apart from a
+        // diff's; a tool's name and a running mark in hues no reply's text has; a badge on a
+        // chip of its own.
+        Face::SessionPrompt => (FgMain, BgSaid),
+        Face::SessionPromptMark => (FgSaidMark, BgSaid),
+        // An agent's, on a violet one.
+        Face::SessionBrief => (FgMain, BgBrief),
+        Face::SessionBriefMark => (FgBriefMark, BgBrief),
+        Face::SessionTool => (FgTool, BgMain),
+        Face::SessionCode => (FgInlineCode, BgMain),
+        Face::SessionBullet => (FgBullet, BgMain),
+        Face::SessionRunning => (FgRunning, BgMain),
+        Face::SessionIconRead => (FgIconRead, BgIconRead),
+        Face::SessionIconWrite => (FgIconWrite, BgIconWrite),
+        Face::SessionIconShell => (FgIconShell, BgIconShell),
+        Face::SessionIconSearch => (FgIconSearch, BgIconSearch),
+        Face::SessionIconAgent => (FgIconAgent, BgIconAgent),
+        Face::SessionIconWeb => (FgIconWeb, BgIconWeb),
+        Face::SessionIconTask => (FgIconTask, BgIconTask),
+        Face::SessionIconOther => (FgIconOther, BgIconOther),
         // A listing's names in a terminal's colours as `ls --color` gives them, which every
         // theme has apart from its text, even one with few syntax colours; its header as a
         // heading and its details as quiet as a session's (ADR 0134).

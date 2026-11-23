@@ -5,7 +5,7 @@
 
 use oso_core::syntax::Highlight;
 
-use super::{Face, Rendered};
+use super::{Face, Icon, Rendered};
 use crate::sessions::native::shown::Style;
 
 impl Face {
@@ -13,21 +13,43 @@ impl Face {
     pub fn highlight(self) -> Highlight {
         match self {
             Self::Prompt => Highlight::CommentPerson,
-            Self::PromptMark => Highlight::SessionFront,
+            Self::PromptMark => Highlight::SessionPromptMark,
+            Self::Said => Highlight::SessionPrompt,
+            Self::BriefMark => Highlight::SessionBriefMark,
+            Self::Brief => Highlight::SessionBrief,
             Self::Dim => Highlight::SessionQuiet,
-            // No parser gives it, so no reply's code has a tool's name's colour.
-            Self::Tool => Highlight::SessionRepository,
+            // No parser gives these, so no reply's code has a tool row's colours.
+            Self::Icon(icon) => icon.highlight(),
+            Self::Tool => Highlight::SessionTool,
+            Self::Running => Highlight::SessionRunning,
             Self::Target => Highlight::String,
             Self::Added => Highlight::DiffAdded,
             Self::Removed => Highlight::DiffRemoved,
             Self::Error => Highlight::SessionAlert,
             Self::Waiting => Highlight::SessionWorking,
             Self::Reply(Style::Heading) => Highlight::Heading,
-            Self::Reply(Style::Strong | Style::Mark) => Highlight::Markup,
-            Self::Reply(Style::Code) => Highlight::String,
+            Self::Reply(Style::Strong) => Highlight::Markup,
+            Self::Reply(Style::Mark) => Highlight::SessionBullet,
+            Self::Reply(Style::Code) => Highlight::SessionCode,
             Self::Reply(Style::Link) => Highlight::Link,
             Self::CardTitle => Highlight::CardTitle,
             Self::CardKey => Highlight::CardKey,
+        }
+    }
+}
+
+impl Icon {
+    /// The highlight of its badge, which its chip is drawn by.
+    fn highlight(self) -> Highlight {
+        match self {
+            Self::Read => Highlight::SessionIconRead,
+            Self::Write => Highlight::SessionIconWrite,
+            Self::Shell => Highlight::SessionIconShell,
+            Self::Search => Highlight::SessionIconSearch,
+            Self::Agent => Highlight::SessionIconAgent,
+            Self::Web => Highlight::SessionIconWeb,
+            Self::Task => Highlight::SessionIconTask,
+            Self::Other => Highlight::SessionIconOther,
         }
     }
 }

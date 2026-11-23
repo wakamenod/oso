@@ -1,6 +1,6 @@
 //! The keys of a native session's buffer (ADR 0165, step 1; ADR 0130's design): `TAB` folds
 //! the row at point, `RET` shows a call's whole result, `w` copies a reply's Markdown, `n`/`p`
-//! move between the person's messages and `]`/`[` between tool rows, and `C-c C-t`, from the composer too, opens or
+//! move between the messages that started turns and `]`/`[` between tool rows, and `C-c C-t`, from the composer too, opens or
 //! folds the to-do strip (part 3e). Each asks the host, which knows where each row is.
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the host-owned state
@@ -45,7 +45,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "native-session-next-prompt",
-        doc: "Move to the next message of the person's in a native session's buffer, times the count.",
+        doc: "Move to the next message of the person's, or the brief an agent started the session with, in a native session's buffer, times the count.",
         args: ArgSpec::Count,
         reach: Reach::Person,
         run: next_prompt,
@@ -53,7 +53,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "native-session-previous-prompt",
-        doc: "Move to the previous message of the person's in a native session's buffer, times the count.",
+        doc: "Move to the previous message of the person's, or the brief an agent started the session with, in a native session's buffer, times the count.",
         args: ArgSpec::Count,
         reach: Reach::Person,
         run: previous_prompt,

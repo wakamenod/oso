@@ -3,11 +3,12 @@
 //!
 //! Must not depend on: rows, the syntax threads or the theme.
 
+use oso_core::syntax::Highlight;
 use proptest::prelude::*;
 
 use super::signs::could_be_mark;
 use super::{LineStart, MAX_MARKED, MAX_QUOTES, MAX_RULES, Style, walk};
-use crate::sessions::native::render::Face;
+use crate::sessions::native::render::{Face, Icon};
 
 /// `text` as drawn, whole: each line's text, its breaks kept.
 fn shown(text: &str) -> String {
@@ -343,31 +344,135 @@ fn nothing_in_a_reply_passes_for_a_row() {
     }
 }
 
-#[test]
-fn no_style_has_a_highlight_of_a_row_s_own() {
-    for style in [
-        Style::Heading,
-        Style::Strong,
-        Style::Code,
-        Style::Link,
-        Style::Mark,
-    ] {
-        let highlight = Face::Reply(style).highlight();
-        for face in [
-            Face::Prompt,
-            Face::Dim,
-            Face::Tool,
-            Face::Added,
-            Face::Removed,
-            Face::PromptMark,
-            Face::Waiting,
-            Face::Error,
-            Face::CardTitle,
-            Face::CardKey,
-        ] {
-            assert_ne!(highlight, face.highlight(), "{style:?}");
-        }
+/// Whether a reply's text can be in `highlight`: its Markdown's, or what a parser gives its
+/// code. With no wildcard, so that a new one does not compile until it is placed.
+fn of_a_reply(highlight: Highlight) -> bool {
+    match highlight {
+        Highlight::Comment
+        | Highlight::String
+        | Highlight::Keyword
+        | Highlight::Type
+        | Highlight::Function
+        | Highlight::Constant
+        | Highlight::Property
+        | Highlight::Macro
+        | Highlight::Heading
+        | Highlight::Link
+        | Highlight::Markup
+        | Highlight::SessionCode
+        | Highlight::SessionBullet => true,
+        Highlight::DiffAdded
+        | Highlight::DiffRemoved
+        | Highlight::DiffFileHeader
+        | Highlight::DiffHunkHeader
+        | Highlight::DiffRefineAdded
+        | Highlight::DiffRefineRemoved
+        | Highlight::CommentPerson
+        | Highlight::CommentAgent
+        | Highlight::Outdated
+        | Highlight::Sent
+        | Highlight::Decided
+        | Highlight::SessionAlert
+        | Highlight::SessionAlertLit
+        | Highlight::CardTitle
+        | Highlight::CardKey
+        | Highlight::SessionWorking
+        | Highlight::SessionDone
+        | Highlight::SessionQuiet
+        | Highlight::SessionFront
+        | Highlight::SessionSpace
+        | Highlight::SessionRepository
+        | Highlight::SessionPrompt
+        | Highlight::SessionPromptMark
+        | Highlight::SessionBrief
+        | Highlight::SessionBriefMark
+        | Highlight::SessionTool
+        | Highlight::SessionRunning
+        | Highlight::SessionIconRead
+        | Highlight::SessionIconWrite
+        | Highlight::SessionIconShell
+        | Highlight::SessionIconSearch
+        | Highlight::SessionIconAgent
+        | Highlight::SessionIconWeb
+        | Highlight::SessionIconTask
+        | Highlight::SessionIconOther
+        | Highlight::DiredHeader
+        | Highlight::DiredDirectory
+        | Highlight::DiredSymlink
+        | Highlight::DiredBrokenSymlink
+        | Highlight::DiredExecutable
+        | Highlight::DiredSpecial
+        | Highlight::DiredDetails
+        | Highlight::DiredMark
+        | Highlight::DiredMarked
+        | Highlight::GitSectionHeading
+        | Highlight::GitBranchLocal
+        | Highlight::GitBranchRemote
+        | Highlight::GitHash
+        | Highlight::GitDetail
+        | Highlight::GitCommitOverlong
+        | Highlight::GitLane0
+        | Highlight::GitLane1
+        | Highlight::GitLane2
+        | Highlight::GitLane3
+        | Highlight::GitLane4
+        | Highlight::GitLane5
+        | Highlight::GitLane6
+        | Highlight::GitLane7
+        | Highlight::GitTag => false,
     }
+}
+
+/// The face after `face`, from [`Face::Prompt`] on, and whether `face` is one a reply's text
+/// may be in. With no wildcard, so that a new one does not compile until it is placed.
+fn next(face: Face) -> (Option<Face>, bool) {
+    let (next, reply) = match face {
+        Face::Prompt => (Face::PromptMark, false),
+        Face::PromptMark => (Face::Said, false),
+        Face::Said => (Face::BriefMark, false),
+        Face::BriefMark => (Face::Brief, false),
+        Face::Brief => (Face::Dim, false),
+        Face::Dim => (Face::Tool, false),
+        Face::Tool => (Face::Running, false),
+        Face::Running => (Face::Added, false),
+        Face::Added => (Face::Removed, false),
+        Face::Removed => (Face::Error, false),
+        Face::Error => (Face::Waiting, false),
+        Face::Waiting => (Face::CardTitle, false),
+        Face::CardTitle => (Face::CardKey, false),
+        Face::CardKey => (Face::Icon(Icon::Read), false),
+        Face::Icon(Icon::Read) => (Face::Icon(Icon::Write), false),
+        Face::Icon(Icon::Write) => (Face::Icon(Icon::Shell), false),
+        Face::Icon(Icon::Shell) => (Face::Icon(Icon::Search), false),
+        Face::Icon(Icon::Search) => (Face::Icon(Icon::Agent), false),
+        Face::Icon(Icon::Agent) => (Face::Icon(Icon::Web), false),
+        Face::Icon(Icon::Web) => (Face::Icon(Icon::Task), false),
+        Face::Icon(Icon::Task) => (Face::Icon(Icon::Other), false),
+        Face::Icon(Icon::Other) => (Face::Target, false),
+        // Of a card and a strip, which no reply is in: Claude's own words there.
+        Face::Target => (Face::Reply(Style::Heading), true),
+        Face::Reply(Style::Heading) => (Face::Reply(Style::Strong), true),
+        Face::Reply(Style::Strong) => (Face::Reply(Style::Code), true),
+        Face::Reply(Style::Code) => (Face::Reply(Style::Link), true),
+        Face::Reply(Style::Link) => (Face::Reply(Style::Mark), true),
+        Face::Reply(Style::Mark) => return (None, true),
+    };
+    (Some(next), reply)
+}
+
+/// No class a reply's text can have, its Markdown's or a fence's language's, is one of a row's,
+/// a card's or a chip's, so none of it is drawn as oso's words are, nor has a band or a chip.
+#[test]
+fn no_text_of_a_reply_has_a_class_of_a_row_s_own() {
+    let mut face = Some(Face::Prompt);
+    let mut seen = 0;
+    while let Some(at) = face {
+        let (after, reply) = next(at);
+        assert_eq!(of_a_reply(at.highlight()), reply, "{at:?}");
+        face = after;
+        seen += 1;
+    }
+    assert_eq!(seen, 28);
 }
 
 #[test]

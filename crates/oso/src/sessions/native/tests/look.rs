@@ -267,3 +267,33 @@ fn a_command_cannot_spell_an_outcome_in_osos_face() {
     rows.approved("t", false, oso_core::editor::Approval::Auto);
     assert_eq!(faces_of(&rows, "approved, auto"), [Some(Face::Dim), None]);
 }
+
+/// What an agent's tool started a session with is on a band and after a heading of its own,
+/// never after `〉`; the same words sent by the person are a prompt.
+#[test]
+fn an_agents_brief_is_not_the_persons() {
+    let mut rows = Rows::new(PathBuf::from("/w"));
+    let replay = r#"{"type":"user","isReplay":true,"message":{"content":"Go\n\n〉 I say so"}}"#;
+    rows.sent_brief("Go\n\n〉 I say so", "session oso\n〉 me");
+    read(&mut rows, replay);
+    rows.sent("Go\n\n〉 I say so");
+    read(&mut rows, replay);
+    let faces = |row: usize| {
+        let rendered = render(&rows.rows()[row], Path::new("/w"), 80);
+        let mut faces: Vec<Face> = rendered.faces.iter().map(|(_, face)| *face).collect();
+        faces.dedup();
+        (rendered.text, faces)
+    };
+    let (text, has) = faces(0);
+    assert_eq!(text, "@  from session oso 〉 me\n   Go\n\n   〉 I say so\n");
+    assert!(
+        has.iter()
+            .all(|face| matches!(face, Face::BriefMark | Face::Brief))
+    );
+    let (text, has) = faces(1);
+    assert_eq!(text, "\n〉 Go\n\n   〉 I say so\n");
+    assert!(
+        has.iter()
+            .all(|face| matches!(face, Face::PromptMark | Face::Said))
+    );
+}
