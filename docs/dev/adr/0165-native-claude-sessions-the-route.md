@@ -748,6 +748,7 @@ R1 as built, with the author's Q2 (a) and their choices of 2026-11-22:
   continues it in a terminal. The trust a session started with is not used: it is not taken
   back when the person untrusts the project. **Follow-up:** judging trust from the trust list
   by the root's path and identity, on the start thread, so that a resume needs no open buffer.
+  Built in part 4a: an open buffer still decides where there is one.
 - **A fork** follows the mode: native, in a new buffer with its composer selected, under
   `mode = "native"` at such a root; else in a terminal. It takes no baseline, as a terminal
   fork took none.
@@ -1375,6 +1376,65 @@ you were away" summary is the TUI's: nothing in `-p` sends it, so the recap is o
   with tests of what keeps and clears each; the queue's drawing in `composer/queued.rs`; a
   test that the agent channel does not read an echo withheld so; and the e2e flow
   `sessions::native::suggest`.
+
+## Step 4, as built
+
+Step 4 is built in parts, one pull request each, from the author's answers of 2026-11-23,
+through the space's orchestrator. Each part's choices are recorded here as it lands.
+
+### Part 4a: trust from the record of trusted projects
+
+The author's Q4-10 (a), part 2b's follow-up:
+
+- **Where it applies:** a native resume (`session-resume`, an agent's `session_resume`, the
+  tier-1 respawn of part 3b, which is a resume, and a restart's resume once part 4c lands) and
+  a native fork. A new start keeps part 2b's rule: an open, trusted project at its root.
+- **An open buffer decides:** with a buffer of the project at the session's root open, its
+  trust now is the answer, as in part 2b: open and not trusted, or its trust taken back,
+  refuses whatever the record says.
+- **With none open, the record decides,** in two looks. The UI thread asks whether the record
+  holds the root's path (if not, the resume says, as in part 2b, that the project is not open
+  and the record does not hold it: open a file of it, or fork), and the order carries a copy
+  of the record to the start thread (a few lines; at the file's 256 KiB cap about 14 000, a
+  copy of about 1 MiB, once per resume or fork, as oso-core gives no line of it alone). There,
+  before the root's other checks, the root's identity is read (not following a link; a
+  directory) and judged by path and identity as an issue space's member is
+  (`TrustedRoot::of_member`, ADR 0136, step 4): a directory made again at the path, a link
+  there, a file or nothing is refused, "the record of trusted projects does not hold the
+  directory at its project's root now". The usual look again before the spawn follows. The
+  record holds no worktree claim (ADR 0114), so a session in a linked worktree still needs a
+  buffer of it open. Only at the project's root, as before.
+- **Taken back until it starts** (the security review's finding): the start thread's checks
+  before the spawn can take seconds (the registry, a worker's reads with git), so the UI keeps
+  each native resume's or fork's trust until its start thread reports, and after each event
+  takes it back once its project is no longer trusted, by an open buffer of it or by the
+  record's path, or once it is no longer starting with no report from its start thread, as
+  when its buffer is killed meanwhile. The root the start thread makes from the record shares
+  that revocation, as an open buffer's does, so the look before the spawn refuses it. This
+  also closes the same window for a resume or fork an open buffer judged, which part 2b left
+  open. A start that waited is judged again with the record as it is when it goes.
+- **Another spelling of the root:** an open project whose identity the record pairs with the
+  session's root, as on a case-folding file system, refuses when it is restricted, as the one
+  spelled so would. A trusted one decides nothing: the record judges the root, so that the
+  start thread checks the identity where the session runs. Windows has no identity to pair.
+- **A record not read yet** waits, as ADR 0173's held starts do: a resume makes its buffer and
+  is marked starting at once, and its order waits; a fork waits whole. Each goes once the
+  record's thread has reported, unless what waits still waits for the configuration, and is
+  judged again then. Within the held starts' one bound, five seconds after the first start
+  that waited (one kept again as the configuration's look lets it go keeps that deadline), it
+  is judged with what is known: a record still unread trusts nothing, and the resume says "the record of trusted projects is
+  not read" (a fork runs in a terminal). `*Messages*`' "The configuration was not read in 5 s"
+  is said only when the configuration was the one not read. A record refused or broken, or no
+  record at all, is read: nothing waits for it, and it trusts nothing.
+- **Session tools:** a fork judged by the record keeps no trust of its own for its tools
+  (`hosting.trusts`), so its caller's project is judged by an open buffer, as an untrusted
+  one is: less, not more.
+- **Built with:** `sessions/start/trust.rs` (the judge, pure, with its table of tests, and the
+  start thread's look, with tests on real directories: made again, gone, a file, a link);
+  `app/sessions/hosting/trust.rs` (the editor's projects and record into the judge); the
+  record's first report in `app/projects.rs`, which lets the waiting starts go; and the e2e
+  flow `sessions::native::resume::a_native_session_resumes_with_no_file_of_its_project_open`.
+
 ## Questions
 
 The author chose (a) on each, on 2026-11-21. The options are kept as they were put.
@@ -1440,6 +1500,12 @@ Each passage stays in its ADR as written; what holds now follows it.
   person chose (Q4), and `--permission-prompt-tool`; a TUI session still passes none.
 - [ADR 0130](0130-agent-chat.md): superseded. Its buffer design holds by reference
   ("The buffers"); its route, its sidecar and its two views do not.
+- [ADR 0173](0173-starts-wait-for-the-configurations-first-look.md), "Until the
+  configuration's first look is done, every start above waits": and a native resume or fork
+  with no open buffer of its project waits for the record of trusted projects' first report
+  too, within the same 5 s bound (part 4a). "`*Messages*` says once: \"The
+  configuration was not read in 5 s…\"": only when the configuration was not read; a wait for
+  the record alone says nothing there, and its refusal says why.
 
 ## Consequences
 

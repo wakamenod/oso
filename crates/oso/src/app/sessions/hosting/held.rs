@@ -12,7 +12,9 @@ impl App {
     /// Gives `order` to a start thread of its own, or keeps it until the configuration's
     /// first look.
     pub(super) fn order_session(&mut self, order: Order) {
-        if self.starts_wait() {
+        // A native resume whose project's trust waits for the record of trusted projects
+        // waits with them (ADR 0165, part 4a).
+        if self.starts_wait() || start::trust::waits(&order) {
             return self.hold_start(move |app| app.order_held_session(order));
         }
         let waker = std::sync::Mutex::new(self.waker.clone());
@@ -65,10 +67,10 @@ impl App {
     /// Judges `order`, which waited, again as a resume typed now would be: a native one's
     /// trust, and an orchestrator's space with its repositories as they are trusted now.
     fn judge_held_order(&mut self, order: &mut Order) -> Result<(), String> {
-        if matches!(order.runs, Runs::Native(_)) {
+        if let Runs::Native(native) = &mut order.runs {
             let (name, directory) = (&order.name, &order.directory);
-            let trusted = self.native_resume_trust(name, directory, order.project.as_deref())?;
-            order.trusted = Some(trusted);
+            let judged = self.native_resume_trust(name, directory, order.project.as_deref())?;
+            (order.trusted, native.trust) = self.native_judged(order.token, judged);
         }
         if order.space.is_some() {
             order.space = self.orchestrator_start_for(order.token)?;

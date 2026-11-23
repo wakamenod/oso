@@ -144,11 +144,13 @@ impl App {
         let Some(look) = self.trust_file.as_ref().and_then(TrustFile::take) else {
             return;
         };
+        let first = look.record.is_some() && !self.starting.trust_read;
         if let Some(record) = look.record {
             self.editor.set_trust_list(match record {
                 Record::Read(list) => Some(list),
                 Record::Refused => None,
             });
+            self.starting.trust_read = true;
         }
         for said in look.said {
             self.editor.message(said);
@@ -156,6 +158,11 @@ impl App {
         self.servers_follow_trust();
         self.starting.ask();
         self.settle_opens();
+        // A native resume that waited for the record goes (ADR 0165, part 4a), unless all
+        // that waits still waits for the configuration.
+        if first && !self.starts_wait() {
+            self.release_held_starts();
+        }
         self.request_redraw();
     }
 }

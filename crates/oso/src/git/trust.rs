@@ -18,8 +18,9 @@ use super::path::identity_of;
 /// The root of a project that is trusted to run git, with its device and inode as the project
 /// was found. [`TrustedRoot::of`] makes one from a trusted project, and
 /// [`TrustedRoot::of_member`] one from an issue space's repository the trust list holds by path
-/// and identity; the latter is made fresh for each use and never revoked, so its users ask the
-/// trust list again. Its clones share one revocation: once one is revoked, so are all.
+/// and identity, or a native session's root with no open buffer of its project (ADR 0165, part
+/// 4a); the latter is made fresh for each use and never revoked, so its users ask the trust
+/// list again. Its clones share one revocation: once one is revoked, so are all.
 #[derive(Clone, Debug)]
 pub(crate) struct TrustedRoot {
     path: PathBuf,
@@ -57,6 +58,12 @@ impl TrustedRoot {
             identity,
             revoked: Arc::default(),
         })
+    }
+
+    /// This root, taken back with `revoked`, which the UI holds for a native start judged by
+    /// the trust list until it starts (ADR 0165, part 4a).
+    pub(crate) fn revoked_by(self, revoked: Arc<AtomicBool>) -> TrustedRoot {
+        TrustedRoot { revoked, ..self }
     }
 
     /// The device and inode it was trusted with, where the system has them.

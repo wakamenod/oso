@@ -156,3 +156,61 @@ fn a_native_session_stopped_before_its_first_message_is_forgotten() {
     let _ = app.exchange("exit", None);
     app.wait_for_exit();
 }
+
+/// Starts a native session in the flow's trusted project, from `notes.md`, has it answer one
+/// message and stops it.
+fn spoken_and_stopped(flow: &Flow) -> crate::harness::App {
+    let fake = flow.scratch.path().join("fake-claude");
+    let script = RESUME_FAKE.replace("DIR", &flow.scratch.path().display().to_string());
+    fs::write(&fake, script).unwrap();
+    let init = r#"{"type":"system","subtype":"init","cwd":"/w","session_id":"s","model":"m"}"#;
+    flow.scratch
+        .write("stream.jsonl", format!("{init}\n").as_bytes());
+    let mut app = flow.start();
+    app.open_file(&flow.project.join("notes.md"));
+    trust_restricted(&mut app, "proj");
+    app.wait_for("the project trusted", |state| {
+        !modeline(state).contains("restricted")
+    });
+    app.run_command("claude", None).unwrap();
+    app.wait_for("the composer", in_composer);
+    app.send_keys(&keys(MESSAGE));
+    app.send_keys("C-c C-c");
+    app.send_keys("C-c C-o");
+    assert_eq!(flow.wait_for_file("sent.1.1").trim(), MESSAGE);
+    end_turn(flow, &mut app, "release.1.1");
+    app.wait_for("the first reply", |state| text(state).contains("reply 1.1"));
+    app.run_command("session-stop", None).unwrap();
+    app.wait_for("the session stopped", |state| {
+        modeline(state).contains("stopped")
+    });
+    app
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_native_session_resumes_with_no_file_of_its_project_open() {
+    let flow = Flow::new("native-resume-unopened");
+    let mut app = spoken_and_stopped(&flow);
+    // The project's only file is killed: no buffer has the project open now.
+    app.send_keys(&format!("C-x b {} RET", keys("notes.md")));
+    app.wait_for("notes.md", |state| state["buffer"]["name"] == "notes.md");
+    app.send_keys("C-x k RET");
+    app.wait_for("notes.md killed", |state| !has_buffer(state, "notes.md"));
+    app.send_keys(&format!("C-x b {} RET", keys("*claude: proj*")));
+    app.wait_for("the transcript", |state| {
+        state["buffer"]["name"] == "*claude: proj*"
+    });
+    // Resumed natively all the same: the record of trusted projects holds its root, by path
+    // and identity (ADR 0165, part 4a).
+    app.run_command("session-resume", None).unwrap();
+    let args = flow.wait_for_file("run.2");
+    assert!(args.contains("arg --resume="), "{args}");
+    assert!(args.contains("arg --input-format=stream-json"), "{args}");
+    app.wait_for("the composer", in_composer);
+    app.send_keys(&keys("again"));
+    app.send_keys("C-c C-c");
+    assert_eq!(flow.wait_for_file("sent.2.1").trim(), "again");
+    let _ = app.exchange("exit", None);
+    app.wait_for_exit();
+}
