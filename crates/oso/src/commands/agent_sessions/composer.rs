@@ -6,7 +6,9 @@
 //! its place, `d` drops it and `M-<up>`/`M-<down>` move it (`RET` takes it back, as the
 //! transcript's `RET` asks). Each asks the host, which keeps the queue. `/` as an empty
 //! composer's first character, or `C-c /`, completes over the session's slash commands, which
-//! the host lists, and puts the one chosen first in the composer (step 2d).
+//! the host lists, and puts the one chosen first in the composer (step 2d). `/model` and
+//! `/effort` chosen there, or `C-c /` on one the composer begins with, complete their argument
+//! over the models and effort levels the host lists (part 3c).
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the host-owned state
 //! and asks the host for the rest.
@@ -14,7 +16,7 @@
 //! Every key is `Person`: what the composer holds is the person's message, withheld from
 //! agents, and the host sends it or moves it after the command.
 
-use oso_core::buffer::{Mode, Replacement};
+use oso_core::buffer::{BufferId, Mode, Replacement};
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
 use oso_core::editor::NativeAction;
 use oso_core::sum_tree::Bias;
@@ -25,6 +27,18 @@ use super::native::at_point as ask;
 /// composer is selected, as the host last listed them.
 pub const SLASH_LIST: &str = "native-slash-commands";
 
+/// The lists `native-composer-model` and `native-composer-effort` complete over: the models
+/// the selected composer's session's claude lists, and the effort levels of the one chosen or
+/// shown (part 3c).
+pub const MODEL_LIST: &str = "native-models";
+pub const EFFORT_LIST: &str = "native-efforts";
+
+/// The commands whose argument completes, each with its command and list (part 3c).
+pub const ARGUMENTS: [(&str, &str, &str); 2] = [
+    ("model", "native-composer-model", MODEL_LIST),
+    ("effort", "native-composer-effort", EFFORT_LIST),
+];
+
 /// The most of the composer's start read for the command it may begin with.
 const COMMAND_BYTES: usize = 1024;
 
@@ -32,7 +46,7 @@ const COMMAND_BYTES: usize = 1024;
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "native-composer-command",
-        doc: "Complete over the native session's slash commands, and put the one chosen first in its composer, ready for what it takes.\n\nA command the composer begins with is replaced. `/` typed as an empty composer's first character asks too; `C-g` then leaves the `/`.",
+        doc: "Complete over the native session's slash commands, and put the one chosen first in its composer, ready for what it takes.\n\nA command the composer begins with is replaced. `/` typed as an empty composer's first character asks too; `C-g` then leaves the `/`. `/model` and `/effort` chosen go on to complete their argument, and on a `/model` or `/effort` the composer begins with, their argument is completed instead.",
         args: ArgSpec::Listed {
             list: SLASH_LIST,
             prompt: "Command:",
@@ -40,6 +54,30 @@ pub const COMMANDS: &[Command] = &[
         },
         reach: Reach::Person,
         run: slash_command,
+        state: None,
+    },
+    Command {
+        name: "native-composer-model",
+        doc: "Complete over the models the native session's claude lists, and put `/model` with the one chosen first in its composer, ready to send.\n\nThe argument of a `/model` the composer begins with is replaced. Choosing `/model` in `native-composer-command` asks too, as does `C-c /` on a `/model` the composer begins with. The model is noted once claude says it set it, and each later claude of the session starts with it.",
+        args: ArgSpec::Listed {
+            list: MODEL_LIST,
+            prompt: "Model:",
+            history: "native-model",
+        },
+        reach: Reach::Person,
+        run: model,
+        state: None,
+    },
+    Command {
+        name: "native-composer-effort",
+        doc: "Complete over the effort levels of the native session's model, and put `/effort` with the one chosen first in its composer, ready to send.\n\nThe levels are those claude lists for the model chosen with `/model`, else for the model shown, else the five `--effort` takes. The argument of an `/effort` the composer begins with is replaced. The level is noted, and shown after the model in the modeline, once claude says it set it; each later claude of the session starts with it.",
+        args: ArgSpec::Listed {
+            list: EFFORT_LIST,
+            prompt: "Effort:",
+            history: "native-effort",
+        },
+        reach: Reach::Person,
+        run: effort,
         state: None,
     },
     Command {
@@ -196,20 +234,8 @@ fn down(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
 /// Puts the chosen slash command first in the composer: in place of the one it begins with, if
 /// any, else before its text, where point stays.
 fn slash_command(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    let name = match ctx.answer() {
-        Some(name) if !name.is_empty() => name.to_owned(),
-        _ => return Err(CommandError::new("No command")),
-    };
-    let (window, buffer) = ctx.editor.current();
-    if buffer.mode() != Mode::Composer {
-        return Err(CommandError::new(
-            "This buffer is no native session's composer",
-        ));
-    }
-    let id = window.buffer();
-    let text = buffer.text();
-    let end = text.clip_offset(text.len().min(COMMAND_BYTES), Bias::Left);
-    let start: String = text.chunks_in_range(0..end).collect();
+    let name = chosen(ctx, "No command")?;
+    let (id, start) = composer_start(ctx)?;
     let listed = ctx.editor.listed_candidates(SLASH_LIST);
     let names = listed.iter().map(|candidate| candidate.text());
     let replaced = begun_command(&start, names);
@@ -223,6 +249,85 @@ fn slash_command(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
         .map_err(|error| CommandError::new(error.to_string()))
 }
 
+fn model(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    with_argument(ctx, "model", "No model")
+}
+
+fn effort(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    with_argument(ctx, "effort", "No effort level")
+}
+
+/// Puts `/command` with the chosen argument first in the composer: in place of a `/command`
+/// it begins with and its argument, else before its text (part 3c).
+fn with_argument(ctx: &mut Ctx<'_>, command: &str, none: &'static str) -> Result<(), CommandError> {
+    let chosen = chosen(ctx, none)?;
+    let (id, start) = composer_start(ctx)?;
+    let replaced = argument_end(&start, command);
+    let mut inserted = format!("/{command} {chosen}");
+    if start[replaced..].starts_with(|c: char| !ends_word(c)) {
+        inserted.push(' ');
+    }
+    let edit = Replacement {
+        range: 0..replaced,
+        text: &inserted,
+    };
+    ctx.editor
+        .apply_edits(id, &[edit])
+        .map_err(|error| CommandError::new(error.to_string()))
+}
+
+/// The prompt's answer, or `none` as the error when it gave nothing.
+fn chosen(ctx: &Ctx<'_>, none: &'static str) -> Result<String, CommandError> {
+    match ctx.answer() {
+        Some(answer) if !answer.is_empty() => Ok(answer.to_owned()),
+        _ => Err(CommandError::new(none)),
+    }
+}
+
+/// The selected composer and its start, at most [`COMMAND_BYTES`] of it.
+fn composer_start(ctx: &Ctx<'_>) -> Result<(BufferId, String), CommandError> {
+    let (window, buffer) = ctx.editor.current();
+    if buffer.mode() != Mode::Composer {
+        return Err(CommandError::new(
+            "This buffer is no native session's composer",
+        ));
+    }
+    let text = buffer.text();
+    let end = text.clip_offset(text.len().min(COMMAND_BYTES), Bias::Left);
+    Ok((window.buffer(), text.chunks_in_range(0..end).collect()))
+}
+
+/// Which of [`ARGUMENTS`] `start`, a composer's start, begins with: `/model` or `/effort` as a
+/// word of its own (part 3c).
+pub fn begun_argument(start: &str) -> Option<(&'static str, &'static str, &'static str)> {
+    ARGUMENTS.into_iter().find(|(command, ..)| {
+        let rest = start
+            .strip_prefix('/')
+            .and_then(|rest| rest.strip_prefix(command));
+        rest.is_some_and(|rest| rest.is_empty() || rest.starts_with(ends_word))
+    })
+}
+
+/// How much of `start` a `/command` it begins with and its argument take: the command, the
+/// blanks after it on its line, and the word after them; 0 when it begins with none.
+fn argument_end(start: &str, command: &str) -> usize {
+    if begun_argument(start).is_none_or(|(begun, ..)| begun != command) {
+        return 0;
+    }
+    let after = 1 + command.len();
+    let rest = &start[after..];
+    let blanks = rest.len() - rest.trim_start_matches([' ', '\t']).len();
+    let word = rest[blanks..]
+        .find(ends_word)
+        .unwrap_or(rest.len() - blanks);
+    after + blanks + word
+}
+
+/// Whether `c` ends a command's word, as the CLI reads it (step 2d).
+fn ends_word(c: char) -> bool {
+    c.is_whitespace() || c == '\u{feff}'
+}
+
 /// How much of `start`, the composer's start, a command it begins with takes: its `/`, a word
 /// that is, or begins, one of `names`, and one space after it; 0 when it begins with none, as
 /// a path does.
@@ -230,8 +335,7 @@ fn begun_command<'a>(start: &str, mut names: impl Iterator<Item = &'a str>) -> u
     let Some(rest) = start.strip_prefix('/') else {
         return 0;
     };
-    let ends = |c: char| c.is_whitespace() || c == '\u{feff}';
-    let word = &rest[..rest.find(ends).unwrap_or(rest.len())];
+    let word = &rest[..rest.find(ends_word).unwrap_or(rest.len())];
     if !names.any(|name| name.starts_with(word)) {
         return 0;
     }
@@ -278,6 +382,46 @@ mod tests {
                 at(NativeAction::History(2)),
             ]
         );
+    }
+
+    #[test]
+    fn a_chosen_argument_takes_the_place_of_the_one_typed() {
+        use super::argument_end;
+        // `/model`, the blanks after it on its line, and one word.
+        assert_eq!(argument_end("/model", "model"), 6);
+        assert_eq!(argument_end("/model ", "model"), 7);
+        assert_eq!(argument_end("/model  son more", "model"), 11);
+        assert_eq!(argument_end("/model\nmore", "model"), 6);
+        assert_eq!(argument_end("/effort\u{feff}x", "effort"), 7);
+        // Another command, or a word that only begins so.
+        assert_eq!(argument_end("/models x", "model"), 0);
+        assert_eq!(argument_end("/effort x", "model"), 0);
+        assert_eq!(argument_end(" /model x", "model"), 0);
+        assert_eq!(super::begun_argument("/effort"), Some(super::ARGUMENTS[1]));
+    }
+
+    #[test]
+    fn choosing_a_model_puts_it_after_model_in_the_composer() {
+        let mut editor = Editor::default();
+        let mut buffer = Buffer::from_text("*compose: x*", "/model opus and more");
+        buffer.set_mode(Mode::Composer);
+        let id = editor.add_buffer(buffer);
+        editor.show(id);
+        let text = |editor: &Editor| editor.buffer(id).unwrap().text().to_string();
+        let answered = |editor: &mut Editor, name: &str, answer: &str| {
+            let registry = crate::commands::registry();
+            let command = registry.lookup(name).unwrap();
+            let invocation = Invocation {
+                answer: Some(answer),
+                ..Invocation::default()
+            };
+            let mut ctx = Ctx::invoked(editor, invocation);
+            registry.execute(command, &mut ctx, Args::NONE).unwrap();
+        };
+        answered(&mut editor, "native-composer-model", "sonnet");
+        assert_eq!(text(&editor), "/model sonnet and more");
+        answered(&mut editor, "native-composer-effort", "high");
+        assert_eq!(text(&editor), "/effort high /model sonnet and more");
     }
 
     #[test]

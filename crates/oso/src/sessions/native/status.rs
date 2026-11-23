@@ -42,8 +42,10 @@ const MAX_PERCENT: f64 = 999.0;
 /// What a native session's status line knows.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct StatusLine {
-    /// The models `initialize` listed, the last process's that listed any.
+    /// The models `initialize` listed, the last process's that listed any, and how many times
+    /// a list came, so that completion over them (part 3c) is made again only then.
     models: Vec<Model>,
+    listed: u64,
     /// The model `system/init` named last, and the one that answered last.
     init_model: Option<String>,
     answered: Option<String>,
@@ -129,6 +131,12 @@ impl StatusLine {
     /// `initialize` listed `models`.
     pub fn initialized(&mut self, models: Vec<Model>) {
         self.models = models;
+        self.listed += 1;
+    }
+
+    /// The models `initialize` listed, and how many times a list came (part 3c).
+    pub fn models(&self) -> (&[Model], u64) {
+        (&self.models, self.listed)
     }
 
     /// `get_usage` answered `usage`.
@@ -150,7 +158,7 @@ impl StatusLine {
     }
 
     /// The model shown: the one that answered last, else `system/init`'s.
-    fn model(&self) -> Option<&str> {
+    pub fn model(&self) -> Option<&str> {
         self.answered.as_deref().or(self.init_model.as_deref())
     }
 

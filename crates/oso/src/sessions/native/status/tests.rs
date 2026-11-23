@@ -75,6 +75,8 @@ fn model(value: &str, resolved: &str, display: &str) -> Model {
         value: value.to_owned(),
         resolved: resolved.to_owned(),
         display: display.to_owned(),
+        description: String::new(),
+        efforts: None,
     }
 }
 

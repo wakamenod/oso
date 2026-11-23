@@ -58,6 +58,7 @@ use crate::app::{App, UserEvent};
 use crate::git::TrustedRoot;
 use crate::sessions::hosted::Run;
 use crate::sessions::identity::Origin;
+use crate::sessions::native::choice::Choice;
 use crate::sessions::native::control::Control;
 use crate::sessions::native::interrupt::Interrupt;
 use crate::sessions::native::mode::ModeState;
@@ -82,8 +83,8 @@ pub(in crate::app) struct NativeSessions {
     /// The sessions' socket and the permission questions asked on it (ADR 0165, step 2).
     permissions: permissions::Permissions,
     /// Whose slash commands, at which version, `native-composer-command` completes over
-    /// (step 2d).
-    slash_listed: Option<(SessionKey, u64)>,
+    /// (step 2d), and its models and effort levels (part 3c).
+    slash_listed: Option<slash::Listed>,
     /// The replies highlighted as Markdown that wait or are open (part 2g).
     replies: markdown::Replies,
 }
@@ -149,9 +150,11 @@ impl NativeSessions {
         self.map.get(&key).is_some_and(|native| native.moved)
     }
 
-    /// The permission mode state a fork of native session `key` starts with (part 3b).
-    pub(in crate::app) fn forked_mode(&self, key: SessionKey) -> Option<ModeState> {
-        Some(self.map.get(&key)?.mode.forked())
+    /// The permission mode state a fork of native session `key` starts with (part 3b), and
+    /// the model and effort chosen (part 3c).
+    pub(in crate::app) fn forked(&self, key: SessionKey) -> Option<(ModeState, Choice)> {
+        let native = self.map.get(&key)?;
+        Some((native.mode.forked(), native.status.choice.forked()))
     }
 
     /// The process id of session `key`'s `claude`, while it runs and is not reaped.
@@ -248,9 +251,12 @@ impl App {
             native.cli_id = None;
             native.status.new_process();
         }
-        // The mode it was in, as `--resume` keeps none (part 3b).
-        let permission_mode =
-            (self.hosting.natives.map.get_mut(&key)).and_then(|native| native.mode.for_start());
+        // The mode it was in, as `--resume` keeps none (part 3b), and the model and effort
+        // chosen (part 3c).
+        let native = self.hosting.natives.map.get_mut(&key);
+        let (permission_mode, (model, effort)) = native.map_or((None, (None, None)), |native| {
+            (native.mode.for_start(), native.status.choice.for_start())
+        });
         let waker = self.waker.clone();
         NativeOrder {
             buffer,
@@ -260,6 +266,8 @@ impl App {
                 waker.send(UserEvent::NativeSession(key, out));
             }),
             permission_mode,
+            model,
+            effort,
         }
     }
 

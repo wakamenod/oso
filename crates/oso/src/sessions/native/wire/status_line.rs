@@ -1,21 +1,28 @@
 //! What a native session's status line reads of the control protocol's answers (ADR 0165,
-//! part 3a): the models `initialize` lists, and the usage `get_usage` gives.
+//! part 3a): the models `initialize` lists, and the usage `get_usage` gives. Part 3c's
+//! `Model:` and `Effort:` completion reads the models too: each one's description and effort
+//! levels.
 //!
 //! Must not depend on: `rows`, threads or the UI; plain functions over a parsed line.
 //!
 //! - The models' text is the CLI's, but shown in a modeline, so it is held to what reads as
 //!   itself ([`readable`]): at most [`MAX_MODELS`], and a model whose id or name is empty,
-//!   longer than [`MAX_NAME`], or holds what its kind does not (ASCII alone), is left out.
+//!   longer than [`MAX_NAME`], or holds what its kind does not (ASCII alone), is left out. Its
+//!   description is shown only as a completion row's annotation, which escapes what it holds:
+//!   its first line, cut to [`MAX_NAME`]. At most [`MAX_EFFORTS`] effort levels are kept of
+//!   one, each a word ([`Kind::Word`]), and one that is not is left out.
 //! - Of `get_usage`'s answer only the two named windows, `five_hour` and `seven_day`, and the
 //!   session's cost are read: its other windows go by names of the CLI's own, which say nothing
 //!   oso can show (measured, CLI 2.1.330).
 
 use serde_json::{Map, Value};
 
-use super::MAX_NAME;
+use super::{MAX_NAME, name};
 
 /// The most models kept of one list.
 pub const MAX_MODELS: usize = 64;
+/// The most effort levels kept of one model.
+pub const MAX_EFFORTS: usize = 8;
 
 /// A model `initialize` lists.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -26,6 +33,11 @@ pub struct Model {
     pub resolved: String,
     /// What it is called, such as `Opus 5.5`.
     pub display: String,
+    /// What `initialize` says of it, its first line (part 3c).
+    pub description: String,
+    /// The effort levels it takes, such as `low` and `max`, where it says (part 3c): none
+    /// when it takes no effort.
+    pub efforts: Option<Vec<String>>,
 }
 
 /// What `get_usage` says.
@@ -50,10 +62,25 @@ pub(super) fn models(response: &Map<String, Value>) -> Option<Vec<Model>> {
                 |key, kind| (model.get(key).and_then(Value::as_str)).filter(|t| readable(t, kind));
             let (value, resolved) = (text("value", Kind::Id)?, text("resolvedModel", Kind::Id)?);
             let display = text("displayName", Kind::Label)?;
+            let description = model.get("description").and_then(Value::as_str);
+            let description = description.and_then(|d| d.lines().next()).unwrap_or("");
+            let levels = model.get("supportedEffortLevels").and_then(Value::as_array);
+            let efforts = match model.get("supportsEffort").and_then(Value::as_bool) {
+                Some(false) => Some(Vec::new()),
+                _ => levels.map(|levels| {
+                    (levels.iter().filter_map(Value::as_str))
+                        .filter(|level| readable(level, Kind::Word))
+                        .take(MAX_EFFORTS)
+                        .map(str::to_owned)
+                        .collect()
+                }),
+            };
             Some(Model {
                 value: value.to_owned(),
                 resolved: resolved.to_owned(),
                 display: display.to_owned(),
+                description: name(description.trim()),
+                efforts,
             })
         })
         .take(MAX_MODELS)

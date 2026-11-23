@@ -1336,7 +1336,15 @@ a switch made with its command stands until that setting changes in the file
   send. `/` as an empty composer's first character, or `C-c /`, completes over the session's
   slash commands in the minibuffer (step 2d), each with its argument hint and description, and
   puts the one chosen first; a command sent shows as the person's row at once, and `/clear`
-  is refused, as oso would not follow its new conversation. `C-u C-c C-c` interrupts and sends
+  is refused, as oso would not follow its new conversation. `/model` chosen there goes on to a
+  `Model:` completion over the models the session's `claude` lists, each with its name and
+  description, and `/effort` to an `Effort:` completion over the levels of the model chosen
+  with `/model`, else of the one shown, else the five `--effort` takes (part 3c); `C-c /` on a
+  `/model` or `/effort` the composer begins with completes its argument. The one chosen goes
+  after the command, in place of its argument, unsent. Once `claude` says it set the model or
+  the level, the level shows after the model in the modeline, and a resume, an interrupt's
+  resume, a mode switch's and a fork start with both; a session resumed after oso restarted
+  does not. `C-u C-c C-c` interrupts and sends
   the composer's text first, ahead of the queue,
   which then goes on; with no turn under way it is `C-c C-c`. Nothing queued goes while oso
   waits to quit when idle. A message holding secret text a yank brought is not sent. A restart
@@ -1392,7 +1400,8 @@ a switch made with its command stands until that setting changes in the file
   proxies apply; set `claude` when the shell is not `sh`, `bash`, `zsh`, `dash` or `ksh`. `env`
   names at most 64 more variables a session takes from oso's environment; `PATH`, `LD_*` and
   `DYLD_*` are refused. A session starts in the mode Claude Code's own settings give it: oso
-  gives a permission option only to a native session's later process, the mode it was in. With `steer_worktrees`, a session oso starts gets a hook that
+  gives a permission option only to a native session's later process, the mode it was in,
+  and a model or effort only the one chosen there with `/model` or `/effort`. With `steer_worktrees`, a session oso starts gets a hook that
   denies Claude's own `EnterWorktree` and `git worktree add`, pointing it to `C-c a w`; nothing
   is written into Claude Code's settings files.
 - A session gets oso's `CLAUDE_CONFIG_DIR`. If a login profile sets its own, set the same value

@@ -202,3 +202,56 @@ fn a_macros_slash_opens_the_prompt_as_the_persons_does() {
     assert_eq!(editor.current().1.text().to_string(), "/model ");
     assert!(editor.prompt().is_none());
 }
+
+fn list_arguments(editor: &mut Editor) {
+    use crate::commands::agent_sessions::{EFFORT_LIST, MODEL_LIST};
+    use oso_core::complete::Candidate;
+    let models = [
+        Candidate::new("sonnet", "", "Sonnet 5.5  Most efficient"),
+        Candidate::new("haiku", "", "Haiku 5.5  Fastest"),
+    ];
+    editor.set_listed(MODEL_LIST, models.into());
+    let efforts = [
+        Candidate::new("low", "", ""),
+        Candidate::new("high", "", ""),
+    ];
+    editor.set_listed(EFFORT_LIST, efforts.into());
+}
+
+#[test]
+fn model_chosen_in_the_commands_prompt_completes_its_argument() {
+    let (mut d, mut editor) = (Dispatcher::new(), Editor::default());
+    composer(&mut editor, "");
+    list_commands(&mut editor);
+    list_arguments(&mut editor);
+    send(&mut d, &mut editor, "/ m o d e l RET");
+    assert!(editor.prompt().is_some(), "the models' prompt opens");
+    send(&mut d, &mut editor, "h a i RET");
+    assert_eq!(editor.current().1.text().to_string(), "/model haiku");
+    assert!(editor.prompt().is_none());
+    // Nothing is sent: the person sends it.
+    assert!(actions(&mut editor).is_empty());
+    // `C-c /` on it completes its argument again, in place of the one typed.
+    send(&mut d, &mut editor, "C-c / s o n RET");
+    assert_eq!(editor.current().1.text().to_string(), "/model sonnet");
+    // `C-g` leaves the command for its argument by hand.
+    send(&mut d, &mut editor, "C-a C-k / m o d e l RET C-g");
+    assert_eq!(editor.current().1.text().to_string(), "/model ");
+}
+
+#[test]
+fn c_c_slash_on_effort_completes_its_level_and_elsewhere_the_commands() {
+    let (mut d, mut editor) = (Dispatcher::new(), Editor::default());
+    composer(&mut editor, "/effort lo and so");
+    list_commands(&mut editor);
+    list_arguments(&mut editor);
+    send(&mut d, &mut editor, "C-c / h i RET");
+    assert_eq!(editor.current().1.text().to_string(), "/effort high and so");
+    // A word that only begins so is no `/model`: the commands' prompt opens.
+    let (mut d, mut editor) = (Dispatcher::new(), Editor::default());
+    composer(&mut editor, "/models x");
+    list_commands(&mut editor);
+    list_arguments(&mut editor);
+    send(&mut d, &mut editor, "C-c / c o n t RET");
+    assert_eq!(editor.current().1.text().to_string(), "/context /models x");
+}

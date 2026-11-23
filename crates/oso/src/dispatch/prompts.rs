@@ -146,6 +146,7 @@ impl Dispatcher {
         args: Args,
         invocation: Invocation<'_>,
     ) -> (Effects, Result<(), ExecuteError>) {
+        let id = self.argument_prompt(editor, id);
         let spec = self.registry.get(id).map(|command| command.args);
         if let Some(ArgSpec::Replace { regexp }) = spec {
             return self.read_replace(editor, id, args.raw(), regexp);

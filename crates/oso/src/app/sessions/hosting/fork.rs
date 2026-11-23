@@ -124,10 +124,11 @@ impl App {
         let space = self.space_checks(&directory);
         self.turn_agent_channel_on_for_a_session();
         // Native in a trusted project under `mode = "native"`, as a new start (ADR 0165), in
-        // the permission mode of the native session it copies (part 3b).
+        // the permission mode, model and effort of the native session it copies (parts 3b and
+        // 3c).
         let mode = (self.hosting.table.iter())
             .find(|session| session.id == from)
-            .and_then(|session| self.hosting.natives.forked_mode(session.key));
+            .and_then(|session| self.hosting.natives.forked(session.key));
         let (runs, trusted) =
             match self.start_native_fork(key, &name, &directory, root.as_deref(), mode) {
                 Some((order, trusted)) => {

@@ -13,11 +13,15 @@
 //!   when it changed while the session is shown.
 //! - Why `get_usage` was refused, or went unanswered, is logged; nothing is said to the person,
 //!   whose line waits for the stream.
+//! - The model and effort the person chose with `/model` and `/effort` are kept here too
+//!   (`sessions::native::choice`, part 3c): the effort noted is the line's, and each later
+//!   process starts with both.
 
 use std::time::Instant;
 
 use super::Native;
 use crate::app::App;
+use crate::sessions::native::choice::Choice;
 use crate::sessions::native::status::StatusLine;
 use crate::sessions::native::usage::GetUsage;
 use crate::sessions::native::wire::Event;
@@ -31,12 +35,26 @@ pub(super) struct StatusState {
     usage: GetUsage,
     /// An answer changed the line since the last event was noted.
     answered: bool,
+    /// The model and effort the person chose (part 3c).
+    pub(super) choice: Choice,
 }
 
 impl StatusState {
-    /// A new process: its `get_usage` is asked once its `initialize` is answered.
+    /// A new process: its `get_usage` is asked once its `initialize` is answered, and nothing
+    /// sent to the one before is answered.
     pub(super) fn new_process(&mut self) {
         self.usage = GetUsage::default();
+        self.choice.new_process();
+    }
+
+    /// The status a fork starts with: its source's choice, shown as the source shows it.
+    pub(super) fn forked(choice: &Choice) -> Self {
+        let mut status = Self {
+            choice: choice.forked(),
+            ..Self::default()
+        };
+        status.line.effort = status.choice.effort().map(str::to_owned);
+        status
     }
 }
 
@@ -75,7 +93,11 @@ pub(super) fn usage_answered(
 /// read it: whether the line may read differently, and the id of a `get_usage` to write now.
 pub(super) fn status_event(native: &mut Native, event: &Event) -> (bool, Option<u64>) {
     let status = &mut native.status;
-    let changed = status.line.event(event) | std::mem::take(&mut status.answered);
+    let mut changed = status.line.event(event) | std::mem::take(&mut status.answered);
+    if status.choice.event(event) {
+        status.line.effort = status.choice.effort().map(str::to_owned);
+        changed = true;
+    }
     (changed, ask(native))
 }
 
