@@ -7,7 +7,8 @@
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
 use oso_core::editor::DictationRequest;
 
-/// Dictation's commands. Each needs the person: it turns on their microphone, and starts curl.
+/// Dictation's commands. Each needs the person: their microphone, curl, or what was learned of
+/// their words.
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "dictation-toggle",
@@ -28,10 +29,18 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "dictation-forget-learned",
-        doc: "Forget everything dictation has learned, after asking once.\n\nFixes by Claude, and your own rewrites of dictated text soon after, teach dictation the words it mishears: the pairs go to each later fix as history. This empties that record and its log, in oso's state directory, and stops watching what was dictated just now.",
+        doc: "Forget everything dictation has learned, after asking once.\n\nFixes by Claude, and your own rewrites of dictated text soon after, teach dictation the words it mishears: the pairs go to each later fix as history, and those learned often enough to TypeWhisper's dictionary. This empties that record and its log, in oso's state directory, stops watching what was dictated just now, and removes from TypeWhisper's dictionary every entry oso added there, but none you changed or added yourself. With TypeWhisper not running, its entries go the next time you dictate.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: dictation_forget_learned,
+        state: None,
+    },
+    Command {
+        name: "dictation-learning-log",
+        doc: "Show what dictation learned and when, newest first, in `*Dictation log*`.\n\nEach fix kept or undone, each rewrite of yours, each history sent with a fix, as counts, and each entry added to TypeWhisper's dictionary, left to you, removed or not added, over the last 30 days. Agents cannot read it.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: dictation_learning_log,
         state: None,
     },
 ];
@@ -79,6 +88,13 @@ fn dictation_forget_learned(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandErr
     Ok(())
 }
 
+fn dictation_learning_log(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    not_in_a_macro(ctx)?;
+    ctx.editor.request_dictation(DictationRequest::ShowLog);
+    ctx.request_redraw();
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use crate::commands::tests::{editor, run};
@@ -100,11 +116,16 @@ mod tests {
         );
         assert_eq!(run(&mut editor, "dictation-cancel", Args::NONE).0, Ok(()));
         assert_eq!(
+            run(&mut editor, "dictation-learning-log", Args::NONE).0,
+            Ok(())
+        );
+        assert_eq!(
             editor.take_dictation_requests(),
             [
                 DictationRequest::Toggle { prefix: false },
                 DictationRequest::Toggle { prefix: true },
                 DictationRequest::Cancel,
+                DictationRequest::ShowLog,
             ]
         );
     }

@@ -22,6 +22,11 @@
 //!     "POST /v1/dictation/start": [{"status": 200, "body": {"id": "…", "status": "recording"}}],
 //!     "GET /v1/dictation/transcription": [{"status": 200, "body": {"status": "recording"}}]
 //!   },
+//!   "dictionary": {
+//!     "terms": ["oso"],
+//!     "corrections": [{"original": "ty", "replacement": "TypeWhisper", "caseSensitive": false}],
+//!     "file": "/where/it/is/kept.json"
+//!   },
 //!   "exit_after": 3
 //! }
 //! ```
@@ -29,7 +34,10 @@
 //! Each route's answers are given in order, the last again once they run out; a request with no
 //! route gets a 404, and one without the token a 401. Until a stop has come, a transcription's
 //! look is answered `{"status": "recording"}` and takes none of its route's answers, as
-//! TypeWhisper records until it is stopped. `delay_ms` in an answer waits before it.
+//! TypeWhisper records until it is stopped. With a `dictionary`, its terms and corrections are
+//! kept and answered as TypeWhisper does, a change of them too, unless a route says otherwise:
+//! an original is matched without regard to case, and each change is kept in `file`, which a
+//! test writes to play the person's own changes. `delay_ms` in an answer waits before it.
 //! `exit_after` ends the server once it has answered that many requests, as TypeWhisper quitting.
 //! A server that has heard nothing for [`IDLE`] ends too, so that a flow that was cut short
 //! leaves no listener behind.
@@ -42,7 +50,7 @@
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
 
@@ -75,6 +83,8 @@ struct Script {
     discovery_token: String,
     routes: HashMap<String, Vec<Answer>>,
     exit_after: Option<usize>,
+    /// Where the dictionary is kept, if the script gives one.
+    dictionary: Option<PathBuf>,
     /// A stop has come.
     stopped: bool,
 }
@@ -160,11 +170,22 @@ fn parse(text: &str) -> Option<Script> {
         .get("exit_after")
         .and_then(Value::as_u64)
         .and_then(|n| usize::try_from(n).ok());
+    let dictionary = match value.get("dictionary") {
+        Some(given) => {
+            let file = PathBuf::from(given.get("file")?.as_str()?);
+            let kept =
+                json!({"terms": given.get("terms")?, "corrections": given.get("corrections")?});
+            std::fs::write(&file, kept.to_string()).ok()?;
+            Some(file)
+        }
+        None => None,
+    };
     Some(Script {
         token,
         discovery_token,
         routes,
         exit_after,
+        dictionary,
         stopped: false,
     })
 }
@@ -230,7 +251,7 @@ fn serve(stream: TcpStream, script: &mut Script, requests: &Path) -> std::io::Re
         }
     } else if authorized {
         script.stopped |= route == STOP;
-        next_answer(script, &route)
+        dictionary_answer(script, &route, &body).unwrap_or_else(|| next_answer(script, &route))
     } else {
         Answer {
             status: 401,
@@ -252,6 +273,62 @@ fn serve(stream: TcpStream, script: &mut Script, requests: &Path) -> std::io::Re
     stream.flush()
 }
 
+/// The dictionary's answer to `route` with `body`, if the script keeps one and gives the route
+/// no answers of its own.
+fn dictionary_answer(script: &Script, route: &str, body: &str) -> Option<Answer> {
+    let file = script.dictionary.as_ref()?;
+    if script.routes.contains_key(route) {
+        return None;
+    }
+    let mut kept: Value = serde_json::from_slice(&std::fs::read(file).ok()?).ok()?;
+    let asked: Value = serde_json::from_str(body).unwrap_or(Value::Null);
+    let same = |a: &Value, b: &Value| {
+        let text = |value: &Value| value.as_str().map(str::to_lowercase);
+        text(a).is_some() && text(a) == text(b)
+    };
+    let body = match route.split_once(' ')? {
+        ("GET", path) => {
+            let list = path.strip_prefix("/v1/dictionary/")?;
+            json!({list: kept.get(list)?})
+        }
+        ("PUT", "/v1/dictionary/terms") => {
+            let terms = kept["terms"].as_array_mut()?;
+            for term in asked["terms"].as_array()? {
+                terms.retain(|other| !same(other, term));
+                terms.push(term.clone());
+            }
+            json!({"terms": terms})
+        }
+        ("PUT", "/v1/dictionary/corrections") => {
+            let all = kept["corrections"].as_array_mut()?;
+            all.retain(|other| !same(&other["original"], &asked["original"]));
+            all.push(asked);
+            json!({"corrections": all})
+        }
+        ("DELETE", "/v1/dictionary/terms") => {
+            let terms = kept["terms"].as_array_mut()?;
+            let before = terms.len();
+            terms.retain(|other| !same(other, &asked["term"]));
+            json!({"deleted": terms.len() < before})
+        }
+        ("DELETE", "/v1/dictionary/corrections") => {
+            let all = kept["corrections"].as_array_mut()?;
+            let before = all.len();
+            all.retain(|other| !same(&other["original"], &asked["original"]));
+            json!({"deleted": all.len() < before})
+        }
+        _ => return None,
+    };
+    if !route.starts_with("GET") {
+        std::fs::write(file, kept.to_string()).ok()?;
+    }
+    Some(Answer {
+        status: 200,
+        body: body.to_string(),
+        delay: Duration::ZERO,
+    })
+}
+
 /// The route's next answer: the first left, or its last again; a 404 with no route.
 fn next_answer(script: &mut Script, route: &str) -> Answer {
     match script.routes.get_mut(route) {
@@ -268,7 +345,9 @@ fn next_answer(script: &mut Script, route: &str) -> Answer {
 
 #[cfg(test)]
 mod tests {
-    use super::{TOKEN, next_answer, parse};
+    use serde_json::{Value, json};
+
+    use super::{TOKEN, dictionary_answer, next_answer, parse};
 
     #[test]
     fn a_route_gives_its_answers_in_order_then_its_last_again() {
@@ -282,6 +361,33 @@ mod tests {
         assert_eq!(next_answer(&mut script, "GET /a").status, 409);
         assert_eq!(next_answer(&mut script, "GET /a").status, 409);
         assert_eq!(next_answer(&mut script, "GET /b").status, 404);
+    }
+
+    #[test]
+    fn a_dictionary_is_kept_and_matched_without_regard_to_case() {
+        let file = std::env::temp_dir().join(format!("fake-tw-{}.json", std::process::id()));
+        let given = json!({"routes": {}, "dictionary": {
+            "terms": ["Oso"], "corrections": [], "file": file,
+        }});
+        let script = parse(&given.to_string()).unwrap();
+        let ask = |route: &str, body: &str| dictionary_answer(&script, route, body).unwrap().body;
+        assert_eq!(ask("GET /v1/dictionary/terms", ""), r#"{"terms":["Oso"]}"#);
+        let added = ask(
+            "PUT /v1/dictionary/terms",
+            r#"{"terms":["oso","Vite"],"replace":false}"#,
+        );
+        assert_eq!(added, r#"{"terms":["oso","Vite"]}"#);
+        let gone = ask("DELETE /v1/dictionary/terms", r#"{"term":"OSO"}"#);
+        assert_eq!(gone, r#"{"deleted":true}"#);
+        assert_eq!(ask("GET /v1/dictionary/terms", ""), r#"{"terms":["Vite"]}"#);
+        let put = r#"{"original":"a","replacement":"b","caseSensitive":true}"#;
+        ask("PUT /v1/dictionary/corrections", put);
+        let all: Value = serde_json::from_str(&ask("GET /v1/dictionary/corrections", "")).unwrap();
+        assert_eq!(all["corrections"][0]["replacement"], "b");
+        let gone = ask("DELETE /v1/dictionary/corrections", r#"{"original":"A"}"#);
+        assert_eq!(gone, r#"{"deleted":true}"#);
+        assert!(dictionary_answer(&script, "GET /v1/other", "").is_none());
+        let _ = std::fs::remove_file(file);
     }
 
     #[test]

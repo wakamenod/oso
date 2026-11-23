@@ -429,6 +429,7 @@ impl Editor {
             Some(place) => {
                 place.selections = selections;
                 place.scroll = scroll;
+                place.tail = false;
                 true
             }
             None => false,

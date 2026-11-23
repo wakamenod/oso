@@ -5,14 +5,57 @@
 //!
 //! Must not depend on: key presses or how a frame is drawn; the composer's keys ask.
 
-use oso_core::buffer::Replacement;
-use oso_core::editor::NativeAction;
+use oso_core::buffer::{Buffer, BufferId, Replacement};
+use oso_core::editor::{Editor, NativeAction};
+use oso_core::window::WindowId;
 
 use crate::app::App;
 use crate::sessions::native::queue::Move;
 use crate::sessions::native::render::{Face, queue_rows};
 use crate::sessions::native::suggest::suggestion_row;
 use crate::sessions::worker::SessionKey;
+
+/// The windows whose point is on a row of those from `start`, the queue's and the suggestion's,
+/// in `buffer`, with the row's number: below the heading and before the end, which stays the
+/// end.
+fn windows_on_rows(editor: &Editor, buffer: BufferId, start: usize) -> Vec<(WindowId, usize)> {
+    let Some(text) = editor.buffer(buffer).map(Buffer::text) else {
+        return Vec::new();
+    };
+    let first = text.offset_to_point(start).row;
+    (editor.windows())
+        .filter(|window| window.buffer() == buffer)
+        .filter_map(|window| {
+            let cursor = window.selections.primary().cursor;
+            let row = text.offset_to_point(cursor).row.checked_sub(first)?;
+            (row > 0 && cursor < text.len()).then(|| (window.id(), row))
+        })
+        .collect()
+}
+
+/// Puts the point of `window`, which was on a row of the queue in `buffer`, whose rows are from
+/// `start`, on its message's row, `at`, from 0, or at the end if the message is gone, so that a
+/// key never acts on another.
+fn stay_on_row(
+    editor: &mut Editor,
+    buffer: BufferId,
+    start: usize,
+    window: WindowId,
+    at: Option<usize>,
+) {
+    let Some(text) = editor.buffer(buffer).map(Buffer::text) else {
+        return;
+    };
+    let offset = match at {
+        Some(at) => text.line_start(text.offset_to_point(start).row + 1 + at),
+        None => text.len(),
+    };
+    if let Some(shown) = editor.window_by_id(window) {
+        let (mut selections, scroll) = (shown.selections.clone(), shown.scroll());
+        selections.move_primary(offset);
+        editor.restore_positions_in(window, selections, scroll);
+    }
+}
 
 impl App {
     /// Draws native session `key`'s queue as grey rows at its transcript's end, and its
@@ -30,9 +73,23 @@ impl App {
             let start = native.placed.end();
             let range = start..start + native.composing.rows.len();
             let runs = [(rows.len(), Some(Face::Dim.highlight()))];
+            let now: Vec<u64> = (native.composing.queue.waiting())
+                .map(|queued| queued.id)
+                .collect();
+            let drawn = std::mem::replace(&mut native.composing.drawn, now);
+            let on = windows_on_rows(&self.editor, native.buffer, start);
             self.editor
                 .replace_native_rows(native.buffer, range, &rows, &runs);
             native.composing.rows = rows;
+            for (window, row) in on {
+                let id = row.checked_sub(1).and_then(|at| drawn.get(at));
+                let at = native
+                    .composing
+                    .drawn
+                    .iter()
+                    .position(|now| Some(now) == id);
+                stay_on_row(&mut self.editor, native.buffer, start, window, at);
+            }
         }
         self.write_native_note(key);
     }

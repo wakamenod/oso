@@ -75,13 +75,18 @@ impl Editor {
     }
 }
 
-/// What the selected window's cursors do when a buffer it shows changes.
+/// What the cursors that do not follow a change as markers do: the selected window's, or a
+/// transcript's at its end.
 #[derive(Clone, Copy)]
 pub(super) enum Selected {
     /// It made the edit: a cursor after new text stays after it.
     Edited,
     /// A message went to `*Messages*`: as an edit, but what a person set there stays.
     Logged,
+    /// A native session's rows changed (ADR 0165): in every window, selected or not, the cursor
+    /// at the end of the text stays there, and any other follows as a marker. What a person set
+    /// there stays.
+    Tail,
 }
 
 /// Moves every cursor where a cursor can be: to the start of the display cluster
@@ -147,9 +152,9 @@ pub(super) fn clip_selections(
 
 impl Editor {
     /// The cursors of every window showing `id` once a change is in, by window
-    /// position. They follow `steps`, as markers except in the selected window,
-    /// which does as `selected` says. Each ends where a cursor can be. A change hides every region of the buffer
-    /// (ADR 0071), but a message logged to `*Messages*`.
+    /// position. They follow `steps`, as markers except as `selected` says. Each ends where a
+    /// cursor can be. A change hides every region of the buffer (ADR 0071), but a message logged
+    /// to `*Messages*` and a native session's rows.
     pub(super) fn moved_selections(
         &self,
         id: BufferId,
@@ -164,12 +169,14 @@ impl Editor {
                 continue;
             }
             let mut set = window.selections.clone();
-            let logged = matches!(selected, Selected::Logged);
+            let logged = matches!(selected, Selected::Logged | Selected::Tail);
             if !logged {
                 set.set_mark_active(MarkActive::Inactive);
             }
-            let edited =
-                index == self.selected && matches!(selected, Selected::Edited | Selected::Logged);
+            let edited = match selected {
+                Selected::Edited | Selected::Logged => index == self.selected,
+                Selected::Tail => self.at_native_end(index),
+            };
             let bias = if edited { Bias::Right } else { Bias::Left };
             let mut ends = Vec::new();
             for edits in steps {

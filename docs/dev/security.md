@@ -435,7 +435,7 @@ network features.
   curl` by absolute path, with only `-q --config -` as arguments. The address, the token and
   the body go in the configuration on its standard input; the host is `127.0.0.1`, fixed in
   oso, with no proxy, no protocol but `http`, no redirect, a time limit and a size limit. The
-  token comes from TypeWhisper's discovery file, read fresh for each dictation and refused when
+  token comes from TypeWhisper's discovery file, read fresh for each use and refused when
   it is a link, not this user's, writable by its group or others, or over 4 KiB; it is a
   redacted type that no argument, log line, message, restart state or agent reaches. The
   commands are `Person`, refused in keyboard macros. A stale file with another local process on
@@ -464,6 +464,14 @@ network features.
   to Anthropic with the text, only of pairs whose `wrong` is in the text, and never a pair
   learned only from text typed plain (`C-u s-d`), which the person kept from Claude. No agent tool reads the record; `dictation-forget-learned`
   removes it and the log.
+- Dictation adds what it learned often enough to TypeWhisper's dictionary (ADR 0175, step 4),
+  through the same calls, at most 40 entries, and never a pair learned only from text typed
+  plain. TypeWhisper's own settings decide where its dictionary goes: a language model's prompt, a
+  cloud recogniser or a sync. oso removes only what TypeWhisper gives exactly as oso added it, read
+  again before each change, by the list of that, `dictation/typewhisper.json`, which is kept as the
+  record is and written before each change, under a lock. TypeWhisper does not list a disabled
+  entry, so one of the same word is written over and then taken for oso's. The learning log's
+  buffer is withheld from agents, and its command and the forget are `Person`.
 - The environment is sanitized and every spawn is logged in a visible buffer.
 
 ### Dependencies (T2, T8)
@@ -522,7 +530,9 @@ shown, boxed or escaped.
   dictations and their rewrites on disk, in `dictation/` in oso's state directory, mode
   `0600`: at most 40 pairs, and the log's lines of the last 30 days. A pair whose `right`
   looks like a credential is never kept, and nothing comes from a buffer that may hold
-  secrets. `dictation-forget-learned` removes both.
+  secrets. `dictation-forget-learned` removes both. What oso added to TypeWhisper's dictionary
+  is listed there too (step 4), and that list holds its words until TypeWhisper has answered a
+  forget.
 - There is no periodic auto-save, no backup files and no persisted undo
   history.
 - On a panic outside a command, or when the OS ends the app on macOS, unsaved buffers are written to a
@@ -919,6 +929,14 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)); no hook reports a session's state.
   The hook is `oso hook deny-worktree`: it reads at most 64 KiB of standard input, starts
   nothing, and allows what it cannot read. It steers Claude, and is no boundary.
+- Remote Control is off in every native session ([ADR 0165](adr/0165-native-claude-sessions-the-route.md),
+  as amended): each native start's `--settings` has `disableRemoteControl`, so the CLI refuses a
+  request to connect it to claude.ai, whatever the project's settings or the person's
+  `remoteControlAtStartup` say. Connected, the conversation would be stored there, and messages
+  and mode changes would come from outside oso's window, past oso's rules on who makes them.
+  oso never asks for it. A terminal's `claude`, the TUI a native session is handed to among
+  them, follows the person's own settings. It is a setting of that one process: a `claude` the
+  session runs reads its own, and it is no boundary against other processes of the same user.
 - The agents' session tools ([ADR 0121](adr/0121-agent-sessions-and-spaces.md), step 6) act
   only for a session oso started, proven by its bridge, and only within its repository; any
   other connection may only read, within the selected window's project, or ask to move into a

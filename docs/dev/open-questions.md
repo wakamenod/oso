@@ -450,8 +450,9 @@ item notes when it must be settled.
   whole. Step 1's flows use a fake `claude`
   ([ADR 0151](adr/0151-moving-a-session-into-a-space.md)).
 - Dictation goes through TypeWhisper ([ADR 0175](adr/0175-dictation-through-typewhisper.md),
-  which supersedes 0129): steps 1 to 3 are built; TypeWhisper's dictionary, and a command
-  that shows the learning log, are its step 4.
+  which supersedes 0129): its four steps are built. A disabled entry of TypeWhisper's
+  dictionary, which its API does not list, is written over when oso promotes its word: only a
+  change of TypeWhisper's API would show it.
 
 ## Later
 

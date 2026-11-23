@@ -21,7 +21,6 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::mpsc::Sender;
 use std::thread;
 
 use oso_core::editor::{DictationMark, DictationSpan};
@@ -63,9 +62,8 @@ struct Job {
     session_env: Vec<String>,
     state: PathBuf,
     running: Running,
-    /// Where the learning record is, the learning's thread, which logs the history sent, and
-    /// how many forgets came before.
-    learning: Option<(PathBuf, Sender<learning::Job>, u64)>,
+    /// Where the learning record is, and the learning's thread, which logs the history sent.
+    learning: Option<(PathBuf, learning::Jobs)>,
 }
 
 impl App {
@@ -91,10 +89,9 @@ impl App {
                 "Dictation typed plain: {MAX_RUNNING} fixes run already"
             ));
         }
-        let forgets = self.dictations.learning.forgets;
         let learning = self
             .learning_jobs()
-            .map(|jobs| (learning::directory(&state), jobs, forgets));
+            .map(|jobs| (learning::directory(&state), jobs));
         let id = self.dictations.next_fix;
         self.dictations.next_fix += 1;
         let running = Running::default();
@@ -152,13 +149,9 @@ impl App {
     /// Lands the answers that came, unless a dictation is under way, whose target a fix's edit
     /// would make stale.
     pub(super) fn land_dictation_fixes(&mut self) {
-        let under_way = self.dictations.due.is_some()
-            || self
-                .dictations
-                .current
-                .as_ref()
-                .is_some_and(|current| !current.cancelled);
-        if under_way || self.dictations.fixes.iter().all(|fix| fix.answer.is_none()) {
+        if self.dictation_under_way()
+            || self.dictations.fixes.iter().all(|fix| fix.answer.is_none())
+        {
             return;
         }
         let (answered, running) = std::mem::take(&mut self.dictations.fixes)
@@ -321,11 +314,10 @@ fn run(job: &Job) -> Result<Applied, String> {
         .as_ref()
         .map(|(directory, ..)| learning::history(directory, &context.text, learning::now_secs()))
         .unwrap_or_default();
-    if let Some((_, jobs, forgets)) = &job.learning
+    if let Some((_, jobs)) = &job.learning
         && history != History::default()
     {
-        let at = learning::now_secs();
-        let _ = jobs.send(learning::Job::History(history.clone(), at, *forgets));
+        jobs.send(learning::Work::History(history.clone()));
     }
     let input = fix::input(&Ask {
         mode: context.mode,

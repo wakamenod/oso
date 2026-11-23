@@ -15,20 +15,22 @@
 //!   TypeWhisper's paste may follow either, and at the latest that long after the text's own
 //!   wait.
 //! - Once its text settles, fixed or plain, a dictation is watched for what it teaches
-//!   (`learning`, step 3).
+//!   (`learning`, step 3), and what it taught often enough goes to TypeWhisper's dictionary
+//!   (`promoting`, step 4). `log_view` shows the log of it.
 //! - Nothing is carried across a restart: an exit starts a stop if one records, and does not
 //!   wait for it, kills the fixes under way and drops the watches; a composer's send that
 //!   waits for them (`sessions/hosting/native/composer/held.rs`) does not go.
 
 use std::time::{Duration, Instant};
 
+use oso_core::buffer::BufferId;
 use oso_core::command::Effects;
 use oso_core::editor::{DictationMark, DictationPlaced, DictationRequest, DictationTarget};
 
 use super::shell::Loop;
 use super::{App, UserEvent};
 use crate::dictation::api::{Curl, Transport};
-use crate::dictation::state::{self, Event, Handle, MakeTransport, Settings, Stopped};
+use crate::dictation::state::{self, Event, Handle, Heard, MakeTransport, Settings, Stopped};
 use crate::dictation::{self, MARKER};
 use crate::dispatch::PasteGuard;
 
@@ -37,6 +39,10 @@ pub const GUARD_AFTER: Duration = Duration::from_secs(3);
 
 mod fix;
 mod learning;
+mod log_view;
+mod promoting;
+
+pub(super) use learning::Forgot;
 
 /// How long an exit waits for a recording dictation's thread to have started its stop.
 const EXIT_WAIT: Duration = Duration::from_millis(300);
@@ -82,7 +88,7 @@ impl Current {
 struct Due {
     generation: u64,
     target: DictationTarget,
-    text: String,
+    heard: Heard,
     /// Typed as a provisional span and fixed.
     provisional: bool,
     /// The dictation's thread, kept so that it says when the wait is over.
@@ -103,6 +109,10 @@ pub(super) struct Dictations {
     next_fix: u64,
     /// The watches, and the learning's thread.
     learning: learning::Learning,
+    /// The buffer of the learning log, once it was shown.
+    log_buffer: Option<BufferId>,
+    /// How often the log was emptied: a read asked for before is not shown after.
+    log_emptied: u64,
 }
 
 impl App {
@@ -113,9 +123,11 @@ impl App {
                 DictationRequest::Toggle { prefix } => self.toggle_dictation(prefix),
                 DictationRequest::Cancel => self.cancel_dictation(),
                 DictationRequest::Forget => self.forget_dictation_learning(),
+                DictationRequest::ShowLog => self.read_dictation_log(),
             }
         }
         self.place_due_dictation(false);
+        self.note_dictation_under_way();
         self.land_dictation_fixes();
     }
 
@@ -197,6 +209,7 @@ impl App {
             cancelled: false,
             prefix,
         });
+        self.note_dictation_under_way();
     }
 
     /// Where TypeWhisper's discovery file is: `[dictation] discovery`, else the release
@@ -278,13 +291,13 @@ impl App {
                     }
                 }
             }
-            Event::Text(text) => {
+            Event::Text(heard) => {
                 let Some(current) = self.dictations.current.take() else {
                     return;
                 };
                 self.close_paste_guard_soon();
                 if !current.cancelled {
-                    self.dictated(current, &text);
+                    self.dictated(current, heard);
                 }
                 self.show_dictation_mark();
             }
@@ -303,6 +316,7 @@ impl App {
             }
             Event::Settled => {}
         }
+        self.note_dictation_under_way();
         self.land_dictation_fixes();
         self.request_redraw();
     }
@@ -315,28 +329,33 @@ impl App {
 
     /// Types the text of the dictation `current` at its target, or keeps it, and its thread,
     /// until a composition there ends.
-    fn dictated(&mut self, current: Current, text: &str) {
-        let (text, cut) = dictation::clean(text);
+    fn dictated(&mut self, current: Current, heard: Heard) {
+        let (text, cut) = dictation::clean(&heard.text);
         if text.is_empty() {
             return self.editor.message("TypeWhisper heard nothing");
         }
+        let heard = Heard {
+            text,
+            raw: heard.raw.map(|raw| dictation::clean(&raw).0),
+        };
         let provisional = !current.prefix;
         if self.editor.dictation_waits(&current.target) {
             self.dictations.due = Some(Due {
                 generation: current.generation,
                 target: current.target,
-                text,
+                heard,
                 provisional,
                 _thread: current.handle,
             });
             return;
         }
-        self.place(&current.target, &text, cut, provisional);
+        self.place(&current.target, heard, cut, provisional);
     }
 
-    /// Types `text` at `target`, or puts it in the kill ring, and says so; with `provisional`,
+    /// Types what was heard at `target`, or puts it in the kill ring, and says so; with `provisional`,
     /// as a span that Claude then fixes.
-    fn place(&mut self, target: &DictationTarget, text: &str, cut: bool, provisional: bool) {
+    fn place(&mut self, target: &DictationTarget, heard: Heard, cut: bool, provisional: bool) {
+        let text = heard.text.as_str();
         match self.editor.place_dictation(target, text, provisional) {
             DictationPlaced::Typed { span } => {
                 if cut {
@@ -354,6 +373,11 @@ impl App {
                     }
                     Some(span) => self.editor.end_dictation_span(span),
                     None => {}
+                }
+                // No span is made in the minibuffer or where secrets may be: nothing of such a
+                // dictation goes on.
+                if span.is_some() {
+                    self.note_dictation_heard(heard);
                 }
             }
             DictationPlaced::Kept(why) => self.kept_dictation(why),
@@ -384,12 +408,12 @@ impl App {
         };
         if now && self.editor.dictation_waits(&due.target) {
             self.editor
-                .keep_dictation(&due.target, &due.text, "a composition stayed open");
+                .keep_dictation(&due.target, &due.heard.text, "a composition stayed open");
             self.kept_dictation("a composition stayed open");
             self.request_redraw();
             return;
         }
-        self.place(&due.target, &due.text, false, due.provisional);
+        self.place(&due.target, due.heard, false, due.provisional);
     }
 
     /// A dictation's text came long enough ago: if it still waits for a composition, it goes to

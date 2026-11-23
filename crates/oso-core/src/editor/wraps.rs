@@ -271,6 +271,7 @@ impl Editor {
         self.refill_wraps();
         // A wrap that missed a change starts over, and drops the report.
         self.sync_wrap(index);
+        let left = self.wheeled_off_end(index);
         let (window, buffer) = self.window_mut(index);
         let display = buffer.display();
         let taken = window
@@ -278,7 +279,9 @@ impl Editor {
             .is_some_and(|wrap| wrap.take_report(report, &display));
         if taken {
             window.realize_view(&display);
-            self.follow_window(index);
+            if !left {
+                self.follow_window(index);
+            }
         }
         taken
     }

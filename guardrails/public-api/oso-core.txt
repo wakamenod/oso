@@ -1518,6 +1518,7 @@ impl core::marker::StructuralPartialEq for oso_core::editor::DictationPlaced
 pub enum oso_core::editor::DictationRequest
 pub oso_core::editor::DictationRequest::Cancel
 pub oso_core::editor::DictationRequest::Forget
+pub oso_core::editor::DictationRequest::ShowLog
 pub oso_core::editor::DictationRequest::Toggle
 pub oso_core::editor::DictationRequest::Toggle::prefix: bool
 impl core::clone::Clone for oso_core::editor::DictationRequest
