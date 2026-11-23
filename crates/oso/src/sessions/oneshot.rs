@@ -99,8 +99,8 @@ pub struct Run {
 }
 
 impl Run {
-    /// Whether its `claude` has started and is not yet reaped.
-    #[cfg(test)]
+    /// Whether its `claude` has started and is not yet reaped, for the stand-in runs' tests.
+    #[cfg(all(test, unix))]
     pub fn started(&self) -> bool {
         self.child.is_some()
     }
