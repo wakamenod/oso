@@ -29,7 +29,8 @@ pub(super) const MODES_FAKE: &str = r#"#!/bin/sh
 dir='DIR'
 n=$(ls "$dir" | grep -c '^run\.')
 n=$((n+1))
-for a in "$@"; do printf 'arg %s\n' "$a"; done > "$dir/run.$n"
+for a in "$@"; do printf 'arg %s\n' "$a"; done > "$dir/tmp.$n"
+mv "$dir/tmp.$n" "$dir/run.$n"
 tier=$(cat "$dir/tier")
 mode=default
 for a in "$@"; do

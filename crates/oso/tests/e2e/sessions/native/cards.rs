@@ -98,7 +98,19 @@ fn note_from_the_composer(app: &mut App) {
     app.wait_for("the letters typed", |state| text(state) == "xN");
     app.send_keys("DEL");
     app.send_keys("DEL");
-    answer_after_quiet(app, "N");
+    // A key the composer's card does not take yet is typed, not refused: where the quiet moment
+    // started again between the look and the key (see `answer_after_quiet`), again.
+    for _ in 0..3 {
+        wait_for_answers(app);
+        app.send_keys("N");
+        let state = app.state();
+        if state["prompts"][0]["prompt"] == "Deny with a note: " {
+            return;
+        }
+        assert_eq!(text(&state), "N", "typed, or the note's prompt");
+        app.send_keys("DEL");
+    }
+    panic!("the composer's card took no N, typed three times as it took answers");
 }
 
 #[test]

@@ -547,11 +547,11 @@ fn oso_mcp_drives_the_editor_once_the_person_lets_it_in() {
     assert_eq!(responses[0]["result"]["serverInfo"]["name"], "oso");
     // The editor's 8, `diagnostics` (ADR 0138, step 11) among them, the session tools of
     // ADR 0121 step 6a, ADR 0136's space_status, ADR 0127's draft_set, ADR 0151's
-    // move_to_space, ADR 0153's session_resume, ADR 0155's session_rename and ADR 0161's
-    // space_add_repo.
+    // move_to_space, ADR 0153's session_resume, ADR 0155's session_rename, ADR 0161's
+    // space_add_repo and ADR 0179's session_archive.
     assert_eq!(
         responses[1]["result"]["tools"].as_array().unwrap().len(),
-        20
+        21
     );
     let text = |response: &Value| {
         response["result"]["content"][0]["text"]
