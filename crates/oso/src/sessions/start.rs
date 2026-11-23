@@ -39,6 +39,7 @@ use super::registry;
 use super::stream::{self, Stream};
 
 mod runs;
+pub mod trust;
 
 use super::worktree::steer;
 use crate::git::TrustedRoot;
@@ -148,6 +149,9 @@ impl Runs {
 pub struct NativeOrder {
     /// Its buffer, already made.
     pub buffer: BufferId,
+    /// The record of trusted projects it is judged by here, with no open buffer of its
+    /// project (ADR 0165, part 4a).
+    pub trust: trust::ByRecord,
     /// `[terminal]`'s settings: the shell, `-l` and the names passed on.
     pub settings: Settings,
     /// `[sessions] env`: more names passed on from oso's environment.
@@ -239,7 +243,7 @@ pub fn spawn(order: Order, send: impl Fn(Report) + Send + Sync + 'static) {
 }
 
 /// Everything before the start, then the late baseline and the second look at the registry.
-fn prepare(order: Order, send: &(dyn Fn(Report) + Sync)) {
+fn prepare(mut order: Order, send: &(dyn Fn(Report) + Sync)) {
     let token = order.token;
     let refuse = |why: String| send(Report::Refused { token, why });
     if let Some(report) = held_back(&order) {
@@ -266,7 +270,7 @@ fn prepare(order: Order, send: &(dyn Fn(Report) + Sync)) {
         Ok(launch) => launch,
         Err(why) => return refuse(why),
     };
-    if let Err(why) = root_kept(&order) {
+    if let Err(why) = trust::settle(&mut order).and_then(|()| root_kept(&order)) {
         return refuse(why);
     }
     // The baseline before `claude` runs, so that the review shows what the session changed.

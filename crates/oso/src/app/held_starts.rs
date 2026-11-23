@@ -151,8 +151,12 @@ impl App {
             return;
         }
         self.starting.held.waited_out = true;
-        log::warn!("the configuration was not read in time: held starts use the defaults");
-        self.editor.note(WAITED_OUT.to_owned());
+        // Else only the record of trusted projects was waited for, which each start judged
+        // by it says (ADR 0165, part 4a).
+        if !self.configuration.looked() {
+            log::warn!("the configuration was not read in time: held starts use the defaults");
+            self.editor.note(WAITED_OUT.to_owned());
+        }
         self.release_held_starts();
         self.request_redraw();
     }
