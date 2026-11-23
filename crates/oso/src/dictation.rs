@@ -10,6 +10,8 @@
 //! - `state` is a dictation's thread, from the start to the text.
 //! - `fix` is what `claude -p` is asked to fix the text with, and how its answer becomes edits
 //!   (step 2). The editor keeps where the text went (`oso_core::editor`'s dictation).
+//! - `learning` is the record of what fixes and the person's own rewrites taught, the history
+//!   each fix is given, and the diff that finds a rewrite (step 3).
 //!
 //! TypeWhisper also types the text itself, by putting it on the clipboard marked with
 //! [`MARKER`] and posting Command-V, which reaches oso as `M-v`. The dispatcher holds an `M-v`
@@ -19,6 +21,7 @@
 pub mod api;
 pub mod discovery;
 pub mod fix;
+pub mod learning;
 pub mod state;
 
 /// The type TypeWhisper puts beside the text it pastes on the clipboard, which tells its

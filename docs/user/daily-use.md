@@ -781,6 +781,12 @@ records and recognises your speech on your Mac. Turn on its API server in TypeWh
 - The fix runs your own `claude` (`[sessions] claude`), which sends the dictated text, a few
   lines around it and TypeWhisper's dictionary to Anthropic. It never runs for the minibuffer
   or a buffer that may hold secrets. `M-x dictation-cancel` stops a fix under way.
+- oso learns, quietly, from each fix you keep or undo, and from your own small rewrites of the
+  text within a few minutes, such as a misheard word you retype. Later fixes are told what it
+  learned, so the same mishearing is fixed the same way. What you rewrite in text typed with
+  `C-u s-d` is kept too, but never sent to Claude. It keeps at most 40 pairs, forgets one
+  after 30 days unseen, and learns nothing from the minibuffer or a buffer that may hold
+  secrets. `M-x dictation-forget-learned` forgets it all.
 - If you changed that buffer's text meanwhile, or the place is gone, the text goes to the kill
   ring instead, and `C-y` yanks it. While an input method composes there, the text waits.
 - `M-x dictation-cancel` drops a dictation and its text.

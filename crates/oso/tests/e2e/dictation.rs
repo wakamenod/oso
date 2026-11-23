@@ -7,7 +7,9 @@
 //! fake `claude` from `[sessions] claude`, in every flow, so that no real one is ever run: the
 //! text shows provisional, then fixed, and one undo brings back what was said; `C-u s-d` and a
 //! buffer that may hold secrets never run it; a slow one is killed at its limit; an edited span
-//! is skipped; and the face is drawn only while the fix runs.
+//! is skipped; and the face is drawn only while the fix runs. Step 3's learning: a fix that
+//! stood and the person's own rewrite go to the record, and the next fix is given them as
+//! history; an undone fix is recorded as undone; and `dictation-forget-learned` empties it.
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test: the discovery
 //! file's checks, the curl configuration, the thread's steps and the held key's queue have
@@ -188,6 +190,22 @@ fn start(scratch: &Scratch, config: &Path, file: &Path) -> App {
     let env: [(&str, &OsStr); 2] = [
         ("OSO_STATE_DIR", state.as_os_str()),
         ("HOME", home.as_os_str()),
+    ];
+    let mut app = App::start_with_file_config_and_env(file, scratch.path(), config, &env);
+    app.wait_until_ready();
+    app
+}
+
+/// [`start`], with the watches of step 3 quick: they end 1 s after the last change, 2 s at
+/// the least and 10 s at the most.
+fn start_quick(scratch: &Scratch, config: &Path, file: &Path) -> App {
+    let state = scratch.path().join("state");
+    let home = scratch.path().join("home");
+    fs::create_dir_all(&home).unwrap();
+    let env: [(&str, &OsStr); 3] = [
+        ("OSO_STATE_DIR", state.as_os_str()),
+        ("HOME", home.as_os_str()),
+        ("OSO_DEV_DICTATION_QUICK", OsStr::new("1")),
     ];
     let mut app = App::start_with_file_config_and_env(file, scratch.path(), config, &env);
     app.wait_until_ready();
@@ -864,4 +882,123 @@ fn a_composers_send_during_a_fix_waits_for_it_and_sends_the_fixed_text() {
         "hello from TW",
         "it stays in the composer, fixed"
     );
+}
+
+/// The learning record in the flow's state directory, once it has `pairs` pairs.
+fn learned(app: &mut App, scratch: &Scratch, pairs: usize) -> Value {
+    let file = scratch.path().join("state/dictation/learning.json");
+    app.wait_for("the watches ended", |state| {
+        state["dictation"]["watches"] == 0
+    });
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let record = fs::read(&file)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok());
+        if let Some(record) = record
+            && record["pairs"]
+                .as_array()
+                .is_some_and(|all| all.len() == pairs)
+        {
+            let mode = fs::metadata(&file).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600, "the record is the person's alone");
+            return record;
+        }
+        assert!(Instant::now() < deadline, "no record of {pairs} pairs");
+        thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// `record`'s pair of `wrong` and `right`, as `(fixes, edits, undone)`.
+fn counts(record: &Value, wrong: &str, right: &str) -> (u64, u64, u64) {
+    let pair = record["pairs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|pair| pair["wrong"] == wrong && pair["right"] == right)
+        .unwrap_or_else(|| panic!("no {wrong} → {right} in {record}"));
+    let count = |key: &str| pair[key].as_u64().unwrap();
+    (count("fixes"), count("edits"), count("undone"))
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_fix_that_stood_and_the_persons_rewrite_go_to_the_next_fix_as_history() {
+    let scratch = Scratch::new("dictation-learn");
+    let fake = Fake::start(&scratch, &script(0));
+    let claude = fake_claude(&scratch, 0, &one_fix());
+    let config = write_config(&scratch, &fake.discovery, &claude, "");
+    let file = scratch.write("notes.md", b"start\n");
+    let mut app = start_quick(&scratch, &config, &file);
+    dictate(&mut app);
+    app.wait_for("the fix landed", |state| {
+        fixes(state) == 0 && text(state).starts_with("hello from TWstart")
+    });
+    // The person rewrites a word of it: point is after `TW`, which `start` joins.
+    app.send_keys("M-b M-b M-d t o");
+    app.wait_for("the rewrite", |state| {
+        text(state).starts_with("hello to TWstart")
+    });
+    let record = learned(&mut app, &scratch, 2);
+    assert_eq!(counts(&record, "TypeWhisper", "TW"), (1, 0, 0));
+    assert_eq!(counts(&record, "from", "to"), (0, 1, 0));
+    let log = fs::read_to_string(scratch.path().join("state/dictation/learning.log")).unwrap();
+    assert_eq!(log.lines().count(), 2, "{log}");
+
+    // The next dictation's fix is given both, each `wrong` in the text first.
+    app.send_keys("C-e");
+    dictate(&mut app);
+    app.wait_for("the second fix landed", |state| {
+        fixes(state) == 0
+            && text(state).contains("starthello from TW")
+            && !text(state).contains("TypeWhisper")
+    });
+    let input: Value =
+        serde_json::from_slice(&fs::read(scratch.path().join("claude/input")).unwrap()).unwrap();
+    let history = input["history"].as_array().unwrap();
+    assert_eq!(history.len(), 2, "{input}");
+    assert!(history.contains(&json!({"wrong": "TypeWhisper", "right": "TW", "count": 1})));
+    assert!(history.contains(&json!({"wrong": "from", "right": "to", "count": 1})));
+    assert_eq!(input["rejected"], json!([]));
+    app.wait_for("the history logged", |_| {
+        fs::read_to_string(scratch.path().join("state/dictation/learning.log"))
+            .is_ok_and(|log| log.contains("\"history\""))
+    });
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn an_undone_fix_is_learned_as_undone_and_forgetting_empties_the_record() {
+    let scratch = Scratch::new("dictation-undone");
+    let fake = Fake::start(&scratch, &script(0));
+    let claude = fake_claude(&scratch, 0, &one_fix());
+    let config = write_config(&scratch, &fake.discovery, &claude, "");
+    let file = scratch.write("notes.md", b"start\n");
+    let mut app = start_quick(&scratch, &config, &file);
+    dictate(&mut app);
+    app.wait_for("the fix landed", |state| {
+        fixes(state) == 0 && text(state).starts_with("hello from TWstart")
+    });
+    app.send_keys("C-z");
+    app.wait_for("the fix undone", |state| {
+        text(state).starts_with(&format!("{SAID}start"))
+    });
+    let record = learned(&mut app, &scratch, 1);
+    assert_eq!(counts(&record, "TypeWhisper", "TW"), (0, 0, 1));
+
+    app.send_keys(&format!("M-x {} RET", keys("dictation-forget-learned")));
+    app.wait_for("the question", |state| {
+        state["prompts"][0]["prompt"]
+            .as_str()
+            .is_some_and(|prompt| prompt.contains("Forget everything dictation has learned"))
+    });
+    app.send_keys("y");
+    echo_has(
+        &mut app,
+        "the record forgotten",
+        "Dictation forgot everything it learned",
+    );
+    let directory = scratch.path().join("state/dictation");
+    assert!(!directory.join("learning.json").exists());
+    assert!(!directory.join("learning.log").exists());
 }

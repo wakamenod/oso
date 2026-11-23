@@ -185,6 +185,9 @@ impl Editor {
     /// held to what a buffer that may hold secrets allows.
     pub fn begin_command(&mut self) {
         self.command_left_secret = Some(false);
+        // What the command before changed of a dictation's span was not the person's, unless
+        // it was seen to be (ADR 0175, step 3).
+        self.dictation_command_begins();
     }
 
     /// Marks that the command has ended, so that messages reach `*Messages*` and the log

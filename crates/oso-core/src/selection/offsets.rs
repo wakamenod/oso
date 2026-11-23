@@ -42,6 +42,17 @@ pub(crate) fn follow_sorted(offsets: &mut [usize], edits: &[OffsetEdit], bias: B
     }
 }
 
+/// Moves the starts of spans, `offsets` ascending, through `edits`: a start goes after text
+/// inserted at it, but stays before text that replaces what began at it, so that a span keeps
+/// its first word through a replacement of it, an undo's among them (ADR 0175).
+pub(crate) fn follow_span_starts(offsets: &mut [usize], edits: &[OffsetEdit]) {
+    let mut follow = Follow::new(edits, Bias::Right);
+    follow.replaced_stays = true;
+    for offset in offsets {
+        *offset = follow.map(*offset);
+    }
+}
+
 /// Where new text ends after `edits`, ascending. The edits are as in
 /// [`SelectionSet::follow_edits`](super::SelectionSet::follow_edits), and deletions have no new text.
 pub(crate) fn new_text_ends(edits: &[OffsetEdit]) -> impl Iterator<Item = usize> + '_ {
@@ -58,6 +69,9 @@ pub(crate) fn new_text_ends(edits: &[OffsetEdit]) -> impl Iterator<Item = usize>
 pub(super) struct Follow<'a> {
     edits: &'a [OffsetEdit],
     bias: Bias,
+    /// With [`Bias::Right`], an offset at the start of a replacement stays before it, as with
+    /// [`Bias::Left`]: only an insertion at it moves it on.
+    replaced_stays: bool,
     /// Where the edits passed so far end, before and after them.
     old_end: usize,
     new_end: usize,
@@ -69,6 +83,7 @@ impl<'a> Follow<'a> {
         Self {
             edits,
             bias,
+            replaced_stays: false,
             old_end: 0,
             new_end: 0,
             next: 0,
@@ -83,7 +98,10 @@ impl<'a> Follow<'a> {
             let new_start = self.new_end + (edit.start - self.old_end);
             let before = match self.bias {
                 Bias::Left => offset <= edit.start,
-                Bias::Right => offset < edit.start,
+                Bias::Right => {
+                    offset < edit.start
+                        || (self.replaced_stays && offset == edit.start && edit.old_len > 0)
+                }
             };
             if before {
                 return self.new_end.saturating_add(offset - self.old_end);

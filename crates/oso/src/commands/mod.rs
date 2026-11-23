@@ -305,8 +305,10 @@ mod tests {
         "project-search",
         // Moving every terminal and session to another binary (ADR 0133).
         "oso-restart",
-        // The person's microphone, and curl, which dictation starts (ADR 0175).
+        // The person's microphone, and curl, which dictation starts, and what it learned of
+        // their words, which is theirs to drop (ADR 0175).
         "dictation-cancel",
+        "dictation-forget-learned",
         "dictation-toggle",
         // Emergency copies.
         "emergency-copies-back",

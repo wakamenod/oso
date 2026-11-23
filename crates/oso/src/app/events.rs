@@ -97,6 +97,7 @@ impl App {
             UserEvent::Clipboard(event) => self.clipboard_event(event_loop, event),
             UserEvent::Dictation(generation, event) => self.dictation_event(generation, event),
             UserEvent::DictationFix(id, answer) => self.dictation_fixed(id, answer),
+            UserEvent::DictationForgot(forgot) => self.dictation_forgot(forgot),
             UserEvent::Trim(report) => self.trim_reported(report),
             UserEvent::Search(report) => self.isearch_reported(report),
             UserEvent::Wrap(report) => self.wrap_reported(report),
@@ -203,6 +204,7 @@ impl App {
         self.review_watch_due();
         self.review_ask_due();
         self.held_starts_due();
+        self.dictation_watches_due();
         self.quit_if_idle(event_loop);
         self.restart_if_idle(event_loop);
         // Last, once every deadline is known.
@@ -319,6 +321,7 @@ impl App {
             self.idle_quit.next_wake(),
             self.restart_wait_deadline(),
             self.held_starts_deadline(),
+            self.dictation_watch_deadline(),
         ];
         match earliest(deadlines) {
             Some(deadline) => event_loop.wake_at(deadline),

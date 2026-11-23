@@ -14,20 +14,24 @@
 //! - An answer that comes while another dictation is under way waits for that one's text to
 //!   be placed: a fix changes the buffer, which would send that text to the kill ring.
 //! - At most [`MAX_RUNNING`] fixes run at once: a dictation past them is typed plain.
+//! - The learning record's history goes with each fix (step 3), and once the fix lands, fails
+//!   or finds nothing the span is settled and watched (`learning`).
 //! - A native composer's send while the modeline says `fix` waits for the fixes running then
 //!   to end; the composer keeps it, and this says which run and when they end.
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::mpsc::Sender;
 use std::thread;
 
 use oso_core::editor::{DictationMark, DictationSpan};
 
-use super::App;
+use super::{App, learning};
 use crate::app::UserEvent;
 use crate::dictation::api::{Call, Curl, Transport};
 use crate::dictation::discovery;
 use crate::dictation::fix::{self, Applied, Ask, Confidence, Dictionary};
+use crate::dictation::learning::History;
 use crate::sessions::oneshot::{self, Oneshot, Running, Unread};
 
 /// The most fixes that run at once, each a whole `claude`.
@@ -59,6 +63,9 @@ struct Job {
     session_env: Vec<String>,
     state: PathBuf,
     running: Running,
+    /// Where the learning record is, the learning's thread, which logs the history sent, and
+    /// how many forgets came before.
+    learning: Option<(PathBuf, Sender<learning::Job>, u64)>,
 }
 
 impl App {
@@ -79,11 +86,15 @@ impl App {
                 .message("Dictation typed plain: a fix needs oso's state directory");
         };
         if self.dictations.fixes.len() >= MAX_RUNNING {
-            self.editor.end_dictation_span(span);
+            self.settle_and_watch(span, &context.text, false);
             return self.editor.message(format!(
                 "Dictation typed plain: {MAX_RUNNING} fixes run already"
             ));
         }
+        let forgets = self.dictations.learning.forgets;
+        let learning = self
+            .learning_jobs()
+            .map(|jobs| (learning::directory(&state), jobs, forgets));
         let id = self.dictations.next_fix;
         self.dictations.next_fix += 1;
         let running = Running::default();
@@ -101,6 +112,7 @@ impl App {
             session_env: self.configuration.session_env().to_vec(),
             state,
             running: Arc::clone(&running),
+            learning,
         };
         let waker = self.waker.clone();
         let started = thread::Builder::new()
@@ -192,7 +204,8 @@ impl App {
         let applied = match answer {
             Ok(applied) => applied,
             Err(why) => {
-                self.editor.end_dictation_span(fixing.span);
+                // Whether `claude` read it is not known: kept from later fixes.
+                self.settle_and_watch(fixing.span, &fixing.sent, false);
                 return self
                     .editor
                     .message(format!("Dictation kept as typed: the fix failed: {why}"));
@@ -204,10 +217,41 @@ impl App {
             .map(|(range, text)| (range.clone(), text.as_str()))
             .collect();
         let fixed = if edits.is_empty() {
-            self.editor.end_dictation_span(fixing.span);
+            self.settle_and_watch(fixing.span, &fixing.sent, true);
             Ok(())
         } else {
-            self.editor.fix_dictation(fixing.span, &fixing.sent, &edits)
+            let fixed = self.editor.fix_dictation(fixing.span, &fixing.sent, &edits);
+            // What oso left is the fixed text, or, if the fix was skipped, the text as typed.
+            let left = fixed
+                .is_ok()
+                .then(|| {
+                    self.editor.dictation_span_text(
+                        fixing.span,
+                        crate::dictation::learning::rewrites::MAX_SIDE,
+                    )
+                })
+                .flatten();
+            let pairs = applied
+                .applied
+                .iter()
+                .map(|fix| (fix.wrong.clone(), fix.right.clone()))
+                .collect();
+            match left {
+                Some(left) => {
+                    self.watch_dictation(fixing.span, fixing.sent.clone(), left, pairs, true);
+                }
+                // The fix landed, but its text is past what is watched: Claude's fixes must
+                // not be learned later as the person's.
+                None if fixed.is_ok() => self.editor.end_dictation_span(fixing.span),
+                None => self.watch_dictation(
+                    fixing.span,
+                    fixing.sent.clone(),
+                    fixing.sent.clone(),
+                    Vec::new(),
+                    true,
+                ),
+            }
+            fixed
         };
         match fixed {
             // Its words are the person's and Claude's: in the echo area alone, withheld from
@@ -220,6 +264,13 @@ impl App {
         }
         self.editor.follow_cursor();
         self.dispatcher.publish_for_emergency(&self.editor);
+    }
+
+    /// Settles `span`, whose text stays as typed, `text`, and watches it; `seen` says a fix
+    /// saw the text.
+    fn settle_and_watch(&mut self, span: DictationSpan, text: &str, seen: bool) {
+        self.editor.settle_dictation_span(span);
+        self.watch_dictation(span, text.to_owned(), text.to_owned(), Vec::new(), seen);
     }
 
     /// Stops every fix under way, as `dictation-cancel` or an exit does: each `claude` is
@@ -265,12 +316,24 @@ fn run(job: &Job) -> Result<Applied, String> {
         .map(|path| read_dictionary(path, &job.curl))
         .unwrap_or_default();
     let context = &job.context;
+    let history = job
+        .learning
+        .as_ref()
+        .map(|(directory, ..)| learning::history(directory, &context.text, learning::now_secs()))
+        .unwrap_or_default();
+    if let Some((_, jobs, forgets)) = &job.learning
+        && history != History::default()
+    {
+        let at = learning::now_secs();
+        let _ = jobs.send(learning::Job::History(history.clone(), at, *forgets));
+    }
     let input = fix::input(&Ask {
         mode: context.mode,
         before: &context.before,
         target: &context.text,
         after: &context.after,
         dictionary: &dictionary,
+        history: &history,
     });
     let name = format!("{}-{}", std::process::id(), job.id);
     let answer = oneshot::run(&Oneshot {

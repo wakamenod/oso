@@ -13,7 +13,7 @@ use super::Editor;
 use super::follow::clip_selections;
 use super::wraps::MovedViews;
 use crate::buffer::{Budget, BufferId, EditError, FOLLOW_WORK, PIECE, StagedCrossing};
-use crate::selection::{MarkActive, SelectionSet, follow_offset};
+use crate::selection::{MarkActive, OffsetEdit, SelectionSet, follow_offset};
 use crate::sum_tree::Bias;
 use crate::undo::Direction;
 use crate::window::WindowId;
@@ -66,7 +66,15 @@ pub struct Crossing {
     /// How long the last slice went on past the time it applied for, following what it
     /// applied, as highlights do: the next applies for that much less.
     over: Duration,
+    /// What the step applied, slice by slice, for dictation's spans in the buffer to follow
+    /// (ADR 0175): kept only while there are some, and dropped past [`MAX_SPAN_STEPS`] edits,
+    /// when the spans go instead.
+    span_steps: Option<Vec<Vec<OffsetEdit>>>,
 }
+
+/// The most edits of a step kept for dictation's spans to follow: an undo of a fix makes a
+/// few, and one of thousands of places drops the spans rather than keep its edits twice.
+const MAX_SPAN_STEPS: usize = 4096;
 
 /// A window's cursors and top following a crossing on copies.
 struct Followed {
@@ -281,6 +289,7 @@ impl Editor {
             left,
             slices: 0,
             over: Duration::ZERO,
+            span_steps: self.has_dictation_spans(id).then(Vec::new),
         })
     }
 
@@ -334,6 +343,14 @@ impl Editor {
                 followed.top = follow_offset(followed.top, step, Bias::Left);
             }
         }
+        if let Some(kept) = &mut crossing.span_steps {
+            let edits = kept.iter().chain(&steps).map(Vec::len).sum::<usize>();
+            if edits > MAX_SPAN_STEPS {
+                crossing.span_steps = None;
+            } else {
+                kept.extend(steps);
+            }
+        }
         Ok(ended)
     }
 
@@ -345,6 +362,7 @@ impl Editor {
             buffer: id,
             staged,
             windows,
+            span_steps,
             ..
         } = crossing;
         let (moved, views) = match self.committed_windows(id, &staged, windows) {
@@ -372,7 +390,7 @@ impl Editor {
             self.windows[index].selections = set;
         }
         self.commit_views(id, views);
-        self.marks_cross(id, before);
+        self.marks_cross(id, before, span_steps.as_deref());
         // Crossing a recovery takes its verdict along.
         self.note_secret_shown();
         if let Some(scope) = &mut self.undo_scope {

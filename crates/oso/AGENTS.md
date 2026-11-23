@@ -87,7 +87,7 @@ often, so it must rebuild within 2 s.
   `oso-session-adopt-list` thread (`adopt`). A session started outside oso that asks to move
   into a space (`moving`, ADR 0151) is found from the registry on `oso-session-move`, and its
   process and its registry entry are watched on `oso-session-move-wait`; once its turn
-  ended, its bridge stops its own parent (`channel/mcp/moving.rs`, step 2). A new space's names are asked of the person's `claude`, with no tool, on `oso-space-naming` (`spaces/summary`, ADR 0159), and a dictation's fix on `oso-dictation-fix` (`app/dictation/fix.rs`, ADR 0175), both through `oneshot`, which owns the options that keep such a run to itself, its private directory and its stop. `session-search` reads what was said in
+  ended, its bridge stops its own parent (`channel/mcp/moving.rs`, step 2). A new space's names are asked of the person's `claude`, with no tool, on `oso-space-naming` (`spaces/summary`, ADR 0159), and a dictation's fix on `oso-dictation-fix` (`app/dictation/fix.rs`, ADR 0175; what fixes and the person's rewrites teach is kept on `oso-dictation-learn`, `app/dictation/learning.rs`, step 3), both through `oneshot`, which owns the options that keep such a run to itself, its private directory and its stop. `session-search` reads what was said in
   them, prompts and replies only, held in memory on `oso-history` (`history`, ADR 0145); no
   agent gets it, and none of it is logged. The only other reader of what was said is a native
   session's start, for its earlier turns (`past`, ADR 0165, part 5a). The clipboard's images a session is given
