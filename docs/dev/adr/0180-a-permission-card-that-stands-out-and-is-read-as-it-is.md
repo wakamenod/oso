@@ -143,6 +143,12 @@ the commands `native-card-page-down` and `native-card-page-up` ask, both `Person
 - A dev build's socket stands for the person's keys, as elsewhere: one `send-keys` key may answer from
   the composer.
 
+## Follow-ups
+
+- The card's room in the core's docks: the app works it out from the layout, as the docks give no
+  public answer; a new public item.
+- The card's words broken by the display's wrap (ADR 0100), once a piece of text with no buffer can be.
+
 ## Alternatives considered
 
 - **A frame in pixels,** as a float's panel (ADR 0075): drawn over the cursor, which is on the same

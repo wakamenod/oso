@@ -113,8 +113,8 @@ impl App {
             self.wait_on_card_again(key);
         }
         // Where the docks gave a row back as a card was drawn, it is drawn once more.
-        let mut resized = false;
-        for _ in 0..SETTLES {
+        let mut drawn_again = 0;
+        while drawn_again < SETTLES {
             let sized: Vec<SessionKey> = (self.hosting.natives.permissions.drawn.iter())
                 .filter(|&&(key, size)| self.card_size(key).is_some_and(|now| now != size))
                 .map(|&(key, _)| key)
@@ -122,18 +122,21 @@ impl App {
             if sized.is_empty() {
                 break;
             }
-            resized = true;
+            drawn_again += 1;
             for &key in &sized {
                 self.draw_card(key);
                 self.wait_on_card_again(key);
             }
+        }
+        if drawn_again == SETTLES {
+            log::debug!("native sessions: a card's size had not settled");
         }
         for &key in &shown {
             self.focus_card_at_once(key);
         }
         self.note_cards_on_screen();
         // A frame only for a card just drawn.
-        if !shown.is_empty() || resized {
+        if !shown.is_empty() || drawn_again > 0 {
             self.request_redraw();
         }
     }

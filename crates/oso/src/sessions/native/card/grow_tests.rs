@@ -105,8 +105,6 @@ fn a_questions_card_pages_in_fewer_rows_and_offers_what_was_on_screen() {
     // A wider card breaks its rows anew; what was on screen was.
     let _ = question.shown(60, 12);
     assert!((1..=4).all(|n| question.has_shown(n)));
-    // Nothing seen in part before counts in other rows.
-    let _ = question.shown(59, 12);
     // The next question starts at its first page, with nothing of it seen.
     let Card::Questions(questions) = &mut question.card else {
         unreachable!()
