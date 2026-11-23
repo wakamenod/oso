@@ -115,6 +115,11 @@ impl Hosting {
         self.starting.contains_key(&key)
     }
 
+    /// The buffer start `key`, under way, starts in.
+    pub(in crate::app) fn start_buffer(&self, key: SessionKey) -> Option<BufferId> {
+        self.starting.get(&key).copied()
+    }
+
     /// The hosted sessions.
     pub(in crate::app) fn table(&self) -> &Table {
         &self.table
@@ -258,9 +263,12 @@ impl App {
         let base = begin.name.clone().unwrap_or_else(|| base_name(&directory));
         let (key, name) = self.hosting.table.reserve(&directory, &base);
         // A space's new orchestrator: under its space's gate, never a project's (ADR 0176, O-3).
-        let gate = self.new_orchestrator_gate(key, &begin, &directory);
-        let project = self.project_at_root(&directory).filter(|_| gate.is_none());
-        let native = gate.is_some() || self.native_start(&begin, &directory, project);
+        let gate = self.new_orchestrator_gate(key, &name, &begin, &directory);
+        let project = gate
+            .is_none()
+            .then(|| self.project_at_root(&directory))
+            .flatten();
+        let native = self.native_start(&begin, &directory, project, gate.is_some());
         if let Some(parent) = begin.parent.clone() {
             self.hosting.parents.insert(key, parent);
         }

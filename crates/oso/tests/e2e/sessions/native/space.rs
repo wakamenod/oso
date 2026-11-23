@@ -424,3 +424,23 @@ fn a_successor_starts_natively_with_its_brief() {
     let _ = app.exchange("exit", None);
     app.wait_for_exit();
 }
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn with_mode_tui_a_new_orchestrator_starts_in_a_terminal() {
+    let (flow, _root, _) = seeded("native-space-new-tui");
+    let config = fs::read_to_string(&flow.config).unwrap();
+    let tui = config.replacen("[sessions]\n", "[sessions]\nmode = \"tui\"\n", 1);
+    fs::write(&flow.config, tui).unwrap();
+    let mut app = flow.start();
+    enter_space(&mut app);
+    app.run_command("space-orchestrator-start", None).unwrap();
+    let line = args(&flow, 1);
+    assert!(
+        !line.iter().any(|arg| arg == "-p" || arg == USER_ONLY),
+        "{line:?}"
+    );
+    app.wait_for("the TUI", |state| screen(state).contains("Claude Code"));
+    let _ = app.exchange("exit", None);
+    app.wait_for_exit();
+}

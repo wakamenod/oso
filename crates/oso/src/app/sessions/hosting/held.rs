@@ -1,8 +1,10 @@
 //! A hosted session's start order, given to its start thread, unless it waits for the
 //! configuration's first look (ADR 0173): a resume's, whose buffer is made at once. A fork and
 //! an adoption wait whole instead, before their buffer, as which they run depends on the
-//! configuration (ADR 0165, part 4e). One that waited takes `[sessions]` and `[terminal]` as they are in force
-//! when it goes, not as they were when it was made.
+//! configuration (ADR 0165, part 4e). A new start waits whole too (`begin_session`), so that a
+//! space's new orchestrator's gate is judged only as it goes (ADR 0176, part O-3). One that
+//! waited takes `[sessions]` and `[terminal]` as they are in force when it goes, not as they
+//! were when it was made.
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 
@@ -79,14 +81,10 @@ impl App {
                     (order.trusted, native.trust, native.gate) =
                         self.native_gate_or_trust(order.token, &of, name, directory, root)?;
                 }
-                // A space's new orchestrator by its space's gate (part O-3).
-                Kind::New => match self.held_orchestrator_gate(order.token, name, directory) {
-                    Some(gate) => native.gate = gate?,
-                    None => {
-                        let judged = self.native_resume_trust(name, directory, root)?;
-                        (order.trusted, native.trust) = self.native_judged(order.token, judged);
-                    }
-                },
+                Kind::New => {
+                    let judged = self.native_resume_trust(name, directory, root)?;
+                    (order.trusted, native.trust) = self.native_judged(order.token, judged);
+                }
             }
         }
         if order.space.is_some() {

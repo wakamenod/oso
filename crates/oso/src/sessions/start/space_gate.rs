@@ -13,8 +13,9 @@
 //!   which a fork of one of them is (the author's Q-O3 (a)); a fork is judged by the session
 //!   it copies. A new orchestrator oso starts there is the space's too (part O-3).
 //! - The UI takes the gate back after each event once the space closed, its directory
-//!   changed, or the session is no longer the space's; the start thread looks at it again
-//!   just before the spawn.
+//!   changed, or the session is no longer the space's (a new orchestrator's start no longer
+//!   its space's), and once its start is no longer under way or its buffer is gone; the start
+//!   thread looks at it again just before the spawn.
 //! - A gate judged while starts wait for the configuration's first look (ADR 0173) waits
 //!   too, as `[spaces] root` is not known yet: the held order is judged again.
 
@@ -25,7 +26,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use super::trust::ByRecord;
 use super::{Order, Runs};
 use crate::sessions::identity::SessionId;
-use crate::sessions::spaces::Stored;
+use crate::sessions::spaces::{SpaceId, Stored};
 
 /// Why a session in a space's directory does not run natively there.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,7 +37,7 @@ pub enum NotAdmitted {
     /// with an identity kept.
     NotMade,
     /// The session is neither the space's current orchestrator, nor an earlier one, nor a
-    /// session of the person's there.
+    /// session of the person's there, nor its new orchestrator.
     NotTheSpaces,
 }
 
@@ -66,9 +67,10 @@ pub enum Standing<'a> {
         /// fork of an orchestrator there is one.
         persons_there: bool,
     },
-    /// The space's new orchestrator, which oso starts there now (`space-orchestrator-start`,
-    /// `space-new`'s start or a successor's; part O-3), with no conversation yet.
-    NewOrchestrator,
+    /// Space `space`'s new orchestrator, which oso starts there now
+    /// (`space-orchestrator-start`, `space-new`'s start or a successor's; part O-3), with no
+    /// conversation yet: only in that space's own directory.
+    NewOrchestrator { space: &'a SpaceId },
 }
 
 /// A native session's leave to run in a space's directory, until it is taken back.
@@ -132,7 +134,7 @@ pub fn judge(
         Standing::Of { id, persons_there } => {
             stored.orchestrator.as_ref() == Some(id) || stored.earlier.contains(id) || persons_there
         }
-        Standing::NewOrchestrator => true,
+        Standing::NewOrchestrator { space } => *space == stored.id,
     };
     if !theirs {
         return Err(NotAdmitted::NotTheSpaces);

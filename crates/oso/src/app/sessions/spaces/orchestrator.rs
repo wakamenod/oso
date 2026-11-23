@@ -115,6 +115,7 @@ impl App {
             directory,
             brief,
             space: Some(space),
+            orchestrator_of: Some(id.clone()),
             behind,
             ..Begin::default()
         };
@@ -198,10 +199,7 @@ impl App {
         key: SessionKey,
     ) -> Result<Option<SpaceStart>, String> {
         let Some(session) = self.hosting.table().get(key) else {
-            // A new orchestrator whose start was held: its space as it is now.
-            let starting = self.hosting.spaces.starting.get(&key);
-            let at = starting.and_then(|space| self.watch.spaces().find(space));
-            return at.map(|at| self.orchestrator_start(at)).transpose();
+            return Ok(None);
         };
         let (id, directory) = (session.id.clone(), session.directory.clone());
         let spaces = self.watch.spaces();

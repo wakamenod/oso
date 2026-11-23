@@ -76,9 +76,11 @@ its own.
   `space-orchestrator-start` (`o`), `space-new`'s start and a successor's run natively unless
   `mode = "tui"`, under the space's gate as above, never a project's trust. One given no
   message selects its composer, as any native start does; a successor's brief is its first
-  message. Where the gate refuses, as for a directory not where oso made it, it starts in a
-  terminal as before, whose own checks say why. A start held for the configuration's first
-  look is judged again when it goes. An existing TUI orchestrator keeps its mode (part 4e (b))
+  message. The gate is judged for the space `launch_orchestrator` names, in its directory, and
+  in a space's directory a new start is native by that gate alone, never by a project's trust.
+  Where the gate refuses, as for a directory not where oso made it, it starts in a terminal as
+  before, the echo area saying why. A start that waits for the configuration's first look
+  waits whole (ADR 0173), so its gate is judged as it goes. An existing TUI orchestrator keeps its mode (part 4e (b))
   until it is switched or replaced. Any other new start in a space's directory, and an
   adoption there, stays a terminal.
 

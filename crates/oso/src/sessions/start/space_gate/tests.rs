@@ -65,9 +65,18 @@ fn the_current_and_earlier_orchestrators_and_the_persons_sessions_run_natively_t
 #[test]
 fn a_new_orchestrator_runs_natively_only_in_its_open_spaces_directory_oso_made() {
     let root = Some(Path::new(ROOT));
+    let its = SpaceId::from_random([9; 16]);
     let new = |stored: &Stored, root: Option<&Path>| {
-        judge(stored, root, &directory(), Standing::NewOrchestrator).map(|_| ())
+        let standing = Standing::NewOrchestrator { space: &its };
+        judge(stored, root, &directory(), standing).map(|_| ())
     };
+    // Another space's new orchestrator does not run in this one's directory.
+    let other = SpaceId::from_random([8; 16]);
+    let elsewhere = Standing::NewOrchestrator { space: &other };
+    assert_eq!(
+        judge(&space(), root, &directory(), elsewhere).map(|_| ()),
+        Err(NotAdmitted::NotTheSpaces)
+    );
     let mut none_yet = space();
     none_yet.orchestrator = None;
     none_yet.earlier.clear();
@@ -75,8 +84,8 @@ fn a_new_orchestrator_runs_natively_only_in_its_open_spaces_directory_oso_made()
     let mut closed = space();
     closed.archived = true;
     assert_eq!(new(&closed, root), Err(NotAdmitted::Closed));
-    let other = Path::new(ROOT).join("elsewhere");
-    assert_eq!(new(&space(), Some(&other)), Err(NotAdmitted::NotMade));
+    let moved = Path::new(ROOT).join("elsewhere");
+    assert_eq!(new(&space(), Some(&moved)), Err(NotAdmitted::NotMade));
     assert_eq!(new(&space(), None), Err(NotAdmitted::NotMade));
 }
 

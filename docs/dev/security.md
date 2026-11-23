@@ -680,16 +680,18 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
 - A native session in an issue space's own directory runs under the space's gate, never
   under a project's trust ([ADR 0176](adr/0176-native-orchestrators.md)): only in an open
   space's directory that oso made under `[spaces] root`, with the identity it had then, for the
-  space's current or an earlier orchestrator, or a session of the person's there that oso made
-  native there (a native fork of one); never one an agent started, nor a terminal fork of it
-  or an adoption. The records it judges by are files agents' sessions can write, as the
+  space's current or an earlier orchestrator, a session of the person's there that oso made
+  native there (a native fork of one), or the new orchestrator the person starts for that
+  space (`o`, `space-new`, a successor; part O-3); never one an agent started, nor a terminal
+  fork of it or an adoption. In a space's directory a new start is native by that gate alone,
+  or a terminal. The records it judges by are files agents' sessions can write, as the
   session tools' roles are. Its line adds `--setting-sources=user`, so none of the
   directory's or its parents' hooks, `.mcp.json` servers, commands or `CLAUDE.md` load; the
   space's checks run on the start thread before it, as before every start there. No
   `TrustedRoot` is made for it, so it adds nothing to the session tools' trust and takes no
   baseline. Until its start thread reports, the UI takes the gate back once the space closed,
-  its directory changed or the session is no longer the space's, and the look before the spawn
-  refuses it.
+  its directory changed, the session is no longer the space's (a new orchestrator's start no
+  longer its space's) or its buffer is gone, and the look before the spawn refuses it.
 - A native session's earlier turns (ADR 0165, part 5a) are read from Claude Code's transcript
   of its conversation once its process is spawned, before its stream: only a regular file of
   this user's with one name under the transcripts' directory, in a project directory that is

@@ -170,6 +170,7 @@ impl App {
                     trusted: Some(trusted),
                     worktree: true,
                     space: App::worker_reads(reads),
+                    orchestrator_of: None,
                     behind: false,
                 };
                 let then = Then::Tool {
