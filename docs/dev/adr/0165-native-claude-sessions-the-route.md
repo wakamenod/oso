@@ -1166,6 +1166,82 @@ As built:
 - **Across an oso restart** (Q-B2 (a)): the mode is not in the record, so a session resumed
   after the restart starts as the settings say.
 - **Public API (approved):** `NativeAction::CycleMode`.
+### Part 3c, as built: `/model` and `/effort`
+
+The author's choices of 2026-11-23: `Model:` completes over `initialize`'s `models`, `Effort:`
+over the chosen or current model's levels, and on tier 1 the five `--effort` levels; the model
+and effort are noted only from a `result` with `local_command` `model` or `effort` and no
+error; the effort shows after the model once noted (Q-C1 (a)).
+
+Not measured with the commands themselves: `/model` can save the person's default model, so no
+probe types it. Read instead from the CLI's own text (2.1.330) and `--help`:
+
+- `/model NAME` replies `Set model to …`, or `Kept model as …`, `Current model: …` with no
+  name, and `Model '…' not found` or `… isn't available …` for a model it does not take.
+  `/effort LEVEL` replies `Set effort level to …`, `Effort level set to auto` for `auto` and
+  `unset`, `Unknown option: …`, `Couldn't set effort level: …`, or `Effort '…' exceeds the cap
+  …; set to '…' instead` when the person's settings cap it. Each is the `result`'s text, as the
+  synthetic reply's (step 3's probes).
+- `--effort` takes `low`, `medium`, `high`, `xhigh` and `max`; `--model` an alias or a full
+  name.
+- `initialize`'s `models` give each model's `description`, `supportsEffort` and
+  `supportedEffortLevels` (part 3a's fixture).
+- Whether `--resume` keeps a `/model` or `/effort` choice is unmeasured, so every later process
+  is given both.
+
+As built:
+
+- **Completion** (`commands::agent_sessions::composer`, `dispatch/slash.rs`): `/model` chosen in
+  part 2d's `Command:` prompt, once it put `/model ` first in the composer, opens `Model:`
+  (`native-composer-model`), and `/effort` opens `Effort:` (`native-composer-effort`), each when
+  the host listed rows for it; `C-c /` on a `/model` or `/effort` the composer begins with, as
+  a word of its own, opens its argument's prompt in place of `Command:`. The one chosen goes
+  after the command: on `C-c /`, in place of the word after it on its line; chained after
+  `Command:`, which put the command before what the composer held, in place of none (the
+  dispatcher gives the prompt a prefix argument, which says so). It is not sent: the person
+  sends it, as any message. `C-g` leaves `/model `, to be written by hand. The rows keep the
+  CLI's order, the levels from the least, and `Model:` takes a full model name it does not
+  list, as `--model` does. Both commands are `Person`. No public item: the dispatcher chains
+  the prompts, as 2d opens `Command:`.
+- **The lists** (`app/sessions/hosting/native/slash.rs`, beside 2d's): the models the
+  selected composer's session's last `initialize` listed (part 3a's list, at most 64), each row
+  its value, then its name and its description's first line, cut to 256 bytes and escaped as
+  completion rows are; and the levels of the model chosen with `/model` (by its value or id),
+  else of the model shown, as `initialize` lists them (at most 8, each a word), else the five,
+  as on tier 1 or for a model the list does not name. A model that takes no effort has none,
+  and `Effort:` does not open. They are made again only when the session, its model list, or
+  the model the levels are of changed.
+- **Noted** (`sessions::native::choice`): a `/model` or `/effort` the composer sent, the CLI's
+  own command (its list's, or its name while the list says not whose a command is), is asked;
+  the `result` that ends its turn notes it when it names that local command, is no error, its
+  subtype `success`, and its reply starts `Set model to `, `Set effort level to ` and the level
+  asked, or `Effort level set to auto`, which clears the level. The author chose this stricter rule on
+  2026-11-23, so that a reply that set nothing, or set another level than asked, notes nothing,
+  and no mistyped model goes on a later process's command line; a later CLI that words its
+  reply otherwise notes nothing either, the safe side. One message is under way at a time, so
+  one command is asked at a time, and any `result`, or a new process, ends it.
+  - What is noted is what the person sent: a model that is one word, reads as a model's id
+    (part 3a's `Kind::Id`) and does not start with `-`; a level one of the five, in lower
+    case. Another argument (two words, `ultracode on`) notes nothing.
+  - The modeline's model stays the stream's (part 3a): `system/init` names the new one at the
+    next turn. The level shows after it from the `result` on (Q-C1 (a)).
+  - A level noted stays across a `/model`, as the CLI says nothing of it then: a later
+    process is given it with the new model. That does not break a start: `claude -p --effort
+    high` ran and answered with `haiku` and with `claude-haiku-4-5`, an older model `initialize`
+    does not list (measured 2026-11-23). No listed model says it takes no effort, so that case
+    itself was not seen.
+  - The stream is not authenticated (part 3b): a forged `result` can note what the person
+    asked where the CLI refused or capped it, and a later process then starts with it.
+    Whether the CLI holds `--model` and `--effort` to the person's settings, as it holds
+    `/model` and `/effort`, is not measured.
+- **Every later process** (`NativeOrder`, `command::Line`): a resume (the person's or an
+  orchestrator's), part 2c's tier-1 interrupt's resume, part 3b's tier-1 mode switch and a fork
+  are given `--model=` and `--effort=` with what was noted, beside `--permission-mode`, one
+  argument each; a fork starts with its source's. A new session is given neither, and neither
+  is in the record, so a session resumed after oso's restart starts as the person's settings
+  say.
+- **Public API:** none.
+
 ### Part 3d, as built: editable plan review
 
 The author's (a) on Q-D1 (where a plan is edited) and Q-D2 (approving with a mode).

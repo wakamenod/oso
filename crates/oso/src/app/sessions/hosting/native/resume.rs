@@ -11,7 +11,7 @@
 //!   why, and a fork runs in a terminal.
 //! - A resume takes no baseline: the session keeps the one it had.
 //! - A resume and a fork start in the mode the session was in (part 3b), as `--resume` keeps
-//!   none: a fork, its source's.
+//!   none, and with the model and effort the person chose (part 3c): a fork, its source's.
 //! - `claude -p --resume` writes no earlier turn on its stream (a probe of 2026-11-22): the
 //!   rows kept are the transcript.
 
@@ -22,10 +22,27 @@ use oso_core::buffer::BufferId;
 use super::note::NativeState;
 use crate::app::App;
 use crate::git::TrustedRoot;
+use crate::sessions::native::choice::Choice;
 use crate::sessions::native::mode::ModeState;
 use crate::sessions::start::NativeOrder;
 use crate::sessions::start::trust::{Judged, NotTrusted, TrustRecord};
 use crate::sessions::worker::SessionKey;
+
+/// What a native fork starts with of the session it copies (parts 3b and 3c).
+pub(in crate::app::sessions::hosting) struct Forked {
+    pub(in crate::app::sessions::hosting) mode: ModeState,
+    pub(in crate::app::sessions::hosting) choice: Choice,
+}
+
+impl Forked {
+    /// What a fork of `native` starts with.
+    pub(super) fn of(native: &super::Native) -> Self {
+        Self {
+            mode: native.mode.forked(),
+            choice: native.choice.forked(),
+        }
+    }
+}
 
 impl App {
     /// Where the trust native session `name`, in `directory` of the project at `root`,
@@ -114,15 +131,16 @@ impl App {
     /// Starts fork `key`, `name`, natively in a new buffer when `directory` is the root of a
     /// project trusted now, by an open buffer of it or the record (part 4a), under
     /// `mode = "native"`: its order and the trust an open buffer gave. `None` for a terminal.
-    /// It starts with `mode`, the permission mode state of the native session it copies, as
-    /// that session's next process would (part 3b).
+    /// It starts with `forked`, what the native session it copies holds: its permission mode
+    /// state, as that session's next process would (part 3b), and the model and effort chosen
+    /// there (part 3c).
     pub(in crate::app::sessions::hosting) fn start_native_fork(
         &mut self,
         key: SessionKey,
         name: &str,
         directory: &Path,
         root: Option<&Path>,
-        mode: Option<ModeState>,
+        forked: Option<Forked>,
     ) -> Option<(NativeOrder, Option<TrustedRoot>)> {
         if !self.configuration.native_sessions() {
             return None;
@@ -134,9 +152,11 @@ impl App {
             judged => self.native_judged(key, judged),
         };
         let mut order = self.native_session_buffer(key, name, directory.to_path_buf(), true, None);
-        if let (Some(mode), Some(native)) = (mode, self.hosting.natives.map.get_mut(&key)) {
-            native.mode = mode;
+        if let (Some(forked), Some(native)) = (forked, self.hosting.natives.map.get_mut(&key)) {
+            native.mode = forked.mode;
             order.permission_mode = native.mode.for_start();
+            native.choice = forked.choice;
+            (order.model, order.effort) = native.choice.for_start();
         }
         Some((NativeOrder { trust, ..order }, trusted))
     }

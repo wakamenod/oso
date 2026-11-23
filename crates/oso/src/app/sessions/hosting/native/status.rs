@@ -13,6 +13,9 @@
 //!   when it changed while the session is shown.
 //! - Why `get_usage` was refused, or went unanswered, is logged; nothing is said to the person,
 //!   whose line waits for the stream.
+//! - The model and effort the person chose with `/model` and `/effort`
+//!   (`sessions::native::choice`, part 3c) are noted after each event here too: the effort
+//!   noted is the line's to write, and each later process starts with both.
 
 use std::time::Instant;
 
@@ -76,6 +79,8 @@ pub(super) fn usage_answered(
 pub(super) fn status_event(native: &mut Native, event: &Event) -> (bool, Option<u64>) {
     let status = &mut native.status;
     let changed = status.line.event(event) | std::mem::take(&mut status.answered);
+    // A `/effort` the CLI took changes the effort shown (part 3c).
+    let changed = native.choice.event(event) | changed;
     (changed, ask(native))
 }
 

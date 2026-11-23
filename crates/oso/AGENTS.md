@@ -103,7 +103,9 @@ often, so it must rebuild within 2 s.
   (part 3a), its prompt suggestion and recap `native/suggesting.rs`, over
   `sessions/native/suggest.rs` (part 3f), its permission mode `native/mode.rs`, over
   `sessions/native/mode.rs` and the one mode type oso sends, `channel/protocol/mode.rs`
-  (part 3b), and its resume and a
+  (part 3b), its model and effort level as `/model` and `/effort` chose them
+  `sessions/native/choice.rs`, kept beside its mode, with their argument's completion listed
+  by `native/slash.rs` and opened by `dispatch/slash.rs` (part 3c), and its resume and a
   native fork `native/resume.rs`, under the trust `sessions/start/trust.rs` judges, from what
   `app/sessions/hosting/trust.rs` gives it, and by the record on the start thread
   (ADR 0165, step 2); its whole replies are highlighted as Markdown on the syntax threads, as

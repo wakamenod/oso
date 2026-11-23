@@ -95,6 +95,7 @@ pub(in crate::app::sessions::hosting::native) fn native(buffer: BufferId) -> Nat
         todo: super::super::todo::TodoStrip::default(),
         unseen: false,
         mode: Default::default(),
+        choice: Default::default(),
     }
 }
 

@@ -95,6 +95,16 @@ impl SlashCommands {
         first_word(text).is_some_and(|word| self.find(word).is_some())
     }
 
+    /// The CLI's own command `text`, sent, runs, by its name, and what follows its word
+    /// (part 3c): one the list says is the CLI's, or, while it says not whose a command is,
+    /// any listed.
+    pub fn cli_command<'a>(&'a self, text: &'a str) -> Option<(&'a str, &'a str)> {
+        let word = first_word(text)?;
+        let command = self.find(word)?;
+        let own = command.builtin || !self.says_whose();
+        own.then(|| (command.name.as_str(), &text[1 + word.len()..]))
+    }
+
     /// Whether the list says which commands are the CLI's own: an `initialize` answer's that
     /// marks one so. Names alone, or a CLI that marks none, do not.
     pub fn says_whose(&self) -> bool {
