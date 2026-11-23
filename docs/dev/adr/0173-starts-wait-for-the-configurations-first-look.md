@@ -86,7 +86,14 @@ session.
 - **Order and repeats:** strictly the order they came, across kinds, with nothing merged.
   Each runs as if typed when it goes, so its own checks see the ones before it. A second
   `claude` in the same directory asks "another session runs in this directory", a second
-  resume of the same session says it runs, and a second `terminal` shows the first.
+  resume of the same session says it runs, and a second `terminal` shows the first. That
+  question is asked one at a time: a start that would ask while it is open, or while others
+  wait, waits its turn. A yes starts its own and the next is judged again, so it asks, with
+  the same text, only if another session still runs there; one that starts unasked starts
+  behind. An `n` or `C-g` drops its own and the others that wait for the same directory, as
+  the person said no to starting there. Once an exit is under way, what waits is dropped. A
+  start the start thread's look at the registry sends back to ask is judged in full again
+  when its turn comes: it makes its buffer and start thread once more before it asks.
 - **The bound (Q2 (a), Q5 (a)):** five seconds after the first start that waited, if the look
   has not come, as on a hung mount or a window slow to open, everything that waits runs with
   the settings in force, the built-in ones. `*Messages*` says once: "The configuration was not

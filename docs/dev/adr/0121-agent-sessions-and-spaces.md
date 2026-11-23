@@ -1140,7 +1140,9 @@ questions through the coordinator, (a) for each, and the coordinator approved th
 - **The shared-directory warning is the y/n question** "Another session runs in this directory.
   A worktree keeps their changes apart (C-x a w). Start here anyway?", not `w` and `RET`. `y`
   runs `session-start-shared`. The hosted table is checked on the UI thread, and the registry on
-  the start thread. A resume is not checked, as it is the same session.
+  the start thread. A resume is not checked, as it is the same session. One question is open
+  at a time; a start that would ask meanwhile waits for it to close, and an `n` drops those
+  for the same directory (ADR 0173).
 - **A branch with no commit of its own is not merged** (the author's choice), so a fresh,
   clean worktree is refused by check 5. ADR 0126's `C-u` removal is for that case.
 - **"Busy" in check 4:** a hosted session in the worktree counts as busy unless its state is
