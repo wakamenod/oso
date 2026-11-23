@@ -16,7 +16,12 @@ use crate::channel::Connection;
 /// Whether `key` must not reach a question the agent caused, `since` the last key or its
 /// opening: it takes none until [`QUIET`] has passed. `C-g` always goes through.
 fn holds(since: Option<Duration>, key: KeyPress) -> bool {
-    key != oso_core::keymap::CANCEL && since.is_some_and(|since| since < QUIET)
+    key != oso_core::keymap::CANCEL && !quiet(since)
+}
+
+/// Whether [`QUIET`] has passed `since` the last key or the question's opening, if either.
+fn quiet(since: Option<Duration>) -> bool {
+    since.is_none_or(|since| since >= QUIET)
 }
 
 /// Logs in a dev build that `by` restarted the wait of a question the agent caused, `since`
@@ -84,8 +89,7 @@ impl App {
     #[cfg(feature = "dev")]
     pub(in crate::app) fn agent_question_takes_answer(&self) -> Option<bool> {
         self.editor.prompt().filter(|prompt| prompt.from_agent())?;
-        let since = self.agent.quiet_since.map(|at| at.elapsed());
-        Some(since.is_none_or(|since| since >= QUIET))
+        Some(quiet(self.agent.quiet_since.map(|at| at.elapsed())))
     }
 
     /// Why keys from the dev socket, which stand in for the person's, must not reach a
