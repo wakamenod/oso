@@ -353,6 +353,9 @@ pub enum NativeAction {
     Choose(u8),
     /// From a question's card: answer it in the person's own words, read in the minibuffer.
     Other,
+    /// From the transcript or the composer (ADR 0165, part 3b): switch the session to its
+    /// next permission mode.
+    CycleMode,
     /// From the transcript or the composer (step 3, part 3e): open the session's to-do strip
     /// to its rows, or fold it back to one line.
     Todo,

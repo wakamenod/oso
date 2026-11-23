@@ -9,6 +9,8 @@
 //!   the start thread looks at again before the spawn; else a resume refuses, saying why, and
 //!   a fork runs in a terminal.
 //! - A resume takes no baseline: the session keeps the one it had.
+//! - A resume and a fork start in the mode the session was in (part 3b), as `--resume` keeps
+//!   none: a fork, its source's.
 //! - `claude -p --resume` writes no earlier turn on its stream (a probe of 2026-11-22): the
 //!   rows kept are the transcript.
 
@@ -20,6 +22,7 @@ use super::note::NativeState;
 use crate::app::App;
 use crate::app::sessions::hosting::trust::NotTrusted;
 use crate::git::TrustedRoot;
+use crate::sessions::native::mode::ModeState;
 use crate::sessions::start::NativeOrder;
 use crate::sessions::worker::SessionKey;
 
@@ -103,18 +106,25 @@ impl App {
 
     /// Starts fork `key`, `name`, natively in a new buffer when `directory` is the root of a
     /// project trusted now, under `mode = "native"`: its order and trust. `None` for a terminal.
+    /// It starts with `mode`, the permission mode state of the native session it copies, as
+    /// that session's next process would (part 3b).
     pub(in crate::app::sessions::hosting) fn start_native_fork(
         &mut self,
         key: SessionKey,
         name: &str,
         directory: &Path,
         root: Option<&Path>,
+        mode: Option<ModeState>,
     ) -> Option<(NativeOrder, TrustedRoot)> {
         if !self.configuration.native_sessions() {
             return None;
         }
         let trusted = self.native_trust_now(directory, root).ok()?;
-        let order = self.native_session_buffer(key, name, directory.to_path_buf(), true, None);
+        let mut order = self.native_session_buffer(key, name, directory.to_path_buf(), true, None);
+        if let (Some(mode), Some(native)) = (mode, self.hosting.natives.map.get_mut(&key)) {
+            native.mode = mode;
+            order.permission_mode = native.mode.for_start();
+        }
         Some((order, trusted))
     }
 }

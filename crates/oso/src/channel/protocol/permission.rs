@@ -13,11 +13,12 @@
 //!   bridge gives the CLI the call's own input back with an `allow`. An `AskUserQuestion`'s
 //!   `allow` carries `"answers": {QUESTION: ANSWER}` too, which the bridge puts in that input
 //!   (step 2e-2). An `ExitPlanMode`'s may carry `"plan"`, the person's edit, which the bridge
-//!   puts in the input in place of Claude's, and `"mode"`, one of [`PlanMode`]'s, which it
+//!   puts in the input in place of Claude's, and `"mode"`, one of [`AFTER_PLAN`], which it
 //!   gives the CLI as the session's mode after the plan (part 3d).
 
 use serde_json::{Map, Value};
 
+use super::mode::PermissionMode;
 use super::short;
 
 /// The longest tool name taken, in bytes: an MCP tool's is `mcp__SERVER__TOOL`.
@@ -36,30 +37,9 @@ pub const MAX_INPUT: usize = 64 << 10;
 /// The longest edited plan an approval carries, in bytes: as much of a plan as a card keeps.
 pub const MAX_PLAN: usize = 64 << 10;
 
-/// The mode an approved plan leaves the session in, besides the CLI's own `default` (part 3d):
-/// only these are ever sent, and none lets calls run unchecked.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PlanMode {
-    AcceptEdits,
-    Auto,
-}
-
-impl PlanMode {
-    /// The mode as the CLI names it.
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::AcceptEdits => "acceptEdits",
-            Self::Auto => "auto",
-        }
-    }
-
-    /// The mode the CLI names `name`, if it is one of these.
-    pub fn named(name: &str) -> Option<Self> {
-        [Self::AcceptEdits, Self::Auto]
-            .into_iter()
-            .find(|mode| mode.name() == name)
-    }
-}
+/// The modes an approved plan may leave the session in, besides the CLI's own `default`
+/// (part 3d): only these are ever sent with one, and none lets calls run unchecked.
+pub const AFTER_PLAN: [PermissionMode; 2] = [PermissionMode::AcceptEdits, PermissionMode::Auto];
 
 /// A call a session's `claude` asks permission for.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -148,9 +128,10 @@ pub fn answers(reply: &Value) -> Option<Map<String, Value>> {
 }
 
 /// The reply that approves an `ExitPlanMode` (part 3d): with `plan`, the person's edit of it,
-/// and with `mode`, the session's mode after it. `None` for an edit over [`MAX_PLAN`] bytes,
-/// which is never cut: the plan approved is the one the person saw.
-pub fn allow_plan(plan: Option<&str>, mode: Option<PlanMode>) -> Option<Value> {
+/// and with `mode`, the session's mode after it, if it is one of [`AFTER_PLAN`]. `None` for an
+/// edit over [`MAX_PLAN`] bytes, which is never cut: the plan approved is the one the person
+/// saw.
+pub fn allow_plan(plan: Option<&str>, mode: Option<PermissionMode>) -> Option<Value> {
     let mut reply = allow();
     if let Some(plan) = plan {
         if plan.len() > MAX_PLAN {
@@ -158,7 +139,7 @@ pub fn allow_plan(plan: Option<&str>, mode: Option<PlanMode>) -> Option<Value> {
         }
         reply["plan"] = Value::String(plan.to_owned());
     }
-    if let Some(mode) = mode {
+    if let Some(mode) = mode.filter(|mode| AFTER_PLAN.contains(mode)) {
         reply["mode"] = Value::String(mode.name().to_owned());
     }
     Some(reply)
@@ -166,8 +147,8 @@ pub fn allow_plan(plan: Option<&str>, mode: Option<PlanMode>) -> Option<Value> {
 
 /// What an `allow` of an `ExitPlanMode` carries: the person's edit of the plan, if any, and the
 /// session's mode after it, if any; `Err` if either is there but is not one oso sends, a string
-/// of at most [`MAX_PLAN`] bytes and one of [`PlanMode`]'s.
-pub fn plan_answer(reply: &Value) -> Result<(Option<String>, Option<PlanMode>), ()> {
+/// of at most [`MAX_PLAN`] bytes and one of [`AFTER_PLAN`].
+pub fn plan_answer(reply: &Value) -> Result<(Option<String>, Option<PermissionMode>), ()> {
     let plan = match reply.get("plan") {
         None => None,
         Some(Value::String(plan)) if plan.len() <= MAX_PLAN => Some(plan.clone()),
@@ -175,7 +156,10 @@ pub fn plan_answer(reply: &Value) -> Result<(Option<String>, Option<PlanMode>), 
     };
     let mode = match reply.get("mode") {
         None => None,
-        Some(Value::String(name)) => Some(PlanMode::named(name).ok_or(())?),
+        Some(Value::String(name)) => {
+            let mode = PermissionMode::named(name).filter(|mode| AFTER_PLAN.contains(mode));
+            Some(mode.ok_or(())?)
+        }
         Some(_) => return Err(()),
     };
     Ok((plan, mode))
@@ -245,20 +229,23 @@ mod tests {
 
     #[test]
     fn a_plans_approval_carries_only_an_edit_and_a_mode_oso_sends() {
-        let reply = allow_plan(Some("Do it."), Some(PlanMode::AcceptEdits)).unwrap();
+        let reply = allow_plan(Some("Do it."), Some(PermissionMode::AcceptEdits)).unwrap();
         assert_eq!(
             reply,
             json!({"behavior": "allow", "plan": "Do it.", "mode": "acceptEdits"})
         );
         assert_eq!(
             plan_answer(&reply),
-            Ok((Some("Do it.".into()), Some(PlanMode::AcceptEdits)))
+            Ok((Some("Do it.".into()), Some(PermissionMode::AcceptEdits)))
         );
         assert_eq!(allow_plan(None, None), Some(allow()));
+        for mode in [PermissionMode::Default, PermissionMode::Plan] {
+            assert_eq!(allow_plan(None, Some(mode)), Some(allow()), "{mode:?}");
+        }
         assert_eq!(plan_answer(&allow()), Ok((None, None)));
         assert_eq!(
-            plan_answer(&allow_plan(None, Some(PlanMode::Auto)).unwrap()),
-            Ok((None, Some(PlanMode::Auto)))
+            plan_answer(&allow_plan(None, Some(PermissionMode::Auto)).unwrap()),
+            Ok((None, Some(PermissionMode::Auto)))
         );
         // An edit past the bound is never cut and sent, nor taken.
         let long = "x".repeat(MAX_PLAN + 1);

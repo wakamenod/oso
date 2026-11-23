@@ -3,26 +3,53 @@
 //!
 //! Must not depend on: the app or a process.
 
+use std::ops::{Deref, DerefMut};
+
 use proptest::prelude::*;
 
 use super::{StatusLine, display_name, dollars};
+use crate::sessions::native::mode::ModeState;
 use crate::sessions::native::wire::status_line::{Model, Usage};
 use crate::sessions::native::wire::{Event, parse};
 
 const STATUS_2_1_330: &str = include_str!("../fixtures/2.1.330/status.jsonl");
 
-/// The line after `lines`, as the app folds them: answers' models and usage given apart.
-fn folded(lines: &str) -> StatusLine {
-    let mut line = StatusLine::default();
+/// A status line with the permission mode it is given (part 3b), as the app holds them.
+#[derive(Default)]
+struct Line {
+    status: StatusLine,
+    modes: ModeState,
+}
+
+impl Deref for Line {
+    type Target = StatusLine;
+
+    fn deref(&self) -> &StatusLine {
+        &self.status
+    }
+}
+
+impl DerefMut for Line {
+    fn deref_mut(&mut self) -> &mut StatusLine {
+        &mut self.status
+    }
+}
+
+/// The line after `lines`, as the app folds them: answers' models, usage and mode given apart.
+fn folded(lines: &str) -> Line {
+    let mut line = Line::default();
     for text in lines.lines() {
         fold(&mut line, parse(text.as_bytes()));
     }
     line
 }
 
-fn fold(line: &mut StatusLine, event: Event) {
+fn fold(line: &mut Line, event: Event) {
     match event {
         Event::Answer(answer) => {
+            if let Some(mode) = answer.mode {
+                line.modes.said(&mode);
+            }
             if let Some(models) = answer.models {
                 line.initialized(models);
             }
@@ -31,14 +58,15 @@ fn fold(line: &mut StatusLine, event: Event) {
             }
         }
         event => {
-            line.event(&event);
+            line.modes.event(&event);
+            line.status.event(&event);
         }
     }
 }
 
-fn shown(line: &StatusLine) -> String {
+fn shown(line: &Line) -> String {
     let mut out = String::new();
-    line.write(&mut out);
+    line.status.write(line.modes.shown(), &mut out);
     out
 }
 
@@ -50,7 +78,7 @@ fn model(value: &str, resolved: &str, display: &str) -> Model {
     }
 }
 
-fn read(line: &mut StatusLine, text: &str) {
+fn read(line: &mut Line, text: &str) {
     fold(line, parse(text.as_bytes()));
 }
 
@@ -77,8 +105,9 @@ fn before_its_turn_a_resumed_session_says_get_usages_cost_and_window() {
         .take(2)
         .map(|l| l.to_owned() + "\n")
         .collect();
-    assert_eq!(shown(&folded(&before)), "$0.00 · 7d 40%");
-    let mut line = StatusLine::default();
+    // `initialize` says the mode too (part 3b).
+    assert_eq!(shown(&folded(&before)), "default · $0.00 · 7d 40%");
+    let mut line = Line::default();
     line.usage_answered(Usage {
         five_hour: Some(63.0),
         seven_day: Some(28.0),
@@ -93,7 +122,7 @@ fn before_its_turn_a_resumed_session_says_get_usages_cost_and_window() {
 
 #[test]
 fn the_model_shown_is_the_last_to_answer_on_the_main_thread_else_inits() {
-    let mut line = StatusLine::default();
+    let mut line = Line::default();
     line.initialized(vec![
         model("default", "claude-opus-5-5", "Default (recommended)"),
         model("opus", "claude-opus-5-5", "Opus 5.5"),
@@ -131,7 +160,7 @@ fn a_model_not_listed_is_its_id_less_claude() {
 
 #[test]
 fn context_is_the_last_answers_input_over_its_models_window() {
-    let mut line = StatusLine::default();
+    let mut line = Line::default();
     let usage = r#"{"input_tokens":2,"cache_creation_input_tokens":4735,"cache_read_input_tokens":250000,"output_tokens":9}"#;
     read(&mut line, &answer("claude-haiku-5-5", "null", usage));
     assert_eq!(shown(&line), "haiku-5-5", "no window before a result");
@@ -158,7 +187,7 @@ fn cost_is_cents_then_whole_dollars() {
 
 #[test]
 fn the_window_is_the_last_events_named_one_and_others_are_none() {
-    let mut line = StatusLine::default();
+    let mut line = Line::default();
     line.usage_answered(Usage {
         five_hour: Some(10.0),
         seven_day: Some(28.0),
@@ -183,7 +212,7 @@ fn the_window_is_the_last_events_named_one_and_others_are_none() {
 
 #[test]
 fn the_mode_follows_init_and_status_and_odd_text_is_not_shown() {
-    let mut line = StatusLine::default();
+    let mut line = Line::default();
     read(
         &mut line,
         r#"{"type":"system","subtype":"init","permissionMode":"default"}"#,
@@ -235,7 +264,7 @@ fn a_part_that_holds_a_dot_a_space_or_was_cut_is_not_shown() {
         "a\u{30fb}b",
         &"m".repeat(300),
     ] {
-        let mut line = StatusLine::default();
+        let mut line = Line::default();
         read(&mut line, &mode("acceptEdits"));
         let init = serde_json::json!({"type": "system", "subtype": "init", "model": model});
         read(&mut line, &init.to_string());
@@ -246,14 +275,17 @@ fn a_part_that_holds_a_dot_a_space_or_was_cut_is_not_shown() {
         assert_eq!(shown(&line), "acceptEdits", "{model:?}");
     }
     for odd in ["plan · x", "plan x", "a\u{b7}b", &"p".repeat(300)] {
-        let mut line = StatusLine::default();
+        let mut line = Line::default();
         read(&mut line, &mode("acceptEdits"));
         read(&mut line, &mode(odd));
         assert_eq!(shown(&line), "", "{odd:?}");
     }
-    let mut line = StatusLine {
-        effort: Some("high · auto".to_owned()),
-        ..StatusLine::default()
+    let mut line = Line {
+        status: StatusLine {
+            effort: Some("high · auto".to_owned()),
+            ..StatusLine::default()
+        },
+        ..Line::default()
     };
     read(
         &mut line,
@@ -264,7 +296,7 @@ fn a_part_that_holds_a_dot_a_space_or_was_cut_is_not_shown() {
 
 #[test]
 fn a_cost_or_a_use_of_minus_nothing_is_none() {
-    let mut line = StatusLine::default();
+    let mut line = Line::default();
     read(&mut line, r#"{"type":"result","total_cost_usd":-0.0}"#);
     let event = r#"{"type":"rate_limit_event","rate_limit_info":{"rateLimitType":"five_hour","unifiedWindows":{"five_hour":{"utilization":-0.0}}}}"#;
     read(&mut line, event);
@@ -328,7 +360,7 @@ proptest! {
             0..30,
         ),
     ) {
-        let mut line = StatusLine::default();
+        let mut line = Line::default();
         for text in &lines {
             fold(&mut line, parse(text.as_bytes()));
         }

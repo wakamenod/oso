@@ -1,6 +1,7 @@
 //! A native session's control layer, tier 2 of ADR 0165 ("The route"; step 2c): whether the
 //! CLI speaks it, for which requests, the ids of oso's requests and which one an answer is to.
-//! The requests themselves are their own modules' (`interrupt`), the lines `wire::control`'s.
+//! The requests themselves are their own modules' (`interrupt`, `usage`, `mode`), the lines
+//! `wire::control`'s.
 //!
 //! Must not depend on: threads, the stream or the UI; the clock is the caller's.
 //!
@@ -12,7 +13,9 @@
 //!   still turns tier 2 on.
 //! - Why tier 2 is off is a log line, said once a process; why one request fell back is its
 //!   own module's to say.
-//! - An answer whose id is no request of oso's that waits is no answer.
+//! - An answer whose id is no request of oso's that waits is no answer, and neither is an
+//!   answer to `initialize` after one that succeeded: what it lists, its commands, models and
+//!   mode, is the first answer's.
 
 use std::time::{Duration, Instant};
 
@@ -79,7 +82,7 @@ impl Control {
         match request {
             Request::Initialize => false,
             Request::Interrupt => initialized && self.receipt != Some(false),
-            Request::GetUsage => initialized,
+            Request::GetUsage | Request::SetPermissionMode(_) => initialized,
         }
     }
 
@@ -114,6 +117,10 @@ impl Control {
             return Answered::Other;
         };
         if id == INITIALIZE {
+            // Only the first: a later one is no answer, so that what it lists is not taken.
+            if self.initialize == Initialize::Answered {
+                return Answered::Other;
+            }
             return Answered::Initialize(self.initialized(answer.error.as_deref()));
         }
         let Some(at) = self.waiting.iter().position(|(waiting, _)| *waiting == id) else {
@@ -127,12 +134,9 @@ impl Control {
         }
     }
 
-    /// `initialize` was answered, refused with `error` if `Some`.
+    /// `initialize` was answered, refused with `error` if `Some`. An answer after its wait is
+    /// still taken: the CLI speaks the protocol.
     fn initialized(&mut self, error: Option<&str>) -> Option<String> {
-        // An answer after its wait is still taken: the CLI speaks the protocol.
-        if self.initialize == Initialize::Answered {
-            return None;
-        }
         match error {
             None => {
                 self.initialize = Initialize::Answered;

@@ -473,6 +473,7 @@ mod compose;
 mod composed;
 mod interrupt;
 mod markdown;
+mod modes;
 mod plan;
 mod restart_wait;
 mod resume;

@@ -461,16 +461,26 @@ impl App {
             ask.call.tool_name
         ));
         let id = &ask.call.tool_use_id;
-        if let (Some(mark), Some(native)) = (mark, self.hosting.natives.map.get_mut(&key))
-            && let Some(change) = match mark {
+        // A plan approved with a mode is the person's choice of it (part 3b), once the bridge
+        // took the answer.
+        let chosen = match &mark {
+            Some(Mark::Approved(_, after)) => plan::mode_after(*after),
+            _ => None,
+        };
+        if let (Some(mark), Some(native)) = (mark, self.hosting.natives.map.get_mut(&key)) {
+            let change = match mark {
                 Mark::Denied(row) => native.rows.denied(id, &row),
                 Mark::Approved(edited, after) => native.rows.approved(id, edited, after),
-            }
-        {
-            super::super::draw(&mut self.editor, native, [change]);
+            };
+            super::super::draw(&mut self.editor, native, change);
         }
         self.tell_tracker(key, Target::Working);
-        let _ = ask.reply.send(Ok(reply));
+        let sent = ask.reply.send(Ok(reply)).is_ok();
+        if let (true, Some(mode), Some(native)) =
+            (sent, chosen, self.hosting.natives.map.get_mut(&key))
+        {
+            native.mode.chose(mode);
+        }
         self.close_card(key);
     }
 

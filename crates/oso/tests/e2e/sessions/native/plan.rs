@@ -2,7 +2,8 @@
 //! (ADR 0165, part 3d), with the cards' fake asking about two `ExitPlanMode` calls: the first
 //! is edited in `*plan: proj*` and approved with auto by `C-c C-A`, after `n` and then `y` to
 //! its question, its edit going back in the call's input; the second's edit is given up with `C-c C-k`, back to its card, where `a` approves
-//! it as Claude wrote it with accept edits after it.
+//! it as Claude wrote it with accept edits after it. Once the session stopped, its resume
+//! starts in accept edits, the mode the person chose last (part 3b).
 //!
 //! Must not depend on: the app's internals; the answer's shape and the rows' marks have their
 //! own tests.
@@ -145,6 +146,45 @@ fn a_plan_is_edited_before_it_is_approved_and_approved_with_a_mode() {
     app.wait_for("the second approved", in_composer);
     let _ = fs::remove_file(flow.scratch.path().join("go"));
     flow.scratch.write("go", b"0");
+    the_next_process_starts_in_the_approved_mode(&flow, &mut app);
     let _ = app.exchange("exit", None);
     app.wait_for_exit();
+}
+
+/// The fake's runs' arguments, by its `run.PID` files.
+fn runs(flow: &Flow) -> Vec<String> {
+    let entries = fs::read_dir(flow.scratch.path()).unwrap();
+    let names = entries.filter_map(|entry| entry.ok()?.file_name().into_string().ok());
+    let runs = names.filter(|name| name.starts_with("run."));
+    runs.filter_map(|name| fs::read_to_string(flow.scratch.path().join(name)).ok())
+        .collect()
+}
+
+/// Once the session stopped, its resume is given the mode its last plan was approved with,
+/// `a`'s accept edits, as `--resume` keeps none (part 3b); its first process was given none.
+fn the_next_process_starts_in_the_approved_mode(flow: &Flow, app: &mut App) {
+    app.send_keys("C-c C-o");
+    app.wait_for("the session stopped", |state| {
+        state["buffer"]["name"] == "*claude: proj*"
+            && state["modeline"]
+                .as_str()
+                .is_some_and(|modeline| modeline.contains("stopped"))
+    });
+    let first = runs(flow);
+    assert_eq!(first.len(), 1, "{first:?}");
+    assert!(!first[0].contains("--permission-mode"), "{}", first[0]);
+    app.run_command("session-resume", None).unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    let resumed = loop {
+        let runs = runs(flow);
+        if let Some(run) = runs.iter().find(|run| run.contains("arg --resume=")) {
+            break run.clone();
+        }
+        assert!(std::time::Instant::now() < deadline, "no resume: {runs:?}");
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    };
+    assert!(
+        resumed.contains("arg --permission-mode=acceptEdits"),
+        "{resumed}"
+    );
 }

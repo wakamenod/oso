@@ -430,6 +430,7 @@ mod tests {
         "conversation-revert",
         // A native session's buffer, withheld from agents, whose keys the host carries out
         // after the command (ADR 0165).
+        "native-session-cycle-mode",
         "native-session-next-prompt",
         "native-session-next-tool",
         "native-session-previous-prompt",
