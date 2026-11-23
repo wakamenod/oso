@@ -1080,7 +1080,8 @@ read. See [ADR 0019](adr/0019-configuration.md).
   `env`, the names of more variables a session takes from oso's environment; the start thread
   reads them as they are in force when the session starts
   ([ADR 0121](adr/0121-agent-sessions-and-spaces.md), step 1). `steer_worktrees` puts the
-  steering hook into a session's `--settings` (step 4).
+  steering hook into a session's `--settings` (step 4); a native session's also turns Remote
+  Control off ([ADR 0165](adr/0165-native-claude-sessions-the-route.md)).
 - Indentation ([ADR 0115](adr/0115-indentation.md)): each buffer has an indentation setting,
   property by property from the EditorConfig files that apply to it, then the configuration's
   `[modes.<mode>]`, then the defaults, and knows where each came from (`describe-indentation`).

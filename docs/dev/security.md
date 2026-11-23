@@ -923,6 +923,14 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)); no hook reports a session's state.
   The hook is `oso hook deny-worktree`: it reads at most 64 KiB of standard input, starts
   nothing, and allows what it cannot read. It steers Claude, and is no boundary.
+- Remote Control is off in every native session ([ADR 0165](adr/0165-native-claude-sessions-the-route.md),
+  as amended): each native start's `--settings` has `disableRemoteControl`, so the CLI refuses a
+  request to connect it to claude.ai, whatever the project's settings or the person's
+  `remoteControlAtStartup` say. Connected, the conversation would be stored there, and messages
+  and mode changes would come from outside oso's window, past oso's rules on who makes them.
+  oso never asks for it. A terminal's `claude`, the TUI a native session is handed to among
+  them, follows the person's own settings. It is a setting of that one process: a `claude` the
+  session runs reads its own, and it is no boundary against other processes of the same user.
 - The agents' session tools ([ADR 0121](adr/0121-agent-sessions-and-spaces.md), step 6) act
   only for a session oso started, proven by its bridge, and only within its repository; any
   other connection may only read, within the selected window's project, or ask to move into a

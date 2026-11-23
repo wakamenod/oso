@@ -1,5 +1,5 @@
 //! Tests of `steer`: which tool calls the hook denies, its answer, its exit status, the
-//! `--settings` it installs with, and quoting checked by a real `/bin/sh`.
+//! `--settings` it installs with, Remote Control turned off in them, and quoting checked by a real `/bin/sh`.
 //!
 //! Must not depend on: Claude Code or a spawn of its own; the shell starts as every child of
 //! oso does.
@@ -150,6 +150,7 @@ fn settings_with_nothing_on_are_none() {
 fn settings_install_the_hook() {
     let parts = Parts {
         steer_worktrees: true,
+        ..Parts::default()
     };
     let text = settings(Path::new("/Apps/it's oso/oso"), &parts)
         .unwrap()
@@ -164,6 +165,22 @@ fn settings_install_the_hook() {
     );
 }
 
+/// Turning Remote Control off names no path, so it needs none in UTF-8.
+#[cfg(unix)]
+#[test]
+fn settings_turn_remote_control_off_whatever_osos_path() {
+    use std::os::unix::ffi::OsStrExt;
+    let path = Path::new(std::ffi::OsStr::from_bytes(b"/bin/\xffoso"));
+    let parts = Parts {
+        disable_remote_control: true,
+        ..Parts::default()
+    };
+    assert_eq!(
+        settings(path, &parts),
+        Ok(Some(r#"{"disableRemoteControl":true}"#.to_owned()))
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn settings_need_a_utf8_path() {
@@ -171,6 +188,7 @@ fn settings_need_a_utf8_path() {
     let path = Path::new(std::ffi::OsStr::from_bytes(b"/bin/\xffoso"));
     let parts = Parts {
         steer_worktrees: true,
+        disable_remote_control: true,
     };
     assert_eq!(settings(path, &parts), Err(super::SettingsError::NotUtf8));
     assert_eq!(

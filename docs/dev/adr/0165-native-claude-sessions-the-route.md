@@ -1,6 +1,6 @@
 # 0165. Native Claude sessions: the route
 
-- Status: Accepted, amended by 0170, 0173 and 0176; "Following the end, as amended" (2026-11-24)
+- Status: Accepted, amended by 0170, 0173 and 0176; "Following the end, as amended" and "Remote Control is off, as amended" (2026-11-24)
 - Date: 2026-11-21
 
 ## Context
@@ -306,7 +306,7 @@ L (more), "have" (oso has it).
 | Rename (`proc`) | `/rename` text | same; ADR 0155 | same | have |
 | Skills, plugins, hooks, capabilities buffers (`skill`, `plugin`, `hooks`, `capabilities`) | `initialize`, `get_settings`, `claude plugin … --json`, settings files | t1: subcommands and files; t2: `initialize` | `reloadSkills()`, `supportedCommands()` | M (later) |
 | `/login`, `/logout`, `/status` (`auth`) | `claude auth`, login in a terminal | same | same | S (later) |
-| Remote Control (`proc`) | `remote_control` request | not proposed | unknown | — |
+| Remote Control (`proc`) | `remote_control` request | not proposed; off in every native session ("Remote Control is off, as amended") | unknown | — |
 | Inline answer and rewrite (`inline`) | a fork session; `claude -p --json-schema` | same (ADR 0159 already runs `-p` one-shots) | same | M (later) |
 | Markdown, tables, mermaid (`markdown`, `table`, `mermaid`) | Emacs-side renderers | oso's Markdown and highlighting (ADR 0111) | same | M |
 | Unknown messages kept (`dispatch`) | an `unknown` node | one "unreadable event" row (ADR 0130) | same | S |
@@ -2139,6 +2139,50 @@ transcript holds after them, when the conversation may have gone on elsewhere si
   transcript says, which the live stream may not have shown; the TUI's to-do list is not read.
   The read places the whole transcript again at each such start, though only what follows is
   decoded: hidden under the CLI's start for the median transcript, not measured at the largest.
+- **New public items:** none.
+
+## Remote Control is off, as amended
+
+Amended on 2026-11-24, the author's choice. Claude Code's Remote Control connects a session to
+claude.ai, which then stores the conversation and lets the person's other devices send messages,
+change its permission mode and stop it. oso has no part of that yet: its rows, its cards and its
+rules about who changes a mode (Q4) know the person at oso's own window only. The CLI connects a
+`claude -p` that is asked on its standard input (`remote_control`), which oso never asks. So
+that no setting and no plain request connects one, oso starts it turned off until a feature of
+its own asks for it, in an ADR of its own.
+
+- **What is blocked.** Every native start, a new one, a resume (after an interrupt, for a mode,
+  by `oso-restart`, with a repository added), a fork, an adoption, a switch from the TUI and an
+  orchestrator's in a space's directory, has `"disableRemoteControl": true` in its one
+  `--settings`, beside the steering hook when `[sessions] steer_worktrees` is on. All build
+  their line in `sessions::start`, which sets it for what runs natively, whatever the order.
+- **What is not.** A terminal's line never has it, the TUI a native session is handed to among
+  them (part 4d): there the person's own settings decide, as `remoteControlAtStartup`, and
+  `/remote-control` works. A `claude` that a session itself runs reads its own settings, and
+  oso's one-shot runs (a space's name, a dictation's fix) are no sessions and take none. It is
+  a setting of the process, and no boundary against other processes of the same user.
+- **Measured** (2026-11-24, CLI 2.1.330, Haiku, an empty directory, no variables of oso's or
+  Claude Code's; whatever asked to connect ran with no network, so that none could). With the
+  setting, `initialize` answers `remote_control_available: false`, and `remote_control` is
+  refused: "Remote Control is disabled by your organization's policy", `bridge_state` `failed`.
+  Without it the same request went on to make a session, which failed for want of a network. It
+  held for a new session, a resume and a fork; over a project's and a local
+  `disableRemoteControl: false`; with `remoteControlAtStartup` true in the person's, the
+  project's and the local settings; with `--setting-sources=user` over a project's `false`; and
+  with the hook beside it. `--remote-control` with it connected nothing. `/remote-control` sent
+  as a message "isn't available in this environment", with or without it.
+- **What the start held still works,** measured with network and the setting: the steering hook
+  of the same JSON denied `git worktree add` on a new session, a resume, a fork and with
+  `--setting-sources=user`; a project's own `PreToolUse` hook ran beside it; and a
+  `SendMessage` from one such session reached another by name, as it goes between this
+  machine's sessions, not over claude.ai.
+- **Not measured:** the TUI resuming a conversation that ran with the setting, which would
+  connect by the person's own setting; a managed `disableRemoteControl: false`; a later CLI,
+  which could change the setting's meaning.
+- **Tests.** `sessions::start::line_tests` (every kind of native start, gated or not, has it,
+  with the hook beside it; no terminal's has it, handed or not), `steer`'s (the JSON, and that
+  it needs no path in UTF-8). End to end: the line `claude` was started with, of a new native
+  session, a switch to the TUI and back, and a space's new orchestrator.
 - **New public items:** none.
 
 ## Questions

@@ -22,10 +22,10 @@ use oso_platform::process::{Executable, Sink, Source, Spawn, spawn};
 use super::super::super::git_agent::echo;
 use super::super::super::git_status::{has, rows_until};
 use super::super::super::harness::{App, emergency_dir};
-use super::super::super::spaces::{PrivateRoot, trust_restricted};
+use super::super::super::spaces::{PrivateRoot, switch_space, trust_restricted};
 use super::super::super::worktrees::{asks, keys};
 use super::switch::{args, flag, flow, screen, switch_back};
-use super::{Flow, in_composer, text};
+use super::{Flow, in_composer, remote_control_off, text};
 
 /// The orchestrator's id, and that of a session an agent started in the space's directory.
 const ORCHESTRATOR: &str = "00000001-0000-4000-8000-000000000000";
@@ -283,10 +283,7 @@ fn a_reviews_question_resumes_a_stopped_native_orchestrator_and_goes_once_it_run
     fs::write(flow.project.join("notes.md"), "notes\nchanged\n").unwrap();
     let mut app = flow.start();
     trust_project(&flow, &mut app);
-    app.send_keys(&format!("C-c a j {} RET", keys("fix-login")));
-    app.wait_for("the space in front", |state| {
-        state["sessions"]["space"] == "fix-login"
-    });
+    switch_space(&mut app, "fix-login");
     app.open_file(&flow.project.join("notes.md"));
     // Its project is found off the UI thread; the review menu needs it.
     app.wait_for("notes.md in its project", |state| {
@@ -364,14 +361,12 @@ fn new_in_space(native: &[String]) -> bool {
         && flag(native, "session-id").is_some()
         && native.iter().any(|arg| arg == USER_ONLY)
         && flag(native, "append-system-prompt").is_some()
+        && remote_control_off(native)
 }
 
 /// Puts space `fix-login` in front.
 fn enter_space(app: &mut App) {
-    app.send_keys(&format!("C-c a j {} RET", keys("fix-login")));
-    app.wait_for("the space in front", |state| {
-        state["sessions"]["space"] == "fix-login"
-    });
+    switch_space(app, "fix-login");
 }
 
 #[test]

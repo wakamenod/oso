@@ -1,7 +1,8 @@
 //! Steering Claude away from its own worktree tools (ADR 0121, Q15): `oso hook deny-worktree`,
 //! a `PreToolUse` hook that denies `EnterWorktree` and a `Bash` call that runs
 //! `git worktree add`, and the `--settings` that installs it for a session oso starts when
-//! `[sessions] steer_worktrees = true`. Nothing is written into Claude Code's settings files.
+//! `[sessions] steer_worktrees = true`. The same `--settings` turns Remote Control off in a
+//! native session (ADR 0165). Nothing is written into Claude Code's settings files.
 //!
 //! Must not depend on: `app`, `dispatch`, the file system or sockets; the hook
 //! reads its standard input, writes its answer and starts nothing.
@@ -14,10 +15,14 @@ use std::io::{self, Read, Write};
 use std::path::Path;
 
 use regex::{Regex, RegexBuilder};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 /// The arguments after oso's own path that run the hook.
 pub const HOOK: [&str; 2] = ["hook", "deny-worktree"];
+
+/// The setting that turns Remote Control off: the CLI then refuses a request to connect the
+/// session to claude.ai. No project's setting turns it back on. It is no boundary (ADR 0165).
+const DISABLE_REMOTE_CONTROL: &str = "disableRemoteControl";
 
 /// The most bytes of hook input looked at; more is allowed unread.
 pub const MAX_INPUT: usize = 64 * 1024;
@@ -145,6 +150,9 @@ fn run(
 pub struct Parts {
     /// `[sessions] steer_worktrees`: install the hook.
     pub steer_worktrees: bool,
+    /// Turn Remote Control off: every native session's, and no terminal's, where the person's
+    /// own settings decide (ADR 0165).
+    pub disable_remote_control: bool,
 }
 
 /// Why no `--settings` can be made.
@@ -166,26 +174,29 @@ impl std::error::Error for SettingsError {}
 
 /// The `--settings` JSON for `parts`, `None` when no part is on. With `steer_worktrees`, a
 /// `PreToolUse` hook for `EnterWorktree` and `Bash` that runs `oso` (quoted for a POSIX shell)
-/// with [`HOOK`].
+/// with [`HOOK`]. With `disable_remote_control`, `disableRemoteControl` is
+/// true.
 ///
 /// # Errors
 ///
 /// [`SettingsError::NotUtf8`] when a part needs `oso` and its path is not UTF-8.
 pub fn settings(oso: &Path, parts: &Parts) -> Result<Option<String>, SettingsError> {
-    if !parts.steer_worktrees {
-        return Ok(None);
-    }
-    let oso = oso.to_str().ok_or(SettingsError::NotUtf8)?;
-    let command = format!("{} {}", shell_quote(oso), HOOK.join(" "));
-    let settings = json!({
-        "hooks": {
+    let mut settings = Map::new();
+    if parts.steer_worktrees {
+        let oso = oso.to_str().ok_or(SettingsError::NotUtf8)?;
+        let command = format!("{} {}", shell_quote(oso), HOOK.join(" "));
+        let hooks = json!({
             "PreToolUse": [{
                 "matcher": "EnterWorktree|Bash",
                 "hooks": [{"type": "command", "command": command}],
             }]
-        }
-    });
-    Ok(Some(settings.to_string()))
+        });
+        settings.insert("hooks".to_owned(), hooks);
+    }
+    if parts.disable_remote_control {
+        settings.insert(DISABLE_REMOTE_CONTROL.to_owned(), Value::Bool(true));
+    }
+    Ok((!settings.is_empty()).then(|| Value::Object(settings).to_string()))
 }
 
 /// `text` single-quoted for a POSIX shell: each `'` becomes `'\''`.
