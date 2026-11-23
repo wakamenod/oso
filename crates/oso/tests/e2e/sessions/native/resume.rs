@@ -16,7 +16,7 @@ use super::{Flow, MESSAGE, end_turn, in_composer, text};
 /// The fake: run `N` from 1 logs its arguments to `run.N`, and for each line of its input
 /// replays it and replies `reply N.M`: at once, but the first, which ends once the flow writes
 /// `release.1.1`. It exits once its input ends.
-const RESUME_FAKE: &str = r#"#!/bin/sh
+pub(super) const RESUME_FAKE: &str = r#"#!/bin/sh
 dir='DIR'
 n=$(ls "$dir" | grep -c '^run\.')
 n=$((n+1))

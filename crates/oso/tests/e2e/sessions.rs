@@ -74,8 +74,9 @@ impl Flow {
                 .as_bytes(),
         );
         fs::set_permissions(&fake, fs::Permissions::from_mode(0o700)).unwrap();
+        // The TUI's flows: native is the default in a trusted project (ADR 0165, part 4e).
         let config = format!(
-            "[terminal]\nshell = \"/bin/sh\"\nlogin = false\n\n[sessions]\nclaude = \"{}\"\n",
+            "[terminal]\nshell = \"/bin/sh\"\nlogin = false\n\n[sessions]\nclaude = \"{}\"\nmode = \"tui\"\n",
             fake.display()
         );
         let config = scratch.write("config.toml", config.as_bytes());

@@ -1176,11 +1176,12 @@ a switch made with its command stands until that setting changes in the file
 
 ## Agent sessions
 
-- `C-c a c` (`claude`) starts Claude Code's own TUI in a terminal buffer, `*claude: NAME*`, in
-  the selected buffer's project root, else the directory it stands in, as a new terminal does, else
+- `C-c a c` (`claude`) starts a session in a buffer, `*claude: NAME*`, in the selected
+  buffer's project root, else the directory it stands in, as a new terminal does, else
   the directory oso started in. NAME is the directory's
   name, then `-2`, `-3` for more sessions there. `C-u C-c a c` asks for the directory, then the
-  name. The agent channel turns on if it was off, and the echo area says so: the session's own
+  name. At a trusted project's root it is a native session (below, "`[sessions]`"; ADR 0165,
+  part 4e), else Claude Code's own TUI in a terminal. The agent channel turns on if it was off, and the echo area says so: the session's own
   oso tools connect without asking, and any other agent still asks
   ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)).
 - oso remembers its sessions. At the next start, each comes back as a buffer with no process,
@@ -1264,7 +1265,8 @@ a switch made with its command stands until that setting changes in the file
   the sessions oso does not host: those Claude Code says run (`runs as process N: stop it there
   first`), then those that stopped in the last 30 days, newest first, each with its age and
   directory. A picked one is resumed in a new buffer, `*claude: NAME*`, in the directory it ran
-  in, under the name it had. A live one is refused until it is stopped where it runs, and `y`
+  in, under the name it had: natively at a trusted project's root, with one `Adopted.` row, as a
+  new session starts, else in a terminal. A live one is refused until it is stopped where it runs, and `y`
   forks it instead. If it was working when it stopped, the echo area says to ask it to go on.
 - A session started outside oso that calls `move_to_space`
   ([ADR 0151](adr/0151-moving-a-session-into-a-space.md)) asks, as every agent question does:
@@ -1309,11 +1311,11 @@ a switch made with its command stands until that setting changes in the file
   env = ["HTTPS_PROXY", "NODE_EXTRA_CA_CERTS"]
   steer_worktrees = true             # sessions oso starts are steered to C-c a w
   pane_width = 44                    # *Spaces*' pane, 24 to 80 columns
-  mode = "native"                    # new sessions in trusted projects run claude -p (ADR 0165)
+  mode = "tui"                       # new sessions host the TUI; native in trusted projects unless set (ADR 0165)
   ```
 
-  With `mode = "native"` (ADR 0165, step 1), a new session in a trusted project runs `claude -p`
-  and shows its conversation in `*claude: NAME*` as oso's own rows instead of a terminal: the
+  Unless `mode = "tui"` (ADR 0165, step 1; the default since part 4e), a new session in a
+  trusted project runs `claude -p` and shows its conversation in `*claude: NAME*` as oso's own rows instead of a terminal: the
   person's messages after `› `, replies after `● `, thinking as `∴ Thought for N s`, each tool
   call as one line with what came of it, an edit as a diff, and each turn's time and cost. A
   start with no brief starts at once, with its composer selected, where the person writes the
@@ -1368,8 +1370,11 @@ a switch made with its command stands until that setting changes in the file
   natively, in its own buffer, with a "Resumed" row and the composer selected, at the root of
   a project trusted now, by an open buffer of it or, with none open, by the record of trusted
   projects (part 4a; else it says why, and that `session-fork` continues it in a terminal); `session-fork` forks a session
-  natively there under `mode = "native"`, and in a terminal elsewhere. An agent's start with
-  no brief, and a restricted project, keep the terminal. A call that asks the person's
+  natively there, and `session-adopt` and `move_to_space` resume a conversation from outside
+  oso natively there (part 4e), unless `mode = "tui"`; each runs in a terminal elsewhere. A
+  stopped TUI session resumes in its terminal, as it ran, and a TUI session carried over
+  `oso-restart` stays one. An agent's start with no brief, and a restricted project, keep the
+  terminal; a wrong `mode` is said, and native holds. A call that asks the person's
   permission is asked on the session's card (step 2e-2), `*card: NAME*`, docked between the
   transcript and the composer and withheld from agents: oso's title and keys around Claude's
   text, each row of it after `│ `; point moves to it after 500 ms with no key while the person

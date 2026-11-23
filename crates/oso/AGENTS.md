@@ -18,7 +18,7 @@ often, so it must rebuild within 2 s.
   `loads`, `reloads`, `saves`, `idle_quit`, `copies`, `clipboard`, `searches`, `migemo`, `slices`, `walks`, `greps`, `wraps`, `flash`, `jumps`, `reviews`, `dired`, `vcs`, `terminals`, `recent_files` (the recent files' record, ADR 0148),
   `starts` (what opening and saving start, and what waits for the person, ADR 0118) and
   `held_starts` (the starts that wait for the configuration's first look, ADR 0173, and native
-  resumes for the record of trusted projects, ADR 0165 part 4a) do the
+  resumes, forks and adoptions for the record of trusted projects, ADR 0165 parts 4a and 4e) do the
   work, `control`
   answers the dev socket, and `handover` exports and imports the state of a restart, `oso dev`'s
   or `oso-restart`'s, the import in `handover/import.rs`; its terminals go in `terminals/carry.rs` (the instance going) and
@@ -110,8 +110,8 @@ often, so it must rebuild within 2 s.
   `sessions/native/mode.rs` and the one mode type oso sends, `channel/protocol/mode.rs`
   (part 3b), its model and effort level as `/model` and `/effort` chose them
   `sessions/native/choice.rs`, kept beside its mode, with their argument's completion listed
-  by `native/slash.rs` and opened by `dispatch/slash.rs` (part 3c), and its resume and a
-  native fork `native/resume.rs`, under the trust `sessions/start/trust.rs` judges, from what
+  by `native/slash.rs` and opened by `dispatch/slash.rs` (part 3c), and its resume, a
+  native fork and a native adoption `native/resume.rs`, under the trust `sessions/start/trust.rs` judges, from what
   `app/sessions/hosting/trust.rs` gives it, and by the record on the start thread
   (ADR 0165, step 2); its whole replies are highlighted as Markdown on the syntax threads, as
   documents no buffer owns, by `app/sessions/hosting/native/markdown.rs`, and their runs put

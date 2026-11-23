@@ -90,9 +90,9 @@ impl Configuration {
     }
 
     /// `[sessions] mode` in force: whether a new session in a trusted project runs native
-    /// (ADR 0165).
+    /// (ADR 0165): unless `"tui"` opts out (part 4e).
     pub(super) fn native_sessions(&self) -> bool {
-        self.in_force.sessions.native
+        !self.in_force.sessions.tui
     }
 
     /// `[sessions] steer_worktrees` in force: whether a session oso starts gets the hook that
