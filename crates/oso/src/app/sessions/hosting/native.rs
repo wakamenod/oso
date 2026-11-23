@@ -113,6 +113,8 @@ pub(in crate::app) struct NativeSessions {
     /// The orchestrators resumed with a repository added, at the person's `y` (ADR 0176,
     /// part O-2).
     adding: HashMap<SessionKey, adding::Adding>,
+    /// What an empty composer's placeholder says (ADR 0170), until the user's keys change.
+    placeholder: Option<[String; 3]>,
 }
 
 /// A native session's buffer, rows and process.

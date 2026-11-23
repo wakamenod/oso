@@ -1328,7 +1328,8 @@ a switch made with its command stands until that setting changes in the file
   `C-c +` and `C-c -`, as it has no screen for an agent to read. Its next messages are
   written in its composer (step 2, ADR 0170), `*compose: NAME*`, docked under the transcript
   and withheld from agents: `i` goes there and `C-c C-o` back, `C-c C-c` sends (at most
-  64 KiB), and `M-p`/`M-n` walk the messages sent. Once a turn ends, the CLI's suggestion of
+  64 KiB), and `M-p`/`M-n` walk the messages sent. While it is empty, a placeholder drawn over
+  it names its keys (ADR 0170, as amended). Once a turn ends, the CLI's suggestion of
   the next message shows dim at the transcript's end, `Suggested: …`, until a turn starts, the
   person sends or the process ends; `M-n` past the newest message, in an empty composer, puts it in, escaped
   as composed text is (ADR 0165, part 3f). Coming back to a session whose turn ended out of

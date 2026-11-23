@@ -8,9 +8,11 @@
 //! (`pane.rs`, ADR 0140).
 //!
 //! The selected window draws as the one window always has. Any other has a hollow cursor, no
-//! region, band, flash or match, and an inactive modeline. Beneath a prompt every window's
+//! region, band, flash or match, and an inactive modeline; but while a docked window is
+//! selected, its host has the active one (ADR 0170). Beneath a prompt every window's
 //! cursor is hollow and its modeline inactive, but the window the prompt came from keeps its
-//! region and band (ADR 0072, ADR 0097). The editor's cells and status already say all this.
+//! region and band (ADR 0072, ADR 0097). The editor's cells and status say all this but the
+//! cursor, which is the window's that keys go to ([`Editor::window`]).
 
 use oso_core::buffer::{BufferId, Mode};
 use oso_core::diagnostic::Severity;
@@ -28,15 +30,19 @@ use super::spaces::SpacesFills;
 use crate::sessions::list::SpaceBands;
 use crate::terminal::hosted::Terminals;
 
+mod labels;
 mod modeline;
+pub(super) mod placeholder;
 pub(in crate::app) use modeline::{statuses_into, tiled_status};
 
+use labels::{label_runs, labels_of};
 use modeline::{MODELINE_SPANS, modeline_face, modeline_spans};
 
 /// The first pane id of the windows': the echo area's and the floats' are below it.
 const FIRST: u32 = 16;
-/// The panes a window draws: its text, gutter, modeline, divider and sign column.
-const PER_WINDOW: u32 = 5;
+/// The panes a window may draw: its text, gutter, modeline, divider, sign column and a
+/// composer's placeholder.
+const PER_WINDOW: u32 = 6;
 
 /// Which of a window's panes.
 #[derive(Clone, Copy)]
@@ -46,10 +52,11 @@ pub(super) enum Part {
     Modeline = 2,
     Divider = 3,
     Signs = 4,
+    Placeholder = 5,
 }
 
 /// The id of a window's pane, from the window's id, so that a window keeps its shaped rows
-/// when another is split or deleted (ADR 0112). Ids come round again only after a billion
+/// when another is split or deleted (ADR 0112). Ids come round again only after 700 million
 /// windows have been made, as `WindowId`s are never reused; two shown together would have to
 /// be that far apart to share one, which no session reaches.
 pub(super) fn pane_id(window: WindowId, part: Part) -> PaneId {
@@ -193,52 +200,6 @@ fn fills_of(cells: &WindowCells) -> [(Face, &[CellRect]); FILLS] {
 /// How many lists of cells a window fills behind its text.
 const FILLS: usize = 19;
 
-/// A jump's labels in a window over its text: each label's first key in [`Face::JumpLabel`],
-/// and the keys after it in [`Face::JumpLabelNext`], in the order the editor gives them, by
-/// row and then column (ADR 0116).
-fn labels_of<'a>(cells: &'a WindowCells, out: &mut Vec<(CellRect, Span<'a>)>) {
-    let jump = &cells.jump;
-    for label in &jump.labels {
-        let text = &jump.text[label.keys.clone()];
-        let (first, rest) = text.split_at(text.len().min(1));
-        let one = CellRect {
-            columns: 1,
-            ..label.cells
-        };
-        out.push((
-            one,
-            Span {
-                text: first,
-                face: Face::JumpLabel,
-            },
-        ));
-        if !rest.is_empty() {
-            let after = CellRect {
-                column: label.cells.column + 1,
-                columns: label.cells.columns - 1,
-                ..label.cells
-            };
-            out.push((
-                after,
-                Span {
-                    text: rest,
-                    face: Face::JumpLabelNext,
-                },
-            ));
-        }
-    }
-}
-
-/// How many entries [`labels_of`] gives for a window.
-fn label_runs(cells: &WindowCells) -> usize {
-    let labels = &cells.jump.labels;
-    labels.len()
-        + labels
-            .iter()
-            .filter(|label| label.cells.columns > 1)
-            .count()
-}
-
 /// Room for what a frame lists of the tiled windows, empty between frames, which each frame
 /// takes at its own lifetime ([`super::reuse`]), so that a frame allocates nothing once warm.
 #[derive(Default)]
@@ -377,6 +338,8 @@ pub(super) struct Drawn<'a> {
     pub(super) modelines: &'a [[&'a [Span<'a>]; 1]],
     pub(super) gutters: &'a [&'a [Span<'a>]],
     pub(super) statuses: &'a [(WindowId, Status)],
+    /// An empty composer's placeholder, the whole of it first, or none (ADR 0170).
+    pub(super) placeholder: &'a [&'a [Span<'a>]],
     /// The cursor flash's strength in this frame, from the app's clock (ADR 0097).
     pub(super) flash: Option<f32>,
 }
@@ -388,8 +351,9 @@ pub(super) struct Drawn<'a> {
 pub(super) fn panes<'a>(editor: &'a Editor, drawn: &Drawn<'a>, list: &mut Vec<Pane<'a>>) {
     let windows = editor.frame().windows();
     let empty = Status::default();
-    let selected =
-        |index: usize, id: WindowId| status_of(drawn.statuses, (index, id), &empty).selected;
+    // Where keys go, docked or not: none of these beneath a prompt. Not the window whose
+    // modeline is active, which is a selected dock's host (ADR 0170).
+    let selected = editor.window().id();
     // A docked window's text is drawn over the float's face, as a prompt's answer is, so that
     // the composer reads as a place to type.
     let pane = |id, region, background, content| Pane {
@@ -413,11 +377,10 @@ pub(super) fn panes<'a>(editor: &'a Editor, drawn: &Drawn<'a>, list: &mut Vec<Pa
     for last in [false, true] {
         let mut runs = 0;
         for (index, ((id, regions), cells)) in shown() {
-            let selected = selected(index, *id);
             let labels = (runs..runs + label_runs(cells), index);
             runs = labels.0.end;
             if (*id == tiled) == last {
-                let content = text(editor, (*id, selected), cells, drawn, labels);
+                let content = text(editor, (*id, *id == selected), cells, drawn, labels);
                 let background = docked_face(*id);
                 list.push(pane(
                     pane_id(*id, Part::Text),
@@ -428,6 +391,10 @@ pub(super) fn panes<'a>(editor: &'a Editor, drawn: &Drawn<'a>, list: &mut Vec<Pa
             }
         }
     }
+    list.extend(shown().filter_map(|(_, ((id, regions), cells))| {
+        let place = (*id, regions);
+        placeholder::pane(editor, place, &cells.screen, drawn.placeholder)
+    }));
     let mut at = 0;
     for ((id, regions), cells) in windows.iter().zip(drawn.cells) {
         let rows = cells.gutter.rows().count();
@@ -492,8 +459,7 @@ fn divider<'a>(id: WindowId, regions: &WindowRegions, list: &mut Vec<Pane<'a>>) 
     }
 }
 
-/// The text pane's content of window `id`, which draws as the selected one if its status says
-/// so ([`Status::selected`]).
+/// The text pane's content of window `id`, which draws as the one keys go to if `selected`.
 /// Beneath a prompt every window's cursor is hollow and none shows a preedit, as none is
 /// selected (ADR 0072).
 fn text<'a>(
