@@ -82,6 +82,11 @@ fn transcript_says(app: &mut App, what: &str) -> Value {
 #[ignore = "opens windows; run with `just e2e`"]
 fn the_transcripts_modeline_says_the_sessions_model_mode_context_cost_and_limit() {
     let flow = Flow::with("native-status", STATUS_FAKE, "");
+    // The instance's state is kept in the project, which the turn's look at its changes would
+    // find, making the session ready for review and its attention mark crowd the line.
+    let exclude = flow.project.join(".git/info/exclude");
+    std::fs::create_dir_all(exclude.parent().unwrap()).unwrap();
+    std::fs::write(&exclude, "state/\n").unwrap();
     let mut app = flow.start();
     app.open_file(&flow.project.join("notes.md"));
     trust_restricted(&mut app, "proj");
