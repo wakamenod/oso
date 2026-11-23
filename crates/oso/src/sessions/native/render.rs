@@ -7,7 +7,8 @@
 //!
 //! - A row's text ends with a newline. A turn's result ends with a blank line, which sets one
 //!   turn apart from the next.
-//! - A reply's text has no face of its own, so that Markdown's highlighting can lie over it.
+//! - A reply is drawn as its Markdown says, its marks hidden ([`super::shown`]), with faces no
+//!   row of oso's has; its code's own highlighting lies over it.
 //! - What comes from the model or a tool is shown as text, never read as anything: what is
 //!   shown on a row's one line (a tool's name and target, a reason, a progress line) has its
 //!   control characters turned to spaces, and is cut with `…`.
@@ -25,12 +26,16 @@ use std::path::Path;
 use oso_core::editor::Approval;
 
 mod queued;
+mod reply;
 mod runs;
 
 pub use queued::queue_rows;
+pub(super) use reply::reply_lines;
+pub use reply::tail;
 
 use super::capped;
 use super::rows::{Kind, Row, Tool, ToolState};
+use super::shown::{LineStart, Style};
 use super::turns::interrupted;
 use super::wire::{Hunk, MAX_TEXT, ToolResult, TurnResult};
 
@@ -59,6 +64,8 @@ pub enum Face {
     /// A diff's hunk header.
     Hunk,
     Error,
+    /// Of a reply, by its Markdown.
+    Reply(Style),
     /// A permission card's frame and title: oso's words alone, never Claude's (ADR 0180).
     CardTitle,
     /// A key of a permission card, on its chip: oso's alone too.
@@ -112,41 +119,12 @@ impl Rendered {
 }
 
 /// The mark before a line: `mark`, or for an empty line, `mark` without the spaces at its end.
-pub(super) fn blank_mark(mark: &str, empty: bool) -> &str {
+fn blank_mark(mark: &str, empty: bool) -> &str {
     if empty {
         mark.trim_end_matches(' ')
     } else {
         mark
     }
-}
-
-/// What follows the first `lines` lines of a reply row as drawn, from its text's byte `from`,
-/// where a line starts: what [`RowChange::Grew`](super::rows::RowChange::Grew) says to draw
-/// again. Together they draw what [`render`] draws, from the last line only.
-pub fn tail(row: &Row, lines: usize, from: usize) -> Rendered {
-    let mut out = Rendered::default();
-    let Kind::Reply { text, cut, .. } = &row.kind else {
-        return out;
-    };
-    let from = text.floor_char_boundary(from.min(text.len()));
-    let rest = &text[from..];
-    let indent = "  ".repeat(usize::from(row.depth));
-    if !(lines > 0 && rest.is_empty()) {
-        let follow = format!("{indent}  ");
-        let first = if lines == 0 {
-            format!("{indent}● ")
-        } else {
-            follow.clone()
-        };
-        out.lines(rest, &first, &follow, Some(Face::Dim), None);
-    }
-    if *cut {
-        out.put(
-            &format!("{indent}  … cut at {} MiB\n", MAX_TEXT >> 20),
-            Some(Face::Dim),
-        );
-    }
-    out
 }
 
 /// `row` as it shows, its paths relative to `directory`.
@@ -159,7 +137,7 @@ pub fn render(row: &Row, directory: &Path) -> Rendered {
             let first = format!("{indent}› ");
             out.lines(text, &first, &follow, Some(Face::Dim), Some(Face::Prompt));
         }
-        Kind::Reply { .. } => out = tail(row, 0, 0),
+        Kind::Reply { .. } => out = tail(row, LineStart::default()),
         Kind::Thinking {
             text,
             millis,

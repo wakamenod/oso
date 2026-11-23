@@ -9,6 +9,7 @@ use proptest::prelude::*;
 use super::{MAX_REPLY, MAX_RUNS, highlightable, plain, project};
 use crate::sessions::native::render::tail;
 use crate::sessions::native::rows::{Kind, Row};
+use crate::sessions::native::shown::{LineStart, walk};
 
 fn reply(text: &str, depth: u8) -> Row {
     Row {
@@ -38,38 +39,44 @@ fn laid(len: usize, runs: &[(usize, Option<Highlight>)]) -> Highlights {
     highlights
 }
 
-/// Checks `runs` over `row` as `render` draws it: each line's mark as `render`'s face, and
-/// each byte of a line's text as the byte of the reply it shows.
+/// Checks `runs` over `row` as `render` draws it: each line's mark and each piece that has one
+/// in `render`'s face, and the rest as the byte of the reply it shows, a fence's code too
+/// unless none of it has a highlight.
 fn check(row: &Row, highlights: &Highlights, runs: &[(usize, Option<Highlight>)]) {
     let Kind::Reply { text, .. } = &row.kind else {
         unreachable!()
     };
-    let drawn = tail(row, 0, 0);
+    let drawn = tail(row, LineStart::default());
     let total: usize = runs.iter().map(|(len, _)| len).sum();
     assert_eq!(total, drawn.text.len(), "the runs cover the row");
     let on_row = laid(total, runs);
-    let marks = laid(total, &drawn.runs());
+    let drawn_runs = laid(total, &drawn.runs());
     let mut at = 0;
-    // `str::lines`, as `render` draws them: each line's offset in the reply, found apart.
-    let lines: Vec<&str> = text.lines().collect();
-    for (index, line) in drawn.text.split_inclusive('\n').enumerate() {
-        let Some(shown) = lines.get(index) else {
-            assert!(text.is_empty() && index == 0, "one line for an empty reply");
-            assert_eq!(on_row.at(at), marks.at(at));
-            break;
-        };
-        let mark = line.len() - shown.len() - 1;
-        assert_eq!(&line[mark..line.len() - 1], *shown);
-        for byte in 0..mark {
-            assert_eq!(on_row.at(at + byte), marks.at(at + byte), "the mark's face");
+    let mut lines = drawn.text.split_inclusive('\n');
+    walk(text, LineStart::default(), false, |pieces| {
+        let line = lines.next().expect("a line drawn");
+        let shown: usize = pieces.iter().map(|piece| piece.text.len()).sum();
+        let mark = line.len() - 1 - shown;
+        for byte in at..at + mark {
+            assert_eq!(on_row.at(byte), drawn_runs.at(byte), "the mark's face");
         }
-        let from = shown.as_ptr() as usize - text.as_ptr() as usize;
-        for byte in 0..shown.len() {
-            assert_eq!(on_row.at(at + mark + byte), highlights.at(from + byte));
+        let mut byte = at + mark;
+        for piece in pieces {
+            for within in 0..piece.text.len() {
+                let found = on_row.at(byte + within);
+                let face = drawn_runs.at(byte + within);
+                let parsed = piece.from.and_then(|from| highlights.at(from + within));
+                if piece.code.is_some() {
+                    assert!(found == parsed || (parsed.is_none() && found == face));
+                } else {
+                    assert_eq!(found, face.or(parsed));
+                }
+            }
+            byte += piece.text.len();
         }
-        assert_eq!(on_row.at(at + line.len() - 1), None, "a break has no run");
+        assert_eq!(on_row.at(byte), None, "a break has no run");
         at += line.len();
-    }
+    });
 }
 
 #[test]
@@ -89,6 +96,24 @@ fn each_line_s_runs_go_past_its_mark() {
 }
 
 #[test]
+fn a_fence_s_code_is_its_language_s_or_in_code_s_face() {
+    let text = "```rust\nfn a\n```\n```zz\nb c\n```";
+    let row = reply(text, 0);
+    // `fn` is a keyword; the second fence's language gives nothing.
+    let runs = project(&row, &marked(text, std::slice::from_ref(&(8..10)))).expect("projected");
+    let drawn = tail(&row, LineStart::default()).text;
+    assert_eq!(drawn, "● fn a\n\n  b c\n");
+    let on_row = laid(drawn.len(), &runs);
+    let at = |shown: &str| on_row.at(drawn.find(shown).expect("drawn"));
+    assert_eq!(at("fn"), Some(Highlight::Keyword));
+    assert_eq!(at("a\n"), None, "its language's plain text");
+    assert_eq!(at("b c"), Some(Highlight::String), "code's face");
+    // Not parsed yet, all of it is.
+    let plain = laid(drawn.len(), &plain(&row).expect("a reply"));
+    assert_eq!(plain.at(4), Some(Highlight::String));
+}
+
+#[test]
 fn an_empty_reply_is_its_mark_alone() {
     let row = reply("", 0);
     let runs = project(&row, &Highlights::new(0)).expect("projected");
@@ -100,15 +125,18 @@ fn a_blank_line_has_no_mark_and_no_row_ends_in_a_space() {
     let text = "# A\n\n\r\nb";
     for depth in [0, 1] {
         let row = reply(text, depth);
-        let drawn = tail(&row, 0, 0).text;
+        let drawn = tail(&row, LineStart::default()).text;
         assert!(drawn.lines().all(|line| !line.ends_with(' ')), "{drawn:?}");
         let highlights = marked(text, &[0..1, 1..3]);
         let runs = project(&row, &highlights).expect("projected");
         check(&row, &highlights, &runs);
         assert!(runs.iter().all(|(len, _)| *len > 0), "no empty run");
     }
-    assert_eq!(tail(&reply(text, 1), 0, 0).text, "  ● # A\n\n\n    b\n");
-    assert_eq!(tail(&reply("", 1), 0, 0).text, "  ●\n");
+    assert_eq!(
+        tail(&reply(text, 1), LineStart::default()).text,
+        "  ● A\n\n\n    b\n"
+    );
+    assert_eq!(tail(&reply("", 1), LineStart::default()).text, "  ●\n");
 }
 
 #[test]
@@ -167,10 +195,17 @@ fn highlights_of_another_text_or_too_many_runs_leave_it_plain() {
 
 #[test]
 fn plain_is_what_the_row_draws() {
-    for text in ["one\ntwo", "", "a\r\n\nb\n", "x\r"] {
+    for text in [
+        "one\ntwo",
+        "",
+        "a\r\n\nb\n",
+        "x\r",
+        "# a `b`\n- c\n```\nd\n```",
+        "```\n```",
+    ] {
         for depth in 0..2 {
             let row = reply(text, depth);
-            let drawn = tail(&row, 0, 0);
+            let drawn = tail(&row, LineStart::default());
             let runs = plain(&row).expect("a reply");
             let total: usize = runs.iter().map(|(len, _)| len).sum();
             assert_eq!(total, drawn.text.len(), "{text:?}");
@@ -194,7 +229,7 @@ proptest! {
     /// each byte.
     #[test]
     fn the_runs_lie_where_render_puts_each_byte(
-        text in "(\r|\n|\r\n|a|é|●|`| ){0,40}",
+        text in "(\r|\n|\r\n|a|é|●|`|```|```rust\n| |# |- |\\*|> |---){0,40}",
         depth in 0u8..2,
         cuts in prop::collection::vec(any::<prop::sample::Index>(), 0..8),
     ) {

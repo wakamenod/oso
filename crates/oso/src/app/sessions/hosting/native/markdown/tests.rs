@@ -29,6 +29,8 @@ use crate::sessions::native::rows::{Changes, Rows};
 use crate::sessions::native::slash::SlashCommands;
 use crate::sessions::native::wire::parse;
 
+mod faces;
+
 /// What the stand-in was told: opens with their text, and closes.
 #[derive(Debug, Default)]
 struct Told {
@@ -189,10 +191,10 @@ fn whole(message: &str, text: &str) -> String {
         .to_string()
 }
 
-/// `text`'s highlights with `Heading` over `range`.
-fn heading(text: &str, range: std::ops::Range<usize>) -> Outcome {
+/// `text`'s highlights with `Keyword` over `range`.
+fn reported_on(text: &str, range: std::ops::Range<usize>) -> Outcome {
     let mut highlights = Highlights::new(text.len());
-    highlights.replace(range.clone(), [(range.len(), Some(Highlight::Heading))]);
+    highlights.replace(range.clone(), [(range.len(), Some(Highlight::Keyword))]);
     Outcome::Highlights(highlights)
 }
 
@@ -206,7 +208,12 @@ fn a_reply_is_opened_once_whole_and_its_runs_go_past_its_marks() {
     setup.feed(&[delta("m", "me `x`")]);
     setup.sync(true);
     assert!(setup.opened().is_empty(), "plain while it streams");
-    // The whole message is what streamed: no row changes, but the reply is whole now.
+    assert_eq!(
+        setup.text(),
+        "● Hi\n  some `x`\n",
+        "its last line as written"
+    );
+    // The whole message is what streamed: its last line ended.
     setup.feed(&[whole("m", REPLY)]);
     setup.sync(true);
     let opened = setup.opened();
@@ -216,18 +223,23 @@ fn a_reply_is_opened_once_whole_and_its_runs_go_past_its_marks() {
     setup.sync(true);
     assert_eq!(setup.opened().len(), 1, "once");
 
-    assert_eq!(setup.text(), "● # Hi\n  some `x`\n");
-    assert!(setup.report(key, heading(REPLY, 0..4), true));
-    // `● ` is four bytes, and keeps its face; `# Hi` takes the report's.
+    assert_eq!(setup.text(), "● Hi\n  some x\n");
+    // What was hidden left its faces at once; the report's lie on the rest.
+    assert_eq!(setup.at(4), Some(Highlight::Heading));
+    assert_eq!(setup.at(9), None);
+    assert!(setup.report(key, reported_on(REPLY, 5..9), true));
+    // `● ` is four bytes, and keeps its face, as does the heading.
     assert_eq!(setup.at(0), Some(Highlight::SessionQuiet));
     assert_eq!(setup.at(4), Some(Highlight::Heading));
-    assert_eq!(setup.at(7), Some(Highlight::Heading));
-    assert_eq!(setup.at(8), None, "a break has none");
+    assert_eq!(setup.at(5), Some(Highlight::Heading));
+    assert_eq!(setup.at(6), None, "a break has none");
     assert_eq!(
-        setup.at(9),
+        setup.at(7),
         Some(Highlight::SessionQuiet),
         "the next line's mark"
     );
+    assert_eq!(setup.at(9), Some(Highlight::Keyword), "the report's");
+    assert_eq!(setup.at(14), Some(Highlight::String), "inline code");
     assert_eq!(setup.stand.0.borrow().closed, vec![key], "closed once done");
     assert!(setup.natives.replies.open.is_empty());
 }
@@ -238,16 +250,19 @@ fn only_the_done_report_of_the_key_it_waits_under_counts() {
     setup.feed(&[whole("m", REPLY)]);
     setup.sync(true);
     let key = setup.opened()[0].0;
-    assert!(!setup.report(key, heading(REPLY, 0..4), false), "not done");
-    assert_eq!(setup.at(4), None);
+    assert!(
+        !setup.report(key, reported_on(REPLY, 5..9), false),
+        "not done"
+    );
+    assert_eq!(setup.at(9), None);
     // The row is drawn again, with another text: what was asked for it is stale.
     let other = "# Ho\nmore";
     setup.feed(&[whole("m2", other)]);
     let native = setup.natives.map.get_mut(&SESSION).expect("session");
     native.markdown.drawn(0);
     setup.sync(true);
-    assert!(!setup.report(key, heading(REPLY, 0..4), true), "stale");
-    assert_eq!(setup.at(4), None);
+    assert!(!setup.report(key, reported_on(REPLY, 5..9), true), "stale");
+    assert_eq!(setup.at(9), None);
     let keys: Vec<u64> = setup.opened().iter().map(|(key, ..)| *key).collect();
     assert_eq!(keys.len(), 3, "row 0 again, and row 1: {keys:?}");
     assert!(!keys[1..].contains(&key));
@@ -260,7 +275,7 @@ fn a_reply_that_fails_stays_plain_and_says_nothing() {
     setup.sync(true);
     let key = setup.opened()[0].0;
     assert!(!setup.report(key, Outcome::Failed(Failure::TooSlow), false));
-    assert_eq!(setup.at(4), None);
+    assert_eq!(setup.at(9), None);
     let messages = setup.editor.messages_buffer();
     let said = setup
         .editor
@@ -279,8 +294,8 @@ fn highlights_that_do_not_fit_the_row_leave_it_plain() {
     setup.sync(true);
     let key = setup.opened()[0].0;
     // Highlights of another text.
-    assert!(!setup.report(key, heading("# H", 0..3), true));
-    assert_eq!(setup.at(4), None);
+    assert!(!setup.report(key, reported_on("# H", 0..3), true));
+    assert_eq!(setup.at(9), None);
 }
 
 #[test]
@@ -289,24 +304,28 @@ fn font_lock_off_closes_what_is_open_and_on_lays_faces_and_highlights_again() {
     setup.feed(&[whole("m", REPLY)]);
     setup.sync(true);
     let key = setup.opened()[0].0;
-    setup.report(key, heading(REPLY, 0..4), true);
-    assert_eq!(setup.at(4), Some(Highlight::Heading));
+    setup.report(key, reported_on(REPLY, 5..9), true);
+    assert_eq!(setup.at(9), Some(Highlight::Keyword));
     // One more waits, and is open, when highlighting turns off.
     setup.feed(&[whole("m2", "two")]);
     setup.sync(true);
     let second = setup.opened()[1].0;
 
     assert!(!setup.sync(false), "the editor dropped them");
-    assert_eq!(setup.at(4), None);
+    assert_eq!(setup.at(9), None);
     assert!(setup.stand.0.borrow().closed.contains(&second));
     assert!(setup.natives.replies.opener.is_none(), "the handle goes");
-    assert!(!setup.report(second, heading("two", 0..3), true), "closed");
+    assert!(
+        !setup.report(second, reported_on("two", 0..3), true),
+        "closed"
+    );
 
     // On again: the faces are laid at once, as a window shows the session, then every whole
     // reply is asked for, the newest first, once a handle is back.
     assert!(setup.sync(true), "a frame is due");
     assert_eq!(setup.at(0), Some(Highlight::SessionQuiet), "its mark");
-    assert_eq!(setup.at(4), None, "plain until reported");
+    assert_eq!(setup.at(4), Some(Highlight::Heading), "its heading");
+    assert_eq!(setup.at(9), None, "the parse's once reported");
     assert_eq!(setup.natives.replies.waiting.len(), 2);
     setup.natives.replies.opener = Some(Box::new(setup.stand.clone()));
     setup.sync(true);
@@ -316,8 +335,8 @@ fn font_lock_off_closes_what_is_open_and_on_lays_faces_and_highlights_again() {
         .collect();
     assert_eq!(texts, ["two", REPLY]);
     let key = setup.opened()[3].0;
-    setup.report(key, heading(REPLY, 0..4), true);
-    assert_eq!(setup.at(4), Some(Highlight::Heading));
+    setup.report(key, reported_on(REPLY, 5..9), true);
+    assert_eq!(setup.at(9), Some(Highlight::Keyword));
 }
 
 #[test]
@@ -368,7 +387,7 @@ fn a_session_gone_closes_what_it_had_open() {
     setup.sync(true);
     assert_eq!(setup.stand.0.borrow().closed, vec![key]);
     assert!(setup.natives.replies.open.is_empty());
-    assert!(!setup.report(key, heading(REPLY, 0..4), true));
+    assert!(!setup.report(key, reported_on(REPLY, 5..9), true));
 }
 
 #[test]
@@ -501,7 +520,7 @@ fn at_most_a_few_are_open_the_newest_first_and_the_oldest_past_the_bound_stay_pl
     assert_eq!(texts, ["r5", "r4", "r3", "r2"]);
     // One done makes room for the next.
     let key = setup.opened()[0].0;
-    setup.report(key, heading("r5", 0..2), true);
+    setup.report(key, reported_on("r5", 0..2), true);
     setup.sync(true);
     assert_eq!(
         setup.opened().last().map(|(.., text)| text.as_str()),
@@ -522,37 +541,4 @@ fn at_most_a_few_are_open_the_newest_first_and_the_oldest_past_the_bound_stay_pl
         Some(MAX_WAITING + 9)
     );
     assert_eq!(waiting.back().map(|(_, row, _)| *row), Some(10));
-}
-
-#[test]
-fn a_session_not_shown_lays_its_faces_and_asks_once_shown() {
-    let mut setup = setup();
-    setup.feed(&[whole("m", REPLY)]);
-    setup.sync(true);
-    let key = setup.opened()[0].0;
-    setup.report(key, heading(REPLY, 0..4), true);
-    let scratch = (setup.editor.buffers())
-        .map(|(id, _)| id)
-        .find(|id| *id != setup.buffer);
-    let scratch = scratch.expect("scratch");
-    setup.editor.show(scratch);
-    setup.sync(false);
-    setup.natives.replies.opener = Some(Box::new(setup.stand.clone()));
-    let opened = setup.opened().len();
-
-    // On while hidden: nothing is laid or asked for, and a reply whole since waits too.
-    assert!(!setup.sync(true));
-    setup.feed(&[whole("m2", "two")]);
-    setup.sync(true);
-    assert_eq!(setup.opened().len(), opened, "nothing asked while hidden");
-    assert_eq!(setup.at(0), None);
-
-    setup.editor.show(setup.buffer);
-    assert!(setup.sync(true), "laid once shown");
-    assert_eq!(setup.at(0), Some(Highlight::SessionQuiet));
-    let texts: Vec<String> = setup.opened()[opened..]
-        .iter()
-        .map(|(.., text)| text.clone())
-        .collect();
-    assert_eq!(texts, ["two", REPLY], "then asked, the newest first");
 }

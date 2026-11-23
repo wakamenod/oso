@@ -1987,6 +1987,7 @@ pub oso_core::editor::NativeAction::Cancel
 pub oso_core::editor::NativeAction::Choose(u8)
 pub oso_core::editor::NativeAction::Compose
 pub oso_core::editor::NativeAction::Confirmed
+pub oso_core::editor::NativeAction::CopyMarkdown
 pub oso_core::editor::NativeAction::CycleMode
 pub oso_core::editor::NativeAction::Deny
 pub oso_core::editor::NativeAction::DropQueued
