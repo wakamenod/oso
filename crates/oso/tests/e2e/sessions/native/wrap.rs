@@ -8,14 +8,7 @@
 use serde_json::{Value, json};
 
 use super::super::super::harness::App;
-use super::{FAKE, Flow, MESSAGE, in_composer, sent};
-
-/// The text the selected window shows, its view rows one after the other.
-fn joined(state: &Value) -> String {
-    (state["text"]["rows"].as_array().into_iter().flatten())
-        .filter_map(Value::as_str)
-        .collect()
-}
+use super::{FAKE, Flow, MESSAGE, in_composer, joined, sent};
 
 /// The rows the composer's window takes.
 fn composer_rows(state: &Value) -> Option<u64> {
@@ -51,12 +44,9 @@ fn a_long_reply_and_a_long_message_show_whole() {
     app.run_command("toggle-truncate-lines", None).unwrap();
     let state = app.state();
     assert_eq!(state["buffer"]["wrapped"], false, "the person's own toggle");
-    // A row of the state holds its whole logical line, cut only as it is drawn.
-    assert!(
-        (state["text"]["rows"].as_array().unwrap().iter())
-            .any(|row| row.as_str().is_some_and(|row| row.contains(&reply))),
-        "one row a line"
-    );
+    let shown = joined(&state);
+    assert!(!shown.contains(&reply), "cut at the window's edge");
+    assert!(shown.contains("長い日本語の返事は"), "{shown}");
     app.run_command("toggle-truncate-lines", None).unwrap();
 
     // The composer: a row, then as many as its text wraps to, all of them shown.
