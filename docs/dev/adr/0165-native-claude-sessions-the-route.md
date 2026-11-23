@@ -1225,8 +1225,10 @@ As built:
   - The modeline's model stays the stream's (part 3a): `system/init` names the new one at the
     next turn. The level shows after it from the `result` on (Q-C1 (a)).
   - A level noted stays across a `/model`, as the CLI says nothing of it then: a later
-    process is given it with the new model. Whether the CLI takes `--effort` for a model that
-    takes none is not measured.
+    process is given it with the new model. That does not break a start: `claude -p --effort
+    high` ran and answered with `haiku` and with `claude-haiku-4-5`, an older model `initialize`
+    does not list (measured 2026-11-23). No listed model says it takes no effort, so that case
+    itself was not seen.
   - The stream is not authenticated (part 3b): a forged `result` can note what the person
     asked where the CLI refused or capped it, and a later process then starts with it.
     Whether the CLI holds `--model` and `--effort` to the person's settings, as it holds
