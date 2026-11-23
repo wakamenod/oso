@@ -3,11 +3,13 @@
 //!
 //! Must not depend on: `rows`, threads or the UI; plain functions over a parsed line.
 //!
-//! - Only `initialize` and `interrupt` are written (step 2c), each with an id of oso's,
-//!   `oso-N`: an answer whose id is not one of these is no answer of oso's.
+//! - Only `initialize`, `interrupt` (step 2c) and `get_usage` (part 3a) are written, each
+//!   with an id of oso's, `oso-N`: an answer whose id is not one of these is no answer of
+//!   oso's.
 //! - Of an answer only its id, whether it succeeded, its error, cut to [`super::MAX_NAME`],
-//!   and the slash commands it lists (`commands`, step 2d) are read: what `initialize` answers
-//!   otherwise (the models, the account) is not kept.
+//!   the slash commands it lists (`commands`, step 2d), and what the status line reads (the
+//!   models, the usage, part 3a, `status_line`) are read: what `initialize` answers otherwise (the
+//!   account, the agents) is not kept.
 //! - A `control_request` of the CLI's is never answered, as oso asks it for none: its hooks,
 //!   its permission questions and its SDK servers are not oso's (permissions go through the
 //!   bridge, ADR 0165, Q2).
@@ -15,6 +17,7 @@
 use serde_json::{Map, Value};
 
 use super::slash::{SlashCommand, commands};
+use super::status_line::{Model, Usage, models, usage};
 use super::string;
 
 /// A request oso writes.
@@ -24,10 +27,12 @@ pub enum Request {
     Initialize,
     /// Ends the turn under way, keeping the process.
     Interrupt,
+    /// Asks what the session cost and how much of the rate limits is used (part 3a).
+    GetUsage,
 }
 
 /// What a `control_response` says of a request.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Answer {
     /// The request's id, when it is one of oso's.
     pub id: Option<u64>,
@@ -35,6 +40,10 @@ pub struct Answer {
     pub error: Option<String>,
     /// The slash commands it lists, as `initialize`'s does (step 2d).
     pub commands: Option<Vec<SlashCommand>>,
+    /// The models it lists, as `initialize`'s does, and the usage `get_usage`'s gives
+    /// (part 3a).
+    pub models: Option<Vec<Model>>,
+    pub usage: Option<Usage>,
 }
 
 /// The id of `initialize`, the first request; the others have the ids after it.
@@ -48,6 +57,7 @@ pub fn request(id: u64, request: Request) -> String {
     let subtype = match request {
         Request::Initialize => "initialize",
         Request::Interrupt => "interrupt",
+        Request::GetUsage => "get_usage",
     };
     let line = serde_json::json!({
         "type": "control_request",
@@ -72,10 +82,12 @@ pub(super) fn answer(object: &Map<String, Value>) -> Option<Answer> {
             false => error,
         }),
     };
-    let commands = (response.get("response").and_then(Value::as_object)).and_then(commands);
+    let body = response.get("response").and_then(Value::as_object);
     Some(Answer {
         id,
         error,
-        commands,
+        commands: body.and_then(commands),
+        models: body.and_then(models),
+        usage: body.and_then(usage),
     })
 }

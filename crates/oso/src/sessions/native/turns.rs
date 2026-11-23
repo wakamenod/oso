@@ -21,7 +21,10 @@ pub fn target(event: &Event) -> Option<Target> {
         Event::User(user) if user.replay && !user.synthetic && user.parent.is_none() => {
             Some(Target::Working)
         }
-        Event::Status(Status::Requesting | Status::Compacting) => Some(Target::Working),
+        Event::Status {
+            status: Status::Requesting | Status::Compacting,
+            ..
+        } => Some(Target::Working),
         Event::Result(_) => Some(Target::Idle { visible: true }),
         _ => None,
     }

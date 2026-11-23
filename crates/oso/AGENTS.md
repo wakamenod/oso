@@ -85,8 +85,9 @@ often, so it must rebuild within 2 s.
   (`images`, ADR 0142) are written, converted by `sips` and removed on one `oso-images` thread,
   never the worker's. A native session's stream (ADR 0165) is read, folded into rows and
   rendered by pure functions (`native`); only `native/wire.rs` and its modules touch its JSON,
-  the control layer's requests and answers included (`wire/control.rs`), and the slash
-  commands listed (`wire/slash.rs`), and its
+  the control layer's requests and answers included (`wire/control.rs`), the slash
+  commands listed (`wire/slash.rs`) and what the status line reads of the answers
+  (`wire/status_line.rs`, part 3a), and its
   fixtures are recordings scrubbed of ids, paths and the person's setup. Its `claude -p` is
   started on the start thread, read on `oso-native-read`, `oso-native-batch` and
   `oso-native-err`, and written to on `oso-native-write` (`stream`);
@@ -95,8 +96,10 @@ often, so it must rebuild within 2 s.
   `sessions/native/queue.rs`, what oso composed put in or sent there `composer/composed.rs`
   (part 2f), escaped by `sessions/send/escape.rs` as every send is, its interrupt `native/interrupting.rs`, over the control layer's
   rules in `sessions/native/control.rs` and the interrupt's in `sessions/native/interrupt.rs`,
-  its slash commands `native/slash.rs`, over `sessions/native/slash.rs`, its prompt
-  suggestion and recap `native/suggesting.rs`, over `sessions/native/suggest.rs` (part 3f), and its resume and a
+  its slash commands `native/slash.rs`, over `sessions/native/slash.rs`, its status line
+  `native/status.rs`, over `sessions/native/status.rs` and `get_usage`'s `sessions/native/usage.rs`
+  (part 3a), its prompt suggestion and recap `native/suggesting.rs`, over
+  `sessions/native/suggest.rs` (part 3f), and its resume and a
   native fork `native/resume.rs`, under the trust `app/sessions/hosting/trust.rs` judges
   (ADR 0165, step 2); its whole replies are highlighted as Markdown on the syntax threads, as
   documents no buffer owns, by `app/sessions/hosting/native/markdown.rs`, and their runs put

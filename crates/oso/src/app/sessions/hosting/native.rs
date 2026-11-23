@@ -17,7 +17,7 @@
 //!   `note`'s; its resume and a native fork are `resume`'s; how it ends, stopped, failed,
 //!   archived or forgotten, `end`'s; its interrupt, `interrupting`'s (step 2c); its slash
 //!   commands, `slash`'s (step 2d); its replies' Markdown highlighting, once each is whole,
-//!   `markdown`'s (part 2g).
+//!   `markdown`'s (part 2g); its status line, `status`'s (part 3a).
 //! - Its prompt suggestion is `suggesting`'s, and the recap of a turn that ended out of sight
 //!   `recap`'s (part 3f).
 //! - Its bridge asks the person's permission for its calls on the sessions' socket, in
@@ -38,6 +38,7 @@ mod permissions;
 mod recap;
 mod resume;
 mod slash;
+mod status;
 mod suggesting;
 
 use std::collections::HashMap;
@@ -122,6 +123,8 @@ struct Native {
     moved: bool,
     /// Which of its replies are highlighted as Markdown, or wait to be (part 2g).
     markdown: markdown::Marks,
+    /// Its status line, and its process's `get_usage` (part 3a).
+    status: status::StatusState,
     /// Its last turn ended out of the person's sight, and no recap said so yet (part 3f).
     unseen: bool,
 }
@@ -229,6 +232,7 @@ impl App {
             native.interrupt = Interrupt::new(interrupting::SIGNALS);
             native.commands.new_process();
             native.cli_id = None;
+            native.status.new_process();
         }
         let waker = self.waker.clone();
         NativeOrder {
@@ -281,6 +285,7 @@ impl App {
             slash_rows: None,
             cli_id: None,
             moved: false,
+            status: status::StatusState::default(),
         };
         self.hosting.natives.map.insert(key, native);
         // Its composer, docked under it (ADR 0170).
@@ -363,6 +368,8 @@ impl App {
         if let Some((status, stderr)) = native.ended.take() {
             self.native_ended(key, status, &stderr);
         }
+        // Its `initialize` may have been answered before its stream was here (part 3a).
+        self.ask_usage(key, None);
         true
     }
 
@@ -411,11 +418,15 @@ impl App {
         let mut then = Vec::new();
         let interrupting = |native: &Native| native.interrupt.interrupting();
         let was_interrupting = interrupting(native);
+        let (mut noted, mut usage_id) = (false, None);
         let mut suggested = false;
         for mut event in events {
             suggested |= suggesting::suggestion_event(native, &event);
             recap::recap_event(native, &event, seen);
             interrupting::control_event(native, &mut event, &mut then);
+            let (changed, ask) = status::status_event(native, &event);
+            noted |= changed;
+            usage_id = usage_id.or(ask);
             if let Some(change) = slash::commands_event(native, &mut event) {
                 changes.add(change);
             }
@@ -430,7 +441,7 @@ impl App {
         }
         let buffer = native.buffer;
         let changed = !changes.is_empty();
-        let noted = was_interrupting != interrupting(native);
+        let noted = noted || was_interrupting != interrupting(native);
         draw(&mut self.editor, native, changes);
         if suggested {
             self.draw_queue(key);
@@ -442,9 +453,12 @@ impl App {
         for then in then {
             self.interrupt_step(key, then);
         }
-        // The interrupt ended with its turn.
+        if usage_id.is_some() {
+            self.ask_usage(key, usage_id);
+        }
+        // The interrupt ended with its turn, or the status line changed (part 3a).
         if noted {
-            self.write_native_note(key);
+            self.native_note_changed(key);
         }
         if (changed || suggested)
             && self

@@ -1364,6 +1364,12 @@ a switch made with its command stands until that setting changes in the file
   holding secret text a yank brought, over 64 KiB, or empty is not approved, and a restart is
   refused while an edit the person changed waits. The plan's row then says ` · approved`,
   ` · approved, edited` or with the mode after it.
+  The transcript's modeline says, after the run's state, the session's status (part 3a):
+  `Sonnet 5.5 · acceptEdits · ctx 25% · $1.20 · 7d 28%`, the model that answered last (and
+  its effort level once noted), the permission mode, the context used, what the session cost
+  and how much of the rate limit's window is used, each once known; a resumed session shows
+  its cost and window before its first turn, where the CLI answers `get_usage`. A narrow
+  window drops them from the right.
 
   `claude` is started as the login shell would start it, so its `PATH`, version managers and
   proxies apply; set `claude` when the shell is not `sh`, `bash`, `zsh`, `dash` or `ksh`. `env`

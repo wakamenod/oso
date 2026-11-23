@@ -1,10 +1,12 @@
 //! A native session's run state and its modeline note (ADR 0165): `starting`, nothing while
-//! it runs, or `interrupting` (step 2c), `stopped` or `failed`, and how many of its messages
-//! wait (step 2). The note is written here alone.
+//! it runs, or `interrupting` (step 2c), `stopped` or `failed`, how many of its messages
+//! wait (step 2), then its status line (part 3a, `status`), each part once known, joined by
+//! ` · `. The note is written here alone; a narrow modeline drops its parts from the right.
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 
 use crate::app::App;
+use crate::sessions::native::status::SEPARATOR;
 use crate::sessions::worker::SessionKey;
 
 /// Where a native session's process is, as its modeline says it.
@@ -39,21 +41,28 @@ impl App {
         self.write_native_note(key);
     }
 
-    /// Native session `key`'s modeline note: its run's state, and how many wait.
-    pub(super) fn write_native_note(&mut self, key: SessionKey) {
+    /// Native session `key`'s modeline note: its run's state, how many wait, and its status
+    /// line. Returns whether it changed.
+    pub(super) fn write_native_note(&mut self, key: SessionKey) -> bool {
         let Some(native) = self.hosting.natives.map.get(&key) else {
-            return;
+            return false;
         };
         let interrupting = native.interrupt.interrupting();
         let state = match native.state {
             NativeState::Running if interrupting => "interrupting",
             state => state.said(),
         };
-        let note = match (state, native.composing.queued()) {
+        let mut note = match (state, native.composing.queued()) {
             (state, 0) => state.to_owned(),
             ("", count) => format!("{count} queued"),
-            (state, count) => format!("{state} · {count} queued"),
+            (state, count) => format!("{state}{SEPARATOR}{count} queued"),
         };
-        self.editor.set_mode_note(native.buffer, note);
+        native.status.line.write(&mut note);
+        let buffer = native.buffer;
+        let same = (self.editor.buffer(buffer)).is_some_and(|b| b.mode_note() == note);
+        if !same {
+            self.editor.set_mode_note(buffer, note);
+        }
+        !same
     }
 }
