@@ -25,7 +25,7 @@ use super::super::super::harness::{App, emergency_dir};
 use super::super::super::spaces::{PrivateRoot, trust_restricted};
 use super::super::super::worktrees::{asks, keys};
 use super::switch::{args, flag, flow, screen, switch_back};
-use super::{Flow, in_composer, text};
+use super::{Flow, in_composer, remote_control_off, text};
 
 /// The orchestrator's id, and that of a session an agent started in the space's directory.
 const ORCHESTRATOR: &str = "00000001-0000-4000-8000-000000000000";
@@ -364,6 +364,7 @@ fn new_in_space(native: &[String]) -> bool {
         && flag(native, "session-id").is_some()
         && native.iter().any(|arg| arg == USER_ONLY)
         && flag(native, "append-system-prompt").is_some()
+        && remote_control_off(native)
 }
 
 /// Puts space `fix-login` in front.
