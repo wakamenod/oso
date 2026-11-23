@@ -117,7 +117,11 @@ fn fake(dir: &TempDir, scratch: &Path) -> Result<std::path::PathBuf, String> {
 fn printing(app: &mut App, scratch: &Path) -> Result<Vec<f64>, String> {
     for n in 0..SESSIONS {
         app.call("run-command", Some(serde_json::json!({ "name": "claude" })))?;
-        if n > 0 {
+        if n == 0 {
+            // A start before the configuration's first look waits for it (ADR 0173): once the
+            // first session is listed, the rest start at once and ask as they did.
+            wait_for_sessions(app, 1)?;
+        } else {
             // Another session runs here, so starting one more is asked first, and `y` starts it
             // (ADR 0121 step 4).
             app.send_keys("y")?;
