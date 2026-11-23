@@ -100,7 +100,9 @@ often, so it must rebuild within 2 s.
   its slash commands `native/slash.rs`, over `sessions/native/slash.rs`, its status line
   `native/status.rs`, over `sessions/native/status.rs` and `get_usage`'s `sessions/native/usage.rs`
   (part 3a), its prompt suggestion and recap `native/suggesting.rs`, over
-  `sessions/native/suggest.rs` (part 3f), and its resume and a
+  `sessions/native/suggest.rs` (part 3f), its permission mode `native/mode.rs`, over
+  `sessions/native/mode.rs` and the one mode type oso sends, `channel/protocol/mode.rs`
+  (part 3b), and its resume and a
   native fork `native/resume.rs`, under the trust `app/sessions/hosting/trust.rs` judges
   (ADR 0165, step 2); its whole replies are highlighted as Markdown on the syntax threads, as
   documents no buffer owns, by `app/sessions/hosting/native/markdown.rs`, and their runs put

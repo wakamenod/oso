@@ -18,6 +18,7 @@
 //!   (measured); before one, `get_usage`'s, if it is more than nothing.
 //! - The window is the last `rate_limit_event`'s, as it names the window that binds; before one,
 //!   the more used of `get_usage`'s two. Only `five_hour` and `seven_day` are known.
+//! - The permission mode is `mode`'s (part 3b), which the caller gives the line to write.
 //! - What the stream gives is held to what reads as itself (`wire::status_line::readable`): a
 //!   model or mode that could not, or that the stream gave longer than 256 bytes, is not
 //!   shown, and a number out of reason is none.
@@ -49,8 +50,6 @@ pub struct StatusLine {
     /// The effort level oso noted, which no stream field gives: shown after the model (the
     /// author's Q-C1), once part 3c notes it from a `/effort` the CLI took.
     pub effort: Option<String>,
-    /// The permission mode, as the CLI says it.
-    mode: Option<String>,
     /// The tokens the last main-thread answer read.
     context: Option<u64>,
     /// Each model's context window, as the last `result`s gave them.
@@ -92,13 +91,7 @@ impl StatusLine {
     /// Notes what `event` says. Returns whether the line may read differently.
     pub fn event(&mut self, event: &Event) -> bool {
         match event {
-            Event::Init(init) => {
-                let model = noted(&mut self.init_model, &init.model, Kind::Id);
-                noted(&mut self.mode, &init.permission_mode, Kind::Word) || model
-            }
-            Event::Status {
-                mode: Some(mode), ..
-            } => noted(&mut self.mode, mode, Kind::Word),
+            Event::Init(init) => noted(&mut self.init_model, &init.model, Kind::Id),
             Event::Assistant(answer) if answer.parent.is_none() && answer.model != SYNTHETIC => {
                 let model = noted(&mut self.answered, &answer.model, Kind::Id);
                 let context = answer.context_tokens.is_some_and(|tokens| {
@@ -161,9 +154,10 @@ impl StatusLine {
         self.answered.as_deref().or(self.init_model.as_deref())
     }
 
-    /// The line's parts, joined by [`SEPARATOR`], into `out`, after what it holds: nothing
-    /// for a part not known.
-    pub fn write(&self, out: &mut String) {
+    /// The line's parts, joined by [`SEPARATOR`], into `out`, after what it holds, with `mode`
+    /// as the permission mode, which `mode::Modes` holds (part 3b): nothing for a part not
+    /// known.
+    pub fn write(&self, mode: Option<&str>, out: &mut String) {
         let part = |out: &mut String| {
             if !out.is_empty() {
                 out.push_str(SEPARATOR);
@@ -177,7 +171,7 @@ impl StatusLine {
                 out.push_str(effort);
             }
         }
-        if let Some(mode) = &self.mode {
+        if let Some(mode) = mode {
             part(out);
             out.push_str(mode);
         }

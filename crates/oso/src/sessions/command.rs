@@ -9,9 +9,12 @@
 //! - A brief, when one is given, comes after `--`, which ends the options.
 //! - A native session's (ADR 0165) starts with [`NATIVE`]: `claude -p` reading and writing
 //!   stream-json. It takes no brief on its line: its first message goes on standard input.
-//! - No permission option is ever given: not `--permission-mode`, not
+//! - No permission option is ever given to a terminal's session: not `--permission-mode`, not
 //!   `--dangerously-skip-permissions`, not `--allowedTools`. A session starts in the mode the
-//!   person's own settings give it, whoever asked for it. A native session's line names
+//!   person's own settings give it, whoever asked for it. A native session's later processes
+//!   (a resume, an interrupt's resume, a fork) are given `--permission-mode`, the mode it was
+//!   in or the person switched it to, as `--resume` does not keep one (ADR 0165, part 3b):
+//!   only one of [`PermissionMode`]'s, which names neither mode that skips asking. Its line names
 //!   [`PERMISSION_TOOL`] as its `--permission-prompt-tool`, so that a call that would ask is
 //!   asked of the person in oso (ADR 0165, step 2), and its bridge is started with
 //!   `--permission`, which lists that tool.
@@ -22,6 +25,7 @@ use std::path::Path;
 use serde_json::json;
 
 use super::identity::SessionId;
+use crate::channel::protocol::mode::PermissionMode;
 
 pub(crate) use crate::channel::mcp::SESSION_VARIABLE;
 
@@ -86,6 +90,9 @@ pub struct Line<'a> {
     pub add_dirs: &'a [std::path::PathBuf],
     /// A native session's line (ADR 0165), which starts with [`NATIVE`] and takes no brief.
     pub native: bool,
+    /// `--permission-mode`, a native session's mode once it ran (part 3b); never a
+    /// terminal's.
+    pub permission_mode: Option<PermissionMode>,
 }
 
 /// Why a command line cannot be built.
@@ -161,6 +168,9 @@ pub fn arguments(line: &Line<'_>) -> Result<Vec<OsString>, LineError> {
     args.push(format!("--mcp-config={config}").into());
     if line.native {
         args.push(format!("--permission-prompt-tool={PERMISSION_TOOL}").into());
+        if let Some(mode) = line.permission_mode {
+            args.push(format!("--permission-mode={}", mode.name()).into());
+        }
     }
     if let Some(settings) = line.settings {
         args.push(format!("--settings={settings}").into());
@@ -198,6 +208,7 @@ mod tests {
             settings: None,
             add_dirs: &[],
             native: false,
+            permission_mode: None,
         }
     }
 
@@ -336,6 +347,7 @@ mod tests {
             settings: None,
             add_dirs: &dirs,
             native: false,
+            permission_mode: None,
         };
         let args = arguments(&line).unwrap();
         let at = |text: &str| {
@@ -373,6 +385,37 @@ mod tests {
         assert_eq!(
             *oso_args,
             serde_json::json!(["mcp", "--pid", "4242", "--permission"])
+        );
+    }
+
+    #[test]
+    fn a_native_line_takes_the_mode_it_is_given_and_a_terminals_none() {
+        use crate::channel::protocol::mode::PermissionMode;
+        let a = id(1);
+        let modes = |native: bool, mode: Option<PermissionMode>| {
+            let line = Line {
+                native,
+                permission_mode: mode,
+                ..line(Start::Resume { id: &a })
+            };
+            let args = strings(&arguments(&line).unwrap());
+            (args.iter())
+                .filter(|arg| arg.starts_with("--permission-mode"))
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            modes(true, Some(PermissionMode::AcceptEdits)),
+            ["--permission-mode=acceptEdits"]
+        );
+        assert_eq!(
+            modes(true, Some(PermissionMode::Auto)),
+            ["--permission-mode=auto"]
+        );
+        assert!(modes(true, None).is_empty(), "the settings' mode");
+        assert!(
+            modes(false, Some(PermissionMode::Plan)).is_empty(),
+            "never a terminal's"
         );
     }
 

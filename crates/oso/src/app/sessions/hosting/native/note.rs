@@ -57,7 +57,7 @@ impl App {
             ("", count) => format!("{count} queued"),
             (state, count) => format!("{state}{SEPARATOR}{count} queued"),
         };
-        native.status.line.write(&mut note);
+        native.status.line.write(native.mode.shown(), &mut note);
         let buffer = native.buffer;
         let same = (self.editor.buffer(buffer)).is_some_and(|b| b.mode_note() == note);
         if !same {

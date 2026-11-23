@@ -10,14 +10,12 @@
 //!   Windows has no tier 1: a signal there would end `claude` at once and leave its tools.
 //! - The queue pauses with the person's interrupt; a send now goes first and the queue goes on.
 //! - Why tier 2 is off, and why a request fell back, are logged as the CLI said them, escaped.
+//! - The control layer's answers and deadlines reach it through `control`.
 
 use std::time::Instant;
 
-use super::{Native, draw, status};
 use crate::app::App;
-use crate::sessions::native::control::Answered;
 use crate::sessions::native::interrupt::{NotBegun, Then};
-use crate::sessions::native::wire::Event;
 use crate::sessions::native::wire::control::Request;
 use crate::sessions::worker::SessionKey;
 
@@ -93,19 +91,10 @@ impl App {
             }
             Then::Signal => {
                 stream.interrupt();
-                let change = native
-                    .rows
-                    .note("Interrupted with a signal: claude ends, and resumes its conversation.");
-                let buffer = native.buffer;
-                draw(&mut self.editor, native, [change]);
-                // A frame only when the row is in sight.
-                if self
-                    .editor
-                    .windows()
-                    .any(|window| window.buffer() == buffer)
-                {
-                    self.request_redraw();
-                }
+                self.native_note_row(
+                    key,
+                    "Interrupted with a signal: claude ends, and resumes its conversation.",
+                );
             }
             Then::Stop => stream.stop(),
             Then::GaveUp => {
@@ -114,82 +103,5 @@ impl App {
                 self.write_native_note(key);
             }
         }
-    }
-
-    /// When a native session's control layer, interrupt, card focus or `get_usage` is next
-    /// due, if one is.
-    pub(in crate::app) fn natives_deadline(&self) -> Option<Instant> {
-        // A permission card that waits for point, too (step 2e-2).
-        let card = self.card_focus_deadline();
-        (self.hosting.natives.map.values())
-            .flat_map(|native| {
-                let control = native.control.as_ref().and_then(|c| c.deadline());
-                control.into_iter().chain(native.interrupt.deadline())
-            })
-            .chain(card)
-            .chain(self.usage_deadline())
-            .min()
-    }
-
-    /// Carries out what is due of each native session's control layer, interrupt, card focus
-    /// and `get_usage` at `now`.
-    pub(in crate::app) fn natives_due(&mut self, now: Instant) {
-        self.card_focus_due(now);
-        self.usage_due(now);
-        let due: Vec<(SessionKey, Vec<Then>)> = (self.hosting.natives.map.iter_mut())
-            .filter_map(|(key, native)| {
-                let control = native.control.as_mut()?;
-                let mut then: Vec<Then> = control.due(now).map(Then::Log).into_iter().collect();
-                then.extend(native.interrupt.due(control, now));
-                (!then.is_empty()).then_some((*key, then))
-            })
-            .collect();
-        for (key, then) in due {
-            for then in then {
-                self.interrupt_step(key, then);
-            }
-        }
-    }
-}
-
-/// Notes what `event` of a native session says to its control layer and its interrupt, and
-/// what that comes to in `then`.
-pub(super) fn control_event(native: &mut Native, event: &mut Event, then: &mut Vec<Then>) {
-    let Some(control) = native.control.as_mut() else {
-        return;
-    };
-    match event {
-        Event::Init(init) => then.extend(control.system_init(&init.capabilities).map(Then::Log)),
-        Event::Answer(answer) => match control.answered(answer) {
-            Answered::Initialize(said) => {
-                then.extend(said.map(Then::Log));
-                // The slash commands it lists, moved: no row needs them (step 2d).
-                if let Some(commands) = answer.commands.take() {
-                    native.commands.initialized(commands);
-                }
-                // The models it lists, for the status line (part 3a).
-                status::initialize_answered(native, answer);
-            }
-            Answered::Request {
-                request: Request::GetUsage,
-                id,
-                error,
-            } => then.extend(
-                status::usage_answered(native, id, error.as_deref(), answer).map(Then::Log),
-            ),
-            Answered::Request {
-                request: Request::Interrupt,
-                id,
-                error,
-            } => then.extend((native.interrupt).answered(
-                control,
-                id,
-                error.as_deref(),
-                Instant::now(),
-            )),
-            Answered::Request { .. } | Answered::Other => {}
-        },
-        Event::Result(_) => native.interrupt.turn_ended(),
-        _ => {}
     }
 }

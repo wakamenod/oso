@@ -30,6 +30,8 @@
 //!   its `get_usage` request, once a process on tier 2.
 //! - `suggest`: which prompt suggestion is kept, and its row; `recap`: the recap of a turn
 //!   that ended out of sight (part 3f).
+//! - `mode`: the permission mode the CLI says, and the person's switch of it, from its request
+//!   to its fallback, a resume in the new mode (part 3b).
 //! - `todo`: the session's to-do list from its to-do tools' results, and the strip that
 //!   shows it (step 3, part 3e).
 
@@ -38,6 +40,7 @@ pub mod card;
 pub mod control;
 pub mod interrupt;
 pub mod markdown;
+pub mod mode;
 pub mod placed;
 pub mod point;
 pub mod queue;
