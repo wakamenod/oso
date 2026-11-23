@@ -1354,13 +1354,21 @@ The author's (a) on Q4-1: the restart waits without asking, and `C-g` cancels it
   native process, now idle, whose conversation Claude Code has kept (a `SIGKILL` after a
   `result` loses nothing, measured 2026-11-23), and the new instance brings it back stopped.
   Ending them gently and resuming them in the new instance is part 4c's.
+- **Two older faults,** found by the end-to-end flow, kept any restart from happening while a
+  native session was in the record, or while no terminal ran. The new instance brings a native
+  session back with its empty composer, which a restart makes again rather than carries
+  (part 2a), and `carry::import_allowed` counted it as something the instance had opened; it
+  no longer does. An export that carries no terminal hands over no masters, as the order asks
+  for none, and the exit refused it as terminals exported but not handed over; it now lets
+  such an export go.
 - **New public items:** `oso-core`'s `Editor::{set_restart_when_idle, restart_when_idle}`,
   approved by the author through the orchestrator.
 - **Tests.** What holds the restart, and that an ended session holds nothing
   (`native::holds`); the echo's names and count, and the hold with something held, nothing
   held and a prompt open when it is due (`restart::wait`); `C-g`, `C-x C-c` and
   `quit-when-idle` cancelling the wait (`commands::session`), and `C-g` in a native session's
-  buffer by keys (`dispatch`). End to end (`sessions::native::restart_wait`): a fake whose
+  buffer by keys (`dispatch`); an empty composer that came back lets an import in, and one
+  with a message does not (`carry`). End to end (`sessions::native::restart_wait`): a fake whose
   turn waits for a release file holds `oso-restart`, which starts no instance while it waits;
   once released, the new instance takes over; and `C-g` cancels a wait.
 - **Not done:** a mark while the restart waits, other than the echo said once (an agent's
