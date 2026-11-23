@@ -1358,12 +1358,15 @@ mod tests {
     #[test]
     fn a_prompt_opened_beside_a_file_not_judged_yet_stays_out_once_it_is_judged() {
         let mut editor = Editor::default();
-        editor.remember_recent_files([PathBuf::from("/p/notes.md")]);
+        // Absolute on this system, as the recent files keep no other.
+        let root = if cfg!(windows) { r"C:\p" } else { "/p" };
+        let notes = PathBuf::from(root).join("notes.md");
+        editor.remember_recent_files([notes.clone()]);
         let path = PathBuf::from("/p/plan.md");
         let plan = editor.add_buffer(Buffer::visiting(path.clone()));
         editor.show(plan);
         let open = |editor: &mut Editor| {
-            let row = editor.recent_file_row(std::path::Path::new("/p/notes.md"));
+            let row = editor.recent_file_row(&notes);
             let items = [oso_core::complete::Candidate::new(row, "", "file")];
             let style = oso_core::editor::CompletionStyle {
                 preview: true,
