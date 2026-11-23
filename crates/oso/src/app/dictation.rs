@@ -14,9 +14,11 @@
 //!   [`GUARD_AFTER`] after its text came, or after it failed once it had stopped, as
 //!   TypeWhisper's paste may follow either, and at the latest that long after the text's own
 //!   wait.
+//! - Once its text settles, fixed or plain, a dictation is watched for what it teaches
+//!   (`learning`, step 3).
 //! - Nothing is carried across a restart: an exit starts a stop if one records, and does not
-//!   wait for it, and kills the fixes under way; a composer's send that waits for them
-//!   (`sessions/hosting/native/composer/held.rs`) does not go.
+//!   wait for it, kills the fixes under way and drops the watches; a composer's send that
+//!   waits for them (`sessions/hosting/native/composer/held.rs`) does not go.
 
 use std::time::{Duration, Instant};
 
@@ -34,6 +36,7 @@ use crate::dispatch::PasteGuard;
 pub const GUARD_AFTER: Duration = Duration::from_secs(3);
 
 mod fix;
+mod learning;
 
 /// How long an exit waits for a recording dictation's thread to have started its stop.
 const EXIT_WAIT: Duration = Duration::from_millis(300);
@@ -98,6 +101,8 @@ pub(super) struct Dictations {
     fixes: Vec<fix::Fixing>,
     /// The id the next fix gets.
     next_fix: u64,
+    /// The watches, and the learning's thread.
+    learning: learning::Learning,
 }
 
 impl App {
@@ -107,6 +112,7 @@ impl App {
             match request {
                 DictationRequest::Toggle { prefix } => self.toggle_dictation(prefix),
                 DictationRequest::Cancel => self.cancel_dictation(),
+                DictationRequest::Forget => self.forget_dictation_learning(),
             }
         }
         self.place_due_dictation(false);
@@ -339,8 +345,15 @@ impl App {
                         dictation::MAX_TEXT >> 10
                     ));
                 }
-                if let Some(span) = span {
-                    self.start_dictation_fix(span);
+                match span {
+                    Some(span) if provisional => self.start_dictation_fix(span),
+                    // Only text a rewrite is looked for in is copied to watch.
+                    Some(span) if text.len() <= dictation::learning::rewrites::MAX_SIDE => {
+                        let text = text.to_owned();
+                        self.watch_dictation(span, text.clone(), text, Vec::new(), false);
+                    }
+                    Some(span) => self.editor.end_dictation_span(span),
+                    None => {}
                 }
             }
             DictationPlaced::Kept(why) => self.kept_dictation(why),
@@ -424,6 +437,7 @@ impl App {
     pub(super) fn leave_dictation(&mut self) {
         self.dictations.due = None;
         self.leave_dictation_fixes();
+        self.drop_dictation_watches();
         if let Some(current) = self.dictations.current.take() {
             current.handle.leave(EXIT_WAIT);
         }

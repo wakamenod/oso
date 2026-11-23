@@ -26,6 +26,14 @@ pub const COMMANDS: &[Command] = &[
         run: dictation_cancel,
         state: None,
     },
+    Command {
+        name: "dictation-forget-learned",
+        doc: "Forget everything dictation has learned, after asking once.\n\nFixes by Claude, and your own rewrites of dictated text soon after, teach dictation the words it mishears: the pairs go to each later fix as history. This empties that record and its log, in oso's state directory, and stops watching what was dictated just now.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: dictation_forget_learned,
+        state: None,
+    },
 ];
 
 /// Dictation starts the person's microphone and types what they said, which a keyboard macro
@@ -51,6 +59,22 @@ fn dictation_toggle(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
 fn dictation_cancel(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     not_in_a_macro(ctx)?;
     ctx.editor.request_dictation(DictationRequest::Cancel);
+    ctx.request_redraw();
+    Ok(())
+}
+
+fn dictation_forget_learned(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    not_in_a_macro(ctx)?;
+    if !ctx.confirmed() {
+        ctx.editor
+            .ask(
+                "Forget everything dictation has learned?",
+                "dictation-forget-learned",
+            )
+            .map_err(|e| CommandError::new(e.to_string()))?;
+        return Ok(());
+    }
+    ctx.editor.request_dictation(DictationRequest::Forget);
     ctx.request_redraw();
     Ok(())
 }
@@ -83,6 +107,37 @@ mod tests {
                 DictationRequest::Cancel,
             ]
         );
+    }
+
+    #[test]
+    fn forgetting_asks_once_and_then_asks_the_host() {
+        let mut editor = editor("text");
+        assert_eq!(
+            run(&mut editor, "dictation-forget-learned", Args::NONE).0,
+            Ok(())
+        );
+        assert!(editor.take_dictation_requests().is_empty());
+        let prompt = editor.prompt().expect("a question");
+        assert_eq!(
+            prompt.label(),
+            "Forget everything dictation has learned? (y or n)"
+        );
+        assert!(matches!(
+            prompt.kind(),
+            oso_core::minibuffer::Kind::Question {
+                yes: "dictation-forget-learned",
+                ..
+            }
+        ));
+        let registry = crate::commands::registry();
+        let id = registry.lookup("dictation-forget-learned").unwrap();
+        let invocation = oso_core::command::Invocation {
+            confirmed: true,
+            ..oso_core::command::Invocation::default()
+        };
+        let mut ctx = oso_core::command::Ctx::invoked(&mut editor, invocation);
+        assert!(registry.execute(id, &mut ctx, Args::NONE).is_ok());
+        assert_eq!(editor.take_dictation_requests(), [DictationRequest::Forget]);
     }
 
     #[test]

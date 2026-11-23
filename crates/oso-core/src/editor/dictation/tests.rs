@@ -8,17 +8,17 @@ use crate::buffer::Buffer;
 use crate::selection::{Selection, SelectionSet};
 use crate::window::ViewSize;
 
-fn editor(text: &str) -> Editor {
+pub(super) fn editor(text: &str) -> Editor {
     let mut editor = Editor::with_buffer(Buffer::from_text("notes.md", text));
     editor.set_view_size(ViewSize::new(10, 40));
     editor
 }
 
-fn text(editor: &Editor) -> String {
+pub(super) fn text(editor: &Editor) -> String {
     editor.current().1.text().to_string()
 }
 
-fn undo(editor: &mut Editor) {
+pub(super) fn undo(editor: &mut Editor) {
     editor.begin_command();
     editor.begin_undo_group();
     editor.undo().unwrap();
@@ -27,7 +27,7 @@ fn undo(editor: &mut Editor) {
 }
 
 /// Types `text` at offset `at` of the selected window's buffer, as a person's edit does.
-fn type_at(editor: &mut Editor, at: usize, text: &str) {
+pub(super) fn type_at(editor: &mut Editor, at: usize, text: &str) {
     let id = editor.window().buffer();
     let edit = Replacement {
         range: at..at,
@@ -36,14 +36,14 @@ fn type_at(editor: &mut Editor, at: usize, text: &str) {
     editor.apply_edits(id, &[edit]).unwrap();
 }
 
-fn span_of(placed: DictationPlaced) -> DictationSpan {
+pub(super) fn span_of(placed: DictationPlaced) -> DictationSpan {
     match placed {
         DictationPlaced::Typed { span: Some(span) } => span,
         other => panic!("no span: {other:?}"),
     }
 }
 
-fn ranges(editor: &Editor, span: DictationSpan) -> Vec<Range<usize>> {
+pub(super) fn ranges(editor: &Editor, span: DictationSpan) -> Vec<Range<usize>> {
     editor.dictation_span_at(span).unwrap().ranges.clone()
 }
 
@@ -84,10 +84,12 @@ fn the_text_goes_in_at_each_cursor_from_the_start_in_one_undo_step() {
     let target = editor.dictation_target().unwrap();
     // The person moves away while speaking; the text goes where they were.
     editor.current_mut().0.selections = SelectionSet::new(0);
-    assert_eq!(
-        editor.place_dictation(&target, "XY", false),
-        DictationPlaced::Typed { span: None }
+    let span = span_of(editor.place_dictation(&target, "XY", false));
+    assert!(
+        !editor.dictation_span_at(span).unwrap().drawn,
+        "plain text is settled"
     );
+    assert_eq!(ranges(&editor, span), [1..3, 6..8]);
     assert_eq!(text(&editor), "aXYb\ncXYd\n");
     undo(&mut editor);
     assert_eq!(text(&editor), "ab\ncd\n", "one step undoes both");
@@ -244,7 +246,7 @@ fn a_span_marks_the_text_at_each_cursor_and_follows_edits_outside_it() {
 }
 
 #[test]
-fn a_fix_replaces_inside_the_span_in_one_undo_step_and_ends_it() {
+fn a_fix_replaces_inside_the_span_in_one_undo_step_and_settles_it() {
     let mut editor = editor("前\n");
     let target = editor.dictation_target().unwrap();
     let span = span_of(editor.place_dictation(&target, "りあくとを使う", true));
@@ -253,18 +255,31 @@ fn a_fix_replaces_inside_the_span_in_one_undo_step_and_ends_it() {
     let edits = [(0.."りあくと".len(), "React")];
     assert_eq!(editor.fix_dictation(span, &sent, &edits), Ok(()));
     assert_eq!(text(&editor), "Reactを使う前\n");
-    assert!(editor.dictation_span_at(span).is_none(), "the span ended");
-    undo(&mut editor);
+    assert!(!editor.dictation_span_at(span).unwrap().drawn);
+    assert_eq!(editor.dictation_span_text(span, 64).unwrap(), "Reactを使う");
+    assert_eq!(
+        editor.dictation_span_edits(span),
+        Some(0),
+        "the fix is not the person's"
+    );
+    persons(&mut editor, undo);
     assert_eq!(
         text(&editor),
         "りあくとを使う前\n",
         "one undo brings back the raw text"
     );
+    assert_eq!(
+        editor.dictation_span_text(span, 64).unwrap(),
+        "りあくとを使う",
+        "the undo of a fix of its first word stays inside"
+    );
+    assert_eq!(editor.dictation_span_edits(span), Some(1));
     undo(&mut editor);
     assert_eq!(text(&editor), "前\n");
     assert_eq!(
         editor.fix_dictation(span, &sent, &edits),
-        Err("its text is gone")
+        Err("its text was edited"),
+        "the span is empty now"
     );
 }
 
@@ -279,7 +294,23 @@ fn a_fix_of_an_edited_span_is_skipped_and_changes_nothing() {
         Err("its text was edited")
     );
     assert_eq!(text(&editor), "ab!cd");
-    assert!(editor.dictation_span_at(span).is_none());
+    assert!(
+        editor.dictation_span_edits(span).is_none(),
+        "an edit outside the person's commands ends it"
+    );
+    let target = editor.dictation_target().unwrap();
+    let span = span_of(editor.place_dictation(&target, "efgh", true));
+    persons(&mut editor, |editor| type_at(editor, 7, "?"));
+    assert_eq!(
+        editor.fix_dictation(span, "efgh", &[(0..1, "E")]),
+        Err("its text was edited")
+    );
+    assert_eq!(
+        editor.dictation_span_edits(span),
+        Some(1),
+        "the person's stays"
+    );
+    assert_eq!(editor.dictation_span_text(span, 64).unwrap(), "ef?gh");
 }
 
 #[test]
@@ -436,4 +467,12 @@ fn a_buffer_that_turns_secret_gives_no_context_and_takes_no_fix() {
         Err("its buffer may hold secrets")
     );
     assert_eq!(text(&editor), "said");
+}
+
+/// Runs `edit` as a command of the person's.
+pub(super) fn persons(editor: &mut Editor, edit: impl FnOnce(&mut Editor)) {
+    editor.begin_command();
+    edit(editor);
+    editor.end_command();
+    editor.note_persons_command();
 }

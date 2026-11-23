@@ -88,6 +88,8 @@ impl Editor {
         if self.runs_for_agent() {
             return;
         }
+        // Its changes to a dictation's spans are the person's rewrites (ADR 0175, step 3).
+        self.dictation_persons_command();
         let id = self.window().buffer();
         // Its file goes first in the recent files, an agent's open with it (ADR 0148).
         self.note_recent_visit(id);

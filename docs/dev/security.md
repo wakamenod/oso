@@ -454,6 +454,16 @@ network features.
   Nothing of a buffer that may hold secrets is sent, checked at the start and again at the
   answer, and the minibuffer's text is never fixed. The report of a fix is shown in the echo
   area alone, withheld from the dev socket and agents, and never in `*Messages*` or the log.
+- Dictation's learning record (ADR 0175, step 3), `dictation/learning.json` and its log in
+  oso's state directory, mode `0600` in a private directory, read only as a regular file of
+  this user's with one name, at most 256 KiB, hold words of the person's dictations: at most
+  40 pairs, gone after 30 days unseen, and the log's last 500 lines. Nothing comes from the
+  minibuffer or a buffer that may hold secrets: no span is watched there, and a watch ends,
+  learning nothing, when its buffer may hold secrets or anything but the person's own
+  commands changes it, an agent's among them. Each fix sends at most 4 KiB of the record
+  to Anthropic with the text, only of pairs whose `wrong` is in the text, and never a pair
+  learned only from text typed plain (`C-u s-d`), which the person kept from Claude. No agent tool reads the record; `dictation-forget-learned`
+  removes it and the log.
 - The environment is sanitized and every spawn is logged in a visible buffer.
 
 ### Dependencies (T2, T8)
@@ -508,6 +518,11 @@ shown, boxed or escaped.
 
 ### Persistence (T4, T5)
 
+- Dictation's learning record and log (ADR 0175, step 3) keep words of the person's
+  dictations and their rewrites on disk, in `dictation/` in oso's state directory, mode
+  `0600`: at most 40 pairs, and the log's lines of the last 30 days. A pair whose `right`
+  looks like a credential is never kept, and nothing comes from a buffer that may hold
+  secrets. `dictation-forget-learned` removes both.
 - There is no periodic auto-save, no backup files and no persisted undo
   history.
 - On a panic outside a command, or when the OS ends the app on macOS, unsaved buffers are written to a

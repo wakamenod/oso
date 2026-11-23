@@ -1517,6 +1517,7 @@ impl core::marker::Copy for oso_core::editor::DictationPlaced
 impl core::marker::StructuralPartialEq for oso_core::editor::DictationPlaced
 pub enum oso_core::editor::DictationRequest
 pub oso_core::editor::DictationRequest::Cancel
+pub oso_core::editor::DictationRequest::Forget
 pub oso_core::editor::DictationRequest::Toggle
 pub oso_core::editor::DictationRequest::Toggle::prefix: bool
 impl core::clone::Clone for oso_core::editor::DictationRequest
@@ -3372,6 +3373,10 @@ pub fn oso_core::editor::Editor::place_dictation(&mut self, &oso_core::editor::D
 pub fn oso_core::editor::Editor::request_dictation(&mut self, oso_core::editor::DictationRequest)
 pub fn oso_core::editor::Editor::set_dictation_mark(&mut self, oso_core::editor::DictationMark)
 pub fn oso_core::editor::Editor::take_dictation_requests(&mut self) -> alloc::vec::Vec<oso_core::editor::DictationRequest>
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::dictation_span_edits(&mut self, oso_core::editor::DictationSpan) -> core::option::Option<u64>
+pub fn oso_core::editor::Editor::dictation_span_text(&self, oso_core::editor::DictationSpan, usize) -> core::option::Option<alloc::string::String>
+pub fn oso_core::editor::Editor::settle_dictation_span(&mut self, oso_core::editor::DictationSpan)
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::directory_answer_waits(&self) -> bool
 impl oso_core::editor::Editor

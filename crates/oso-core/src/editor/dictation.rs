@@ -1,6 +1,7 @@
 //! What the editor knows of dictation (ADR 0175): what the person asked of it, for the host;
 //! whether one records, waits for its text or is being fixed, for the modeline; where its text
-//! goes; and the provisional spans its text holds while Claude fixes it (step 2).
+//! goes; the provisional spans its text holds while Claude fixes it (step 2); and the settled
+//! spans the host watches for what they teach (step 3, `settled`).
 //!
 //! Must not depend on: processes, threads or the host's dictation; the host says what holds,
 //! takes what was asked, and gives the text and the fix.
@@ -13,15 +14,20 @@
 //!   the window is gone or shows another buffer, the buffer is gone or read-only, or its text
 //!   changed meanwhile; and when the text times the cursors is over [`MAX_YANK`]. A buffer that
 //!   may hold secrets makes a secret entry.
-//! - **A provisional span** is where one dictation's text went, a range at each cursor, drawn in
-//!   a face of its own until its fix lands or fails. None is made in the minibuffer or in a
-//!   buffer that may hold secrets, nor at more than [`MAX_SPAN_RANGES`] cursors, and at most
-//!   [`MAX_SPANS`] live at once.
+//! - **A span** is where one dictation's text went, a range at each cursor. A provisional one
+//!   is drawn in a face of its own until its fix lands or fails. None is made in the minibuffer
+//!   or in a buffer that may hold secrets, nor at more than [`MAX_SPAN_RANGES`] cursors; at
+//!   most [`MAX_SPANS`] are drawn at once, and a dictation past them gets none.
 //! - Spans live here, not in the buffer: they follow every edit as markers that keep text typed
 //!   at their ends outside, and go with a reload or the buffer. They are not saved, undone,
 //!   copied, carried across a restart or told to agents.
 //! - **A fix** replaces text inside the span only, at every range, in one undo step, and only
 //!   while each range still holds the text that was sent: at most [`MAX_FIX_REPLACEMENTS`].
+//! - **A settled span** (step 3) is one whose fix ended, or a plain dictation's: undrawn, kept
+//!   so that the host can learn from the person's own rewrites of it. It counts the person's
+//!   commands that changed its text, and ends when anything else changes it (an agent's
+//!   command, oso's own edit, a slice), when its buffer may hold secrets, or past
+//!   [`MAX_SETTLED`], the oldest first.
 
 use std::ops::Range;
 
@@ -30,14 +36,17 @@ use crate::buffer::{Buffer, BufferId, Replacement};
 use crate::frame::{self, CellRect};
 use crate::kill::MAX_YANK;
 use crate::minibuffer::Kind;
-use crate::selection::{OffsetEdit, follow_sorted};
 use crate::sum_tree::Bias;
 use crate::window::{Screen, WindowId};
 
-/// The most provisional spans at once: a dictation past them is typed plain.
+/// The most provisional spans drawn at once: a dictation past them is typed plain, with none.
 pub(crate) const MAX_SPANS: usize = 4;
 
-/// The most cursors a provisional span has: a dictation typed at more is typed plain, as its
+/// The most settled spans at once: one more ends the oldest. Only a bound on memory: the host
+/// watches fewer, and ends its own oldest first.
+pub(crate) const MAX_SETTLED: usize = 16;
+
+/// The most cursors a span has: a dictation typed at more is typed plain, as its
 /// fix would make edits at every one.
 pub(crate) const MAX_SPAN_RANGES: usize = 32;
 
@@ -53,6 +62,8 @@ pub enum DictationRequest {
     Toggle { prefix: bool },
     /// Drop the dictation under way and what it would type (`dictation-cancel`).
     Cancel,
+    /// Forget everything dictation has learned (`dictation-forget-learned`, step 3).
+    Forget,
 }
 
 /// What the modeline says of dictation.
@@ -87,14 +98,15 @@ pub struct DictationTarget {
 /// What became of a dictation's text.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DictationPlaced {
-    /// Typed at each of the target's cursors, with the provisional span it holds, if one was
-    /// asked for and made.
+    /// Typed at each of the target's cursors, with the span it holds, drawn or settled, if one
+    /// was made.
     Typed { span: Option<DictationSpan> },
     /// Put in the kill ring, for this reason.
     Kept(&'static str),
 }
 
-/// A provisional span: where one dictation's text went, a range at each of its cursors.
+/// A span: where one dictation's text went, a range at each of its cursors, provisional
+/// while its fix runs and settled after.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct DictationSpan(u64);
 
@@ -113,13 +125,21 @@ pub struct DictationContext {
     pub mode: &'static str,
 }
 
-/// One provisional span.
+/// One span: provisional while drawn, settled once not.
 #[derive(Debug)]
 struct Span {
     id: u64,
     buffer: BufferId,
     /// Ascending and apart, each where one cursor's text went.
     ranges: Vec<Range<usize>>,
+    /// Drawn in its face, while its fix runs.
+    drawn: bool,
+    /// The person's commands that changed its text.
+    edits: u64,
+    /// The command running changed its text, and has not been seen to be the person's.
+    pending: bool,
+    /// Something other than the person's command changed its text: it ends.
+    foreign: bool,
 }
 
 /// The editor's part of dictation.
@@ -217,9 +237,10 @@ impl Editor {
     }
 
     /// Types `text` at each of `target`'s cursors, in one undo step, or puts it in the kill
-    /// ring if the place is gone. With `provisional`, the text typed is a provisional span,
-    /// unless it went into the minibuffer or a buffer that may hold secrets, at more than
-    /// [`MAX_SPAN_RANGES`] cursors, or [`MAX_SPANS`] live already. Empty text does nothing.
+    /// ring if the place is gone. The text typed is a span, unless it went into the minibuffer
+    /// or a buffer that may hold secrets, or at more than [`MAX_SPAN_RANGES`] cursors: with
+    /// `provisional` a drawn one, and none at all if [`MAX_SPANS`] are drawn already; without,
+    /// a settled one. Empty text does nothing.
     pub fn place_dictation(
         &mut self,
         target: &DictationTarget,
@@ -247,20 +268,30 @@ impl Editor {
         // What it typed in a prompt that completes is matched, as typing is.
         self.match_completion();
         let secret = self.buffer(target.buffer).is_none_or(Buffer::is_secret);
-        let fixable = provisional
-            && !text.is_empty()
+        let drawn = self
+            .dictation
+            .spans
+            .iter()
+            .filter(|held| held.drawn)
+            .count();
+        let spanned = !text.is_empty()
             && !target.prompt
             && !target.secret
             && !secret
             && target.cursors.len() <= MAX_SPAN_RANGES
-            && self.dictation.spans.len() < MAX_SPANS;
-        let span = fixable.then(|| self.new_dictation_span(target, text.len()));
+            && (!provisional || drawn < MAX_SPANS);
+        let span = spanned.then(|| self.new_dictation_span(target, text.len(), provisional));
         DictationPlaced::Typed { span }
     }
 
     /// A span over the text of `len` bytes just typed at `target`'s cursors: each cursor's
     /// offset moved by the text typed at the cursors before it.
-    fn new_dictation_span(&mut self, target: &DictationTarget, len: usize) -> DictationSpan {
+    fn new_dictation_span(
+        &mut self,
+        target: &DictationTarget,
+        len: usize,
+        drawn: bool,
+    ) -> DictationSpan {
         let ranges = target
             .cursors
             .iter()
@@ -276,7 +307,12 @@ impl Editor {
             id,
             buffer: target.buffer,
             ranges,
+            drawn,
+            edits: 0,
+            pending: false,
+            foreign: false,
         });
+        self.keep_settled();
         DictationSpan(id)
     }
 
@@ -329,14 +365,16 @@ impl Editor {
     }
 
     /// Fixes `span`: `edits`, byte ranges of `sent` with their new text, ascending and apart,
-    /// are made at each of the span's ranges in one undo step, and the span ends.
+    /// are made at each of the span's ranges in one undo step, and the span is settled over
+    /// the fixed text. The fix's own edit is not one of the person's.
     ///
     /// # Errors
     ///
     /// Why nothing was fixed, for the echo area: the span or its buffer is gone, a range no
     /// longer holds exactly `sent`, the buffer may hold secrets or is read-only now, the edits
     /// do not fit `sent`, the result is past a yank's bound, or the edits at every range are
-    /// more than [`MAX_FIX_REPLACEMENTS`]. The span ends then too.
+    /// more than [`MAX_FIX_REPLACEMENTS`]. The span is settled then over what it holds, but
+    /// ends when it or its buffer is gone or the buffer may hold secrets.
     pub fn fix_dictation(
         &mut self,
         span: DictationSpan,
@@ -351,11 +389,43 @@ impl Editor {
         else {
             return Err("its text is gone");
         };
-        let held = self.dictation.spans.swap_remove(at);
+        let mut held = self.dictation.spans.remove(at);
+        held.drawn = false;
         let buffer = self.buffer(held.buffer).ok_or("its buffer is gone")?;
         if buffer.is_secret() {
             return Err("its buffer may hold secrets");
         }
+        match self.fix_span(&held, sent, edits) {
+            Ok(grown) => {
+                // Each range moves by what the fix grew the ranges before it.
+                let growth = grown.cast_signed() - sent.len().cast_signed();
+                for (before, range) in held.ranges.iter_mut().enumerate() {
+                    let start = range.start.cast_signed() + before.cast_signed() * growth;
+                    let start = start.cast_unsigned();
+                    *range = start..start + grown;
+                }
+                self.dictation.spans.push(held);
+                self.keep_settled();
+                Ok(())
+            }
+            Err(why) => {
+                self.dictation.spans.push(held);
+                self.keep_settled();
+                Err(why)
+            }
+        }
+    }
+
+    /// Makes `edits` at each of `held`'s ranges, as [`Editor::fix_dictation`] says, with `held`
+    /// out of the spans, so that the fix's edit is not counted as a change to it. Returns how
+    /// long each range is then.
+    fn fix_span(
+        &mut self,
+        held: &Span,
+        sent: &str,
+        edits: &[(Range<usize>, &str)],
+    ) -> Result<usize, &'static str> {
+        let buffer = self.buffer(held.buffer).ok_or("its buffer is gone")?;
         let holds = |range: &Range<usize>| {
             range.len() == sent.len() && range.end <= buffer.text().len() && {
                 let mut rest = sent.as_bytes();
@@ -402,12 +472,8 @@ impl Editor {
             })
             .collect();
         self.apply_edits(held.buffer, &replacements)
-            .map_err(|_| "its buffer is read-only now")
-    }
-
-    /// Ends `span` with no fix: its face goes.
-    pub fn end_dictation_span(&mut self, span: DictationSpan) {
-        self.dictation.spans.retain(|held| held.id != span.0);
+            .map_err(|_| "its buffer is read-only now")?;
+        Ok(grown)
     }
 
     /// The cells of the text area of the tiled window `id` that provisional spans take, as
@@ -415,7 +481,7 @@ impl Editor {
     /// buffer that may hold secrets.
     pub fn dictation_span_cells(&self, id: WindowId, screen: &Screen, out: &mut Vec<CellRect>) {
         out.clear();
-        if self.dictation.spans.is_empty() {
+        if !self.dictation.spans.iter().any(|held| held.drawn) {
             return;
         }
         let Some((window, buffer, regions)) = self.window_in_tree(id) else {
@@ -426,42 +492,19 @@ impl Editor {
         }
         let display = buffer.display();
         for held in &self.dictation.spans {
-            if held.buffer == window.buffer() {
+            if held.drawn && held.buffer == window.buffer() {
                 frame::match_cells(regions.text, screen, &display, &held.ranges, out);
             }
         }
     }
 
-    /// Moves the spans in `buffer` through an edit's `steps`. A start goes after text typed at
-    /// it and an end stays before it, so that what the person types at either end is not the
-    /// dictation's: O(ranges + edits) a step.
-    pub(super) fn dictation_spans_follow(&mut self, buffer: BufferId, steps: &[Vec<OffsetEdit>]) {
-        let Dictation {
-            spans,
-            starts,
-            ends,
-            ..
-        } = &mut self.dictation;
-        for held in spans.iter_mut().filter(|held| held.buffer == buffer) {
-            starts.clear();
-            ends.clear();
-            starts.extend(held.ranges.iter().map(|range| range.start));
-            ends.extend(held.ranges.iter().map(|range| range.end));
-            for edits in steps {
-                follow_sorted(starts, edits, Bias::Right);
-                follow_sorted(ends, edits, Bias::Left);
-            }
-            for ((range, &start), &end) in held.ranges.iter_mut().zip(&*starts).zip(&*ends) {
-                *range = start..end.max(start);
-            }
-        }
-    }
-
-    /// `buffer` was read again or went: its spans go with what they marked.
-    pub(super) fn forget_dictation_spans(&mut self, buffer: BufferId) {
-        self.dictation.spans.retain(|held| held.buffer != buffer);
+    /// Ends `span` with no fix: its face goes, and nothing more is learned from it.
+    pub fn end_dictation_span(&mut self, span: DictationSpan) {
+        self.dictation.spans.retain(|held| held.id != span.0);
     }
 }
+
+mod settled;
 
 #[cfg(test)]
 mod tests;

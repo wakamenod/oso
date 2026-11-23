@@ -20,7 +20,9 @@ use crate::sum_tree::Bias;
 mod offsets;
 
 use offsets::Follow;
-pub(crate) use offsets::{OffsetEdit, follow_offset, follow_ranges, follow_sorted, new_text_ends};
+pub(crate) use offsets::{
+    OffsetEdit, follow_offset, follow_ranges, follow_sorted, follow_span_starts, new_text_ends,
+};
 
 /// Where vertical motion (`C-n`, `C-p`) aims, kept across consecutive
 /// vertical moves so that short lines do not pull the cursor left for good.

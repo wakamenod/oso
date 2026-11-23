@@ -266,7 +266,11 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   undo step, or keeps it in the kill ring. The text typed is a provisional span, kept by the
   editor and drawn in its own face, until `app/dictation/fix.rs` has the person's `claude -p`
   fix it (`dictation::fix`, through `sessions::oneshot` as a space's naming is) and makes the
-  fixes inside the span, in one more undo step; `C-u s-d` types it plain. While the text is due, the dispatcher holds an `M-v`
+  fixes inside the span, in one more undo step; `C-u s-d` types it plain. Once settled, the
+  span stays, undrawn, and `app/dictation/learning.rs` watches the person's own commands that
+  change it, a few minutes at most; what a fix and the person's rewrites taught goes to the
+  learning record (`dictation::learning`) on a thread of its own, and each later fix is given
+  it as history. While the text is due, the dispatcher holds an `M-v`
   (`dispatch/paste_guard.rs`) and drops it when the clipboard's types-only look finds
   TypeWhisper's marker, as TypeWhisper pastes the same text itself with Command-V.
 - **Modified state** compares content ids. Each edit gets a new id, undo and redo

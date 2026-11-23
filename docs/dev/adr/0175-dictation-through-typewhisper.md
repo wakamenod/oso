@@ -156,7 +156,7 @@ started, not for its answer. Nothing of a dictation is carried across a restart.
 
 ### Layers and tests
 
-- The `oso` crate's `dictation` module, `dictation::{api, discovery, state, fix}`, on the
+- The `oso` crate's `dictation` module, `dictation::{api, discovery, state, fix, learning}`, on the
   lowest line of `guardrails/layers.txt`: it uses nothing of the crate. `app::dictation` carries
   it out; `dispatch::paste_guard` holds the key; `config::dictation` reads `[dictation]`. Where
   the text goes, and its provisional spans, are oso-core's (`editor::dictation`, step 2).
@@ -287,3 +287,91 @@ started, not for its answer. Nothing of a dictation is carried across a restart.
 - `M-x dictation-cancel` with no dictation under way stops the fixes running, and the text
   stays as typed; so do an exit and a restart's start. The UI thread only kills `claude`: the
   fix's thread reaps it. The dev socket's state says `dictation.fixes`.
+
+## Step 3, as built (2026-11-23)
+
+Learning runs in the background: nothing of it is shown, but it is logged. It writes nothing
+outside oso; adding to TypeWhisper's dictionary is step 4.
+
+- **The record**, `dictation/learning.json` in oso's state directory, mode `0600`, replaced
+  whole through a `.part` in a private directory, read as `sessions` is: a regular file of
+  this user's with one name, at most 256 KiB. A file oso may not read is left as it is.
+  - It keeps pairs: a misheard `wrong` and its `right`, each counted as a fix that stood, as
+    the person's own rewrite that stood of text a fix saw, as one of text typed plain, and as
+    undone, with the days it stood on (the latest
+    8) and the day it was last seen. The author's choice on 2026-11-23, in place of a list of
+    observations.
+  - **At most 40 pairs.** A pair not seen for 30 days goes; when the record is full, the one
+    seen longest ago, then the least used, makes room. A day past today, from a clock set back
+    or a record not oso's, is read as today. A pair whose sides hold a control, invisible or
+    bidi character, or are longer than a fix's 200 characters, is never kept, nor one that
+    looks like a credential: a run of ASCII letters, digits and `_-+/=.` that starts as a
+    known token does (`ghp_`, `github_pat_`, `glpat-`, `sk-`, `xoxb-` and the like, `-----BEGIN`)
+    or is 16 or more long with letters and digits, as a token pasted over a word would be.
+- **A watch**: once a dictation's text settles (its fix lands, fails, finds nothing or is
+  skipped, or `C-u s-d` typed it plain), its span stays, undrawn, as a **settled** span, and
+  the app watches it. None is made in the minibuffer or a buffer that may hold secrets.
+  - The editor counts the **person's commands** that change the span's text. Any other change
+    ends the span, and the watch with it, learning nothing: an agent's command, oso's own
+    edits outside a command (a server's, a composer's, a slice of `query-replace`), and a
+    command the host runs that is no input of the person's. A fix's own edit is not counted.
+  - A span's start now stays before a replacement of what begins at it, so that an undo of a
+    fix of the first word stays inside; text typed at either end is still outside. An undo
+    that crosses in its own command, in a buffer that keeps no log of its edits, now follows
+    the undo's own edits, up to 4096, rather than drop the spans; one that takes more slices
+    goes on outside the command, and ends the spans it changes.
+  - A second dictation typed inside a settled span is not a command of the person's, so it
+    ends that span, learning nothing from it.
+  - It ends **30 s after the last of the person's changes**, never before 60 s, and at **5
+    minutes** at the latest; with the span, when its buffer goes, is read again or may hold
+    secrets; past 8 watches, the oldest first. The editor keeps at most 16 settled spans, a
+    bound on memory the watches stay under. A save does not end a watch, as it changes no
+    text (the author's choice on 2026-11-23). An exit, a restart and `dictation-forget-learned`
+    drop the watches.
+- **What a watch teaches**, worked out on the learning's thread, `oso-dictation-learn`:
+  - the text still as oso left it: each fix stood; back as it was typed: each was undone;
+  - otherwise a fix stood if its `right` is still there, and was undone if the person put its
+    `wrong` back by hand;
+  - and the person's own rewrites: a character diff of the text oso left and the text now
+    (Myers's, written in oso rather than `similar`'s for a bound fixed by the edit distance
+    and not by time: at most 4 KiB a side and 64 characters changed), a change
+    touching an ASCII word taking in the whole word. Kept: replacements only, each `wrong` at
+    most 20 characters and `right` at most 40, on one line, at most 5 changes, and at most
+    half the text changed unless it is one change. Pure insertions and deletions are ignored.
+- **The history in each fix**: the fix's thread reads the record and adds two lists to the
+  JSON on `claude`'s standard input, of pairs whose `wrong` is in the dictated text only:
+  `history` has those that stood more often than they were undone, the most used first, then
+  the latest, at most 50 pairs; `rejected` has those undone at least as often as they stood.
+  Both together are at most 4 KiB. A pair learned only from text typed plain (`C-u s-d`, or
+  past the fixes that run), which the person kept from Claude, stays on the machine and is
+  never sent, the author's choice on 2026-11-23; once it is also learned from text a fix saw,
+  it is sent with that count alone. So are a fix that failed and its text, as `claude` may
+  not have read it. The system prompt says to
+  fix a `wrong` from `history` the same way and never to make a fix from `rejected`. This is
+  more of what leaves the machine: words from earlier dictations, never from a buffer that may
+  hold secrets.
+- **The log**, `dictation/learning.log`, JSON lines, mode `0600`, replaced whole with no flush
+  to the disk, its last 500 lines of the last 30 days: each pair a watch saw, with its source
+  and outcome, and each history sent, as counts. A command to show it is step 4's (the
+  author's choice).
+- The learning's thread runs each job on its own, so that one that panics loses only itself.
+- **`dictation-forget-learned`** (`Person`: what was learned of the person's words is theirs
+  to drop) asks once, then stops the fixes under way, as `dictation-cancel` does, drops the
+  watches, and removes the record, the log and what a write left of them, each tried. A job
+  made before it, a fix's history among them, is dropped. Step 4 adds TypeWhisper's entries
+  oso added. Another instance of oso is not told, and may write the record again; a write
+  under way at an exit may be lost. Two instances write the record in turn, the last one's
+  standing.
+- **The public items**, approved by the author on 2026-11-23: `Editor`'s
+  `settle_dictation_span`, `dictation_span_edits` and `dictation_span_text`, and
+  `DictationRequest::Forget`. `place_dictation` now makes a settled span for plain text too,
+  and `fix_dictation` settles the span instead of ending it, over the fixed text, or over
+  what it holds when the fix is skipped. At most 4 spans are drawn and 16 settled; a
+  dictation past the 4 drawn gets no span, and is not watched. Where a fix lands but its text
+  is past the 4 KiB watched, the span ends, so that Claude's fixes are never learned as the
+  person's.
+- The module `dictation::learning`, with `rewrites`, is strings alone; `app::dictation::learning`
+  watches and runs the thread; oso-core's `editor::dictation::settled` keeps the settled
+  spans and how every span follows an edit.
+- The dev socket's state says `dictation.watches`. A dev build's end-to-end flow can make the
+  watches quick (`OSO_DEV_DICTATION_QUICK`: 1 s, 2 s and 10 s).

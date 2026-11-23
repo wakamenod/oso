@@ -2,7 +2,7 @@
 //! and are put where a cursor can be afterwards (ADR 0053, ADR 0071), how isearch and
 //! a jump are kept true to the text they show before the host waits (ADR 0082, ADR 0116), and
 //! how the other places the editor marks in a buffer follow each edit: servers' answers
-//! (ADR 0138) and dictation's provisional spans (ADR 0175).
+//! (ADR 0138) and dictation's spans (ADR 0175).
 //!
 //! Must not depend on: `command` or `keymap`; it works out sets of selections from
 //! offsets and a display snapshot, and the editor swaps them in.
@@ -33,25 +33,36 @@ impl Editor {
 
     /// The places marked in `buffer` follow what a sliced undo's step did since `before`, as
     /// the batch the buffer keeps says (ADR 0119). A buffer that keeps none leaves servers'
-    /// answers where they were, and its dictation spans go, as where they are is not known.
-    pub(super) fn marks_cross(&mut self, buffer: BufferId, before: u64) {
-        let Some(splices) = self
-            .buffer(buffer)
-            .and_then(|shown| shown.edits_since(before))
-        else {
-            self.forget_dictation_spans(buffer);
-            return;
-        };
-        let mut edits: Vec<OffsetEdit> = splices
-            .iter()
-            .map(|splice| OffsetEdit {
-                start: splice.start,
-                old_len: splice.old_len,
-                new_len: splice.new_len,
-            })
-            .collect();
-        edits.sort_unstable_by_key(|edit| edit.start);
-        self.marks_follow(buffer, &[edits]);
+    /// answers where they were. Dictation's spans follow the step's own edits, `span_steps`,
+    /// when they were kept, else that batch, and go if neither is there, as where they are is
+    /// not known.
+    pub(super) fn marks_cross(
+        &mut self,
+        buffer: BufferId,
+        before: u64,
+        span_steps: Option<&[Vec<OffsetEdit>]>,
+    ) {
+        let batch = self.buffer(buffer).and_then(|shown| {
+            let splices = shown.edits_since(before)?;
+            let mut edits: Vec<OffsetEdit> = splices
+                .iter()
+                .map(|splice| OffsetEdit {
+                    start: splice.start,
+                    old_len: splice.old_len,
+                    new_len: splice.new_len,
+                })
+                .collect();
+            edits.sort_unstable_by_key(|edit| edit.start);
+            Some(edits)
+        });
+        if let Some(edits) = &batch {
+            self.answers_follow(buffer, std::slice::from_ref(edits));
+        }
+        match (span_steps, &batch) {
+            (Some(steps), _) => self.dictation_spans_follow(buffer, steps),
+            (None, Some(edits)) => self.dictation_spans_follow(buffer, std::slice::from_ref(edits)),
+            (None, None) => self.forget_dictation_spans(buffer),
+        }
     }
 
     /// Keeps isearch and a jump true to their windows and their text: isearch ends if its
