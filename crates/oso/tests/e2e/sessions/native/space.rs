@@ -75,10 +75,14 @@ fn seeded(test: &str) -> (Flow, PrivateRoot, PathBuf) {
     ];
     write_private(&state, "sessions", &(sessions.join("\n") + "\n"));
     let project = fs::canonicalize(&flow.project).unwrap();
+    // The member with its identity, as oso records one, by which a trusted one is judged.
+    let member = fs::symlink_metadata(&project).unwrap();
     let space = format!(
-        r#"{{"id":"{}","name":"fix-login","description":"Fix login","title":"Fix login","issue":"","members":[{{"root":"{}"}}],"directory":"{}","directory_identity":[{},{}],"archived":false,"orchestrator":"{ORCHESTRATOR}","earlier":[],"worktrees":[],"created":1,"changed":1}}"#,
+        r#"{{"id":"{}","name":"fix-login","description":"Fix login","title":"Fix login","issue":"","members":[{{"root":"{}","identity":[{},{}]}}],"directory":"{}","directory_identity":[{},{}],"archived":false,"orchestrator":"{ORCHESTRATOR}","earlier":[],"worktrees":[],"created":1,"changed":1}}"#,
         "9".repeat(32),
         project.display(),
+        member.dev(),
+        member.ino(),
         directory.display(),
         made.dev(),
         made.ino(),
@@ -243,7 +247,13 @@ fn a_repository_trusted_while_a_native_orchestrator_runs_is_given_by_a_resume_wi
     assert_eq!(flag(&second, "add-dir"), project.to_str(), "{second:?}");
     select(&mut app, "*claude: fix-login*");
     let added = format!("Resumed with {} added.", project.display());
-    app.wait_for("the row", |state| text(state).contains(&added));
+    // The row is cut at the narrow window's edge: it starts the text it says.
+    app.wait_for("the row", |state| {
+        text(state)
+            .lines()
+            .map(str::trim)
+            .any(|row| row.starts_with("Resumed with /") && added.starts_with(row))
+    });
     let _ = app.exchange("exit", None);
     app.wait_for_exit();
 }
@@ -276,6 +286,13 @@ fn a_reviews_question_resumes_a_stopped_native_orchestrator_and_goes_once_it_run
         state["sessions"]["space"] == "fix-login"
     });
     app.open_file(&flow.project.join("notes.md"));
+    // Its project is found off the UI thread; the review menu needs it.
+    app.wait_for("notes.md in its project", |state| {
+        state["buffer"]["name"] == "notes.md"
+            && state["modeline"]
+                .as_str()
+                .is_some_and(|line| line.contains("  proj  "))
+    });
     app.send_keys("C-u C-x v r");
     app.wait_for("review-start's menu", |state| {
         state["menu"] == "review-start"
