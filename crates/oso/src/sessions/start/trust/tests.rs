@@ -145,9 +145,12 @@ impl Drop for Scratch {
 
 fn scratch(name: &str) -> Scratch {
     let dir = std::env::temp_dir().join(format!(
-        "oso-native-trust-{name}-{}-{:?}",
+        "oso-native-trust-{name}-{}-{}",
         std::process::id(),
+        // Digits alone: `SystemTime`'s `Debug` has a ':', which Windows refuses in a name.
         std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |since| since.as_nanos())
     ));
     std::fs::create_dir(&dir).unwrap();
     Scratch(dir)
