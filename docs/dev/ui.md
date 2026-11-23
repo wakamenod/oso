@@ -1320,7 +1320,7 @@ a switch made with its command stands until that setting changes in the file
   person's messages after `› `, replies after `● `, thinking as `∴ Thought for N s`, each tool
   call as one line with what came of it, an edit as a diff, and each turn's time and cost. Its
   long lines wrap, its composer's and its results' too, until `C-x x t` there; a transcript's go on
-under their row's text. A
+  under their row's text. A
   start with no brief starts at once, with its composer selected, where the person writes the
   first message (step 2); a session stopped or killed before it was given one leaves nothing
   to resume, and goes (one that failed, or holds a draft, stays, saying why). Its state comes from its stream. In its buffer, `TAB` folds or unfolds
@@ -1389,12 +1389,18 @@ under their row's text. A
   `oso-restart` stays one. An agent's start with no brief, and a restricted project, keep the
   terminal; a wrong `mode` is said, and native holds. A call that asks the person's
   permission is asked on the session's card (step 2e-2), `*card: NAME*`, docked between the
-  transcript and the composer and withheld from agents: oso's title and keys around Claude's
-  text, each row of it after `│ `; point moves to it after 500 ms with no key while the person
-  is in that session and its composer holds no draft, and a key answers only after a quiet
+  transcript and the composer and withheld from agents, on an amber background of its own
+  (ADR 0180): oso's title on a band, the frame's top, and its keys, on chips, the bottom, around
+  Claude's text, each row of it between `│ ` and ` │`. Point moves to it as it appears, while the
+  person is in that session, its composer holds no draft and they are in the middle of nothing
+  (else once that holds, after 500 ms with no key), and a key answers only after a quiet
   moment since the last key and since the card came in front. `y` allows, `n` denies, `N`
   denies with a note, `RET` shows the whole call in the card; an `AskUserQuestion` takes a
   digit, `RET` for several, or `o` for the person's words; an `ExitPlanMode` shows its plan.
+  In the session's empty composer, `y`, `n`, `N` and a question's `o` and digits answer it too,
+  under the same quiet wait; a key that would not is typed. A question's and a plan's card grow to
+  what they say, up to the window less 4 rows of transcript, and page past that with `SPC` and
+  `DEL`; a digit chooses only an option that has been on screen.
   On a plan's card (part 3d) `y` approves it, `a` approves it and leaves the session in accept
   edits, `A` in auto, after a y-or-n question, as Claude Code's own dialog offers; `e` edits it
   in `*plan: NAME*`, in the session's window in place of the transcript, Markdown, withheld
@@ -1436,7 +1442,8 @@ under their row's text. A
   gives a permission option only to a native session's later process, the mode it was in,
   and a model or effort only the one chosen there with `/model` or `/effort`. With `steer_worktrees`, a session oso starts gets a hook that
   denies Claude's own `EnterWorktree` and `git worktree add`, pointing it to `C-c a w`; nothing
-  is written into Claude Code's settings files.
+  is written into Claude Code's settings files. A native session has Claude Code's Remote
+  Control off; in the TUI, the person's own settings decide.
 - A session gets oso's `CLAUDE_CONFIG_DIR`. If a login profile sets its own, set the same value
   where oso starts too: oso reads Claude Code's registry there to refuse resuming a session that
   runs elsewhere.

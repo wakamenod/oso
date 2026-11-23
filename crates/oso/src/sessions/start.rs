@@ -462,7 +462,7 @@ fn chosen_flags<'a>(
 
 /// The program and arguments that start the session `id` as `order` says, in `shell`: a
 /// native one in a space's directory, `gated`, with the person's own settings alone
-/// (ADR 0176).
+/// (ADR 0176). Every native one, and no terminal's, has Remote Control turned off (ADR 0165).
 fn launch_of(
     order: &Order,
     id: &SessionId,
@@ -482,6 +482,7 @@ fn launch_of(
         &oso,
         &steer::Parts {
             steer_worktrees: order.steer_worktrees,
+            disable_remote_control: order.runs.native(),
         },
     )
     .map_err(|e| format!("The session did not start: {e}"))?;
@@ -505,6 +506,9 @@ fn launch_of(
     launch::launch(shell, claude.as_ref(), args, order.project.as_deref())
         .map_err(|e| format!("The session did not start: {e}"))
 }
+
+#[cfg(test)]
+mod line_tests;
 
 #[cfg(test)]
 mod tests {
@@ -554,7 +558,7 @@ mod tests {
     }
 
     /// A terminal's order for `buffer`, a TUI handed `handed`.
-    fn terminal_order(
+    pub(super) fn terminal_order(
         buffer: oso_core::buffer::BufferId,
         handed: Option<super::Chosen>,
     ) -> super::TerminalOrder {

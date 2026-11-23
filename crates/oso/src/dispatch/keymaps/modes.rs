@@ -211,6 +211,11 @@ impl Modes {
         &self.session
     }
 
+    /// A native session's permission card's keys.
+    pub(super) fn card(&self) -> &Keymap {
+        &self.card
+    }
+
     /// `session-search`'s prompt's keys, over completion's (ADR 0145).
     pub(super) fn searching(&self) -> &Keymap {
         &self.conversations[0]

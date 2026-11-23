@@ -64,6 +64,9 @@ impl App {
                 self.note_person_acted();
                 let count = keys.len();
                 let started = Instant::now();
+                // A key on its own may answer a card from the composer (ADR 0180).
+                let answers = matches!(keys[..], [key] if self.composer_key_answers(key));
+                self.dispatcher.set_key_answers_card(answers);
                 let timings = &mut self.timings;
                 let log_gate = &self.log_gate;
                 let mut watch = dev::SecretWatch::new(&self.editor);
@@ -79,6 +82,7 @@ impl App {
                             };
                             timings.key_handled(received, key);
                         });
+                self.dispatcher.take_key_answered_card();
                 log::trace!("key handled in {:?}", started.elapsed());
                 self.apply(event_loop, effects);
                 Ok(json!({ "keys": count }))

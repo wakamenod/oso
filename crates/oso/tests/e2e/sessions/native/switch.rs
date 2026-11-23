@@ -16,7 +16,7 @@ use serde_json::Value;
 use super::super::super::harness::emergency_dir;
 use super::super::super::spaces::trust_restricted;
 use super::super::super::worktrees::keys;
-use super::{Flow, MESSAGE, in_composer, text};
+use super::{Flow, MESSAGE, in_composer, remote_control_off, text};
 
 /// The fake: run `N` from 1 logs its arguments to `run.N`. With `-p`, it prints `stream.jsonl`,
 /// then replays each message and replies `reply N.M` at once, its line's id `aNM`; once its input ends it takes 2 s
@@ -187,6 +187,9 @@ fn a_native_session_is_handed_to_the_tui_which_resumes_its_conversation() {
     assert_eq!(flag(&tui, "resume"), Some(id.as_str()), "{tui:?}");
     assert_eq!(flag(&tui, "permission-mode"), Some("plan"), "{tui:?}");
     assert_eq!(flag(&tui, "permission-prompt-tool"), None, "{tui:?}");
+    // Remote Control is off natively; in the TUI the person's own settings decide.
+    assert!(remote_control_off(&native), "{native:?}");
+    assert_eq!(flag(&tui, "settings"), None, "{tui:?}");
     // The terminal takes the session's name, and shows the TUI.
     app.wait_for("the TUI's screen", |state| {
         state["buffer"]["name"] == "*claude: proj*" && screen(state).contains("Claude Code")
@@ -340,6 +343,7 @@ fn a_tui_session_is_taken_back_natively_once_its_claude_is_gone() {
     let native = args(&flow, 3);
     assert_eq!(native.first().map(String::as_str), Some("-p"), "{native:?}");
     assert_eq!(flag(&native, "resume"), Some(id.as_str()), "{native:?}");
+    assert!(remote_control_off(&native), "{native:?}");
     // Never two writers: `claude -p` started only once the TUI had exited.
     assert_eq!(flow.wait_for_file("exits.3").trim(), "1");
     assert!(flow.scratch.path().join("exited.2").exists());

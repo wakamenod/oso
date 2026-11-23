@@ -38,6 +38,9 @@ impl Face {
             Highlight::Decided => Self::ReviewDecided,
             Highlight::SessionAlert => Self::SessionAlert,
             Highlight::SessionAlertLit => Self::SessionAlertLit,
+            Highlight::CardTitle => Self::CardTitle,
+            // As a menu's key, on its chip (ADR 0117).
+            Highlight::CardKey => Self::MenuKey,
             Highlight::SessionWorking => Self::SessionWorking,
             Highlight::SessionDone => Self::SessionDone,
             Highlight::SessionQuiet => Self::SessionQuiet,

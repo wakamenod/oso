@@ -59,6 +59,10 @@ pub enum Face {
     /// A diff's hunk header.
     Hunk,
     Error,
+    /// A permission card's frame and title: oso's words alone, never Claude's (ADR 0180).
+    CardTitle,
+    /// A key of a permission card, on its chip: oso's alone too.
+    CardKey,
 }
 
 /// A row's text, its faces as byte ranges of the text, and for a row of several calls shown

@@ -48,11 +48,7 @@ pub fn question(
         },
         _ => call(name, tool, directory, input),
     };
-    Some(Question {
-        card,
-        details: None,
-        whole: false,
-    })
+    Some(Question::new(card))
 }
 
 /// What `RET` shows of the call `tool` of session `name` whole, with the request's `input`:

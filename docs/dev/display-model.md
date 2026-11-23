@@ -155,13 +155,13 @@ O(log n). This is cheaper than retrofitting variable heights later.
 Soft wrap is off by default and can be enabled per mode (for example Markdown
 or org) or toggled per buffer. `C-n` and `C-p` move by logical lines.
 A native session's transcript, its composer and its `*result: NAME*` wrap from when they are
-made ([ADR 0165](adr/0165-native-claude-sessions-the-route.md)). In the transcript alone, the rows a
-line goes on in are indented under the line's text, as `wrap_map/hang.rs` says, and it wraps from 13
-columns.
+made ([ADR 0165](adr/0165-native-claude-sessions-the-route.md)). In the transcript alone, the
+rows a line goes on in are indented under the line's text, as `wrap_map/indent.rs` says: the
+indent takes of the wrap's width. It wraps from 15 columns.
 [ADR 0100](adr/0100-soft-wrap.md) designs it:
 
 - `toggle-truncate-lines` (`C-x x t`) turns it on for a buffer, with Emacs's argument. Each window wraps at its own width, less a column for the `↩` that
-  marks a row that continues; below 10 columns nothing wraps.
+  marks a row that continues; below 10 columns nothing wraps, nor a transcript below 15.
 - Rows break after spaces, between CJK clusters, and with basic kinsoku, only
   between display clusters. One space at a break may take the mark's column.
 - The WrapMap is the window's: a `SumTree` of breaks in bounded items. Motion,
@@ -175,8 +175,8 @@ columns.
   budget, and the rest count one row a logical line.
 - What a frame draws is a `window::Screen`, built once a frame: the rows in view,
   each part of a logical line from where it starts to where the next row starts.
-  A row that continues draws its text in the wrap's width and `↩` in the column
-  after, where one space may hang; a provisional line, or a row wider than that,
+  A row that continues draws its text, and its indent if it has one, in the wrap's width and `↩`
+  in the column after, where one space may hang; a provisional line, or a row wider than that,
   draws to the edge with no mark. A range
   past a break fills to the row's text width. A preedit's line is laid out again
   with it in, as if inserted, and the view follows its caret
@@ -216,7 +216,9 @@ one layer:
 - A docked window is a window the tree does not hold: it is laid out inside the tiled window
   that shows its host buffer, from rows that window gives up at its bottom, above its
   modeline, as a native session's composer is under its transcript
-  ([ADR 0170](adr/0170-docked-windows-under-a-sessions-transcript.md)).
+  ([ADR 0170](adr/0170-docked-windows-under-a-sessions-transcript.md)). It takes as many rows as its
+  text wraps to, but a permission card a row a line: its host breaks its rows at its width, and it
+  never wraps ([ADR 0180](adr/0180-a-permission-card-that-stands-out-and-is-read-as-it-is.md)).
 - Each window has its own selection set, so the same buffer in two windows can
   be edited at different places.
 - Two windows can be a pair that scrolls together, as a review's two sides do: one run of two

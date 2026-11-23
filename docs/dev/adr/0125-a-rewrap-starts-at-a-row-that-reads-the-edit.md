@@ -1,6 +1,6 @@
 # 0125. A rewrap starts at a row that reads the edit
 
-- Status: Accepted
+- Status: Accepted, amended by 0165
 - Date: 2026-11-13
 
 ## Context

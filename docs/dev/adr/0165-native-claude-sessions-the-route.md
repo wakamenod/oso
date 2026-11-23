@@ -1,6 +1,6 @@
 # 0165. Native Claude sessions: the route
 
-- Status: Accepted, amended by 0170, 0173 and 0176; "Following the end, as amended" (2026-11-24)
+- Status: Accepted, amended by 0170, 0173, 0176 and 0180; "Following the end, as amended" and "Remote Control is off, as amended" (2026-11-24)
 - Date: 2026-11-21
 
 ## Context
@@ -306,7 +306,7 @@ L (more), "have" (oso has it).
 | Rename (`proc`) | `/rename` text | same; ADR 0155 | same | have |
 | Skills, plugins, hooks, capabilities buffers (`skill`, `plugin`, `hooks`, `capabilities`) | `initialize`, `get_settings`, `claude plugin … --json`, settings files | t1: subcommands and files; t2: `initialize` | `reloadSkills()`, `supportedCommands()` | M (later) |
 | `/login`, `/logout`, `/status` (`auth`) | `claude auth`, login in a terminal | same | same | S (later) |
-| Remote Control (`proc`) | `remote_control` request | not proposed | unknown | — |
+| Remote Control (`proc`) | `remote_control` request | not proposed; off in every native session ("Remote Control is off, as amended") | unknown | — |
 | Inline answer and rewrite (`inline`) | a fork session; `claude -p --json-schema` | same (ADR 0159 already runs `-p` one-shots) | same | M (later) |
 | Markdown, tables, mermaid (`markdown`, `table`, `mermaid`) | Emacs-side renderers | oso's Markdown and highlighting (ADR 0111) | same | M |
 | Unknown messages kept (`dispatch`) | an `unknown` node | one "unreadable event" row (ADR 0130) | same | S |
@@ -2098,31 +2098,82 @@ chose on 2026-11-24:
 The author chose on 2026-11-24, for a native transcript only, that the rows a line goes on in are
 indented, so that they read as part of their row:
 
-- **The indent** is the line's leading U+0020 spaces, then up to four times a mark and the spaces
-  after it. A mark is one display cluster that starts with neither a letter, a digit nor white
-  space, or 1 to 9 digits and `.` or `)`; a space must follow it. So a reply goes on at column 2,
-  its `- ` item at 4, its `1. ` item at 5, a `│ • ` one at 6, `▸ ≡ Read · …` at 4, and code at its
-  own spaces. No other space counts, as oso writes these, and no list of marks is kept.
+- **The indent** is the line's leading U+0020 spaces, then up to four times a leader and the
+  spaces after it. A leader is one display cluster that starts with neither a letter, a digit nor
+  white space, or 1 to 9 digits and `.` or `)`; a space must follow it. So a reply goes on at
+  column 2, its `- ` item at 4, its `1. ` item at 5, a `│ • ` one at 6, `▸ ≡ Read · …` at 4, and
+  code at its own spaces. No other space counts, as oso writes these, and no list of leaders is
+  kept. A space that a combining character joins counts as any.
 - **At least 2 columns, whatever a line starts with, and at most half the row's width,** or less
   where the widest cluster of 8 cells ([ADR 0104](0104-soft-wrap-drawn-in-view-rows.md)) would not
-  fit after it. So that a nested row's 4 always fit, a transcript wraps from 13 text columns, where
-  another buffer does from 10.
+  fit after it. So that a call in a nested row keeps its 6, a transcript wraps from 15 text
+  columns, where another buffer does from 10. Narrower, it is as a window whose lines are
+  truncated; a split or a resize still goes down to 10 ([ADR 0112](0112-window-splits.md)), as it
+  goes down to where a window with a wide gutter does not wrap.
 - **Such a row holds as many cells fewer.** A row does not break before the column the next one
   stands at.
 - **The text is as it was:** the indent is no text. Copying, motion, `C-a`, the cursor, regions,
   matches, the agent channel's and the dev socket's rows have none of it; a region does not fill
-  it. The mark `↩` stays in the last column.
+  it. The mark `↩` stays in the last column. A preedit would not count in its line's indent, but
+  a transcript takes no typing.
 - **An edit of what the indent is read from** lays the line out again from its start, and a rewrap
   stops within a line only where its indent is as it was before; a job's, only at a line's start.
-- **Code:** the rule is in `display_map::wrap_map`'s private `hang.rs`, read from the line's start, at
-  most half a row of it, once a line laid out and once a line in view a frame. A screen row has
-  its indent, crate-private, and `Screen::origin` is its column less that; the renderer lays such
-  a row out in a region that starts past its indent.
-- **Tests:** the property tests of the WrapMap run with rows that hang and not; the rule's table;
-  lines of many shapes at widths from 10 to 100; a text-grid snapshot of a transcript with the cursor, a region and matches; the renderer's cells.
+- **Code:** in `display_map::wrap_map`, the private `fit.rs` (a window's layout) and `indent.rs` (the
+  rule, read from the line's start, at most half a row of it, once a line that wraps is laid out
+  and once a line in view a frame). A screen row has its indent, crate-private, and
+  `Screen::origin` is its column less that; the renderer lays such a row out in a region that
+  starts past its indent.
+- **Tests:** the property tests of the WrapMap and of the cursor's place run with rows indented and
+  not; the rule's table and that it never gives less than a row's prefix, whatever follows; lines of
+  many shapes at widths from 10 to 100; rows not yet wrapped again; a text-grid snapshot of a
+  transcript with the cursor, a region and matches; the renderer's cells.
 - **Measured** (`text_perf -- transcript`, as above): a batch takes 0.09 ms at p50 and 0.17 ms at
   p99, 0.02 ms more than with no indent, at 100 rows and at 10,000, and 0.40 and 0.54 ms on a line
-  that grows to 1 MiB.
+  that grows to 1 MiB, as with none.
+- **New public items:** none.
+
+## Remote Control is off, as amended
+
+Amended on 2026-11-24, the author's choice. Claude Code's Remote Control connects a session to
+claude.ai, which then stores the conversation and lets the person's other devices send messages,
+change its permission mode and stop it. oso has no part of that yet: its rows, its cards and its
+rules about who changes a mode (Q4) know the person at oso's own window only. The CLI connects a
+`claude -p` that is asked on its standard input (`remote_control`), which oso never asks. So
+that no setting and no plain request connects one, oso starts it turned off until a feature of
+its own asks for it, in an ADR of its own.
+
+- **What is blocked.** Every native start, a new one, a resume (after an interrupt, for a mode,
+  by `oso-restart`, with a repository added), a fork, an adoption, a switch from the TUI and an
+  orchestrator's in a space's directory, has `"disableRemoteControl": true` in its one
+  `--settings`, beside the steering hook when `[sessions] steer_worktrees` is on. All build
+  their line in `sessions::start`, which sets it for what runs natively, whatever the order.
+- **What is not.** A terminal's line never has it, the TUI a native session is handed to among
+  them (part 4d): there the person's own settings decide, as `remoteControlAtStartup`, and
+  `/remote-control` works. A `claude` that a session itself runs reads its own settings, and
+  oso's one-shot runs (a space's name, a dictation's fix) are no sessions and take none. It is
+  a setting of the process, and no boundary against other processes of the same user.
+- **Measured** (2026-11-24, CLI 2.1.330, Haiku, an empty directory, no variables of oso's or
+  Claude Code's; whatever asked to connect ran with no network, so that none could). With the
+  setting, `initialize` answers `remote_control_available: false`, and `remote_control` is
+  refused: "Remote Control is disabled by your organization's policy", `bridge_state` `failed`.
+  Without it the same request went on to make a session, which failed for want of a network. It
+  held for a new session, a resume and a fork; over a project's and a local
+  `disableRemoteControl: false`; with `remoteControlAtStartup` true in the person's, the
+  project's and the local settings; with `--setting-sources=user` over a project's `false`; and
+  with the hook beside it. `--remote-control` with it connected nothing. `/remote-control` sent
+  as a message "isn't available in this environment", with or without it.
+- **What the start held still works,** measured with network and the setting: the steering hook
+  of the same JSON denied `git worktree add` on a new session, a resume, a fork and with
+  `--setting-sources=user`; a project's own `PreToolUse` hook ran beside it; and a
+  `SendMessage` from one such session reached another by name, as it goes between this
+  machine's sessions, not over claude.ai.
+- **Not measured:** the TUI resuming a conversation that ran with the setting, which would
+  connect by the person's own setting; a managed `disableRemoteControl: false`; a later CLI,
+  which could change the setting's meaning.
+- **Tests.** `sessions::start::line_tests` (every kind of native start, gated or not, has it,
+  with the hook beside it; no terminal's has it, handed or not), `steer`'s (the JSON, and that
+  it needs no path in UTF-8). End to end: the line `claude` was started with, of a new native
+  session, a switch to the TUI and back, and a space's new orchestrator.
 - **New public items:** none.
 
 ## Questions
@@ -2296,9 +2347,18 @@ Each passage stays in its ADR as written; what holds now follows it.
   indented ("Wrapped rows line up under their row"). Everywhere else they start at the edge. "A row's
   start depends on the row before it": and there on what its line starts with.
 - [ADR 0104](0104-soft-wrap-drawn-in-view-rows.md), "**Below 10 text columns, nothing wraps**": below
-  13 in a native session's transcript. "A row that continues draws its text in the wrap's width, and
-  the mark in the column after": after its indent, which is in that width. "**A row draws the mark
-  only while it fits** in the wrap's width": with its indent.
+  15 in a native session's transcript. "A row that continues draws its text in the wrap's width,
+  and the mark in the column after": after its indent, which is in that width. "**A row draws the
+  mark only while it fits** in the wrap's width": with its indent.
+- [ADR 0102](0102-soft-wrap-what-building-it-changed.md), "A job rewraps from its start and goes on
+  past its end until its rows meet the old ones": in a transcript, until a line starts. An edit's
+  rewrap stops within a line there only if its indent is as it was.
+- [ADR 0125](0125-a-rewrap-starts-at-a-row-that-reads-the-edit.md), "A rewrap also starts further
+  back while a row before reads the edit's start", and its alternative "Rewrap from the logical
+  line's start": in a transcript, an edit of what its line's indent is read from, at most half a
+  row, starts at the line's start.
+- ADR 0112, "fewer than 10 text columns, ADR 0104's narrowest wrap": a transcript between 10 and 14
+  columns wide does not wrap.
 - ADR 0100, "`oso dev` carries each buffer's setting to the instance that replaces it": not that
   of a buffer whose entry stands for `*scratch*`, as a composer's. ADR 0103's "a buffer that wraps
   says `"wraps": true`" is the same.

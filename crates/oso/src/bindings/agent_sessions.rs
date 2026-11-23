@@ -93,6 +93,9 @@ pub const CARD: &[(&str, &str)] = &[
     ("7", "native-card-choose"),
     ("8", "native-card-choose"),
     ("9", "native-card-choose"),
+    // A question's or a plan's pages (ADR 0180).
+    ("SPC", "native-card-page-down"),
+    ("DEL", "native-card-page-up"),
     // The whole call or plan, or a question's chosen options given.
     ("RET", "native-card-whole"),
     ("i", "native-session-compose"),
