@@ -70,6 +70,8 @@ impl App {
         let Some(mut native) = self.hosting.natives.aside.remove(&key) else {
             return false;
         };
+        // The TUI's turns follow its rows (part 5b).
+        native.may_have_gone_on = true;
         let buffer = native.buffer;
         // The mode it resumes in, as held from before the hand-off: what the TUI changed is
         // not read back.

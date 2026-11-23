@@ -85,8 +85,9 @@ impl App {
     /// Native session `key`'s `buffer` made ready to run again: a "Resumed" row, no turn under
     /// way, as no message is written yet, and a queue that ended waiting for an empty
     /// `C-c C-c`; shown, with the composer selected, if `shown`. The start thread's order,
-    /// which reads its earlier turns if its rows hold none of them, the "Resumed" row then
-    /// drawn after them (step 5).
+    /// which reads its earlier turns if its rows hold none of them, or those after its rows
+    /// if its conversation may have gone on elsewhere, the "Resumed" row then drawn after them
+    /// (step 5).
     pub(in crate::app::sessions::hosting) fn resume_native_buffer(
         &mut self,
         key: SessionKey,
@@ -100,7 +101,7 @@ impl App {
             .table
             .get(key)
             .map(|session| session.id.clone());
-        let past = id.filter(|_| self.native_wants_past(key));
+        let past = id.and_then(|id| self.native_wants_past(key, &id));
         if let Some(native) = self.hosting.natives.map.get_mut(&key) {
             native.first = false;
             native.ended = None;
@@ -181,7 +182,7 @@ impl App {
         if let Some(native) = self.hosting.natives.map.get_mut(&key) {
             native.spoke = true;
         }
-        let past = self.native_wants_past(key).then(|| id.clone());
+        let past = self.native_wants_past(key, id);
         self.native_note_row(key, "Adopted.");
         Some((NativeOrder { past, ..order }, trusted))
     }

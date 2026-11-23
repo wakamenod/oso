@@ -64,6 +64,11 @@ fn message_id(object: &Map<String, Value>) -> String {
     string(object, "api_message_id")
 }
 
+/// A line's id in the conversation, if it gives one.
+fn uuid(object: &Map<String, Value>) -> Option<String> {
+    Some(string(object, "uuid")).filter(|id| !id.is_empty())
+}
+
 fn parent(object: &Map<String, Value>) -> Option<String> {
     Some(string(object, "parent_tool_use_id")).filter(|id| !id.is_empty())
 }
@@ -97,6 +102,7 @@ pub(super) fn assistant(object: &Map<String, Value>) -> Option<Assistant> {
         .collect();
     Some(Assistant {
         message_id: string(message, "id"),
+        uuid: uuid(object),
         parent: parent(object),
         model: super::whole(message, "model"),
         blocks,
@@ -139,6 +145,7 @@ pub(super) fn user(object: &Map<String, Value>) -> Option<User> {
     let message = object.get("message")?.as_object()?;
     let mut user = User {
         parent: parent(object),
+        uuid: uuid(object),
         text: None,
         replay: object
             .get("isReplay")

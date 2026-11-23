@@ -1,7 +1,8 @@
 //! A native session's earlier turns (ADR 0165, part 5a), read from a transcript the flow
 //! writes where Claude Code keeps it under the flow's home: a fork shows the turns of the
 //! conversation it copies, then says it was forked; a session the new instance resumes after
-//! `oso-restart` shows its turns before saying so; one with no transcript says why.
+//! `oso-restart` shows its turns before saying so; one with no transcript says why; and a
+//! session back from the TUI shows the TUI's turns after its own rows (part 5b).
 //!
 //! Must not depend on: the app's internals; which lines are shown, and how, have their own
 //! tests.
@@ -12,6 +13,7 @@ use std::path::PathBuf;
 use super::super::super::harness::{App, sockets};
 use super::restart::{idle_in_accept_edits, session_id, show_transcript, transcript_says};
 use super::resume::spoken_and_stopped;
+use super::switch::{in_the_tui, switch_back, taken_back};
 use super::{Flow, in_composer, text};
 
 /// The recorded transcript, scrubbed, run in `/w/proj`.
@@ -21,6 +23,11 @@ const RECORDED: &str =
 /// The recorded transcript written as session `id`'s, run in the flow's project as it
 /// resolves, as the CLI writes it.
 fn write_transcript(flow: &Flow, id: &str) -> PathBuf {
+    write_lines(flow, id, RECORDED)
+}
+
+/// `lines`, run in `/w/proj`, written as session `id`'s transcript, run in the flow's project.
+fn write_lines(flow: &Flow, id: &str, lines: &str) -> PathBuf {
     let project = fs::canonicalize(&flow.project).unwrap();
     let slug: String = (project.to_string_lossy().chars())
         .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '-' })
@@ -29,7 +36,7 @@ fn write_transcript(flow: &Flow, id: &str) -> PathBuf {
     fs::create_dir_all(&dir).unwrap();
     let cwd = serde_json::to_string(&project.to_string_lossy()).unwrap();
     let path = dir.join(format!("{id}.jsonl"));
-    fs::write(&path, RECORDED.replace(r#""/w/proj""#, &cwd)).unwrap();
+    fs::write(&path, lines.replace(r#""/w/proj""#, &cwd)).unwrap();
     path
 }
 
@@ -116,6 +123,43 @@ fn a_fork_with_no_transcript_says_why_and_still_starts() {
     // The note wraps at the window's width.
     let why = at(&shown, "Its earlier turns are not shown");
     assert!(why < at(&shown, "Forked from proj."), "{shown}");
+    let _ = app.exchange("exit", None);
+    app.wait_for_exit();
+}
+
+/// What the switch fake's first reply and then a turn in the TUI write: the native reply's
+/// line `a11`, then the person's message typed in the TUI and its reply.
+const AFTER_THE_TUI: &str = r#"{"parentUuid":null,"promptSource":"sdk","type":"user","cwd":"/w/proj","message":{"role":"user","content":"hello there"},"uuid":"u11"}
+{"parentUuid":"u11","type":"assistant","cwd":"/w/proj","message":{"id":"m11","role":"assistant","content":[{"type":"text","text":"reply 1.1"}]},"uuid":"a11"}
+{"parentUuid":"a11","promptSource":"typed","origin":{"kind":"human"},"type":"user","cwd":"/w/proj","message":{"role":"user","content":"typed in the TUI"},"uuid":"u21"}
+{"parentUuid":"u21","type":"assistant","cwd":"/w/proj","message":{"id":"m21","role":"assistant","content":[{"type":"text","text":"answered in the TUI"}]},"uuid":"a21"}
+"#;
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_session_back_from_the_tui_shows_the_tuis_turns_after_its_rows() {
+    let flow = super::switch::flow("native-past-back");
+    let (mut app, id) = in_the_tui(&flow);
+    write_lines(&flow, &id, AFTER_THE_TUI);
+    switch_back(&mut app);
+    taken_back(&mut app);
+    let state = app.wait_for("the TUI's turns", |state| {
+        text(state).contains("answered in the TUI") && text(state).contains("Resumed.")
+    });
+    let shown = text(&state);
+    // Its own rows once, then the TUI's, then the resume.
+    assert_eq!(shown.matches("reply 1.1").count(), 1, "{shown}");
+    let back = at(&shown, "Back from the TUI");
+    assert!(at(&shown, "reply 1.1") < back, "{shown}");
+    assert!(back < at(&shown, "Its turns since"), "{shown}");
+    assert!(
+        at(&shown, "typed in the TUI") < at(&shown, "answered in the TUI"),
+        "{shown}"
+    );
+    assert!(
+        at(&shown, "answered in the TUI") < at(&shown, "Resumed."),
+        "{shown}"
+    );
     let _ = app.exchange("exit", None);
     app.wait_for_exit();
 }

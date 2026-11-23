@@ -33,7 +33,7 @@ use oso_platform::privacy::{has_one_name, is_this_users};
 
 use super::history::{next_line_within, slug_of};
 use super::identity::SessionId;
-use super::native::past::{Index, Missing, Past};
+use super::native::past::{Index, Missing, Past, PastAsk};
 use super::native::wire::{self, transcript};
 
 /// How long the read may take.
@@ -48,34 +48,47 @@ const LINES_PER_LOOK: usize = 256;
 /// the clock only between lines.
 const GRACE: Duration = Duration::from_millis(250);
 
-/// Session `id`'s earlier turns, the conversation of a session in `directory`, read on a
-/// thread of its own and waited for at most [`DEADLINE`] and [`GRACE`].
-pub fn read(id: &SessionId, directory: &Path) -> Past {
+/// The earlier turns `ask` asks for, of the conversation of a session in `directory`, read
+/// on a thread of its own and waited for at most [`DEADLINE`] and [`GRACE`].
+pub fn read(ask: &PastAsk, directory: &Path) -> Past {
+    Past {
+        after_rows: !ask.after.is_empty(),
+        ..read_on_its_thread(ask, directory)
+    }
+}
+
+/// [`read`], on `oso-native-past`.
+fn read_on_its_thread(ask: &PastAsk, directory: &Path) -> Past {
     let deadline = Instant::now() + DEADLINE;
+    let missing = Past::missing;
     let Some(projects) = super::transcripts::directory() else {
-        return Past::missing(Missing::NotFound);
+        return missing(Missing::NotFound);
     };
-    let (id, directory) = (id.clone(), directory.to_path_buf());
+    let (given, directory) = (ask.clone(), directory.to_path_buf());
     let (sent, read) = mpsc::sync_channel(1);
     let reading = std::thread::Builder::new()
         .name("oso-native-past".into())
         .spawn(move || {
-            let _ = sent.send(read_in(&projects, &id, &directory, deadline));
+            let _ = sent.send(read_in(&projects, &given, &directory, deadline));
         });
     if reading.is_err() {
-        return Past::missing(Missing::NotRead);
+        return missing(Missing::NotRead);
     }
     read.recv_timeout(DEADLINE + GRACE)
-        .unwrap_or_else(|_| Past::missing(Missing::TooSlow))
+        .unwrap_or_else(|_| missing(Missing::TooSlow))
 }
 
 /// [`read`] with the transcripts under `projects`, until `deadline`.
-pub(crate) fn read_in(
-    projects: &Path,
-    id: &SessionId,
-    directory: &Path,
-    deadline: Instant,
-) -> Past {
+pub(crate) fn read_in(projects: &Path, ask: &PastAsk, directory: &Path, deadline: Instant) -> Past {
+    Past {
+        after_rows: !ask.after.is_empty(),
+        ..read_chosen(projects, ask, directory, deadline)
+    }
+}
+
+/// The lines `ask` asks for, chosen and read.
+fn read_chosen(projects: &Path, ask: &PastAsk, directory: &Path, deadline: Instant) -> Past {
+    let id = &ask.id;
     let resolved = std::fs::canonicalize(directory).ok();
     let Some(path) = locate(projects, id, directory, resolved.as_deref(), deadline) else {
         return Past::missing(Missing::NotFound);
@@ -88,21 +101,19 @@ pub(crate) fn read_in(
     };
     let ran_here = |cwd: &Path| cwd == directory || resolved.as_deref() == Some(cwd);
     let placed = place(&mut file, meta.len(), deadline, ran_here);
-    let (index, unreadable) = match placed {
-        Ok(Placed::Whole { index, unreadable }) => {
-            let unreadable = unreadable + index.unreadable();
-            (index, unreadable)
-        }
+    let index = match placed {
+        Ok(Placed::Whole(index)) => index,
         Ok(Placed::Elsewhere) => return Past::missing(Missing::Elsewhere),
         Ok(Placed::TooSlow) => return Past::missing(Missing::TooSlow),
         Ok(Placed::TooMany) => return Past::missing(Missing::TooMany),
         Err(_) => return Past::missing(Missing::NotRead),
     };
-    let chosen = index.chosen();
+    let chosen = index.chosen(&ask.after);
     let mut past = Past {
+        since: chosen.since,
         cut: chosen.cut,
         prompts_left_out: chosen.prompts_left_out,
-        unreadable,
+        unreadable: chosen.unreadable,
         ..Past::default()
     };
     let mut line = Vec::new();
@@ -158,8 +169,8 @@ fn locate(
 
 /// What placing a transcript's lines gave.
 enum Placed {
-    /// Its lines, and how many were too long to read.
-    Whole { index: Index, unreadable: usize },
+    /// Its lines.
+    Whole(Index),
     /// It names another directory than the session's, or none.
     Elsewhere,
     /// It was not read whole by the deadline.
@@ -186,7 +197,7 @@ fn place(
         at += next_line_within(&mut reader, &mut line, 0)?.1;
     }
     let mut index = Index::default();
-    let (mut unreadable, mut looked, mut lines) = (0, false, 0usize);
+    let (mut looked, mut lines) = (false, 0usize);
     loop {
         line.clear();
         let (ended, taken, skipped) = next_line_within(&mut reader, &mut line, wire::MAX_LINE)?;
@@ -196,14 +207,14 @@ fn place(
             if !looked && !index.is_empty() {
                 return Ok(Placed::Elsewhere);
             }
-            return Ok(Placed::Whole { index, unreadable });
+            return Ok(Placed::Whole(index));
         }
         lines += 1;
         if lines % LINES_PER_LOOK == 0 && Instant::now() > deadline {
             return Ok(Placed::TooSlow);
         }
         if skipped {
-            unreadable += 1;
+            index.unreadable_at(at);
         } else if !line.is_empty() {
             if !looked && let Some(cwd) = transcript::cwd(&line) {
                 if !ran_here(&cwd) {

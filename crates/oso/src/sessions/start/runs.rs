@@ -89,8 +89,8 @@ fn start_native(
     })?;
     let mut out = given.out;
     // Its earlier turns go before anything its process says (ADR 0165, step 5).
-    if let Some(id) = &given.past {
-        out(Out::Past(Box::new(past::read(id, directory))));
+    if let Some(ask) = &given.past {
+        out(Out::Past(Box::new(past::read(ask, directory))));
     }
     let stream = Stream::run(child, brief.as_deref(), out)?;
     Ok((given.buffer, Started::Native(stream)))

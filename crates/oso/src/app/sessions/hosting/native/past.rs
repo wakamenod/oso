@@ -6,6 +6,9 @@
 //!
 //! Must not depend on: key presses or how a frame is drawn; the start thread reads the file.
 //!
+//! - Rows that hold the conversation read what follows their newest messages, when it may
+//!   have gone on elsewhere since: after a stop, or the TUI's turns once a session comes back
+//!   from it (part 5b); not after an interrupt's or a mode's resume, which oso made at once.
 //! - The notes said while they are read, such as "Resumed.", wait and are drawn after them,
 //!   so that the rows read in the order things happened. A start that does not run draws
 //!   them at once.
@@ -19,23 +22,29 @@ use oso_core::editor::Editor;
 
 use super::{App, Native, draw};
 use crate::sessions::identity::SessionId;
-use crate::sessions::native::past::Past;
+use crate::sessions::native::past::{Past, PastAsk};
 use crate::sessions::native::render;
 use crate::sessions::start::NativeOrder;
 use crate::sessions::worker::SessionKey;
 
 impl App {
-    /// Whether native session `key`'s start reads its earlier turns: its rows hold none of
-    /// its conversation. Then the notes said meanwhile wait for them.
-    pub(super) fn native_wants_past(&mut self, key: SessionKey) -> bool {
-        let Some(native) = self.hosting.natives.map.get_mut(&key) else {
-            return false;
+    /// What native session `key`'s start reads of conversation `id`: all of it when its rows
+    /// hold none of it; what follows their newest messages when it may have gone on elsewhere
+    /// since (part 5b); else nothing. Then the notes said meanwhile wait for what is read.
+    pub(super) fn native_wants_past(&mut self, key: SessionKey, id: &SessionId) -> Option<PastAsk> {
+        let native = self.hosting.natives.map.get_mut(&key)?;
+        let after = match native.rows.holds_conversation() {
+            false => Vec::new(),
+            true if native.may_have_gone_on => {
+                Some(native.rows.kept_ids()).filter(|ids| !ids.is_empty())?
+            }
+            true => return None,
         };
-        if native.rows.holds_conversation() {
-            return false;
-        }
         native.notes_after_past.get_or_insert_with(Vec::new);
-        true
+        Some(PastAsk {
+            id: id.clone(),
+            after,
+        })
     }
 
     /// Native fork `key`'s `order`, which reads the earlier turns of the conversation `from`,
@@ -47,9 +56,21 @@ impl App {
         name: &str,
         order: NativeOrder,
     ) -> NativeOrder {
-        let past = self.native_wants_past(key).then(|| from.clone());
+        let past = self.native_wants_past(key, from);
         self.native_note_row(key, &format!("Forked from {name}."));
         NativeOrder { past, ..order }
+    }
+
+    /// Notes whether native session `key`'s conversation may have gone on elsewhere since its
+    /// rows, which its next start then reads the turns after (part 5b).
+    pub(in crate::app::sessions::hosting) fn native_may_have_gone_on(
+        &mut self,
+        key: SessionKey,
+        gone_on: bool,
+    ) {
+        if let Some(native) = self.hosting.natives.map.get_mut(&key) {
+            native.may_have_gone_on = gone_on;
+        }
     }
 
     /// Whether native session `key` waits for its earlier turns: then `text`, a note of oso's,
@@ -74,6 +95,10 @@ impl App {
         let Some(waiting) = native.notes_after_past.take() else {
             return;
         };
+        // Read: what follows is the stream's. Not read, it is asked again at the next start.
+        if past.missing.is_none() {
+            native.may_have_gone_on = false;
+        }
         let from = native.rows.rows().len();
         if let Some(before) = past.before() {
             native.rows.note(&before);
@@ -83,8 +108,8 @@ impl App {
         for note in notes.iter().chain(&waiting) {
             native.rows.note(note);
         }
-        // Only rows added since change, as the rows before held no call; any other is drawn
-        // where it is.
+        // The rows added are drawn in one change; a result that landed on an earlier call's row
+        // (part 5b) is drawn where that row is.
         let earlier: Vec<_> = (changes.into_iter())
             .filter(|change| change.row() < from)
             .collect();

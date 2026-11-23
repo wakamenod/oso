@@ -19,7 +19,7 @@ use super::super::super::worktrees::keys;
 use super::{Flow, MESSAGE, in_composer, text};
 
 /// The fake: run `N` from 1 logs its arguments to `run.N`. With `-p`, it prints `stream.jsonl`,
-/// then replays each message and replies `reply N.M` at once; once its input ends it takes 2 s
+/// then replays each message and replies `reply N.M` at once, its line's id `aNM`; once its input ends it takes 2 s
 /// more, `SIGTERM` ignored, and writes `ended.N` as it exits; it writes `exits.N` first, how
 /// many TUIs had exited by its start. Else it is the TUI: it writes `order.N`, `after` if
 /// `ended.1` was there as it started, and shows `idle.txt` until it is hung up, or the flow
@@ -42,7 +42,7 @@ if [ "$1" = -p ]; then
     m=$((m+1))
     said=$(printf '%s\n' "$line" | sed 's/.*"content":"\([^"]*\)".*/\1/')
     printf '{"type":"user","isReplay":true,"message":{"content":"%s"}}\n' "$said"
-    printf '{"type":"assistant","message":{"id":"m%s%s","content":[{"type":"text","text":"reply %s.%s"}]}}\n' "$n" "$m" "$n" "$m"
+    printf '{"type":"assistant","uuid":"a%s%s","message":{"id":"m%s%s","content":[{"type":"text","text":"reply %s.%s"}]}}\n' "$n" "$m" "$n" "$m" "$n" "$m"
     printf '{"type":"result","subtype":"success","duration_ms":10}\n'
   done
   sleep 2
@@ -76,7 +76,7 @@ const IDLE: &str = include_str!("../../../../src/sessions/screens/idle-start.txt
 
 /// A flow whose fake is [`SWITCH_FAKE`], whose stream says the session is in `plan` mode,
 /// which a resume carries.
-fn flow(test: &str) -> Flow {
+pub(super) fn flow(test: &str) -> Flow {
     let flow = Flow::new(test);
     let script = SWITCH_FAKE.replace("DIR", &flow.scratch.path().display().to_string());
     fs::write(flow.scratch.path().join("fake-claude"), script).unwrap();
@@ -268,7 +268,7 @@ fn a_native_session_stopped_while_its_claude_ends_for_the_tui_stays_native() {
 
 /// `flow`'s app with its native session handed to the TUI, whose screen says it is idle, its
 /// terminal selected; and the session's id.
-fn in_the_tui(flow: &Flow) -> (super::super::super::harness::App, String) {
+pub(super) fn in_the_tui(flow: &Flow) -> (super::super::super::harness::App, String) {
     let mut app = answered(flow);
     let id = flag(&args(flow, 1), "session-id").unwrap().to_owned();
     app.run_command("session-switch-mode", None).unwrap();
@@ -294,7 +294,7 @@ fn back_natively(state: &Value) -> bool {
 
 /// The session, resumed natively, selects its composer: back in its transcript, which is the
 /// one set aside, taken back.
-fn taken_back(app: &mut super::super::super::harness::App) {
+pub(super) fn taken_back(app: &mut super::super::super::harness::App) {
     app.wait_for("the composer", in_composer);
     app.send_keys("C-c C-o");
     app.wait_for("the transcript taken back", back_natively);
@@ -302,7 +302,7 @@ fn taken_back(app: &mut super::super::super::harness::App) {
 
 /// `C-c C-t` in the TUI's terminal, again until the tracker has judged the TUI's screen: until
 /// then its state is not known, and the switch says so.
-fn switch_back(app: &mut super::super::super::harness::App) {
+pub(super) fn switch_back(app: &mut super::super::super::harness::App) {
     let started = Instant::now();
     loop {
         app.send_keys("C-c C-t");

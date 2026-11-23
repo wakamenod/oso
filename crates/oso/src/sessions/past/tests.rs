@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use super::*;
+use crate::sessions::native::past::Since;
 use crate::sessions::native::wire::transcript::Said;
 
 const RECORDED: &str = include_str!("../native/fixtures/2.1.330/transcript.jsonl");
@@ -59,6 +60,14 @@ fn id() -> SessionId {
     SessionId::parse("00000000-0000-4000-8000-0000000000aa").unwrap()
 }
 
+/// All of `id()`'s conversation.
+fn ask() -> PastAsk {
+    PastAsk {
+        id: id(),
+        after: Vec::new(),
+    }
+}
+
 fn soon() -> Instant {
     Instant::now() + DEADLINE
 }
@@ -66,7 +75,7 @@ fn soon() -> Instant {
 fn prompts(past: &Past) -> Vec<&str> {
     (past.said.iter())
         .filter_map(|said| match said {
-            Said::Prompt(text) => Some(text.as_str()),
+            Said::Prompt { text, .. } => Some(text.as_str()),
             _ => None,
         })
         .collect()
@@ -77,7 +86,7 @@ fn the_transcript_under_its_directorys_slug_is_read() {
     let scratch = Scratch::new("slug");
     let work = scratch.work();
     scratch.write(&slug_of(&work), &id(), &Scratch::recorded(&work));
-    let past = read_in(&scratch.projects(), &id(), &work, soon());
+    let past = read_in(&scratch.projects(), &ask(), &work, soon());
     assert_eq!(past.missing, None);
     assert_eq!(past.unreadable, 0);
     assert!(!past.cut);
@@ -90,11 +99,11 @@ fn a_transcript_elsewhere_is_found_and_one_of_another_directory_is_not_read() {
     let scratch = Scratch::new("elsewhere");
     let work = scratch.work();
     let path = scratch.write("-some-other-slug", &id(), &Scratch::recorded(&work));
-    let past = read_in(&scratch.projects(), &id(), &work, soon());
+    let past = read_in(&scratch.projects(), &ask(), &work, soon());
     assert_eq!(past.missing, None);
     assert_eq!(prompts(&past).len(), 4);
     std::fs::write(&path, Scratch::recorded(Path::new("/somewhere/else"))).unwrap();
-    let past = read_in(&scratch.projects(), &id(), &work, soon());
+    let past = read_in(&scratch.projects(), &ask(), &work, soon());
     assert_eq!(past.missing, Some(Missing::Elsewhere));
     assert!(past.said.is_empty());
 }
@@ -102,9 +111,9 @@ fn a_transcript_elsewhere_is_found_and_one_of_another_directory_is_not_read() {
 #[test]
 fn no_transcript_says_so() {
     let scratch = Scratch::new("none");
-    let past = read_in(&scratch.projects(), &id(), &scratch.work(), soon());
+    let past = read_in(&scratch.projects(), &ask(), &scratch.work(), soon());
     assert_eq!(past.missing, Some(Missing::NotFound));
-    let past = read_in(&scratch.0.join("gone"), &id(), &scratch.work(), soon());
+    let past = read_in(&scratch.0.join("gone"), &ask(), &scratch.work(), soon());
     assert_eq!(past.missing, Some(Missing::NotFound));
 }
 
@@ -119,7 +128,7 @@ fn a_link_or_a_second_name_is_not_read() {
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join(format!("{}.jsonl", id().as_str()));
     std::os::unix::fs::symlink(&real, &path).unwrap();
-    let past = read_in(&scratch.projects(), &id(), &work, soon());
+    let past = read_in(&scratch.projects(), &ask(), &work, soon());
     assert_eq!(
         past.missing,
         Some(Missing::NotFound),
@@ -127,7 +136,7 @@ fn a_link_or_a_second_name_is_not_read() {
     );
     std::fs::remove_file(&path).unwrap();
     std::fs::hard_link(&real, &path).unwrap();
-    let past = read_in(&scratch.projects(), &id(), &work, soon());
+    let past = read_in(&scratch.projects(), &ask(), &work, soon());
     assert_eq!(past.missing, Some(Missing::NotRead));
 }
 
@@ -143,7 +152,7 @@ fn a_line_being_written_or_with_no_fields_is_not_read() {
     text.push('\n');
     text.push_str(&last[..last.len() / 2]);
     scratch.write(&slug_of(&work), &id(), &text);
-    let past = read_in(&scratch.projects(), &id(), &work, soon());
+    let past = read_in(&scratch.projects(), &ask(), &work, soon());
     assert_eq!(past.missing, None);
     assert_eq!(prompts(&past).len(), 4);
 }
@@ -159,7 +168,7 @@ fn a_line_that_does_not_decode_is_counted() {
     assert_ne!(bad, last);
     text = text.replace(&last, &bad);
     scratch.write(&slug_of(&work), &id(), &text);
-    let past = read_in(&scratch.projects(), &id(), &work, soon());
+    let past = read_in(&scratch.projects(), &ask(), &work, soon());
     assert_eq!(past.unreadable, 1);
     assert_eq!(prompts(&past).len(), 4);
     assert_eq!(
@@ -177,7 +186,7 @@ fn a_read_past_its_deadline_shows_nothing() {
     let text = format!("{line}\n").repeat(LINES_PER_LOOK * 2);
     scratch.write(&slug_of(&work), &id(), &text);
     let gone = Instant::now().checked_sub(Duration::from_secs(1)).unwrap();
-    let past = read_in(&scratch.projects(), &id(), &work, gone);
+    let past = read_in(&scratch.projects(), &ask(), &work, gone);
     assert_eq!(past.missing, Some(Missing::TooSlow));
 }
 
@@ -191,7 +200,7 @@ fn an_attachment_is_never_shown_and_a_transcript_naming_no_directory_is_not_read
     );
     let text = Scratch::recorded(&work).replacen('\n', &format!("\n{attachment}\n"), 1);
     scratch.write(&slug_of(&work), &id(), &text);
-    let past = read_in(&scratch.projects(), &id(), &work, soon());
+    let past = read_in(&scratch.projects(), &ask(), &work, soon());
     assert_eq!(past.missing, None);
     let said = format!("{:?}", past.said);
     assert!(!said.contains("someone@example.com"), "{said}");
@@ -201,7 +210,7 @@ fn an_attachment_is_never_shown_and_a_transcript_naming_no_directory_is_not_read
         .collect();
     assert!(!anywhere.contains("\"cwd\""));
     scratch.write(&slug_of(&work), &id(), &anywhere);
-    let past = read_in(&scratch.projects(), &id(), &work, soon());
+    let past = read_in(&scratch.projects(), &ask(), &work, soon());
     assert_eq!(past.missing, Some(Missing::Elsewhere));
 }
 
@@ -218,6 +227,36 @@ fn a_project_directory_that_is_a_link_is_not_looked_in() {
     )
     .unwrap();
     std::os::unix::fs::symlink(&real, scratch.projects().join(slug_of(&work))).unwrap();
-    let past = read_in(&scratch.projects(), &id(), &work, soon());
+    let past = read_in(&scratch.projects(), &ask(), &work, soon());
     assert_eq!(past.missing, Some(Missing::NotFound));
+}
+
+#[test]
+fn after_a_message_the_rows_hold_only_the_later_turns_are_read() {
+    let scratch = Scratch::new("after");
+    let work = scratch.work();
+    let text = Scratch::recorded(&work);
+    scratch.write(&slug_of(&work), &id(), &text);
+    // The rows end at the reply "Kiwi.": the plum turn follows.
+    let kiwi = (text.lines())
+        .find(|line| line.contains(r#""text":"Kiwi.""#))
+        .and_then(|line| line.rsplit(r#""uuid":""#).next())
+        .map(|rest| rest.trim_end_matches(['"', '}']).to_owned())
+        .unwrap();
+    let ask = PastAsk {
+        id: id(),
+        after: vec![kiwi],
+    };
+    let past = read_in(&scratch.projects(), &ask, &work, soon());
+    assert!(past.after_rows);
+    assert_eq!(past.since, Since::After { last: true });
+    assert_eq!(prompts(&past), ["Reply with the single word plum."]);
+    // None found: rows holding the conversation say nothing of it.
+    let gone = PastAsk {
+        id: SessionId::parse("00000000-0000-4000-8000-0000000000bb").unwrap(),
+        after: vec!["x".into()],
+    };
+    let past = read_in(&scratch.projects(), &gone, &work, soon());
+    assert_eq!(past.missing, Some(Missing::NotFound));
+    assert!(past.after().is_empty());
 }

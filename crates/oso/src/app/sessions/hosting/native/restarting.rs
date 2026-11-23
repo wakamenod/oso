@@ -116,9 +116,15 @@ impl App {
             if !self.hosting.natives.has(key) {
                 continue;
             }
+            // oso ended it for the restart, so nothing went on elsewhere: no read (part 5b),
+            // unless it stays stopped.
+            self.native_may_have_gone_on(key, false);
             let said = match self.resume_hosted(key, false) {
                 Ok(()) => "oso-restart stayed here: resumed.".to_owned(),
-                Err(why) => format!("oso-restart stayed here; it did not resume: {why}"),
+                Err(why) => {
+                    self.native_may_have_gone_on(key, true);
+                    format!("oso-restart stayed here; it did not resume: {why}")
+                }
             };
             self.native_note_row(key, &said);
         }

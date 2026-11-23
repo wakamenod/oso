@@ -1990,9 +1990,42 @@ conversation already, and a switch back into the transcript set aside, wait for 
   with `session-search` (ADR 0145) and the worktree brief: `history::scan`'s field reader and
   `history::held`'s line reader and slug are used from there for now, and a third, narrower
   lookup of `<id>.jsonl` sits in `sessions::past`. A measure of the UI thread's draw of 2000
-  rows. Part 5b, earlier turns after the rows a buffer keeps (by the newest kept line's
-  id, which the stream and the transcript share), for a resume in the same instance after turns
-  elsewhere and a switch back into the transcript set aside, whose TUI turns it lacks.
+  rows. Turns after the rows a buffer keeps are part 5b's.
+- **New public items:** none.
+
+### Part 5b: the turns after the rows kept
+
+The author's (a) on Q5-8, on 2026-11-23: rows that hold the conversation are given what the
+transcript holds after them, when the conversation may have gone on elsewhere since.
+
+- **When.** At a resume of rows that hold the conversation, once its process ended other than to
+  resume at once (an interrupt's resume and a mode's, which oso makes, read nothing, unless they
+  fail and leave it stopped; so does a restart that stays here and resumes what it ended), and at
+  a switch back from the TUI into the transcript set aside (part 4d-2), which then shows the TUI's
+  turns. A resume that finds nothing new adds no row. Until a read succeeds, the next start asks
+  again: a start that does not run, or a read too slow, loses nothing.
+- **Where they follow on.** A user or assistant line's `uuid` is the same on the stream and in
+  the transcript (the probe of part 5a), so the rows keep the ids of the session's own 64 newest
+  lines, live or read: messages, prompts, notes from other sessions and compactions. An id the
+  transcript gives twice is its first line's, so a copy written into the file later does not move
+  where the rows end. The chain from the transcript's newest line is walked back only to the
+  first of them it finds; the lines after it are shown, within part 5a's limits, after a note
+  "Its turns since, as Claude Code's transcript records them". One found that is not the newest
+  kept says the conversation went on from an earlier turn; none found, as after a rewind
+  elsewhere, gives the newest turns, after a note that the turns above are no longer its
+  conversation.
+- **Quiet.** Rows that hold the conversation need no word of a transcript not found; one that
+  did not read, names another directory, or took too long is said, "Its turns since are not
+  shown: …", and lines that did not read are counted only after where the rows end.
+- **Tests.** `native::past` (what follows the newest id, nothing new, an earlier id, a rewind, the
+  notes, the ids the recorded rows keep), `sessions::past` (only the later turns read, a missing
+  transcript said nothing of). End to end (`sessions::native::past`): a session handed to the
+  switch fake's TUI, whose transcript gains a turn typed there, comes back with its own rows
+  once and the TUI's turns after them, before "Resumed.".
+- **Not done:** a local command run in the TUI or a peer's message there shows as its line in the
+  transcript says, which the live stream may not have shown; the TUI's to-do list is not read.
+  The read places the whole transcript again at each such start, though only what follows is
+  decoded: hidden under the CLI's start for the median transcript, not measured at the largest.
 - **New public items:** none.
 
 ## Questions
@@ -2045,7 +2078,8 @@ Each passage stays in its ADR as written; what holds now follows it.
   SDK, ACP, transcript parsing for the primary view": a native session runs `claude -p` with
   stream-json, and writes the five control requests of "The route" with their fallbacks. The Agent
   SDK and ACP stay unused. A native session's earlier turns are read from its transcript once, at
-  a start whose rows hold none of them (part 5a); what it says live comes from its stream. "The conversation UI is Claude Code's own TUI, not a native oso view.
+  a start whose rows hold none of them (part 5a), and the turns after its rows at a start whose
+  conversation may have gone on elsewhere (part 5b); what it says live comes from its stream. "The conversation UI is Claude Code's own TUI, not a native oso view.
   Permission prompts and dialogs appear inside the TUI": only for a TUI session; a native session's
   conversation and questions are oso buffers.
 - [ADR 0085](0085-agent-channel-and-oso-mcp.md), "**Off by default.**" and "The channel answers
