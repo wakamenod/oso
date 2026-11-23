@@ -216,6 +216,11 @@ impl Modes {
         &self.conversations[0]
     }
 
+    /// A native session's composer's keys, whatever buffer is current (ADR 0170).
+    pub(super) fn composer(&self) -> &Keymap {
+        &self.composer
+    }
+
     /// The keymap of a terminal's buffer: session mode's over the terminal's in one that hosts
     /// a session (ADR 0132), else the terminal's.
     pub(super) fn terminal_keys(&self, buffer: &Buffer) -> &Keymap {

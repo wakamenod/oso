@@ -113,6 +113,7 @@ fn drawn(d: &Dispatcher, editor: &Editor) -> Drawn {
             editor,
             &terminals,
             &crate::sessions::list::SpaceBands::default(),
+            None,
         ),
         menu.as_ref(),
         &statuses,
