@@ -12,6 +12,7 @@
 //!   (step 2). The editor keeps where the text went (`oso_core::editor`'s dictation).
 //! - `learning` is the record of what fixes and the person's own rewrites taught, the history
 //!   each fix is given, and the diff that finds a rewrite (step 3).
+//! - `dictionary` is what oso adds to TypeWhisper's dictionary and takes back (step 4).
 //!
 //! TypeWhisper also types the text itself, by putting it on the clipboard marked with
 //! [`MARKER`] and posting Command-V, which reaches oso as `M-v`. The dispatcher holds an `M-v`
@@ -19,6 +20,7 @@
 //! marker (`dispatch::paste_guard`).
 
 pub mod api;
+pub mod dictionary;
 pub mod discovery;
 pub mod fix;
 pub mod learning;

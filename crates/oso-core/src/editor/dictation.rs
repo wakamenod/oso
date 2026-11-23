@@ -64,6 +64,8 @@ pub enum DictationRequest {
     Cancel,
     /// Forget everything dictation has learned (`dictation-forget-learned`, step 3).
     Forget,
+    /// Show the log of what dictation learned (`dictation-learning-log`, step 4).
+    ShowLog,
 }
 
 /// What the modeline says of dictation.
