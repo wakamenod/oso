@@ -645,8 +645,8 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   its slug taken only if it is a slug as oso makes them, both made unique, and anything else
   gives way to oso's own names. A description that steers it can only pick the two names. No
   permission option is given: with no tool, nothing is asked.
-- A native session's `claude -p` runs only in a trusted project, as Claude Code asks it no
-  trust question of its own ([ADR 0165](adr/0165-native-claude-sessions-the-route.md), Q5): a
+- A native session's `claude -p` runs only in a trusted project, or in an issue space's own
+  directory as below, as Claude Code asks it no trust question of its own ([ADR 0165](adr/0165-native-claude-sessions-the-route.md), Q5): a
   new start at a trusted project's root, and a resume or a fork only at the root of a project
   trusted now, never under the trust the session started with, which an untrust does not take
   back. An open buffer of the project decides; with none open, the record of trusted projects
@@ -664,6 +664,19 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   own record has as stopped native sessions, at most 64, in the record's directory and root,
   under the trust judged then, once the instance before has gone, and refused by the start
   thread while the registry has the conversation live.
+- A native session in an issue space's own directory runs under the space's gate, never
+  under a project's trust ([ADR 0176](adr/0176-native-orchestrators.md)): only in an open
+  space's directory that oso made under `[spaces] root`, with the identity it had then, for the
+  space's current or an earlier orchestrator, or a session of the person's there that oso made
+  native there (a native fork of one); never one an agent started, nor a terminal fork of it
+  or an adoption. The records it judges by are files agents' sessions can write, as the
+  session tools' roles are. Its line adds `--setting-sources=user`, so none of the
+  directory's or its parents' hooks, `.mcp.json` servers, commands or `CLAUDE.md` load; the
+  space's checks run on the start thread before it, as before every start there. No
+  `TrustedRoot` is made for it, so it adds nothing to the session tools' trust and takes no
+  baseline. Until its start thread reports, the UI takes the gate back once the space closed,
+  its directory changed or the session is no longer the space's, and the look before the spawn
+  refuses it.
 - A native session's earlier turns (ADR 0165, part 5a) are read from Claude Code's transcript
   of its conversation once its process is spawned, before its stream: only a regular file of
   this user's with one name under the transcripts' directory, in a project directory that is

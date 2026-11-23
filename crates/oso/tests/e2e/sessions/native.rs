@@ -484,6 +484,7 @@ mod restart;
 mod restart_wait;
 mod resume;
 mod slash;
+mod space;
 mod status;
 mod suggest;
 mod switch;

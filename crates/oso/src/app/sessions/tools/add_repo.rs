@@ -279,7 +279,8 @@ impl App {
         self.agent_log(&format!("{}: added", pending.tool));
         let given = self.was_given(&adding.space, &root);
         let offered = trusted && !given && self.offer_added(at, &root);
-        let add_dir = rules::add_dir(trusted, given, offered);
+        let native = (self.live_orchestrator(at)).is_some_and(|key| self.hosting.natives.has(key));
+        let add_dir = rules::add_dir(trusted, given, offered, native);
         let name = (self.watch.spaces().member_names(at).into_iter())
             .find(|(_, member)| same(member, &root))
             .map(|(name, _)| name);

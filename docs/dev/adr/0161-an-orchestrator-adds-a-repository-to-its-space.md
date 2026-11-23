@@ -1,6 +1,6 @@
 # 0161. An orchestrator adds a repository to its space
 
-- Status: Accepted
+- Status: Accepted, amended by 0176
 - Date: 2026-11-19
 
 ## Context

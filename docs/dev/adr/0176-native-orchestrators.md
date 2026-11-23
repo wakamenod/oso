@@ -1,0 +1,142 @@
+# 0176. Native orchestrators
+
+- Status: Accepted
+- Date: 2026-11-23
+
+## Context
+
+A space's orchestrator ([ADR 0136](0136-issue-spaces.md)) runs in the space's own directory,
+`<[spaces] root>/<slug>`, which oso makes private and checks before each start. Native sessions
+([ADR 0165](0165-native-claude-sessions-the-route.md)) run `claude -p`, which asks no trust
+question of its own, so oso lets one run only at the root of a project it trusts (Q5). A space's
+directory holds no `.git`, so it is no project: today every orchestrator is a TUI in a terminal,
+and a native resume, fork, restart resume or switch of one is refused as "not open".
+
+The author wants orchestrators native too. They also said that a space keeps its own folder, as
+`handoff.md` and Claude Code's per-folder memory need one, and that native removes the trust
+question Claude Code asks again in each new space's directory.
+
+What Claude Code loads, measured on 2026-11-23 with CLI 2.1.330 (the plan's probes, in scratch
+directories outside every space):
+
+- `claude -p` in a space-like directory, with `--add-dir=REPO`, ran the directory's
+  `.claude/settings.json` and `settings.local.json` hooks, started its `.mcp.json` server
+  unasked (the TUI asks for a project's), and listed its commands, skills and agents. Of the
+  `--add-dir` repository it loaded only the commands.
+- With `--setting-sources=user`, none of the directory's hooks, `.mcp.json`, commands, skills or
+  agents loaded, nor the repository's commands; `--settings=FILE` hooks still ran, so oso's steer
+  hook keeps working, and oso's tools come through `--mcp-config`.
+- `CLAUDE.md`: by default the directory's and its parent's loaded (the `--add-dir`
+  repository's did not); under `--setting-sources=user` neither did. Auto memory, keyed by the
+  directory, loaded either way, so the space's memory survives.
+  `~/.claude/CLAUDE.md` under `user` was not measured.
+
+## Decision
+
+The author's answers of 2026-11-23, all as recommended (Q-O1 to Q-O10 (a)), through the
+space's orchestrator. Built in parts O-1 to O-3; O-0, the `/add-dir` offer's escape, is a fix of
+its own.
+
+### The space's directory is its own native root (Q-O1 (a))
+
+- A native session runs in a space's recorded directory under a **space gate**, never under a
+  project's trust: no `TrustedRoot` is made for it, so nothing lands in the sessions' tool
+  trusts (`hosting.trusts`), and no baseline is taken. The session tools keep judging their
+  caller by its space and the repository each call names, as before.
+- The gate admits a session only in an **open** space's recorded directory that
+  `Stored::orchestrated_from` accepts: made by oso under `[spaces] root`, with the identity it
+  had when made (ADR 0136, step 4a).
+- **Who (Q-O3 (a)):** the space's current orchestrator, an earlier one, or a session of the
+  person's there that oso made native there before (started by the person, with no parent,
+  and native, or handed from native to the TUI): a native fork of one of them is one. A fork is
+  judged by the session it copies. A session an agent started in the directory is refused, and
+  so is a terminal fork of it or an adoption there, which the record has as terminals.
+- **Its line** adds `--setting-sources=user`: the person's own settings alone, none of the
+  directory's or its parents' (hooks, `.mcp.json`, commands, skills, agents, `CLAUDE.md`).
+  The TUI's line in a space's directory stays as ADR 0136 has it, with Claude Code's own trust
+  question (Q-O10 (a)).
+- **The checks stay:** the space's `check_before_start` runs on the start thread before every
+  start there, as before; the gate is taken only once they passed, for the directory they
+  looked at with the identity the gate was judged with.
+- **Revocation:** until its start thread reports, the UI takes the gate back after each event
+  once the space closed, its directory changed, `[spaces] root` moved, or the session is no
+  longer the space's, and once its start is no longer under way with no report (its buffer
+  killed). The start thread looks at the gate again just before the spawn.
+- While starts wait for the configuration's first look ([ADR 0173](0173-starts-wait-for-the-configurations-first-look.md)),
+  `[spaces] root` is not known: a gate waits, and the held order is judged again.
+
+### What runs natively there
+
+- **O-1:** a native resume, a fork, `oso-restart`'s resume (ADR 0165, part 4c), and the switch
+  both ways (part 4d): a TUI orchestrator taken natively with `session-switch-mode`, and a native
+  one handed back to the TUI.
+- **New starts stay TUI until O-3:** `space-orchestrator-start` (`o`), `space-new`'s start and a
+  successor's. An adoption in a space's directory stays a terminal.
+- **O-3 (Q-O7 (a)):** new orchestrators follow `[sessions] mode`; an existing TUI one keeps its
+  mode (part 4e (b)) until it is switched or replaced.
+
+### Flows
+
+- **An orchestrator given no message (Q-O8 (a)):** a native session that ends before it was
+  given a message is forgotten (step 2). If it was its space's orchestrator, the one before it
+  is the space's orchestrator again, as nothing is left of it to resume.
+- **Project commands from the composer:** the repository `space-use-repo` chose is used from a
+  native orchestrator's transcript and from its composer, as from its terminal.
+- **`/add-dir` (O-1):** `claude -p` has no `/add-dir`. A native orchestrator is offered no
+  paste; `space_add_repo` answers `add_dir: "next resume"`, and its next resume is given the
+  repository with `--add-dir`. O-2 makes the offer an idle respawn with `--resume` and the new
+  `--add-dir` (Q-O4 (a)), with the row "Resumed with REPO added."
+- **A review's question (O-2, Q-O5 (a)):** to a running native orchestrator it is sent at once
+  (`send_confirmed`, ADR 0165 part 2f); to a stopped one it is refused until O-2 adds a resume
+  offer with the question held until it runs. O-2 also fixes the "resumes it in its terminal"
+  wording for a native one, and gives the worker brief a retry line for a message sent during
+  a restart (Q-O6 (a)).
+
+## Changes to accepted ADRs
+
+- **ADR 0165, Q5 ("Only in trusted projects"):** a native session also runs in an issue space's
+  own directory, under its space's gate and with `--setting-sources=user`, as above. Elsewhere
+  the rule stands.
+- **ADR 0165, part 4e ("A space's orchestrator keeps it too, only because a space's directory
+  has no `.git` yet"):** a space's directory is now a native root for resumes, forks, restart
+  resumes and switches; new orchestrators stay TUI until O-3.
+- **ADR 0136, "The space's own directory" ("Claude Code asks its workspace trust question once
+  a space") and "Trust stays per repository" ("The space's directory is the one place whose
+  `.claude/settings.json` and `CLAUDE.md` load into the orchestrator"):** a native orchestrator
+  is asked no trust question, and loads none of the directory's settings, hooks, MCP servers,
+  commands or `CLAUDE.md`; its auto memory is the space's still. A TUI one is unchanged.
+- **ADR 0161, "The `/add-dir` offer is the one oso already makes (Q6)":** a native orchestrator
+  gets no paste; the reply says `next resume`, as above.
+- **ADR 0163, "Stopped, with its terminal (Q6)":** a review's question to a native
+  orchestrator follows 0163's "A native session's question, as amended": sent once confirmed,
+  and refused while it is stopped, with no offer to resume it, until O-2 adds one (Q-O5 (a)).
+
+## Consequences
+
+- An orchestrator taken native runs with no trust question and under oso's permission card,
+  in the space's directory alone. Its memory and transcripts stay the space's.
+- **`CLAUDE.md`:** one in `~` or `~/spaces` reaches a TUI orchestrator, as Claude Code reads
+  every directory above where it starts, but not a native one. Put what every orchestrator
+  should read in the space's instructions (ADR 0136) or the person's own settings.
+- Permission rules the person saved in the space's `.claude/settings.local.json` from a TUI
+  orchestrator do not apply to a native one; the person's own settings' do.
+- A space's directory with hooks or an `.mcp.json` someone wrote there runs none of them in a
+  native orchestrator, which closes ADR 0136's "a session that writes hooks there gets them run
+  by its successors" for native ones.
+- The gate trusts the space's record and the sessions' record, which agents' sessions can
+  write, as the session tools' roles already do (ADR 0136, step 4a): a forged orchestrator,
+  earlier orchestrator or native session of the person's there passes it. The directory's
+  checks and identity, and `--setting-sources=user`, still bound where and how it runs.
+- Follow-ups: O-2 (the flows above) and O-3 (the default, with the docs `ui.md`,
+  `daily-use.md` and `native-sessions-ux.md`).
+
+## Alternatives considered
+
+- **The space's directory loaded as a trusted project (Q-O1 (b)):** `-p` would run its hooks
+  and start its `.mcp.json` servers unasked, which the TUI at least asks about.
+- **Trust derived from the members' (Q-O1 (c)):** the directory is none of theirs, and a
+  member untrusted later would leave no clear rule for the orchestrator.
+- **Only the current orchestrator natively (Q-O3 (b)):** an earlier orchestrator and a fork
+  would fall back to the TUI and ask the trust question again.
+- **A `TrustedRoot` for the space's directory:** it would land in the tool trusts and the
+  baselines, which are git's.

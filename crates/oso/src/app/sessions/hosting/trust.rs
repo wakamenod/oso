@@ -106,6 +106,7 @@ impl App {
     /// Forgets what was kept of start `token`'s trust: its start thread reported.
     pub(in crate::app::sessions::hosting) fn native_start_reported(&mut self, token: SessionKey) {
         self.hosting.native_trusts.remove(&token);
+        self.space_gate_reported(token);
     }
 
     /// Takes back the trust of each native resume or fork under way whose project is no

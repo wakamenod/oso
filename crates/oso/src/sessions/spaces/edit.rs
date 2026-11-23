@@ -345,8 +345,6 @@ impl Spaces {
         order.into_iter().map(super::candidate).collect()
     }
 
-    /// Notes the orchestrator `id` of space `at`, the one before it kept as an earlier one,
-    /// at most [`MAX_EARLIER`](super::stored::MAX_EARLIER) of them.
     /// Space `at`'s orchestrator replaced: kept as an earlier one, and no session is its
     /// orchestrator until its successor starts (ADR 0136, step 5).
     pub fn retire_orchestrator(&mut self, at: usize, now: u64) {
@@ -363,6 +361,29 @@ impl Spaces {
         }
     }
 
+    /// Space `at`'s orchestrator `id` forgotten, as it ended before it was given a message, so
+    /// Claude Code keeps no conversation of it: the one before it, if any, is its orchestrator
+    /// again (ADR 0176, the author's Q-O8 (a)). Nothing if `id` is not its orchestrator.
+    pub fn forget_orchestrator(
+        &mut self,
+        at: usize,
+        id: &crate::sessions::identity::SessionId,
+        now: u64,
+    ) {
+        let Some(space) = self.spaces.get_mut(at) else {
+            return;
+        };
+        let stored = &mut space.stored;
+        if stored.orchestrator.as_ref() != Some(id) {
+            return;
+        }
+        stored.orchestrator = stored.earlier.pop();
+        stored.changed = now;
+        self.unsaved = true;
+    }
+
+    /// Notes the orchestrator `id` of space `at`, the one before it kept as an earlier one,
+    /// at most [`MAX_EARLIER`](super::stored::MAX_EARLIER) of them.
     pub fn set_orchestrator(
         &mut self,
         at: usize,

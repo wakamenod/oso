@@ -15,7 +15,9 @@
 //! - A missing directory refuses before anything starts.
 //! - A native resume, fork or adoption judged by the record of trusted projects (ADR 0165,
 //!   parts 4a and 4e) is judged here by its root's path and identity, before the root's other
-//!   checks.
+//!   checks. One in an issue space's own directory runs under the space's gate instead, taken
+//!   once the space's checks passed (`space_gate`, ADR 0176), with the person's own settings
+//!   alone.
 //! - For a new or adopted session in a trusted project, the baseline is taken first (ADR 0122), waiting at most
 //!   [`BASELINE_WAIT`]; past that, the session starts and the baseline follows (`baseline`).
 //! - The shell is found as ADR 0120 has it, and `claude` on `PATH` when the shell is not one
@@ -46,6 +48,7 @@ mod baseline;
 pub mod gone;
 mod live;
 mod runs;
+pub mod space_gate;
 pub mod trust;
 
 use super::worktree::steer;
@@ -160,6 +163,9 @@ pub struct NativeOrder {
     /// The record of trusted projects it is judged by here, with no open buffer of its
     /// project (ADR 0165, part 4a).
     pub trust: trust::ByRecord,
+    /// Its gate in an issue space's own directory, which it runs in instead of a trusted
+    /// project's root (ADR 0176): its line then reads the person's own settings alone.
+    pub gate: space_gate::ByGate,
     /// `[terminal]`'s settings: the shell, `-l` and the names passed on.
     pub settings: Settings,
     /// `[sessions] env`: more names passed on from oso's environment.
@@ -306,7 +312,12 @@ fn prepare(mut order: Order, send: &(dyn Fn(Report) + Sync)) {
         Ok(found) => found,
         Err(why) => return refuse(why),
     };
-    let launch = match launch_of(&order, &id, &found.executable, &extra) {
+    // A space's gate once its checks passed (ADR 0176), before the line it changes.
+    let gate = match space_gate::settle(&mut order) {
+        Ok(gate) => gate,
+        Err(why) => return refuse(why),
+    };
+    let launch = match launch_of(&order, &id, &found.executable, &extra, gate.is_some()) {
         Ok(launch) => launch,
         Err(why) => return refuse(why),
     };
@@ -327,14 +338,8 @@ fn prepare(mut order: Order, send: &(dyn Fn(Report) + Sync)) {
         brief,
         ..
     } = order;
-    // A native session has no trust question of Claude Code's: oso's trust is its gate, looked
-    // at again now, after the baseline's wait (ADR 0165, Q5).
-    if runs.native()
-        && !trusted
-            .as_ref()
-            .is_some_and(|root| !root.revoked() && !root.replaced())
-    {
-        return refuse("The session did not start: its project is no longer trusted".to_owned());
+    if let Err(why) = still_gated(runs.native(), gate.as_ref(), trusted.as_ref()) {
+        return refuse(why);
     }
     let set = set(&found.path, &id);
     let (buffer, started) =
@@ -364,6 +369,28 @@ fn prepare(mut order: Order, send: &(dyn Fn(Report) + Sync)) {
         if live_count(&id) > 1 {
             send(Report::Twice { token });
         }
+    }
+}
+
+/// A native session has no trust question of Claude Code's: oso's trust is its gate, looked at
+/// again just before the spawn, after the baseline's wait (ADR 0165, Q5), or its space's
+/// (ADR 0176).
+///
+/// # Errors
+///
+/// Why it does not start.
+fn still_gated(
+    native: bool,
+    gate: Option<&space_gate::SpaceGate>,
+    trusted: Option<&TrustedRoot>,
+) -> Result<(), String> {
+    match gate {
+        Some(gate) if gate.revoked() => Err(space_gate::TAKEN_BACK.to_owned()),
+        Some(_) => Ok(()),
+        None if native && !trusted.is_some_and(|root| !root.revoked() && !root.replaced()) => {
+            Err("The session did not start: its project is no longer trusted".to_owned())
+        }
+        None => Ok(()),
     }
 }
 
@@ -510,12 +537,15 @@ fn chosen_flags<'a>(
     }
 }
 
-/// The program and arguments that start the session `id` as `order` says, in `shell`.
+/// The program and arguments that start the session `id` as `order` says, in `shell`: a
+/// native one in a space's directory, `gated`, with the person's own settings alone
+/// (ADR 0176).
 fn launch_of(
     order: &Order,
     id: &SessionId,
     shell: &Executable,
     extra: &Extra,
+    gated: bool,
 ) -> Result<Launch, String> {
     let claude = launch::configured(order.claude.as_deref())?;
     let oso = std::env::current_exe()
@@ -543,6 +573,7 @@ fn launch_of(
         settings: settings.as_deref(),
         add_dirs: &extra.add_dirs,
         native: order.runs.native(),
+        user_settings_only: gated && order.runs.native(),
         permission_mode,
         model,
         effort,

@@ -1,6 +1,6 @@
 # 0163. Reviews in a space
 
-- Status: Accepted, amended by 0169; "Submit once pasted, as amended" (2026-11-22); "A native
+- Status: Accepted, amended by 0169 and 0176; "Submit once pasted, as amended" (2026-11-22); "A native
   session's question, as amended" (2026-11-22)
 - Date: 2026-11-21
 

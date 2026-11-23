@@ -110,6 +110,11 @@ impl Hosting {
             .count()
     }
 
+    /// Whether start `key` is under way: ordered, held or not, until its start thread reports.
+    pub(in crate::app) fn start_under_way(&self, key: SessionKey) -> bool {
+        self.starting.contains_key(&key)
+    }
+
     /// The hosted sessions.
     pub(in crate::app) fn table(&self) -> &Table {
         &self.table
@@ -432,6 +437,8 @@ impl App {
             editor.project_trusted(project)
         });
         self.revoke_untrusted_native_starts();
+        // Those in spaces' directories, by their spaces (ADR 0176).
+        self.revoke_space_gates();
     }
 
     /// The trust and root new session `key` starts under in `directory`, natively if

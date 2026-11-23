@@ -92,6 +92,11 @@ pub struct Line<'a> {
     pub add_dirs: &'a [std::path::PathBuf],
     /// A native session's line (ADR 0165), which starts with [`NATIVE`] and takes no brief.
     pub native: bool,
+    /// `--setting-sources=user`, a native session's in an issue space's own directory
+    /// (ADR 0176): the person's own settings alone, none of the directory's or its parents'
+    /// (hooks, MCP servers, commands, `CLAUDE.md`); `--settings` and `--mcp-config` still
+    /// load. Never a terminal's.
+    pub user_settings_only: bool,
     /// `--permission-mode`, a native session's mode once it ran (part 3b), and that of the
     /// TUI it is handed to (part 4d); never another terminal's.
     pub permission_mode: Option<PermissionMode>,
@@ -176,6 +181,9 @@ pub fn arguments(line: &Line<'_>) -> Result<Vec<OsString>, LineError> {
     if line.native {
         args.push(format!("--permission-prompt-tool={PERMISSION_TOOL}").into());
     }
+    if line.native && line.user_settings_only {
+        args.push("--setting-sources=user".into());
+    }
     // A native session's, or the TUI's it is handed to (part 4d): the caller gives a
     // terminal's line none otherwise.
     if let Some(mode) = line.permission_mode {
@@ -224,6 +232,7 @@ mod tests {
             settings: None,
             add_dirs: &[],
             native: false,
+            user_settings_only: false,
             permission_mode: None,
             model: None,
             effort: None,
@@ -365,6 +374,7 @@ mod tests {
             settings: None,
             add_dirs: &dirs,
             native: false,
+            user_settings_only: false,
             permission_mode: None,
             model: None,
             effort: None,
@@ -463,6 +473,27 @@ mod tests {
 
     /// The CLI names the tool as `mcp__SERVER__TOOL`: the server is the one `--mcp-config`
     /// names, and the tool the one the bridge lists.
+    /// A native session in a space's directory reads the person's own settings alone
+    /// (ADR 0176); a terminal's line never says so.
+    #[test]
+    fn only_a_native_line_in_a_space_reads_the_persons_settings_alone() {
+        let a = id(1);
+        let sources = |native: bool, user_settings_only: bool| {
+            let line = Line {
+                native,
+                user_settings_only,
+                ..line(Start::Resume { id: &a })
+            };
+            let args = strings(&arguments(&line).unwrap());
+            (args.iter())
+                .filter(|arg| arg.starts_with("--setting-sources"))
+                .count()
+        };
+        assert_eq!(sources(true, true), 1);
+        assert_eq!(sources(true, false), 0);
+        assert_eq!(sources(false, true), 0);
+    }
+
     #[test]
     fn the_prompt_tool_is_the_one_the_bridge_lists() {
         let config = super::mcp_config(Path::new("/o"), 1, &id(1), true).unwrap();

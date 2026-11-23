@@ -99,6 +99,7 @@ impl App {
         NativeOrder {
             buffer,
             trust: crate::sessions::start::trust::ByRecord::No,
+            gate: crate::sessions::start::space_gate::ByGate::No,
             settings: self.terminal_settings(),
             env: self.configuration.session_env().to_vec(),
             out: Box::new(move |out| {
