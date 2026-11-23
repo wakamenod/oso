@@ -911,7 +911,8 @@ The UI thread never blocks on I/O or parsing:
     waits for the clipboard (`dispatch/branches.rs`); `app/sessions/worktrees.rs` asks for them
     (`sync_branch_wait`), and the listing goes ahead of other jobs.
 - The agents' session tools ([ADR 0121](adr/0121-agent-sessions-and-spaces.md) step 6): the
-  rules are `sessions::tools` (reach, refusals, the questions' wording), and
+  rules are `sessions::tools` (reach, refusals, the rate of
+  [ADR 0178](adr/0178-a-rate-limit-on-the-session-tools.md), the questions' wording), and
   `app/sessions/tools/` carries a call out with the hosted table, the start thread and the
   worktree jobs; `draft_set` is handed on to `app/vcs/draft.rs` (ADR 0127, step 6a). A call
   that asks is looked at first by a job (`worktree::prepare`), then its

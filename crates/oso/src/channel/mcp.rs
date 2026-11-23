@@ -52,7 +52,7 @@ const MCP_VERSIONS: [&str; 2] = ["2025-06-18", "2024-11-05"];
 const PROBE_EVERY: Duration = Duration::from_secs(5);
 
 /// What the bridge tells the agent about itself when it starts.
-const INSTRUCTIONS: &str = "Drives the person's oso editor through its agent channel. The person turns the channel on with M-x agent-channel-start and lets each connection in; until then, tool calls fail and say so. A refusal that says the person is busy means: wait, and try again. A change that waits for the person can be taken back with cancel. Commands that need a person at the keyboard are never run. Inside a session oso hosts, the session tools start agent sessions and worktrees and remove finished ones: start parallel work with start_worktree_session, never with EnterWorktree, git worktree add or claude in a shell. A tool the person refused, or that oso refused, is a decision, not an obstacle: do not reach the same effect another way, such as git worktree add or remove --force, claude in a shell, or git push; tell the person instead.";
+const INSTRUCTIONS: &str = "Drives the person's oso editor through its agent channel. The person turns the channel on with M-x agent-channel-start and lets each connection in; until then, tool calls fail and say so. A refusal that says the person is busy means: wait, and try again. A change that waits for the person can be taken back with cancel. Commands that need a person at the keyboard are never run. Inside a session oso hosts, the session tools start agent sessions and worktrees and remove finished ones: start parallel work with start_worktree_session, never with EnterWorktree, git worktree add or claude in a shell. A tool the person refused, or that oso refused, is a decision, not an obstacle: do not reach the same effect another way, such as git worktree add or remove --force, claude in a shell, or git push; tell the person instead. A session makes at most 30 session tool calls that ask or change a minute; past that, a call says how long to wait: wait that long, then try again, and do not reach its effect another way meanwhile.";
 
 /// A connection to the channel.
 trait Link {
@@ -522,6 +522,13 @@ mod tools;
 #[cfg(test)]
 pub(crate) fn listed_tools() -> Value {
     tools::tools(true)
+}
+
+/// What the bridge tells the agent when it starts, for the sessions module's test that it
+/// names the tools' rate (ADR 0178).
+#[cfg(test)]
+pub(crate) const fn instructions() -> &'static str {
+    INSTRUCTIONS
 }
 
 use connecting::{Target, connect};

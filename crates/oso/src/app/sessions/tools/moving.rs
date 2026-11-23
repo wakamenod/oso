@@ -178,12 +178,14 @@ impl App {
             .filter(|&other| other != at)
             .and_then(|other| spaces.get(other))
             .map(|other| other.label().to_owned());
-        (self.hosting.tools.guard)
-            .admit(&asker.id, TOOL, space, Instant::now())
-            .map_err(|refusal| refusal.why().to_owned())?;
+        // Before the guard, so that a call refused here does not count toward the rate
+        // (ADR 0178).
         if self.agent_question_waits() {
             return Err(QUESTION_WAITS.into());
         }
+        (self.hosting.tools.guard)
+            .admit(&asker.id, TOOL, space, Instant::now())
+            .map_err(|refusal| refusal.why())?;
         let added = adds.then_some(asker.main.root.as_path());
         // The question quotes the slug the agent gave whole; `?` says what the person calls
         // the space, cleaned, in full (ADR 0159).
