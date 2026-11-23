@@ -143,14 +143,19 @@ pub(super) fn draw_text<G: GlyphSource>(
     }
     for (index, row) in shown.iter().enumerate() {
         let columns = columns_of(row);
-        let mark = screen.mark(row).map(|column| screen.origin(row) + column);
+        let origin = screen.origin(row);
+        let mark = screen.mark(row).map(|column| origin + column);
+        // Where the row's text starts past its window's left edge, whose column is before it.
+        let indent = screen.drawn(row).start - origin;
         let spliced = preedit
             .filter(|(at, _)| at.0.row == row.line)
             .map(|((at, _), preedit)| (at.column, preedit));
         let line = (row.line, columns);
         let shaped_row = rows.view_row(display, line, (mark, Some(index)), spliced, system);
         // Its columns count from its first cluster's.
-        let row_layout = layout.with_left(screen.origin(row) - shaped_row.base);
+        let row_layout = layout
+            .indented(indent)
+            .with_left(origin + indent - shaped_row.base);
         let frame_row = row_layout.frame_cell(index, 0)[0];
         let faces = (view.highlights)
             .map(|highlights| RowFaces::new(highlights, &shaped_row.clusters, &plain, frame_row));

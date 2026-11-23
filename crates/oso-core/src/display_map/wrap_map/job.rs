@@ -9,7 +9,7 @@ use std::ops::Range;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
 
-use super::{WrapSnapshot, wrap_width};
+use super::{Fit, WrapSnapshot};
 use crate::display_map::DisplaySnapshot;
 use crate::rope::RopeEdit;
 
@@ -279,7 +279,8 @@ impl WrapJob {
                 wrap
             }
             Work::Columns(columns) => {
-                WrapSnapshot::with_width_unless(&self.display, wrap_width(columns), &stop)?
+                let fit = Fit::new(columns, self.wrap.fit.indents);
+                WrapSnapshot::with_fit_unless(&self.display, fit, &stop)?
             }
         };
         (!stop()).then_some(WrapReport {

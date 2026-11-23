@@ -30,6 +30,9 @@ pub(super) struct RowView {
     pub(super) line: usize,
     /// The columns of the line in view, from the area's left edge.
     pub(super) view: Range<usize>,
+    /// The column of the line its text starts at, past the area's left edge on a row its line
+    /// goes on in indented (ADR 0165).
+    pub(super) start: usize,
     /// The column of the line where its clusters stop: the next row's start, or the wrap's
     /// width on a row that continues (ADR 0100).
     pub(super) limit: usize,
@@ -45,6 +48,7 @@ pub(super) fn screen_row(screen: &Screen, index: usize, columns: usize) -> Optio
     Some(RowView {
         line: row.line,
         view: origin..origin + columns,
+        start: screen.drawn(row).start,
         limit: screen.text_end(row),
         mark: screen.mark(row).filter(|&column| column < columns),
     })
@@ -63,11 +67,12 @@ pub(super) fn draw_row(
     let view = row.view.clone();
     let mut text = String::new();
     let mut marks = vec![' '; view.len()];
-    let mut drawn = view.start;
+    let mut drawn = row.start;
+    text.extend(std::iter::repeat_n(' ', row.start - view.start));
     let end = view.end.min(row.limit);
     row_clusters(
         display,
-        DisplayPoint::new(row.line, view.start),
+        DisplayPoint::new(row.line, row.start),
         preedit,
         style.whitespace,
         |cluster, _| {

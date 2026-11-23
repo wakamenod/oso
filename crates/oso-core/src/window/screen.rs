@@ -10,6 +10,9 @@
 //!   column says which of its columns show.
 //! - A wrapped row that continues draws its text in the wrap's width and the mark in the column
 //!   after; a row that does not, as a provisional one, draws up to the window's edge.
+//! - In a native session's transcript, a row past its line's first is indented (ADR 0165): its
+//!   indent takes of the wrap's width, and its origin, the column that would be at the window's
+//!   left edge, is before its first.
 //! - With an input method's preedit on a row in view, the preedit's logical line is laid out
 //!   again with it in, as if inserted (`wrap_map`'s `spliced`), and its rows' columns count the
 //!   preedit's cells, as `row_clusters` draws them. The rows after it in view move down.
@@ -46,6 +49,9 @@ pub struct ScreenRow {
     /// preedit starts at the cursor.
     pub start: usize,
     pub end: usize,
+    /// The cells before its text at the window's left edge, where its line goes on indented
+    /// (ADR 0165): never more than its column.
+    pub(crate) indent: usize,
 }
 
 impl ScreenRow {
@@ -75,7 +81,8 @@ pub struct Screen {
     left: usize,
     /// The text area's columns.
     columns: usize,
-    /// The cells a wrapped row's text takes, the mark's column after them; `usize::MAX` when
+    /// The cells a wrapped row's text takes, its indent among them, the mark's column after
+    /// them; `usize::MAX` when
     /// nothing wraps.
     width: usize,
     /// The point of a preedit and its cells, which push what follows it on its line.
@@ -118,7 +125,8 @@ impl Screen {
         self.columns
     }
 
-    /// The cells a wrapped row's text takes, the mark's column after them; `usize::MAX` when
+    /// The cells a wrapped row's text takes, its indent among them, the mark's column after
+    /// them; `usize::MAX` when
     /// nothing wraps.
     pub(crate) fn width(&self) -> usize {
         self.width
@@ -130,9 +138,10 @@ impl Screen {
         self.preedit
     }
 
-    /// The column of `row`'s line drawn at the text area's left edge.
+    /// The column of `row`'s line drawn at the text area's left edge; on an indented row, the
+    /// one that would be, before its first.
     pub fn origin(&self, row: &ScreenRow) -> usize {
-        row.column.saturating_add(self.left)
+        row.column.saturating_add(self.left) - row.indent
     }
 
     /// Whether `row` draws the mark: it continues, and it fits in the wrap's width and the
@@ -140,7 +149,7 @@ impl Screen {
     /// width the window has since left, or the part of a line before where rows were wrapped
     /// from, draws to the window's edge with no mark, as a row that does not wrap (ADR 0104).
     fn marked(&self, row: &ScreenRow) -> bool {
-        let cells = row.end_column.saturating_sub(row.column);
+        let cells = row.end_column.saturating_sub(row.column) + row.indent;
         row.continues
             && self.width < self.columns
             && (cells <= self.width
@@ -152,13 +161,14 @@ impl Screen {
     /// start, and no further than the wrap's width on a row with the mark, which takes the
     /// column after, or than the window's edge on one without.
     pub fn drawn(&self, row: &ScreenRow) -> Range<usize> {
-        let start = self.origin(row);
+        let origin = self.origin(row);
         let cells = if self.marked(row) {
             self.width
         } else {
             self.columns
         };
-        start..row.end_column.min(start.saturating_add(cells))
+        let start = origin + row.indent;
+        start..row.end_column.min(origin.saturating_add(cells)).max(start)
     }
 
     /// The column of `row`'s line where its clusters stop: the next row's start, and no further
@@ -303,8 +313,9 @@ impl Window {
             return Some((row - top, self.scroll.left));
         };
         let Some(preedit) = preedit else {
-            let column = display.offset_to_display_point(rows.start(row)).column;
-            return Some((row - top, column));
+            let point = display.offset_to_display_point(rows.start(row));
+            let indent = indent_at(wrap, display, point);
+            return Some((row - top, point.column - indent));
         };
         let point = display.offset_to_display_point(cursor);
         let mut spliced = Vec::new();
@@ -321,7 +332,9 @@ impl Window {
         } else {
             at.checked_sub(spliced_from(&spliced, top, first, rows, display))?
         };
-        (index < self.size.rows).then(|| (index, spliced[at].column))
+        let start = DisplayPoint::new(point.row, spliced[at].column);
+        let indent = indent_at(wrap, display, start);
+        (index < self.size.rows).then(|| (index, start.column - indent))
     }
 }
 
@@ -387,6 +400,7 @@ fn fill(
                 continues: false,
                 start,
                 end: next,
+                indent: 0,
             });
             start = next;
         }
@@ -404,7 +418,7 @@ fn fill(
             push_rows(out, (wrap, display), top..first, wanted);
             let shown = spliced_from(&spliced, top, first, rows, display);
             let line = display.offset_to_display_point(cursor).row;
-            push_spliced(out, &spliced[shown..], line, wanted);
+            push_spliced(out, (wrap, display), (&spliced[shown..], line), wanted);
             let last = out.rows.last().copied();
             if let Some(last) = last.filter(|last| !last.continues)
                 && last.line + 1 < display.row_count()
@@ -447,11 +461,12 @@ fn find_hanging(
     out.hanging.clear();
     let width = out.width;
     for row in &out.rows {
-        if !row.continues || row.end_column.saturating_sub(row.column) != width.saturating_add(1) {
+        let cells = row.end_column.saturating_sub(row.column) + row.indent;
+        if !row.continues || cells != width.saturating_add(1) {
             continue;
         }
         // The column in the buffer's line, with the preedit's cells taken out.
-        let column = row.column + width;
+        let column = row.column + width - row.indent;
         let column = match pushed {
             Some((at, cells)) if at.row == row.line && column >= at.column => {
                 match column.checked_sub(cells).filter(|&c| c >= at.column) {
@@ -482,6 +497,21 @@ fn next_line_start(display: &DisplaySnapshot, line: usize) -> usize {
     }
 }
 
+/// The cells a row that starts at `start` is indented by, as [`indent_of`] has it.
+fn indent_at(wrap: &WrapSnapshot, display: &DisplaySnapshot, start: DisplayPoint) -> usize {
+    indent_of(start.column, || wrap.indent(display, start.row))
+}
+
+/// The cells a row that starts at `column` of a line whose rows are indented by `indent` is: none
+/// on its line's first, and never more than its column, which a row of an edit not yet wrapped
+/// again may start before.
+fn indent_of(column: usize, indent: impl FnOnce() -> usize) -> usize {
+    match column {
+        0 => 0,
+        column => indent().min(column),
+    }
+}
+
 /// Adds the wrap's rows `rows` to `out` until it holds `wanted`.
 fn push_rows(
     out: &mut Screen,
@@ -490,12 +520,20 @@ fn push_rows(
     wanted: usize,
 ) {
     let end = rows.end.min(wrap.row_count());
+    // A line's indent is read once for its rows in view.
+    let mut known = (usize::MAX, 0);
     for row in rows.start..end {
         if out.rows.len() >= wanted {
             return;
         }
         let (start, end, continues) = wrap.row_span(display, row);
         let point = display.offset_to_display_point(start);
+        let indent = indent_of(point.column, || {
+            if known.0 != point.row {
+                known = (point.row, wrap.indent(display, point.row));
+            }
+            known.1
+        });
         out.push(ScreenRow {
             line: point.row,
             column: point.column,
@@ -503,6 +541,7 @@ fn push_rows(
             continues,
             start,
             end,
+            indent,
         });
     }
 }
@@ -529,7 +568,13 @@ fn spliced_from(
 
 /// Adds the rows of line `line` laid out with the preedit in it to `out`, until it holds
 /// `wanted`.
-fn push_spliced(out: &mut Screen, spliced: &[SplicedRow], line: usize, wanted: usize) {
+fn push_spliced(
+    out: &mut Screen,
+    (wrap, display): (&WrapSnapshot, &DisplaySnapshot),
+    (spliced, line): (&[SplicedRow], usize),
+    wanted: usize,
+) {
+    let indent = wrap.indent(display, line);
     for (index, row) in spliced.iter().enumerate() {
         if out.rows.len() >= wanted {
             return;
@@ -545,6 +590,7 @@ fn push_spliced(out: &mut Screen, spliced: &[SplicedRow], line: usize, wanted: u
             continues: row.continues,
             start: row.start,
             end: row.end,
+            indent: indent_of(row.column, || indent),
         });
     }
 }

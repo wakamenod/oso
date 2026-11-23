@@ -16,7 +16,7 @@ use std::ops::Range;
 use super::edit::{Fresh, provisional};
 use super::job::SPLICE_COST;
 use super::map::WrapMap;
-use super::{Builder, Bytes, Row, RowStream, WrapSnapshot};
+use super::{Builder, Bytes, Fit, Row, RowStream, WrapSnapshot};
 use crate::display_map::DisplaySnapshot;
 
 /// How far before the rows wanted an anchor in a long provisional row may go, so that the rows
@@ -38,9 +38,9 @@ const SPACE_SEARCH: usize = 4;
 const PASSES: usize = 4;
 
 impl WrapSnapshot {
-    /// The rows of `display` `width` cells wide before any is wrapped: one a logical line,
+    /// The rows of `display` laid out as `fit` says before any is wrapped: one a logical line,
     /// found from the display map in O(log n).
-    pub(super) fn provisional(display: &DisplaySnapshot, width: usize) -> Self {
+    pub(super) fn provisional(display: &DisplaySnapshot, fit: Fit) -> Self {
         let mut fresh = Vec::new();
         provisional(display, (0, display.len()), &mut fresh);
         let mut builder = Builder::new(true);
@@ -52,7 +52,7 @@ impl WrapSnapshot {
         }
         Self {
             tree: builder.finish().into_iter().collect(),
-            width,
+            fit,
         }
     }
 
@@ -77,7 +77,7 @@ impl WrapSnapshot {
             }));
         }
         *budget = budget.saturating_sub(SPLICE_COST);
-        let mut stream = RowStream::new(display, anchor, self.width);
+        let mut stream = RowStream::new(display, anchor, self.fit);
         let (mut reached, mut past) = (anchor, 0);
         let mut ended = true;
         while let Some(row) = stream.next() {
@@ -108,7 +108,7 @@ impl WrapSnapshot {
         tree.replace_items(Bytes(first)..Bytes(last), items);
         let wrap = Self {
             tree,
-            width: self.width,
+            fit: self.fit,
         };
         (wrap, reached, join)
     }

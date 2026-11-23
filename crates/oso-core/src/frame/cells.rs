@@ -284,7 +284,7 @@ fn row_columns(
     if screen.mark(row).is_none() {
         return from..usize::MAX;
     }
-    let mark = row.column.saturating_add(screen.width());
+    let mark = screen.origin(row).saturating_add(screen.width());
     // The next row starts past the mark's column when a space hangs in it.
     let hanging = row.end_column > mark && from <= mark;
     from..mark + usize::from(hanging)

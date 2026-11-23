@@ -1,6 +1,6 @@
 # 0104. Soft wrap drawn in view rows
 
-- Status: Accepted
+- Status: Accepted, amended by 0165
 - Date: 2026-11-10
 
 ## Context
