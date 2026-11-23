@@ -471,6 +471,7 @@ fn answer_after_quiet(app: &mut App, key: &str) {
 
 mod adopt;
 mod cards;
+mod carried;
 mod compose;
 mod composed;
 mod interrupt;

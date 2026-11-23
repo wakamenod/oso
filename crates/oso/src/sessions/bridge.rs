@@ -14,7 +14,8 @@
 //! - the id claimed is that session's;
 //! - the session's terminal has not ended;
 //! - no other connection holds that session already;
-//! - for a session carried over `oso dev`'s restart, whose `claude` is no longer oso's child,
+//! - for a session carried over a restart, `oso dev`'s or `oso-restart`'s, whose `claude` is no
+//!   longer oso's child (until one is started in this instance),
 //!   the parent also started when that `claude` did, so a process that took its id after it
 //!   ended is not believed (ADR 0120, step 11).
 
@@ -30,7 +31,7 @@ pub struct Candidate<'a> {
     pub child: Option<u32>,
     /// A connection holds this session already.
     pub bridged: bool,
-    /// Whether its `claude` is not oso's child: a session carried over `oso dev`'s restart.
+    /// Whether its `claude` is not oso's child: one carried over a restart.
     pub carried: bool,
     /// When that `claude` started, if the system said.
     pub started: Option<std::time::SystemTime>,

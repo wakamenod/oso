@@ -104,7 +104,7 @@ impl App {
             return false;
         };
         session.buffer = Some(buffer);
-        session.run = Run::Running { child };
+        session.started_here(child);
         session.archived = false;
         // Its `claude`, which a native resume waits to be gone for (ADR 0165, part 4d-2); with
         // its id not known yet, an earlier TUI's, which may still run, is kept.

@@ -89,7 +89,8 @@ impl Table {
                 _ => None,
             },
             bridged: held_counts && session.slot(slot).is_some(),
-            // A carried session is a terminal's, never native.
+            // A carried session's `claude` is a terminal's, never native: a start in this
+            // instance, native or not, ends its being carried (`Hosted::started_here`).
             carried: session.carried,
             started: session.started,
         })

@@ -72,7 +72,7 @@ done
 "#;
 
 /// Claude Code's idle screen, as the TUI fake shows it.
-const IDLE: &str = include_str!("../../../../src/sessions/screens/idle-start.txt");
+pub(super) const IDLE: &str = include_str!("../../../../src/sessions/screens/idle-start.txt");
 
 /// A flow whose fake is [`SWITCH_FAKE`], whose stream says the session is in `plan` mode,
 /// which a resume carries.
@@ -273,12 +273,18 @@ pub(super) fn in_the_tui(flow: &Flow) -> (super::super::super::harness::App, Str
     let id = flag(&args(flow, 1), "session-id").unwrap().to_owned();
     app.run_command("session-switch-mode", None).unwrap();
     assert_eq!(flag(&args(flow, 2), "resume"), Some(id.as_str()));
+    tui_idle(&mut app);
+    (app, id)
+}
+
+/// Waits until `app` shows the session's TUI, `*claude: proj*`, whose screen the tracker
+/// judged idle.
+pub(super) fn tui_idle(app: &mut super::super::super::harness::App) {
     app.wait_for("the TUI idle", |state| {
         state["buffer"]["name"] == "*claude: proj*"
             && screen(state).contains("Claude Code")
             && super::tracked(state) == "idle"
     });
-    (app, id)
 }
 
 /// Whether the session is native again in its own transcript, `*claude: NAME*`, its rows

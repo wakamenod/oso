@@ -74,7 +74,6 @@ use self::note::NativeState;
 use super::Begin;
 use crate::app::App;
 use crate::git::TrustedRoot;
-use crate::sessions::hosted::Run;
 use crate::sessions::identity::Origin;
 use crate::sessions::native::choice::Choice;
 use crate::sessions::native::control::Control;
@@ -265,7 +264,7 @@ impl App {
             return false;
         };
         session.buffer = Some(buffer);
-        session.run = Run::Running { child };
+        session.started_here(child);
         session.archived = false;
         session.native = true;
         // Its start thread saw its TUI's `claude` gone, if it had one (part 4d-2).
