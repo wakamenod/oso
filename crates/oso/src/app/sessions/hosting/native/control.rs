@@ -1,8 +1,9 @@
-//! A native session's control layer in the app (ADR 0165, step 2c; parts 3a and 3b): what its
-//! stream's answers and `system/init` say to the control layer, routed to the request each
-//! answers, and what each request has due at the times they set. The rules are
+//! A native session's control layer in the app (ADR 0165, step 2c; parts 3a and 3b; ADR
+//! 0181): what its stream's answers and `system/init` say to the control layer, routed to the
+//! request each answers, and what each request has due at the times they set. The rules are
 //! `sessions::native::control`'s and each request's own module's; `interrupting`, `status` and
-//! `mode` carry out what they come to.
+//! `mode` carry out what they come to, and this what Remote Control's comes to, whose rules are
+//! `sessions::native::remote`'s.
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 //!
@@ -16,6 +17,7 @@ use super::{Native, mode, status};
 use crate::app::App;
 use crate::sessions::native::control::Answered;
 use crate::sessions::native::interrupt;
+use crate::sessions::native::remote::CANARY;
 use crate::sessions::native::wire::Event;
 use crate::sessions::native::wire::control::Request;
 use crate::sessions::worker::SessionKey;
@@ -27,10 +29,13 @@ pub(super) enum Follow {
     Interrupt(interrupt::Then),
     /// What the answer to a `set_permission_mode` request comes to.
     Mode(crate::sessions::native::mode::Then),
+    /// Remote Control's canary, said to the person (ADR 0181).
+    Canary,
 }
 
 /// Notes what `event` of a native session says to its control layer and the requests it
-/// answers, in the stream's order, and what that comes to in `follows`; `resumable` if no
+/// answers, in the stream's order, how a message came in the event itself, which the rows read
+/// after (ADR 0181), and what that comes to in `follows`; `resumable` if no
 /// resume of it is held now, for a mode's fallback. Returns whether the mode shown changed:
 /// `initialize`'s answer says it.
 pub(super) fn control_event(
@@ -39,6 +44,10 @@ pub(super) fn control_event(
     follows: &mut Vec<Follow>,
     resumable: bool,
 ) -> bool {
+    // First, so that the rows find a message marked.
+    if native.remote.event(event) {
+        follows.push(Follow::Canary);
+    }
     // Where its process is now, as this event finds it, for a mode's fallback.
     let process = mode::process(native, resumable);
     let Some(control) = native.control.as_mut() else {
@@ -53,6 +62,9 @@ pub(super) fn control_event(
                 // The slash commands it lists, moved: no row needs them (step 2d).
                 if let Some(commands) = answer.commands.take() {
                     native.commands.initialized(commands);
+                }
+                if answer.error.is_none() && native.remote.initialized(answer.remote_available) {
+                    follows.push(Follow::Canary);
                 }
                 // The models it lists, for the status line (part 3a), and its mode (part 3b).
                 status::initialize_answered(native, answer);
@@ -82,6 +94,14 @@ pub(super) fn control_event(
                     .into_iter()
                     .map(Follow::Interrupt),
             ),
+            Answered::Request {
+                request: Request::RemoteControl,
+                id,
+                error,
+            } => {
+                let enabled = answer.remote.take().map(|enabled| *enabled);
+                (native.remote).answered(id, error.as_deref(), enabled);
+            }
             Answered::Request { .. } | Answered::Other => {}
         },
         Event::Result(_) => native.interrupt.turn_ended(),
@@ -96,11 +116,15 @@ impl App {
         match follow {
             Follow::Interrupt(then) => self.interrupt_step(key, then),
             Follow::Mode(then) => self.mode_step(key, then),
+            Follow::Canary => {
+                log::warn!("native session {key:?}: {CANARY}");
+                self.native_note_row(key, CANARY);
+            }
         }
     }
 
-    /// When a native session's control layer, interrupt, mode switch, card focus or
-    /// `get_usage` is next due, if one is. A request that waits on a process that ended waits
+    /// When a native session's control layer, interrupt, mode switch, Remote Control request,
+    /// card focus or `get_usage` is next due, if one is. A request that waits on a process that ended waits
     /// for nothing.
     pub(in crate::app) fn natives_deadline(&self) -> Option<Instant> {
         // A permission card that waits for point, too (step 2e-2).
@@ -112,6 +136,7 @@ impl App {
                 (control.into_iter())
                     .chain(native.interrupt.deadline())
                     .chain(native.mode.deadline())
+                    .chain(native.remote.deadline())
             })
             .chain(card)
             .chain(self.usage_deadline())
@@ -119,7 +144,7 @@ impl App {
     }
 
     /// Carries out what is due of each native session's control layer, interrupt, mode switch,
-    /// card focus and `get_usage` at `now`.
+    /// Remote Control request, card focus and `get_usage` at `now`.
     pub(in crate::app) fn natives_due(&mut self, now: Instant) {
         self.card_focus_due(now);
         self.usage_due(now);
@@ -141,6 +166,8 @@ impl App {
                 .collect();
             then.extend(native.interrupt.due(control, now));
             let modes = native.mode.due(control, process, now);
+            // What it comes to is shown from ADR 0181's part RC-2 on.
+            native.remote.due(control, now);
             if !then.is_empty() || !modes.is_empty() {
                 due.push((key, then, modes));
             }
@@ -155,3 +182,6 @@ impl App {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -3,20 +3,23 @@
 //!
 //! Must not depend on: `rows`, threads or the UI; plain functions over a parsed line.
 //!
-//! - Only `initialize`, `interrupt` (step 2c), `get_usage` (part 3a) and
-//!   `set_permission_mode` (part 3b, with one of [`PermissionMode`]'s) are written, each with
-//!   an id of oso's, `oso-N`: an answer whose id is not one of these is no answer of oso's.
+//! - Only `initialize`, `interrupt` (step 2c), `get_usage` (part 3a),
+//!   `set_permission_mode` (part 3b, with one of [`PermissionMode`]'s) and `remote_control`
+//!   (ADR 0181, which nothing asks yet) are written, each with an id of oso's, `oso-N`: an
+//!   answer whose id is not one of these is no answer of oso's.
 //! - Of an answer only its id, whether it succeeded, its error, cut to [`super::MAX_NAME`],
 //!   the slash commands it lists (`commands`, step 2d), and what the status line reads (the
-//!   models, the usage, part 3a, `status_line`), and the permission mode `initialize` says
-//!   the session is in (part 3b) are read: what `initialize` answers otherwise (the account,
-//!   the agents) is not kept.
+//!   models, the usage, part 3a, `status_line`), the permission mode `initialize` says
+//!   the session is in (part 3b), whether it says Remote Control is available, and what
+//!   `remote_control`'s gives (ADR 0181, `remote`) are read: what `initialize` answers otherwise
+//!   (the account, the agents) is not kept.
 //! - A `control_request` of the CLI's is never answered, as oso asks it for none: its hooks,
 //!   its permission questions and its SDK servers are not oso's (permissions go through the
 //!   bridge, ADR 0165, Q2).
 
 use serde_json::{Map, Value};
 
+use super::remote::{self, Asked, Enable, Enabled};
 use super::slash::{SlashCommand, commands};
 use super::status_line::{Model, Usage, models, usage};
 use super::{string, whole};
@@ -33,10 +36,13 @@ pub enum Request {
     GetUsage,
     /// Puts the session in this permission mode (part 3b).
     SetPermissionMode(PermissionMode),
+    /// Remote Control (ADR 0181): [`request`] writes only that it is turned off, before its
+    /// process is ended; [`enable`] alone turns it on.
+    RemoteControl,
 }
 
 /// What a `control_response` says of a request.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Answer {
     /// The request's id, when it is one of oso's.
     pub id: Option<u64>,
@@ -51,6 +57,10 @@ pub struct Answer {
     /// The permission mode the session is in, as `initialize`'s says it (part 3b): the CLI's
     /// word, whole, or [`super::TOO_LONG`] for one longer than [`super::MAX_NAME`].
     pub mode: Option<String>,
+    /// Whether Remote Control is available, as `initialize`'s says (ADR 0181).
+    pub remote_available: Option<bool>,
+    /// What `remote_control`'s gives of the session on claude.ai (ADR 0181).
+    pub remote: Option<Box<Enabled>>,
 }
 
 /// The id of `initialize`, the first request; the others have the ids after it.
@@ -61,16 +71,33 @@ const PREFIX: &str = "oso-";
 
 /// The line that writes `request` with id `id`, ending in `\n`.
 pub fn request(id: u64, request: Request) -> String {
-    let subtype = match request {
-        Request::Initialize => "initialize",
-        Request::Interrupt => "interrupt",
-        Request::GetUsage => "get_usage",
-        Request::SetPermissionMode(_) => "set_permission_mode",
-    };
-    let mut body = serde_json::json!({ "subtype": subtype });
-    if let Request::SetPermissionMode(mode) = request {
-        body["mode"] = Value::String(mode.name().to_owned());
-    }
+    let plain = |subtype: &str| serde_json::json!({ "subtype": subtype });
+    line(
+        id,
+        &match request {
+            Request::Initialize => plain("initialize"),
+            Request::Interrupt => plain("interrupt"),
+            Request::GetUsage => plain("get_usage"),
+            Request::SetPermissionMode(mode) => {
+                serde_json::json!({ "subtype": "set_permission_mode", "mode": mode.name() })
+            }
+            Request::RemoteControl => remote::request(None),
+        },
+    )
+}
+
+/// The line that asks to connect the session to claude.ai as `enable` says, for the request
+/// `asked`, ending in `\n` (ADR 0181).
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "nothing asks until ADR 0181's part RC-2")
+)]
+pub fn enable(asked: &Asked, enable: &Enable<'_>) -> String {
+    line(asked.id(), &remote::request(Some(enable)))
+}
+
+/// The line of a request whose body is `body`, with id `id`, ending in `\n`.
+fn line(id: u64, body: &Value) -> String {
     let line = serde_json::json!({
         "type": "control_request",
         "request_id": format!("{PREFIX}{id}"),
@@ -104,5 +131,9 @@ pub(super) fn answer(object: &Map<String, Value>) -> Option<Answer> {
         mode: body
             .map(|body| whole(body, "current_permission_mode"))
             .filter(|mode| !mode.is_empty()),
+        remote_available: body
+            .and_then(|body| body.get("remote_control_available"))
+            .and_then(Value::as_bool),
+        remote: body.and_then(remote::enabled).map(Box::new),
     })
 }

@@ -20,6 +20,7 @@ use super::{MAX_ERR_SHOWN, Native, draw};
 use crate::app::App;
 use crate::app::sessions::hosting::now_ms;
 use crate::sessions::native::interrupt::Interrupt;
+use crate::sessions::native::remote::Remote;
 use crate::sessions::state::Exit;
 use crate::sessions::worker::{Job, SessionKey};
 
@@ -53,6 +54,8 @@ impl App {
         // Interrupted with a signal, or stopped to resume in another mode (part 3b), it ended
         // as asked, and resumes (step 2c): unless the person stopped it, or a resume is held.
         native.control = None;
+        // Only its process's end clears Remote Control's mark (ADR 0181).
+        native.remote = Remote::default();
         let interrupted =
             std::mem::replace(&mut native.interrupt, Interrupt::new(SIGNALS)).resumes();
         let respawns = native.mode.respawns() || for_dir;

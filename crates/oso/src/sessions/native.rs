@@ -39,6 +39,8 @@
 //!   the CLI says it took them (part 3c).
 //! - `switch`: `session-switch-mode`'s rules, and where each switch between native and the
 //!   TUI is, from the end of one mode's process to the other's start (part 4d).
+//! - `remote`: where Remote Control is in a session's process, and which messages came another
+//!   way than oso's standard input (ADR 0181).
 //! - `past`: which lines of a session's transcript its earlier turns show, and what is left
 //!   out (step 5).
 
@@ -54,6 +56,7 @@ pub mod placed;
 pub mod point;
 pub mod queue;
 pub mod recap;
+pub mod remote;
 pub mod render;
 pub mod rows;
 pub mod shown;

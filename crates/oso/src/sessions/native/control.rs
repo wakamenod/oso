@@ -82,7 +82,9 @@ impl Control {
         match request {
             Request::Initialize => false,
             Request::Interrupt => initialized && self.receipt != Some(false),
-            Request::GetUsage | Request::SetPermissionMode(_) => initialized,
+            Request::GetUsage | Request::SetPermissionMode(_) | Request::RemoteControl => {
+                initialized
+            }
         }
     }
 
@@ -99,11 +101,17 @@ impl Control {
     /// The id of a request of kind `request` about to be written, which waits for its answer.
     pub fn ask(&mut self, request: Request) -> u64 {
         self.last_id += 1;
+        self.ask_as(self.last_id, request);
+        self.last_id
+    }
+
+    /// A request of kind `request` about to be written with `id`, the caller's, which waits for
+    /// its answer: one no line can name before it is written, as `id` is random (ADR 0181).
+    pub fn ask_as(&mut self, id: u64, request: Request) {
         if self.waiting.len() == MAX_WAITING {
             self.waiting.remove(0);
         }
-        self.waiting.push((self.last_id, request));
-        self.last_id
+        self.waiting.push((id, request));
     }
 
     /// Request `id` is answered no more: it went unanswered too long, or was not written.

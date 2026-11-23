@@ -22,6 +22,7 @@ use std::time::Instant;
 use super::Native;
 use crate::app::App;
 use crate::sessions::native::mode::{Process, Refusal, Then};
+use crate::sessions::native::wire::Event;
 use crate::sessions::native::wire::control::{Answer, Request};
 use crate::sessions::worker::SessionKey;
 
@@ -29,9 +30,15 @@ use crate::sessions::worker::SessionKey;
 /// Returns whether the mode shown changed.
 pub(super) fn initialize_answered(native: &mut Native, answer: &mut Answer) -> bool {
     match answer.mode.take() {
-        Some(mode) if answer.error.is_none() => native.mode.said(&mode),
+        Some(mode) if answer.error.is_none() => native.mode.said(&mode, native.remote.watched()),
         _ => false,
     }
+}
+
+/// Notes the mode `event` says of `native`, if it says one. Returns whether the mode shown
+/// changed. One that may be from elsewhere is never carried (ADR 0181).
+pub(super) fn mode_event(native: &mut Native, event: &Event) -> bool {
+    native.mode.event(event, native.remote.watched())
 }
 
 /// Where native session `native`'s process is, for the mode's rules, `resumable` if no resume
