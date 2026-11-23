@@ -95,6 +95,19 @@ pub struct Hosted {
     /// When that `claude` started, as the instance before read it: a bridge's parent must
     /// have started then too, and with no start known, no bridge is believed unasked.
     pub started: Option<std::time::SystemTime>,
+    /// Its TUI's `claude` (ADR 0165, part 4d-2), from its start until its end is seen reaped,
+    /// or a native resume saw it gone: a native resume of the session waits for it first.
+    /// Kept in memory only.
+    pub tui_process: Option<TuiProcess>,
+}
+
+/// A TUI session's `claude` process, as its start thread found it (ADR 0165, part 4d-2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TuiProcess {
+    pub pid: u32,
+    /// When it started, as the system said just after the spawn; `None` if it did not say,
+    /// and then any process with the id counts as it.
+    pub started: Option<std::time::SystemTime>,
 }
 
 impl Hosted {
@@ -206,6 +219,7 @@ impl Table {
             carried: false,
             launched_as: None,
             started: None,
+            tui_process: None,
         });
         self.sessions.last_mut()
     }
@@ -259,6 +273,7 @@ impl Table {
                 carried: false,
                 launched_as: None,
                 started: None,
+                tui_process: None,
             });
         }
         back

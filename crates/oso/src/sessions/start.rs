@@ -9,7 +9,9 @@
 //! - A resume first reads Claude Code's registry: a live process with the id refuses, naming
 //!   its process and directory, and the person is offered a fork. Five seconds after the
 //!   resume, the registry is read again, and two live processes with the id give a warning.
-//!   These checks are `live`'s.
+//!   These checks are `live`'s. Before them, a native resume of a session whose TUI's
+//!   `claude` may still run waits for it to be gone (`gone`, ADR 0165, part 4d-2).
+//! - A TUI's `claude`'s start time is read just after its spawn, for that wait.
 //! - A missing directory refuses before anything starts.
 //! - A native resume or fork judged by the record of trusted projects (ADR 0165, part 4a) is
 //!   judged here by its root's path and identity, before the root's other checks.
@@ -40,6 +42,7 @@ use super::launch::{self, Launch};
 use super::stream::{self, Stream};
 
 mod baseline;
+pub mod gone;
 mod live;
 mod runs;
 pub mod trust;
@@ -169,6 +172,9 @@ pub struct NativeOrder {
     /// person chose with `/model` and `/effort` in a process before; `None` for the settings'.
     pub model: Option<String>,
     pub effort: Option<&'static str>,
+    /// The session's TUI `claude`, which may still run: the start waits for it to be gone
+    /// first (part 4d-2).
+    pub tui_to_end: Option<super::hosted::TuiProcess>,
 }
 
 /// The terminal a session runs in, as the app gives it.
@@ -217,6 +223,9 @@ pub struct Ready {
     pub baseline: Option<String>,
     /// What the echo area says of the start beside it: an orchestrator's repository left out.
     pub notes: Vec<String>,
+    /// A terminal's child's process id and when it started, as the system said just after
+    /// the spawn, for a later native resume's wait (ADR 0165, part 4d-2).
+    pub child_started: Option<(u32, std::time::SystemTime)>,
 }
 
 /// What a session started in.
@@ -270,7 +279,8 @@ pub fn spawn(order: Order, send: impl Fn(Report) + Send + Sync + 'static) {
 fn prepare(mut order: Order, send: &(dyn Fn(Report) + Sync)) {
     let token = order.token;
     let refuse = |why: String| send(Report::Refused { token, why });
-    if let Some(report) = held_back(&order) {
+    // Its TUI's `claude` gone first, then the directory and the registry (ADR 0165, part 4d-2).
+    if let Some(report) = gone::held_for_tui(&order).or_else(|| held_back(&order)) {
         return send(report);
     }
     let resumed = matches!(order.kind, Kind::Resume(_));
@@ -326,11 +336,13 @@ fn prepare(mut order: Order, send: &(dyn Fn(Report) + Sync)) {
             Ok(started) => started,
             Err(why) => return refuse(why),
         };
+    let child_started = child_started(&started);
     send(Report::Ready(Box::new(Ready {
         token,
         id: id.clone(),
         buffer,
         started,
+        child_started,
         shell: found.path,
         passed_over: found.passed_over,
         directory,
@@ -347,6 +359,17 @@ fn prepare(mut order: Order, send: &(dyn Fn(Report) + Sync)) {
             send(Report::Twice { token });
         }
     }
+}
+
+/// A terminal's child's process id and start, read just after the spawn, while it runs as
+/// the spawn left it, for a native resume's wait for it (ADR 0165, part 4d-2).
+fn child_started(started: &Started) -> Option<(u32, std::time::SystemTime)> {
+    let Started::Terminal(terminal) = started else {
+        return None;
+    };
+    let pid = terminal.pid()?;
+    let at = oso_platform::process::start_time(pid).ok().flatten()?;
+    Some((pid, at))
 }
 
 /// The variables a session's terminal sets: a terminal's, and [`SESSION_VARIABLE`].

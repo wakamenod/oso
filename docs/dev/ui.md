@@ -1194,14 +1194,18 @@ a switch made with its command stands until that setting changes in the file
   session to Claude Code's TUI: its `claude -p` ends, then the TUI resumes the conversation in
   a terminal, `*claude: NAME*`, in the permission mode, with the model and effort it held; the
   transcript is set aside as `*native: NAME*`, read-only, and sends nothing. It is refused during
-  a turn, a card, a start, an interrupt or a mode change, and with messages queued. A native
-  session's `C-c C-t` stays its to-do strip.
+  a turn, a card, a start, an interrupt or a mode change, and with messages queued. In a TUI
+  session's terminal, `C-c C-t` or `C-c a t` takes it back natively (part 4d-2) while its
+  screen says it is idle, done or ready for review, or it is stopped, in a trusted project: the TUI is hung up, and once
+  its `claude` is gone the session resumes natively in its transcript set aside, which takes
+  `*claude: NAME*` back. A TUI the hand-off started that exits of itself comes back so at
+  once. A native session's `C-c C-t` stays its to-do strip.
 - `C-x k` on a session's buffer archives the session: it is not brought back at the next start.
 - A session's buffer has session mode ([ADR 0132](adr/0132-a-session-mode-for-hosted-sessions.md)):
   its modeline says `Session` in place of `Terminal`, and `C-c C-<letter>` runs the Agents menu's
   head of that letter where the terminal and Emacs leave `C-<letter>` free (ADR 0143): `C-c C-n`,
-  `C-c C-d`, `C-c C-b`, `C-c C-r`, `C-c C-a`, `C-c C-w`, `C-c C-e`, `C-c C-f`, `C-c C-z` and
-  `C-c C-v`, with `C-c C-p` for the pane (`s`), as `C-c C-s` is the live search. `C-c a` opens the
+  `C-c C-d`, `C-c C-b`, `C-c C-r`, `C-c C-a`, `C-c C-w`, `C-c C-e`, `C-c C-f`, `C-c C-z`,
+  `C-c C-t` and `C-c C-v`, with `C-c C-p` for the pane (`s`), as `C-c C-s` is the live search. `C-c a` opens the
   menu, for `c`, `m`, `j`, `O`, `S`, `K`, `P`, `A`, `D` and `V`; `C-c C-v` is `review-layout`
   since ADR 0163, `C-c a D` the session's review. `C-c @` mentions, `C-c +` and `C-c -`
   allow and deny the agent channel's reads, `C-c C-u` is a prefix argument, `C-c C-y` pastes an

@@ -1,6 +1,7 @@
-//! A native session's side of its switch to the TUI (ADR 0165, part 4d-1): what
-//! `session-switch-mode`'s rules are given of it, its process ended for the switch, and its
-//! transcript set aside while the TUI runs its conversation.
+//! A native session's side of its switches (ADR 0165, part 4d): what `session-switch-mode`'s
+//! rules are given of it, its process ended for a switch to the TUI, its transcript set aside
+//! while the TUI runs its conversation (part 4d-1), and taken back when it comes back
+//! natively (part 4d-2).
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 //!
@@ -22,8 +23,10 @@
 
 use oso_core::buffer::BufferId;
 
+use super::note::NativeState;
 use super::{Native, draw};
 use crate::app::App;
+use crate::sessions::hosted::Run;
 use crate::sessions::native::switch::NativeAt;
 use crate::sessions::start::Chosen;
 use crate::sessions::worker::SessionKey;
@@ -55,6 +58,36 @@ impl App {
             moved: native.moved,
             held: self.native_resume_held(key),
         })
+    }
+
+    /// Session `key`, back from the TUI (part 4d-2), takes its transcript set aside back,
+    /// named `*claude: NAME*` again, stopped: whether there was one.
+    pub(in crate::app::sessions::hosting) fn take_back_aside(
+        &mut self,
+        key: SessionKey,
+        name: &str,
+    ) -> bool {
+        let Some(mut native) = self.hosting.natives.aside.remove(&key) else {
+            return false;
+        };
+        let buffer = native.buffer;
+        // The mode it resumes in, as held from before the hand-off: what the TUI changed is
+        // not read back.
+        let change = native.rows.note(&match native.mode.carried() {
+            Some(mode) => format!("Back from the TUI, in mode {}.", mode.name()),
+            None => "Back from the TUI.".to_owned(),
+        });
+        draw(&mut self.editor, &mut native, [change]);
+        self.editor
+            .rename_terminal_buffer(buffer, &super::super::buffer_name(name));
+        self.hosting.natives.map.insert(key, native);
+        self.mark_session_buffer(key, buffer);
+        if let Some(session) = self.hosting.table.get_mut(key) {
+            session.buffer = Some(buffer);
+            session.run = Run::Stopped;
+        }
+        self.set_native_state(key, NativeState::Stopped);
+        true
     }
 
     /// Ends native session `key`'s process for its switch to the TUI, which starts once it
@@ -152,6 +185,9 @@ impl App {
             .map(|(key, _)| *key)
             .collect();
         for key in gone {
+            if self.hosting.table.get(key).is_none() {
+                self.hosting.natives.switches.forget(key);
+            }
             if let Some(native) = self.hosting.natives.aside.remove(&key) {
                 self.kill_native_buffers(&native);
             }

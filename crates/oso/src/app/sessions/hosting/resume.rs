@@ -54,9 +54,10 @@ impl App {
         self.resume_hosted_with(key, shown, None)
     }
 
-    /// [`App::resume_hosted`], a terminal session's TUI given `chosen`: the mode, model and
-    /// effort of the native session handed to it (ADR 0165, part 4d), which no other resume
-    /// passes.
+    /// [`App::resume_hosted`], a TUI given `chosen`: what the native session handed to it
+    /// held (ADR 0165, part 4d-1), which no other resume passes. A native resume of a session
+    /// whose TUI's `claude` may still run waits for it to be gone on its start thread, whoever
+    /// resumes it (part 4d-2).
     ///
     /// # Errors
     ///
@@ -120,6 +121,7 @@ impl App {
         let runs = match native {
             true => Runs::Native(NativeOrder {
                 trust,
+                tui_to_end: self.hosting.table.get(key).and_then(|s| s.tui_process),
                 ..self.resume_native_buffer(key, buffer, shown)
             }),
             false => Runs::Terminal(TerminalOrder {

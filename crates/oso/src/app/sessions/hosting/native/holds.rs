@@ -60,8 +60,10 @@ impl App {
     pub(in crate::app) fn natives_hold_restart(&self) -> bool {
         // A busy buffer runs (`Buffer::is_busy`), so it is a live session's.
         let switches = &self.hosting.natives.switches;
+        // A TUI being taken back natively holds it too (part 4d-2).
         (self.hosting.natives.map.iter())
             .any(|(key, native)| Doing::of(native, false, switches.under_way(*key)).holds())
+            || switches.any()
             || self.editor.busy_native_sessions().next().is_some()
     }
 

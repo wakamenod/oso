@@ -1605,7 +1605,7 @@ The author's (a) on Q4-5 to Q4-8 of 2026-11-23, through the space's orchestrator
 - **`session-switch-mode`** (`Person`): `C-c a t`, the Agents menu's new head `t`, in its
   "Session" group (Q4-8 (a)), which ADR 0143 had kept for ADR 0129's dictation; from the
   transcript or its composer, whose `C-c C-t` stays the to-do strip's (part 3e). A TUI
-  session's terminal gets `C-c C-t` with part 4d-2, which takes a session back.
+  session's terminal has `C-c C-t` (part 4d-2).
 - **When.** A native session switches while it is idle, done or stopped. It is refused while
   its process starts, a turn is under way, it is being interrupted (step 2c), its permission
   mode is being changed (part 3b), it asks the person (a card, a plan's edit among them), or
@@ -1679,6 +1679,80 @@ The author's (a) on Q4-5 to Q4-8 of 2026-11-23, through the space's orchestrator
 - **Not done:** a test of a switch given up as a reader failed or a stop was asked (rather than
   made) while the process ended, as the app has no harness of its own beside the end-to-end
   flows, which cover a stop made.
+
+### Part 4d-2: a TUI session taken back natively
+
+The author's (a) on Q4-6 and Q4-8 of 2026-11-23, through the space's orchestrator: the other way
+of "One session, and the TUI as a hand-off" (Q3).
+
+- **`session-switch-mode`** in a TUI session's terminal: `C-c C-t` there (session mode's key,
+  as the Agents menu's head `t` is `C-c a t`), or `C-c a t`. A native session's transcript and
+  composer keep `C-c C-t` for the to-do strip (part 3e): session mode's `C-c C-t` is not bound
+  there (`NOT_NATIVE`).
+- **When.** While the TUI's screen says it is idle, done or ready for review (ADR 0121's
+  tracker), or while it is stopped; not while it works or a dialog asks, while its state is not
+  known yet (a TUI just started), while it is being started, nor while a resume is held (a stop
+  asked, oso waiting to quit or restarting, an orchestrator's replacement). Only where a native
+  session may run (Q5): its project's root trusted now, by an open buffer of it or the record of
+  trusted projects (part 4a), judged before anything changes, and again once the TUI ended;
+  else it says why ("Session NAME stays in the TUI, as a native session runs only at a trusted
+  project's root: …"). A running TUI whose process id is not known (its start outlasted the
+  start thread's wait) does not switch: its end could not be waited for.
+- **Never two writers.** A session keeps its TUI's `claude`'s process id and start time, read
+  on the TUI's start thread just after the spawn (`Hosted::tui_process`, in memory only), until
+  its terminal's end is seen reaped (`End::Exited`) or a native resume saw it gone. `oso-term`
+  says a terminal ended once its pty did and gives up waiting for its child 2 s later, and a
+  kill of its buffer stops the session before its hang-up goes, so a `claude` that ignores
+  `SIGHUP` may still run after the session shows stopped: on Linux once it closed its
+  descriptors of the terminal, as its pty then ends; on macOS, where a session leader's
+  controlling terminal stays open until it exits (seen in the e2e flow), only after a kill. So every native resume of such a
+  session, the switch's or a later `session-resume`'s, waits first, on its start thread, before
+  the directory's and the registry's looks (`sessions::start::gone`): at most 10 s, until no
+  process with the id started when it did (a process id is reused only once reaped, and two
+  reads of a start time agree, within a second on Linux, so a change of the wall clock fools
+  nothing; with no start time known, any process with the id counts). Past the bound the
+  resume is refused, saying why, the session stays stopped, and its next native resume waits
+  again; meanwhile, as any start does, it holds `oso-restart` and an exit that waits (part
+  4b), up to those 10 s. The record says native only once the native process started, so a
+  resume refused leaves a TUI session at oso's next start. A switch under way holds
+  `oso-restart` too. The security review's first pass found the stopped TUI and the clock
+  cases.
+- **The hang-up.** A running TUI is hung up as oso's stop hangs a terminal up (a TUI exits 0 in
+  1.4 s, measured), but not noted as a stop, so that a stop made meanwhile, by the person, a
+  space's close or a worktree's removal, gives the switch up, as a resume held does (a stop
+  asked, oso waiting to quit or restarting, an orchestrator's replacement): the session stays
+  a stopped TUI one. A kill of the TUI's buffer meanwhile archives the session and ends the
+  switch.
+- **Where it resumes.** Once the terminal said its program ended, after the event (the end is
+  said as the terminal's handle is dropped), its terminal goes (the session's buffer moved
+  first, so that the kill archives nothing), and the session resumes natively in the
+  transcript set aside (part 4d-1), which takes `*claude: NAME*` back with a row "Back from the
+  TUI, in mode M.", or, after an oso restart, which carries no transcript set aside, a new one,
+  "Stopped. Its conversation is kept by Claude Code." It resumes as `session-resume` resumes a
+  native session (part 2b), the composer selected, in the mode, model and effort oso held for
+  it from before the hand-off, which the row names; what the person changed in the TUI is not
+  read back, as no stream says it (an item the security review named for the author).
+- **A TUI the hand-off started that exits of itself** with status 0 (`/exit`), not stopped by
+  oso or the person, not failed, and with no resume held, comes back natively at once (Q4-6
+  (a)), the same way, its process reaped. Only a TUI started by a hand-off in this instance:
+  one carried over an `oso-restart`, or resumed by `session-resume`, stays a TUI session when
+  it exits.
+- **Built with:** `sessions/native/switch.rs` (the TUI's rules, `TuiAt`, the phases, a native
+  start due after the event among them, and the hand-off's TUIs, pure, with their tests),
+  `sessions/start/gone.rs` (the wait, with tests over a stand-in for the system's start times:
+  gone, another's, still running, a second off, unknown, the clock set back, the bound),
+  `Ready::child_started`, `Hosted::tui_process`, `NativeOrder::tui_to_end`,
+  `app/sessions/hosting/switch/back.rs`, the transcript taken back in `native/switching.rs`,
+  the terminal's start and end in `hosting/terminal.rs`, `take_back_due` after the terminals'
+  sync in `app/events.rs`, and the e2e flows `sessions::native::switch`: a TUI fake that
+  ignores `SIGHUP` for 3 s, whose exit came before the native `-p` started (the `-p` fake
+  counts the TUI exits at its start), the transcript taken back and answering; the same TUI
+  stopped with `k` first, shown stopped a second before it ends, then switched; its buffer
+  killed while it ends, which starts nothing and archives the session; and a TUI the hand-off
+  started that exits 0 of itself.
+- **Not done:** app-level tests of a switch given up by a stop asked or a restart asked, and
+  of trust taken back while the TUI ends, as the app has no harness of its own beside the
+  end-to-end flows.
 
 ## Questions
 

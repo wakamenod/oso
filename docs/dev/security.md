@@ -943,6 +943,13 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     look; a stop asked or made (the person's, a space's close, a worktree's removal), an exit or a
     restart asked meanwhile gives it up too. The TUI is not
     gated by oso's project trust, as no TUI session is: Claude Code asks its own question.
+    Back from the TUI (part 4d-2), the native resume is gated as any native resume. A session
+    keeps its TUI's `claude`'s process id and start time, read just after the spawn, until its
+    end is seen reaped; every native resume of it waits first on its start thread, at most
+    10 s, until no process with that id started when it did, as a TUI that ignores `SIGHUP`
+    outlives its terminal's 2 s wait for its child, and a kill stops the session before the
+    hang-up; else it is refused, and the record still says `tui`. A running TUI whose process
+    id is not known does not switch.
   - A resume reads Claude Code's registry first, and refuses while a live process has that id,
     offering a fork. The registry is read on a thread, `<digits>.json` names only, bounded,
     without following links and only the reading user's; oso never reads the `*.key` files.
