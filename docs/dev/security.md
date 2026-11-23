@@ -935,11 +935,21 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   in the mode the person's own settings give it; only a native session's later process is
   given `--permission-mode`, the mode it was in or the person switched it to (ADR 0165,
   part 3b), and `--model` and `--effort`, the ones the person chose with `/model` and
-  `/effort` (part 3c). Through the login shell, its arguments are
+  `/effort` (part 3c); and so is the TUI a native session is handed to (`session-switch-mode`,
+  part 4d-1), with what the native session held, on its resume alone, never on a new or
+  forked terminal's line. Through the login shell, its arguments are
   positional parameters of a fixed script, never script text, and `claude` is found on the
   shell's `PATH` as in any terminal the person opens, outside the session's directory and its
   project, unless `[sessions] claude` names it by absolute path. `[sessions] env` cannot pass `PATH` or the loader's variables. Starting,
-  resuming and forking are `Person`. oso's start brings sessions back stopped, and runs nothing.
+  resuming, forking and `session-switch-mode` are `Person`. oso's start brings sessions back
+  stopped, and runs nothing.
+  - `session-switch-mode` keeps one writer of a conversation (ADR 0165, part 4d-1): the CLI lets
+    two processes write one, so the TUI starts only once the stream said the native process
+    ended and it was reaped (a stream whose end came with no reap, as when its reader failed,
+    has its group killed then, and the switch is given up), its start the resume's registry
+    look; a stop asked or made (the person's, a space's close, a worktree's removal), an exit or a
+    restart asked meanwhile gives it up too. The TUI is not
+    gated by oso's project trust, as no TUI session is: Claude Code asks its own question.
   - A resume reads Claude Code's registry first, and refuses while a live process has that id,
     offering a fork. The registry is read on a thread, `<digits>.json` names only, bounded,
     without following links and only the reading user's; oso never reads the `*.key` files.

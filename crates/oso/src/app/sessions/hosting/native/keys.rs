@@ -33,6 +33,10 @@ impl App {
         line: usize,
         action: NativeAction,
     ) {
+        // A transcript set aside while its session runs in the TUI sends nothing (part 4d).
+        if self.refuse_aside_key(buffer) {
+            return;
+        }
         // The `y` to the question before a plan's approval with auto (part 3d), which keeps
         // the session it asked about.
         if action == NativeAction::Confirmed {

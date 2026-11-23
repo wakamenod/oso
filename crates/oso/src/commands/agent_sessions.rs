@@ -113,6 +113,14 @@ pub const COMMANDS: &[Command] = &[
         state: None,
     },
     Command {
+        name: "session-switch-mode",
+        doc: "Switch the session whose buffer this is to its other mode: a native session to Claude Code's TUI in a terminal.\n\nIt switches while the session is idle, done or stopped: not while its process starts, a turn is under way, it is being interrupted, its permission mode is being changed, it asks you something, or messages are queued. Its `claude -p` ends first; once it ended, the TUI resumes its conversation in a terminal, `*claude: NAME*`, in the permission mode, with the model and effort it held. The TUI may ask Claude Code's own trust question. The transcript is set aside as `*native: NAME*`, read-only, and sends nothing. Only one process ever writes the conversation: the TUI's start is refused while Claude Code's registry has a live process for it, as `session-resume` is.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: session_switch_mode,
+        state: None,
+    },
+    Command {
         name: "session-adopt",
         doc: "Bring a Claude Code session started outside oso under oso: resume it in a new terminal buffer, `*claude: NAME*`, read with completion.
 
@@ -306,6 +314,14 @@ fn session_fork(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     Ok(())
 }
 
+fn session_switch_mode(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    super::not_in_prompt(ctx)?;
+    let buffer = ctx.editor.window().buffer();
+    ctx.editor
+        .request_session(SessionRequest::SwitchMode(buffer));
+    Ok(())
+}
+
 fn session_explain_file(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     super::not_in_prompt(ctx)?;
     let path = ctx.answer().unwrap_or_default();
@@ -389,14 +405,19 @@ mod tests {
     }
 
     #[test]
-    fn resume_and_fork_name_the_selected_buffer() {
+    fn resume_fork_and_switch_name_the_selected_buffer() {
         let mut editor = editor("");
         let buffer = editor.window().buffer();
         run(&mut editor, "session-resume", None, None);
         run(&mut editor, "session-fork", None, None);
+        run(&mut editor, "session-switch-mode", None, None);
         assert_eq!(
             editor.take_session_requests(),
-            [SessionRequest::Resume(buffer), SessionRequest::Fork(buffer)]
+            [
+                SessionRequest::Resume(buffer),
+                SessionRequest::Fork(buffer),
+                SessionRequest::SwitchMode(buffer)
+            ]
         );
     }
 

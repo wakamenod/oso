@@ -4,7 +4,9 @@
 //! person or an orchestrator's replacement asked (part 4c: so that the restart neither
 //! resumes it nor starts its successor part way). The restart waits for them, as an
 //! exit that waits does for a turn (ADR 0133, step 5), and ends their processes only once
-//! they are idle. A stopped or failed session, with no process, holds nothing.
+//! they are idle. A stopped or failed session, with no process, holds nothing. So does one
+//! whose process is being ended for a switch to the TUI (part 4d), until it ended and the
+//! TUI's start, which holds it as any start does, began.
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 
@@ -13,7 +15,6 @@ use std::collections::HashSet;
 use oso_core::buffer::BufferId;
 
 use super::Native;
-use super::note::NativeState;
 use crate::app::App;
 
 /// What a native session is doing, as far as a restart is concerned.
@@ -30,13 +31,16 @@ struct Doing {
     turn: bool,
     /// The sessions' worker found it working or asking the person (ADR 0133's busy).
     busy: bool,
-    /// oso hung it up, and its end has not come yet.
+    /// oso hung it up, and its end has not come yet (part 4c).
     stopping: bool,
+    /// Its process is being ended for a switch to the TUI (part 4d), which starts once it
+    /// ended: the restart carries the TUI, not a session caught half way.
+    switching: bool,
 }
 
 impl Doing {
-    fn of(native: &Native, busy: bool, stopping: bool) -> Self {
-        let starting = native.state == NativeState::Starting;
+    fn of(native: &Native, busy: bool, stopping: bool, switching: bool) -> Self {
+        let starting = native.starting();
         Self {
             live: native.stream.is_some() || starting,
             starting,
@@ -44,12 +48,19 @@ impl Doing {
             turn: native.composing.busy,
             busy,
             stopping,
+            switching,
         }
     }
 
     /// Whether it holds a restart back.
     fn holds(self) -> bool {
-        self.live && (self.starting || self.interrupting || self.turn || self.busy || self.stopping)
+        self.live
+            && (self.starting
+                || self.interrupting
+                || self.turn
+                || self.busy
+                || self.stopping
+                || self.switching)
     }
 }
 
@@ -58,10 +69,11 @@ impl App {
     /// the look before each wait of the loop, while a restart waits. O(buffers + sessions).
     pub(in crate::app) fn natives_hold_restart(&self) -> bool {
         // A busy buffer runs (`Buffer::is_busy`), so it is a live session's.
+        let switches = &self.hosting.natives.switches;
         let stopping = |key| self.watch.is_hung_up(key);
-        (self.hosting.natives.map.iter())
-            .any(|(key, native)| Doing::of(native, false, stopping(*key)).holds())
-            || self.editor.busy_native_sessions().next().is_some()
+        (self.hosting.natives.map.iter()).any(|(key, native)| {
+            Doing::of(native, false, stopping(*key), switches.under_way(*key)).holds()
+        }) || self.editor.busy_native_sessions().next().is_some()
     }
 
     /// The buffers of the native sessions an `oso-restart` waits for, in the order they were
@@ -71,10 +83,12 @@ impl App {
             return Vec::new();
         }
         let busy: HashSet<BufferId> = self.editor.busy_native_sessions().collect();
+        let switches = &self.hosting.natives.switches;
         let mut holding: Vec<BufferId> = (self.hosting.natives.map.iter())
             .filter(|(key, native)| {
-                let stopping = self.watch.is_hung_up(**key);
-                Doing::of(native, busy.contains(&native.buffer), stopping).holds()
+                let (stopping, switching) =
+                    (self.watch.is_hung_up(**key), switches.under_way(**key));
+                Doing::of(native, busy.contains(&native.buffer), stopping, switching).holds()
             })
             .map(|(_, native)| native.buffer)
             .collect();
@@ -95,6 +109,7 @@ mod tests {
         turn: false,
         busy: false,
         stopping: false,
+        switching: false,
     };
 
     #[test]
@@ -115,6 +130,11 @@ mod tests {
             // Hung up, until it has ended (part 4c).
             Doing {
                 stopping: true,
+                ..LIVE
+            },
+            // Ended for a switch to the TUI, which is not started yet (part 4d).
+            Doing {
+                switching: true,
                 ..LIVE
             },
         ];

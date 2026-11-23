@@ -366,6 +366,7 @@ const AGENTS: BuiltInMenu = BuiltInMenu {
                 exit("P", "session-pin", PIN_LABEL),
                 exit("A", "session-archive", ARCHIVE_LABEL),
                 exit("R", "session-rename", "rename\u{2026}"),
+                exit("t", "session-switch-mode", "switch mode"),
                 exit("v", "review-layout", "review layout"),
                 exit("D", "review-session", "review changes"),
                 open("V", "review", "review menu"),

@@ -47,7 +47,8 @@ const RESUMED: &str = "Resumed after oso-restart.";
 impl App {
     /// The native sessions whose `claude -p` runs and that were given a message: those a
     /// restart ends and resumes. Not one oso is stopping already, or that the person is asked
-    /// whether to stop, or an orchestrator being replaced: their stop wins.
+    /// whether to stop, or an orchestrator being replaced: their stop wins; nor one being
+    /// handed to the TUI (part 4d), which the restart's wait holds for.
     fn natives_to_resume(&self) -> impl Iterator<Item = SessionKey> + '_ {
         (self.hosting.natives.map.iter())
             .filter(|(_, native)| native.stream.is_some() && native.spoke)
@@ -56,6 +57,7 @@ impl App {
                 !self.watch.is_hung_up(*key)
                     && !self.watch.stop_asked(*key)
                     && !self.hosting.spaces.replacing.contains_key(key)
+                    && !self.hosting.natives.switches.under_way(*key)
             })
     }
 

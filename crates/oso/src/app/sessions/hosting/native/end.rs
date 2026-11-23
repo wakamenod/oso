@@ -35,10 +35,19 @@ impl App {
         };
         if !in_table {
             native.ended = Some((status, stderr.to_owned()));
+            // No switch goes on for a session the table does not hold (part 4d).
+            self.hosting.natives.switches.over(key);
             return;
         }
-        native.stream = None;
-        let hung_up = self.watch.take_hung_up(key);
+        // A stream that ended with its process not reaped, as when its reader failed, ends
+        // that process's group now: no writer of the conversation goes on unseen (part 4d).
+        let unreaped = (native.stream.take()).is_some_and(|stream| stream.kill_unreaped());
+        // Ended for a switch to the TUI (part 4d): stopped, as oso ended it, and resumes not.
+        let switching = self.hosting.natives.switches.ending(key).is_some();
+        // A stop made meanwhile, at the person's `k` or a space's close or a worktree's removal,
+        // gives the switch up: no TUI starts where it was called off.
+        let stopped = self.watch.take_hung_up(key);
+        let hung_up = stopped || switching;
         // Interrupted with a signal, or stopped to resume in another mode (part 3b), it ended
         // as asked, and resumes (step 2c): unless the person stopped it, or a resume is held.
         native.control = None;
@@ -97,6 +106,9 @@ impl App {
             worker.send(Job::Exited(key, exit));
         }
         self.remember_sessions();
+        if switching {
+            return self.native_ended_for_tui(key, unreaped || held || stopped);
+        }
         if resumes {
             return self.resume_at_once(key);
         }
@@ -173,6 +185,7 @@ impl App {
     pub(in crate::app) fn sync_native_sessions(&mut self) {
         self.sync_sessions_socket();
         self.sweep_killed_natives();
+        self.sweep_aside();
         // After the sweep: no message goes to a session whose buffer was just killed.
         self.send_waiting_queues();
         self.sync_slash_commands();
@@ -197,6 +210,8 @@ impl App {
         for key in gone {
             self.drop_permissions_of(key);
             self.hosting.starting.remove(&key);
+            // A switch to the TUI is over with it (part 4d).
+            self.hosting.natives.switches.over(key);
             let Some(native) = self.hosting.natives.map.remove(&key) else {
                 continue;
             };

@@ -82,6 +82,7 @@ impl App {
             SessionRequest::Refresh => self.relist_projects(),
             SessionRequest::Send { to, parts } => self.send_request(&to, &parts),
             SessionRequest::FollowMessage(buffer) => self.follow_message(buffer),
+            SessionRequest::SwitchMode(buffer) => self.switch_session_mode(buffer),
             SessionRequest::RenameTo(name) => self.session_rename_answered(&name),
             SessionRequest::CardText(text) => self.card_written(&text),
             other => return Some(other),
