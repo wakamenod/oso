@@ -30,6 +30,8 @@
 //!   its `get_usage` request, once a process on tier 2.
 //! - `suggest`: which prompt suggestion is kept, and its row; `recap`: the recap of a turn
 //!   that ended out of sight (part 3f).
+//! - `todo`: the session's to-do list from its to-do tools' results, and the strip that
+//!   shows it (step 3, part 3e).
 
 pub mod asks;
 pub mod card;
@@ -45,6 +47,7 @@ pub mod rows;
 pub mod slash;
 pub mod status;
 pub mod suggest;
+pub mod todo;
 pub mod turns;
 pub mod usage;
 pub mod wire;

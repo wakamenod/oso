@@ -104,7 +104,8 @@ often, so it must rebuild within 2 s.
   native fork `native/resume.rs`, under the trust `app/sessions/hosting/trust.rs` judges
   (ADR 0165, step 2); its whole replies are highlighted as Markdown on the syntax threads, as
   documents no buffer owns, by `app/sessions/hosting/native/markdown.rs`, and their runs put
-  on each reply's row by `sessions/native/markdown.rs` (part 2g). `app/sessions.rs` and
+  on each reply's row by `sessions/native/markdown.rs` (part 2g); its to-do strip is
+  `native/todo.rs`, over `sessions/native/todo.rs` and `wire/todo.rs` (part 3e). `app/sessions.rs` and
   `app/sessions/` carry out what the worker, the jobs and the start thread find.
 - `src/review.rs` runs git and diffs for an agent review on `oso-review` (ADR 0122), only for
   a trusted project's root, and git only through `oso_platform::process`, with `src/git.rs`'s

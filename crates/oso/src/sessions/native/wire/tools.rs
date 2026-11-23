@@ -1,7 +1,8 @@
 //! A tool call's input, read into what a native session shows of it (ADR 0165): the path, the
 //! command or the pattern the call works on, by the tool's name; for a tool not known here,
-//! its input as JSON, cut. Nothing past this file and `card`, which reads what a permission
-//! card shows of it, reads a tool's input as JSON.
+//! its input as JSON, cut. Nothing past this file, `card`, which reads what a permission card
+//! shows of it, and `todo`, which reads a `TaskUpdate`'s task (part 3e), reads a tool's input
+//! as JSON.
 //!
 //! Must not depend on: `rows` or `render`; plain functions over a parsed value.
 //!
@@ -33,6 +34,8 @@ pub struct ToolInput {
     pub kind: Option<String>,
     /// How many to-do items it writes.
     pub items: Option<usize>,
+    /// A `TaskUpdate`'s task and new subject (part 3e).
+    pub task: Option<super::todo::Update>,
     /// An unknown tool's input as JSON, cut to [`MAX_DETAIL`].
     pub detail: Option<String>,
     /// The input was longer than [`MAX_INPUT`] as JSON.
@@ -83,6 +86,10 @@ pub fn decode(name: &str, value: Option<&Value>) -> ToolInput {
                 .map(|text| capped(text, MAX_FIELD).0.to_owned());
             input.detail = (!value.is_null()).then(|| json_cut(value, MAX_DETAIL));
         }
+    }
+    // Shown as any tool's, and read for the to-do strip too (part 3e).
+    if name == "TaskUpdate" {
+        input.task = super::todo::update(Some(value));
     }
     input
 }

@@ -17,7 +17,8 @@
 //!   `note`'s; its resume and a native fork are `resume`'s; how it ends, stopped, failed,
 //!   archived or forgotten, `end`'s; its interrupt, `interrupting`'s (step 2c); its slash
 //!   commands, `slash`'s (step 2d); its replies' Markdown highlighting, once each is whole,
-//!   `markdown`'s (part 2g); its status line, `status`'s (part 3a).
+//!   `markdown`'s (part 2g); its status line, `status`'s (part 3a); its to-do strip,
+//!   `todo`'s (part 3e).
 //! - Its prompt suggestion is `suggesting`'s, and the recap of a turn that ended out of sight
 //!   `recap`'s (part 3f).
 //! - Its bridge asks the person's permission for its calls on the sessions' socket, in
@@ -40,6 +41,7 @@ mod resume;
 mod slash;
 mod status;
 mod suggesting;
+mod todo;
 
 use std::collections::HashMap;
 use std::ops::Range;
@@ -125,6 +127,8 @@ struct Native {
     markdown: markdown::Marks,
     /// Its status line, and its process's `get_usage` (part 3a).
     status: status::StatusState,
+    /// Its to-do list and strip (part 3e).
+    todo: todo::TodoStrip,
     /// Its last turn ended out of the person's sight, and no recap said so yet (part 3f).
     unseen: bool,
 }
@@ -295,6 +299,7 @@ impl App {
             cli_id: None,
             moved: false,
             status: status::StatusState::default(),
+            todo: todo::TodoStrip::default(),
         };
         self.hosting.natives.map.insert(key, native);
         // Its composer, docked under it (ADR 0170).
@@ -425,6 +430,7 @@ impl App {
         let mut changes = Changes::default();
         let mut targets = Vec::new();
         let mut then = Vec::new();
+        let mut todo = false;
         let interrupting = |native: &Native| native.interrupt.interrupting();
         let was_interrupting = interrupting(native);
         let (mut noted, mut usage_id) = (false, None);
@@ -444,6 +450,7 @@ impl App {
                 native.composing.busy = !matches!(target, Target::Idle { .. });
                 targets.push(target);
             }
+            todo |= native.todo.list.apply(&event);
             for change in native.rows.apply(event) {
                 changes.add(change);
             }
@@ -461,6 +468,9 @@ impl App {
         }
         for then in then {
             self.interrupt_step(key, then);
+        }
+        if todo {
+            self.draw_todo(key);
         }
         if usage_id.is_some() {
             self.ask_usage(key, usage_id);

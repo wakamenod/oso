@@ -478,6 +478,7 @@ mod resume;
 mod slash;
 mod status;
 mod suggest;
+mod todo;
 
 /// Whether the selected window is the composer docked under a session.
 fn in_composer(state: &serde_json::Value) -> bool {

@@ -724,6 +724,12 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     approves a plan the person changed. Claude's plan text in it is shown as an editor shows
     any text; what goes back unedited is the CLI's own plan, as the card showed it, and an
     edited one goes back whole as the person's, any of Claude's text left in it included.
+  - A session's to-do strip (step 3, part 3e), `*todo: NAME*`, is withheld from agents too, and
+    fences Claude's text as the card does: each item's text after oso's mark, in a face of its
+    own, its control characters as spaces, cut to the strip's width, so that none of it runs
+    off the strip or stands where oso's keys are. Its list comes only from the main thread's
+    to-do calls' results, matched with their calls, at most 100 items of 256 bytes; oso
+    never reads the CLI's task files.
 - Its MCP tools reach oso only through the `oso mcp` stdio bridge and the agent channel, a Unix
   socket with a peer user check (and a native session's permission questions through the
   sessions' socket, above); no TCP port is opened. There is no code-execution tool, and

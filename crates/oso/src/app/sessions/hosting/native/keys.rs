@@ -38,6 +38,16 @@ impl App {
         if action == NativeAction::Confirmed {
             return self.plan_confirmed();
         }
+        // From the transcript or the composer, the session's to-do strip (part 3e).
+        if matches!(action, NativeAction::Todo) {
+            let key = (self.composer_session(buffer))
+                .or_else(|| self.hosting.table().by_buffer(buffer).map(|s| s.key))
+                .filter(|key| self.hosting.natives.has(*key));
+            return match key {
+                Some(key) => self.toggle_todo(key),
+                None => self.editor.message("This buffer holds no native session"),
+            };
+        }
         // From the composer, the session it is docked under (step 2).
         if let Some(key) = self.composer_session(buffer) {
             self.composer_key(key, None, action);
