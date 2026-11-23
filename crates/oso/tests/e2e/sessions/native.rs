@@ -176,6 +176,19 @@ fn text(state: &Value) -> String {
         .unwrap_or_default()
 }
 
+/// Whether a line's one `--settings` turns Remote Control off, as each native one's does
+/// (ADR 0165).
+pub(super) fn remote_control_off<S: AsRef<str>>(args: &[S]) -> bool {
+    let settings: Vec<&str> = (args.iter())
+        .filter_map(|arg| arg.as_ref().strip_prefix("--settings="))
+        .collect();
+    match settings[..] {
+        [one] => serde_json::from_str::<Value>(one)
+            .is_ok_and(|settings| settings["disableRemoteControl"] == true),
+        _ => false,
+    }
+}
+
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
 fn a_native_session_starts_with_its_first_message_and_shows_its_stream() {
@@ -217,6 +230,7 @@ fn a_native_session_starts_with_its_first_message_and_shows_its_stream() {
         args.iter().all(|arg| *arg != "--" && *arg != MESSAGE),
         "{args:?}"
     );
+    assert!(remote_control_off(&args), "{args:?}");
     let first: Value = serde_json::from_str(flow.wait_for_file("first.").trim()).unwrap();
     assert_eq!(first["type"], "user");
     assert_eq!(first["message"]["content"], MESSAGE);

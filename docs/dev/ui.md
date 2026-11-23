@@ -1435,7 +1435,8 @@ a switch made with its command stands until that setting changes in the file
   gives a permission option only to a native session's later process, the mode it was in,
   and a model or effort only the one chosen there with `/model` or `/effort`. With `steer_worktrees`, a session oso starts gets a hook that
   denies Claude's own `EnterWorktree` and `git worktree add`, pointing it to `C-c a w`; nothing
-  is written into Claude Code's settings files.
+  is written into Claude Code's settings files. A native session has Claude Code's Remote
+  Control off; in the TUI, the person's own settings decide.
 - A session gets oso's `CLAUDE_CONFIG_DIR`. If a login profile sets its own, set the same value
   where oso starts too: oso reads Claude Code's registry there to refuse resuming a session that
   runs elsewhere.
