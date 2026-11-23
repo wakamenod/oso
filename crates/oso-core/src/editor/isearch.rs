@@ -24,6 +24,7 @@ use super::Editor;
 use crate::kill::KillEntry;
 use crate::motion::{self, WalkBudget};
 use crate::search::{self, Needle};
+use crate::window::Place;
 use crate::word;
 use state::{Asked, Step};
 
@@ -84,7 +85,12 @@ impl Editor {
         }
         let around_secret = self.shows_secret();
         let (window, buffer) = self.current();
-        let begin = (window.selections.clone(), window.scroll());
+        // From a transcript's end, it goes back to the end (ADR 0165).
+        let begin = Place {
+            selections: window.selections.clone(),
+            scroll: window.scroll(),
+            tail: self.at_native_end(self.selected),
+        };
         let search = Isearch::new(
             window.buffer(),
             begin,
@@ -316,7 +322,7 @@ impl Editor {
             self.histories
                 .record(history_name(state.regexp), &state.string);
         }
-        let began = state.begin.0.primary().cursor;
+        let began = state.begin.selections.primary().cursor;
         let selections = &mut self.windows[self.selected].selections;
         if !selections.mark_active().is_active() && selections.primary().cursor != began {
             selections.push_primary_mark(began);
@@ -397,7 +403,11 @@ impl Editor {
         }
         let state = self.isearch.take()?;
         self.supersede_search();
-        let (mut selections, scroll) = state.begin;
+        let Place {
+            mut selections,
+            scroll,
+            tail: _,
+        } = self.native_place(state.buffer, state.begin);
         let index = self.tiled_index();
         let (window, buffer) = self.window_mut(index);
         if window.buffer() == state.buffer {

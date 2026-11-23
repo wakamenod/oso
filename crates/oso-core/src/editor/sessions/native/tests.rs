@@ -2,6 +2,8 @@
 //!
 //! Must not depend on: the host's threads, files or processes.
 
+mod follow;
+
 use crate::buffer::{Mode, ReadOnly};
 use crate::editor::Editor;
 use crate::selection::SelectionSet;
