@@ -727,7 +727,8 @@ under the conversation selected for your first message; a session you end before
 leaves nothing behind. In the session's buffer, `TAB` folds
 or unfolds the row at point, `RET` shows a tool call's whole result in `*result: NAME*`, which
 agents cannot read, `n` and `p` move between your messages, and `]` and `[` between tool rows.
-The `C-c` keys of a session's terminal work there too, except `C-c +` and `C-c -`.
+The `C-c` keys of a session's terminal work there too, except `C-c +` and `C-c -`. Claude
+Code's Remote Control is off in native sessions; in the TUI (`C-c a t`), your own settings decide.
 
 You write the next messages in the composer under the conversation, which agents cannot read.
 While it is empty it says in grey what it is and its keys. `i` goes there and `C-c C-o` back, `C-c C-c` sends, and `M-p` and `M-n` bring back what you
