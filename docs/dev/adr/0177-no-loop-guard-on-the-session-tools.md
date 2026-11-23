@@ -1,6 +1,6 @@
 # 0177. No loop guard on the session tools
 
-- Status: Accepted
+- Status: Accepted, amended by 0178
 - Date: 2026-11-23
 
 ## Context

@@ -1,6 +1,6 @@
 # 0142. Attaching the clipboard's image to a session
 
-- Status: Accepted
+- Status: Accepted, amended by 0179
 - Date: 2026-11-16
 
 ## Context

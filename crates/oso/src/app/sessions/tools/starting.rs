@@ -1,7 +1,7 @@
 //! What a session tool's call runs once it may: on the person's `y`, or at once when the
 //! person's configuration lets a session they started start sessions without asking, within
 //! `sessions::tools::starts_without_asking`'s rules (ADR 0121 step 6, ADR 0135, ADR 0153,
-//! ADR 0161); whether the configuration allows that now; and the reply once a session a call
+//! ADR 0161), and an archive's stop on the person's `y` (ADR 0179); whether the configuration allows that now; and the reply once a session a call
 //! asked for started.
 //!
 //! Must not depend on: key presses or how a frame is drawn.
@@ -100,6 +100,8 @@ impl App {
             Plan::Move(moving) => self.start_move(pending, *moving),
             Plan::Resume(resuming) => self.carry_out_resume(pending, resuming, said),
             Plan::AddRepo(adding) => self.carry_out_add(pending, *adding, said),
+            // Only the person's `y` carries it out here; its echo is said once it is archived.
+            Plan::Archive(archiving) => self.carry_out_archive(pending, archiving),
             Plan::Start(mut begin, _) => {
                 // As the directories to read stand at the person's `y`.
                 begin.space = self.space_now(begin.space.take());
@@ -170,6 +172,7 @@ impl App {
                     trusted: Some(trusted),
                     worktree: true,
                     space: App::worker_reads(reads),
+                    orchestrator_of: None,
                     behind: false,
                 };
                 let then = Then::Tool {

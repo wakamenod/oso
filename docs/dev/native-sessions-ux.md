@@ -33,6 +33,10 @@ orchestrator:
   stays outside the control requests.
 - **Images** are chips; thumbnails wait for an ADR on drawing images in `oso-render`.
 
+A space's orchestrator is a native session too, in the space's own directory
+([ADR 0176](adr/0176-native-orchestrators.md)): new ones start natively unless `mode = "tui"`,
+so this view is where the person talks to it, as to any other session.
+
 ## 1. Where ECC is dated or clumsy
 
 Read from ECC 0.5.1's code, its own UI redesign notes (`docs/phase9-ui-redesign.md`) and its

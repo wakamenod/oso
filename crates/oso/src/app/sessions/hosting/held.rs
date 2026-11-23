@@ -1,8 +1,10 @@
 //! A hosted session's start order, given to its start thread, unless it waits for the
 //! configuration's first look (ADR 0173): a resume's, whose buffer is made at once. A fork and
 //! an adoption wait whole instead, before their buffer, as which they run depends on the
-//! configuration (ADR 0165, part 4e). One that waited takes `[sessions]` and `[terminal]` as they are in force
-//! when it goes, not as they were when it was made.
+//! configuration (ADR 0165, part 4e). A new start waits whole too (`begin_session`), so that a
+//! space's new orchestrator's gate is judged only as it goes (ADR 0176, part O-3). One that
+//! waited takes `[sessions]` and `[terminal]` as they are in force when it goes, not as they
+//! were when it was made.
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 

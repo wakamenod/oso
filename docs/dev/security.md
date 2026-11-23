@@ -708,16 +708,18 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
 - A native session in an issue space's own directory runs under the space's gate, never
   under a project's trust ([ADR 0176](adr/0176-native-orchestrators.md)): only in an open
   space's directory that oso made under `[spaces] root`, with the identity it had then, for the
-  space's current or an earlier orchestrator, or a session of the person's there that oso made
-  native there (a native fork of one); never one an agent started, nor a terminal fork of it
-  or an adoption. The records it judges by are files agents' sessions can write, as the
+  space's current or an earlier orchestrator, a session of the person's there that oso made
+  native there (a native fork of one), or the new orchestrator the person starts for that
+  space (`o`, `space-new`, a successor; part O-3); never one an agent started, nor a terminal
+  fork of it or an adoption. In a space's directory a new start is native by that gate alone,
+  or a terminal. The records it judges by are files agents' sessions can write, as the
   session tools' roles are. Its line adds `--setting-sources=user`, so none of the
   directory's or its parents' hooks, `.mcp.json` servers, commands or `CLAUDE.md` load; the
   space's checks run on the start thread before it, as before every start there. No
   `TrustedRoot` is made for it, so it adds nothing to the session tools' trust and takes no
   baseline. Until its start thread reports, the UI takes the gate back once the space closed,
-  its directory changed or the session is no longer the space's, and the look before the spawn
-  refuses it.
+  its directory changed, the session is no longer the space's (a new orchestrator's start no
+  longer its space's) or its buffer is gone, and the look before the spawn refuses it.
 - A native session's earlier turns (ADR 0165, part 5a) are read from Claude Code's transcript
   of its conversation once its process is spawned, before its stream: only a regular file of
   this user's with one name under the transcripts' directory, in a project directory that is
@@ -924,31 +926,51 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     ([ADR 0161](adr/0161-an-orchestrator-adds-a-repository-to-its-space.md)) adds a
     repository's main checkout to its own space, under every check of `space-add-repo`, the
     path also naming it with no link or `..` on the way, and looked at again at the person's
-    `y`. It asks as a start does, past no limit, and goes without asking only for a trusted
+    `y`. It asks as a start does, past no start limit (only the rate below and 16 members), and goes without asking only for a trusted
     repository oso knew before the call, by device and inode; one oso does not trust always
     asks and joins restricted. A running orchestrator reads it only after the person's `/add-dir` paste,
     or, run natively, after their `y` to its resume with it, which oso judges again at each
     event until the session is idle ([ADR 0176](adr/0176-native-orchestrators.md), part O-2).
   - `session_rename` ([ADR 0155](adr/0155-renaming-sessions.md)) asks nothing, as it changes
-    metadata only, and nothing bounds how many it makes
-    ([ADR 0177](adr/0177-no-loop-guard-on-the-session-tools.md)). An agent
+    metadata only, and only the session tools' rate bounds how many it makes
+    ([ADR 0178](adr/0178-a-rate-limit-on-the-session-tools.md)). An agent
     renames itself, the sessions it started and, as a current orchestrator, its space's
     sessions; never an orchestrator, whose name is the address its workers message. A rename
     takes no name another session, a space or an earlier orchestrator has, nor one another
     running session was started with or Claude Code's registry gives it, ASCII case aside.
     A registry name counts only from the entry of the session's own `claude`, and only a clean
     one.
+  - `session_archive` ([ADR 0179](adr/0179-agents-archive-sessions.md)) archives a row in
+    `session_rename`'s scope, never the caller, an orchestrator, current or earlier, a pinned or
+    an archived session; the person's `A` brings it back, and no agent unarchives. A stopped
+    session's archive asks nothing. One that runs is stopped first, as `k` stops it, only when
+    its screen is settled and its own registry entry, matched to its process, says `idle`, read
+    on a thread (one at a time per caller, answered within 5 s) and judged again on the UI
+    thread before the stop, with the session's id and the caller's connection; `shell` (a
+    background shell still runs) refuses it. The registry half is advisory against an agent of
+    the same user, which could write that file, as it could signal the process itself; the
+    screen half is oso's own. The stop asks unless the person's `agents_start_without_asking`
+    allows it and the session is not shown in the selected window, with no trust asked, as it
+    runs nothing, and no start limit, so only the rate bounds it; after a `y` the registry is
+    read again, and a connection that goes meanwhile drops the stop, saying so. The stop is the
+    watch's (`App::stop_quietly`), outside the tools' files, which the guard test keeps from
+    terminals, as a removal's stop is. Its worktree, branch and images stay.
   - An agent's `worktree_remove` asks nothing once every check holds (the author's choice), and
     `worktree_list` runs git and `gh` without a question; both need a trusted project.
   - The person's `n` refuses the same call from a session for 60 s. It is kept by session, so a
     new connection does not reset it, and a branch's refusal by the name git resolved it to.
-    No count of calls bounds a session ([ADR 0177](adr/0177-no-loop-guard-on-the-session-tools.md)).
-    What holds a runaway agent: the questions, one at a time; the refusals, which only a
+    No count of calls waits for the person ([ADR 0177](adr/0177-no-loop-guard-on-the-session-tools.md)),
+    but a session makes at most 30 calls that ask or change in any 60 s, a sliding window kept
+    by session; past that, each call is refused with how long to wait ([ADR 0178](adr/0178-a-rate-limit-on-the-session-tools.md)). Only a call
+    the guard lets through counts, even one a later check or job refuses, so a failing removal's
+    git and `gh` and a rename's probe of names run at most 30 times a minute per session.
+    What else holds a runaway agent: the questions, one at a time; the refusals, which only a
     question's `n` records, so a tool that asks nothing is never refused; `agents_start_limit`
     where set, which caps the unasked sessions running at once, not those started over time;
     and the channel's 30 requests a second per connection, each session's bridge being one.
     A session that changes its target each time asks again after every `n`. With
-    `agents_start_limit = "none"`, unasked starts have no limit at all.
+    `agents_start_limit = "none"`, unasked starts have no limit but the rate. The rate is per
+    session: sessions that run away together each get their own.
   - A tool's worktree jobs take the trust of the session's open project as it is at the call,
     and again at the person's `y`, so a project the person no longer trusts runs nothing.
   - `move_to_space` ([ADR 0151](adr/0151-moving-a-session-into-a-space.md)) is the one tool

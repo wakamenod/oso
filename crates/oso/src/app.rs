@@ -168,6 +168,9 @@ pub enum UserEvent {
     Adoptable(Box<crate::sessions::adopt::Found>),
     /// The look for a session that asks to move into a space ended, by its token (ADR 0151).
     MoveLooked(u64, Box<Result<crate::sessions::moving::Asker, String>>),
+    /// The registry look of an agent's archive that stops a session ended, by its token
+    /// (ADR 0179).
+    ArchiveLooked(u64, Box<crate::sessions::registry_look::Found>),
     /// The wait for a moving session's outside process took a step, by its token (ADR 0151).
     MoveWaited(u64, crate::sessions::moving::Step),
     /// What a look for a session's changes after its turn ended found (ADR 0121 step 3).

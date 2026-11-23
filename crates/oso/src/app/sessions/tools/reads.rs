@@ -470,6 +470,9 @@ fn worktree_row_json(row: &ListedRow, cut: bool, scoped: bool) -> Value {
         // An orchestrator's listing names no session outside its space (Q7).
         "kept_because": removable.err().map(|check| match check {
             checks::Check::Busy(_) if scoped => "a session in it is busy".to_owned(),
+            checks::Check::Shell(_) if scoped => {
+                "a session in it still runs a background shell".to_owned()
+            }
             check => check.why(),
         }),
     })

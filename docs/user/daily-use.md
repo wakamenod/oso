@@ -104,8 +104,8 @@ check.command = "clippy"
 ## Agent sessions
 
 A session is Claude Code run by oso, in a buffer named `*claude: NAME*`. In a project you
-trust, it is a native session: its conversation shows as oso's own rows, and you write to it in
-a composer under them (see [Native sessions](#native-sessions)). In a restricted project, or
+trust, or a space's orchestrator, it is a native session: its conversation shows as oso's own
+rows, and you write to it in a composer under them (see [Native sessions](#native-sessions)). In a restricted project, or
 with `mode = "tui"` in [Session settings](#session-settings), it is Claude Code's own TUI in an
 oso terminal. oso tracks its state (needs input, working, done, stopped and so on), and gives
 it oso's own tools through `oso mcp`.
@@ -314,6 +314,16 @@ space's, and `RET` on the space's row shows it. A repository added to the space,
 while it runs is offered to it: `y` pastes `/add-dir PATH` into its prompt, not sent; a
 native orchestrator is resumed with it instead, once its turn ends. In
 Claude Code, `/permissions` and its Workspace tab list the directories it was given.
+
+A new orchestrator, whether `C-c a O`, `o` or `O` starts it, is a
+[native session](#native-sessions) unless `mode = "tui"` in
+[Session settings](#session-settings): with no message, its composer is selected for your
+first one, and a successor's brief is its first message. It asks no trust question, and it
+reads your own Claude Code settings alone: none of the space directory's `.claude/` settings,
+hooks, MCP servers, commands or `CLAUDE.md`, nor a `CLAUDE.md` in `~` or `~/spaces`, which a
+TUI orchestrator reads. Put what every orchestrator should know in the space's instructions
+(`i`) or your own settings. Its memory is the space's, as a TUI one's is. An orchestrator
+already running as Claude Code's TUI stays one until you switch it (`C-c C-t`) or replace it.
 
 The orchestrator works through sessions: its tools name a repository of the space with
 `repo`, and it sees the space's sessions only. A worker it starts belongs to the space, and
@@ -595,6 +605,7 @@ tools besides oso's editing ones:
 | `start_worktree_session` | Start a session in a new worktree, with a brief. Asks you first. |
 | `session_resume` | For a space's orchestrator: resume a stopped session of its space with its conversation, as `C-c a r` does. Asks you first. |
 | `session_rename` | Rename its own session or one it started; a space's orchestrator also its space's sessions. Asks nothing, and the echo area says it. |
+| `session_archive` | Archive a session it started; a space's orchestrator also its space's sessions, never an orchestrator or a pinned one. A stopped session is archived with no question. One that runs is stopped first only when it is idle, done or ready for review and Claude Code says its process is idle, with no shell left running in the background; that stop asks you first. Its worktree is kept, and `A` under `Archived` brings the row back. |
 | `space_add_repo` | For a space's orchestrator: add a repository's main checkout to its space, as the space menu's `a` does. Asks you first, unless the setting below allows it for a trusted repository oso already knows; any other always asks, and one oso does not trust joins restricted. Once it is trusted, oso offers to paste `/add-dir PATH` into the orchestrator, or to resume a native one with it. |
 | `worktree_list` | List the repository's worktrees, as `M-x worktree-list` does. |
 | `worktree_remove` | Remove a finished worktree, under the same rules as `M-x worktree-remove`. |
@@ -605,6 +616,11 @@ A tool that starts a session, or adds a repository to a space, asks you in oso f
 and what would start. `y` allows it, `n` or `C-g` refuses it, and `?` shows the whole brief of a start. A refusal
 holds for the same request for a minute. To let sessions you started start sessions without the question, see
 [Session settings](#session-settings).
+
+To stop a session that runs away, each session makes at most 30 calls a minute of the tools
+that ask or change something. Past that, oso tells the agent how long to wait. Normal work,
+even an orchestrator's round over a whole space, stays well under it, and nothing you do is
+limited.
 
 Claude Code run in a plain `M-x terminal`, or outside oso, is not a session. If you gave it
 `oso mcp` as an MCP server yourself, it reaches oso only after `M-x agent-channel-start`, and
@@ -666,7 +682,7 @@ tools and points the agent to `start_worktree_session`, so its worktrees show in
 sessions from blinking; with both, the list runs no timer. `pane_width` is where the pane starts; `<` and `>` in it change it for this oso only.
 The `[sessions.notify]` values shown are the defaults.
 
-`mode = "tui"` starts new sessions, forks and adopted ones as Claude Code's TUI in a terminal,
+`mode = "tui"` starts new sessions, forks, adopted ones and new orchestrators as Claude Code's TUI in a terminal,
 as oso did before [native sessions](#native-sessions), the default. A session oso hosts keeps
 the mode it ran in when you resume it or move it into a space, and a TUI session carried over
 `oso-restart` stays one.
@@ -676,10 +692,11 @@ through `start_worktree_session` and `session_start`, and a space's orchestrator
 session of its space through `session_resume`, without asking you, in a trusted project
 only, up to `agents_start_limit` running sessions each; past that it asks again. It also lets a
 space's orchestrator add a trusted repository oso already knows (one `space-add-repo` would
-offer) to its space through `space_add_repo`, with no limit; any other
-repository asks. With
+offer) to its space through `space_add_repo`, with no start limit; any other
+repository asks. It lets `session_archive` stop an idle session without asking too, whatever
+the project's trust, with no start limit, and the echo area says each one. With
 `agents_start_limit = "none"` no limit makes it ask: a session may start as many sessions as it
-asks for. A session started this way asks for its own. A session an
+asks for, within its 30 calls a minute of the tools that ask or change. A session started this way asks for its own. A session an
 agent starts, whether it asked or not, stays in the background: it appears in the pane and the
 modeline marks, and the window you are in keeps its buffer. Each start is said in the echo area
 and `*Messages*`, its row in `*Spaces*` says `unasked`, and `C-c a e` on it shows who started it
@@ -703,8 +720,8 @@ says the keys with your changes.
 
 ## Native sessions
 
-Unless `mode = "tui"`, a new session in a trusted project shows its conversation in
-`*claude: NAME*` as oso's own rows. In a restricted project it runs in a terminal, where Claude
+Unless `mode = "tui"`, a new session in a trusted project, or a space's new orchestrator,
+shows its conversation in `*claude: NAME*` as oso's own rows. In a restricted project it runs in a terminal, where Claude
 Code asks its own trust question. A start with no brief starts at once, with the composer
 under the conversation selected for your first message; a session you end before writing one
 leaves nothing behind. In the session's buffer, `TAB` folds
@@ -855,7 +872,8 @@ To empty it, delete `recent-files` in the state directory below.
   Linux.
 - Images you attach to a session with `C-c C-y`: `~/Library/Caches/oso/images` on macOS,
   `$XDG_CACHE_HOME/oso/images` or `~/.cache/oso/images` on Linux, one directory a session. They
-  go when the session is archived, or after a week.
+  go when you archive the session, or after a week; a session an agent archived keeps them
+  until the week ends.
 
 ## Update
 

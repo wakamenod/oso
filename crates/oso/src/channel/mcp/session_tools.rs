@@ -25,6 +25,7 @@ pub(super) fn method(name: &str) -> Option<(&'static str, &'static [&'static str
         "session_resume" => &["session"],
         "session_rename" => &["session", "name"],
         "space_add_repo" => &["path"],
+        "session_archive" => &["session"],
         _ => return None,
     };
     let method = METHODS.into_iter().find(|method| *method == name)?;
@@ -162,7 +163,22 @@ pub(super) fn acting() -> Vec<Value> {
     ];
     tools.push(rename());
     tools.push(add_repo());
+    tools.push(archive());
     tools
+}
+
+/// `session_archive`, which archives a session's row (ADR 0179).
+fn archive() -> Value {
+    tool(
+        "session_archive",
+        "Archive an agent session in oso, as the person's A in *Spaces* does: its row goes under Archived, where the person brings it back. A space's orchestrator archives its space's sessions; any session the sessions it started. Never your own session, an orchestrator, current or earlier, a pinned or a starting one. A stopped session is archived with no question. One that runs is stopped first, only when it is idle, done or ready for review and Claude Code's registry says its process is idle; a background shell it runs keeps it running, and the refusal says why. Stopping one asks the person first, unless their configuration lets your session start sessions without asking; the reply's `stopped` and `asked` say what happened. Its worktree and branch are never touched: worktree_remove removes a finished worktree.",
+        json!({
+            "session": { "type": "string", "description": "A session's id or name, from session_list." },
+        }),
+        &["session"],
+        false,
+        false,
+    )
 }
 
 /// `space_add_repo`, which adds a repository to the caller's space (ADR 0161).

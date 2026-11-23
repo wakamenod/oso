@@ -298,10 +298,12 @@ impl App {
             .filter(|session| !session.settled && session.directory.starts_with(path))
             .map(|session| session.name)
             .collect();
+        // The registry's half, and with it a background shell's, is the job's to read.
         Held {
             unsaved,
             unsent,
             busy,
+            shell: Vec::new(),
         }
     }
 

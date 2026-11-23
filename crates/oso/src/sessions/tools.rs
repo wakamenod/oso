@@ -9,25 +9,29 @@
 //!   person's configuration lets a session they started start sessions without asking, within
 //!   [`starts_without_asking`]'s rules (ADR 0135). No tool types into a terminal, answers a
 //!   session's dialog, or reads what a terminal withholds.
-//! - The refusals are kept by session, never by connection: a session that connects again
-//!   keeps them. No count of calls bounds a session (ADR 0177).
+//! - The refusals and the rate are kept by session, never by connection: a session that
+//!   connects again keeps them. No count of calls waits for the person (ADR 0177); a session
+//!   makes at most [`guard::CALLS_A_MINUTE`] calls that ask or change in any minute (ADR 0178).
 //! - Names, branches and paths in a question are the agent's or a repository's text: each is
 //!   quoted, escaped and cut.
-
-use std::collections::HashMap;
-use std::time::{Duration, Instant};
 
 use oso_core::command::Reach;
 
 mod add_repo;
+mod archive;
+mod guard;
 mod rename;
 pub mod repo;
 
 pub use add_repo::{add_dir, add_repo_question, add_repo_said, addable};
+pub use archive::{
+    Archivable, Archive, Runs, archivable, archive_asks, archive_question, archived_said,
+    registry_idle, stops_without_asking,
+};
+pub use guard::{Guard, Refusal};
 pub use rename::{Renamable, renamable, rename_clash, rename_note, renamed_said};
 
 use super::identity::Origin;
-use super::identity::SessionId;
 
 /// Whether a tool asks the person before it acts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -83,7 +87,7 @@ const fn reads(name: &'static str) -> Tool {
 
 /// The tools, the reading ones first. A change here is a change of what an agent may do: the
 /// test below spells the table out, so that review sees it.
-pub const TOOLS: [Tool; 12] = [
+pub const TOOLS: [Tool; 13] = [
     reads("session_list"),
     reads("session_state"),
     // It runs git and `gh` with no question, as the author chose (ADR 0121, step 4).
@@ -167,98 +171,22 @@ pub const TOOLS: [Tool; 12] = [
         outside: false,
         starts: false,
     },
+    // A session's row, as the person's `A` archives it, which `A` undoes: a stopped one with
+    // no question; one that runs only when idle, stopped first as ADR 0135 lets a start go
+    // without asking (ADR 0179).
+    Tool {
+        name: "session_archive",
+        reach: Reach::Change,
+        asks: Asks::UnlessAllowed,
+        destructive: false,
+        outside: false,
+        starts: false,
+    },
 ];
 
 /// The tool named `name`.
 pub fn tool(name: &str) -> Option<&'static Tool> {
     TOOLS.iter().find(|tool| tool.name == name)
-}
-
-/// How long the person's `n` refuses the same call from the same session without asking.
-pub const REFUSED_FOR: Duration = Duration::from_secs(60);
-/// The most refusals kept; the oldest goes first.
-const MAX_REFUSALS: usize = 256;
-
-/// Why the guard refuses a call.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Refusal {
-    /// The person refused the same call from this session less than [`REFUSED_FOR`] ago.
-    Person,
-}
-
-impl Refusal {
-    /// What the agent is told.
-    pub fn why(self) -> &'static str {
-        match self {
-            Self::Person => {
-                "the person refused this a moment ago; it is their decision: do not try it another way"
-            }
-        }
-    }
-}
-
-/// The person's refusals, by session.
-#[derive(Debug, Default)]
-pub struct Guard {
-    refused: HashMap<(SessionId, &'static str, String), Instant>,
-}
-
-impl Guard {
-    /// Lets a call of `tool` on `target` from `session` at `now` through, or says why it is
-    /// refused.
-    pub fn admit(
-        &mut self,
-        session: &SessionId,
-        tool: &'static str,
-        target: &str,
-        now: Instant,
-    ) -> Result<(), Refusal> {
-        let key = (session.clone(), tool, target.to_owned());
-        match self.refused.get(&key) {
-            Some(&at) if now.saturating_duration_since(at) < REFUSED_FOR => {
-                return Err(Refusal::Person);
-            }
-            Some(_) => {
-                self.refused.remove(&key);
-            }
-            None => {}
-        }
-        Ok(())
-    }
-
-    /// Whether the person refused `tool` on `target` from `session` less than
-    /// [`REFUSED_FOR`] before `now`: for a target only known once a job has looked, such as
-    /// the branch git resolved a name to.
-    pub fn was_refused(
-        &self,
-        session: &SessionId,
-        tool: &'static str,
-        target: &str,
-        now: Instant,
-    ) -> bool {
-        self.refused
-            .get(&(session.clone(), tool, target.to_owned()))
-            .is_some_and(|&at| now.saturating_duration_since(at) < REFUSED_FOR)
-    }
-
-    /// The person refused `tool` on `target` from `session` at `now`.
-    pub fn refused(&mut self, session: &SessionId, tool: &'static str, target: &str, now: Instant) {
-        if self.refused.len() >= MAX_REFUSALS {
-            self.refused
-                .retain(|_, &mut at| now.saturating_duration_since(at) < REFUSED_FOR);
-        }
-        if self.refused.len() >= MAX_REFUSALS
-            && let Some(oldest) = self
-                .refused
-                .iter()
-                .min_by_key(|(_, at)| **at)
-                .map(|(key, _)| key.clone())
-        {
-            self.refused.remove(&oldest);
-        }
-        self.refused
-            .insert((session.clone(), tool, target.to_owned()), now);
-    }
 }
 
 /// The longest a quoted field of a question is shown, in characters.

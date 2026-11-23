@@ -879,8 +879,8 @@ The UI thread never blocks on I/O or parsing:
   comments go to the session of the worktree its head branch is checked out in. ADR 0127's
   drafts take the same path, and so does `session-yank-image` (`C-c C-y`, ADR 0142), which
   checks the same refusals first (`paste_target`), has the clipboard's worker read the image, and keeps it on
-  `sessions::images`' one `oso-images` thread, which also removes a session's images when it is
-  archived and sweeps old ones (`app/sessions/watch/images.rs`). The dispatcher notes whether
+  `sessions::images`' one `oso-images` thread, which also removes a session's images when the
+  person archives it (an agent's archive keeps them, ADR 0179) and sweeps old ones (`app/sessions/watch/images.rs`). The dispatcher notes whether
   each run came through the dev socket. The worker finds message lines' senders with `[[message]]` rules
   (`sessions/messages.rs`) after each verdict, and tells the app when a session is first judged
   and when a hold rule starts or stops matching (`Out::Judged`).
@@ -918,7 +918,8 @@ The UI thread never blocks on I/O or parsing:
     waits for the clipboard (`dispatch/branches.rs`); `app/sessions/worktrees.rs` asks for them
     (`sync_branch_wait`), and the listing goes ahead of other jobs.
 - The agents' session tools ([ADR 0121](adr/0121-agent-sessions-and-spaces.md) step 6): the
-  rules are `sessions::tools` (reach, refusals, the questions' wording), and
+  rules are `sessions::tools` (reach, refusals, the rate of
+  [ADR 0178](adr/0178-a-rate-limit-on-the-session-tools.md), the questions' wording), and
   `app/sessions/tools/` carries a call out with the hosted table, the start thread and the
   worktree jobs; `draft_set` is handed on to `app/vcs/draft.rs` (ADR 0127, step 6a). A call
   that asks is looked at first by a job (`worktree::prepare`), then its
@@ -941,6 +942,15 @@ The UI thread never blocks on I/O or parsing:
   (`Editor::rename_terminal_buffer`); a running `claude` keeps its own until it is resumed,
   kept as `Hosted::launched_as` and carried over a restart. What Claude Code's registry calls
   oso's running sessions, from each one's own `claude`, is `app/sessions/hosting/naming.rs`'.
+  `session_archive` ([ADR 0179](adr/0179-agents-archive-sessions.md)) is
+  `app/sessions/tools/archive.rs`: `sessions::tools::archivable` says which session it takes,
+  over what `App::reach_over` says the caller reaches, as a rename's, and whether it stops it
+  first; one that runs has its own registry entry read on a short `oso-session-idle` thread
+  (`sessions/registry_look.rs`), judged by `sessions::tools::registry_idle` over
+  `registry::activity`, which check 4 reads too, then is stopped as `k` stops it
+  (`App::stop_quietly`, in `app/sessions/watch/requests.rs`, outside the tools' files) and its
+  row archived. Check 4 names a
+  session busy only by a background shell apart (`Check::Shell`, `RepoFacts::hosted_shell`).
   An orchestrator's `space_add_repo`
   ([ADR 0161](adr/0161-an-orchestrator-adds-a-repository-to-its-space.md)) is
   `app/sessions/tools/add_repo.rs`, its rules `sessions/tools/add_repo.rs`': its looks are

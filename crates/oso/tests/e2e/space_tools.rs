@@ -20,6 +20,11 @@
 //! paste (ADR 0161). Reviewers the orchestrator starts with `session_start` in the
 //! implementer's worktree get no shared-directory question: one starts without asking, and
 //! past the limit the one question says another session runs there (ADR 0162).
+//! `session_archive` archives a stopped worker's row with no question, its worktree kept, and
+//! never the caller or an archived row; a worker that runs is stopped first only once its turn
+//! ended and its registry entry says idle, not while a background shell runs: without asking
+//! as the configuration allows, and after `agent-starts-ask` on the person's `y`, `n` refusing
+//! it for a minute (ADR 0179).
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test: which repository
 //! `repo` names and the scope have their own tests.
@@ -31,7 +36,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
-use super::session_tools::{Bridge, FAKE, Run, answer, run_in, runs};
+use super::session_tools::{Bridge, FAKE, Run, answer, registered, run_in, runs, turn};
 use super::sessions::live_elsewhere;
 use super::spaces::{PrivateRoot, answer as reply_with, space, trust_restricted};
 use super::worktrees::{DEADLINE, Flow, asks, keys, terminal};
@@ -640,4 +645,123 @@ fn the_person_renames(app: &mut crate::harness::App, bridge: &mut Bridge, id: &s
         (state["echo"].as_str().unwrap_or_default()).contains("orchestrator")
     });
     assert_eq!(state["prompts"], json!([]));
+}
+
+/// Whether session `name` is archived, as `bridge` sees it.
+fn archived(bridge: &mut Bridge, name: &str) -> bool {
+    let (state, error) = bridge.tool("session_state", json!({ "session": name }));
+    assert!(!error, "{state}");
+    state["archived"] == true
+}
+
+/// Archives session `name` through `bridge`, which must go: its reply's `stopped` and `asked`.
+fn archive_of(bridge: &mut Bridge, name: &str) -> (Value, Value) {
+    let (done, error) = bridge.tool("session_archive", json!({ "session": name }));
+    assert!(!error, "{done}");
+    (done["stopped"].clone(), done["asked"].clone())
+}
+
+/// The refusal of archiving session `name`, which must say `why`.
+fn refused_archive(bridge: &mut Bridge, name: &str, why: &str) {
+    let (said, error) = bridge.tool("session_archive", json!({ "session": name }));
+    assert!(error && said.to_string().contains(why), "{said}");
+}
+
+/// Waits for session `name`'s terminal to have stopped as `k` stops it, and its row archived.
+fn stopped_and_archived(app: &mut crate::harness::App, bridge: &mut Bridge, name: &str) {
+    let buffer = format!("*claude: {name}*");
+    app.wait_for("the session stopped, as k stops it", |state| {
+        terminal(state, &buffer)
+            .is_some_and(|terminal| terminal["ended"] == "stopped: session-resume to continue")
+    });
+    assert!(archived(bridge, name));
+}
+
+/// Has the worker of `run`, in worktree `name`, end its turn, its registry entry saying idle.
+fn settled_idle(app: &mut crate::harness::App, flow: &Flow, run: &Run, name: &str) {
+    turn(app, flow, run, name);
+    registered(
+        flow,
+        run,
+        &flow.repo.join(".claude/worktrees").join(name),
+        "idle",
+    );
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn an_orchestrator_archives_the_sessions_of_its_space() {
+    let spaces = PrivateRoot::new("space-archive");
+    let config = format!(
+        "agents_start_without_asking = true\nagents_start_limit = 4\n\n[spaces]\nroot = \"{}\"\n",
+        spaces.0.display()
+    );
+    let flow = Flow::with_fake("space-archive", &config, FAKE);
+    let (mut app, mut bridge, _) = orchestrated(&flow, &spaces);
+    let (a, run_a) = worker(&flow, &mut bridge, "wa", None);
+    let (_, run_b) = worker(&flow, &mut bridge, "wb", None);
+    refused_archive(&mut bridge, "fix-login", "your own");
+
+    // A stopped worker: its row alone, with no question, its worktree kept; then refused.
+    stop(&flow, &mut bridge, &run_a, "wa");
+    assert_eq!(archive_of(&mut bridge, &a), (json!(false), json!(false)));
+    assert_eq!(app.state()["prompts"], json!([]), "nobody was asked");
+    assert!(archived(&mut bridge, "wa"));
+    assert!(
+        flow.repo.join(".claude/worktrees/wa").is_dir(),
+        "its worktree is kept"
+    );
+    refused_archive(&mut bridge, "wa", "archived already");
+
+    // A turn not ended may still work; a background shell that runs keeps it, as it says.
+    refused_archive(&mut bridge, "wb", "may still work");
+    let place_b = flow.repo.join(".claude/worktrees/wb");
+    turn(&mut app, &flow, &run_b, "wb");
+    registered(&flow, &run_b, &place_b, "shell");
+    refused_archive(&mut bridge, "wb", "background shell");
+    assert!(!archived(&mut bridge, "wb"));
+
+    // Idle in the registry: stopped and archived without asking, as the configuration allows.
+    registered(&flow, &run_b, &place_b, "idle");
+    assert_eq!(archive_of(&mut bridge, "wb"), (json!(true), json!(false)));
+    assert_eq!(app.state()["prompts"], json!([]), "nobody was asked");
+    stopped_and_archived(&mut app, &mut bridge, "wb");
+    assert!(place_b.is_dir(), "its worktree is kept");
+
+    archives_asked_after_agent_starts_ask(&mut app, &flow, &mut bridge);
+    flow.exit_with(0);
+}
+
+/// After `agent-starts-ask`, a stop asks: `n` refuses it, then for a minute without asking; `y`
+/// stops and archives the session.
+fn archives_asked_after_agent_starts_ask(
+    app: &mut crate::harness::App,
+    flow: &Flow,
+    bridge: &mut Bridge,
+) {
+    let (_, run_c) = worker(flow, bridge, "wc", None);
+    let (_, run_d) = worker(flow, bridge, "wd", None);
+    settled_idle(app, flow, &run_d, "wd");
+    app.run_command("agent-starts-ask", None).unwrap();
+    let id = bridge.call("session_archive", json!({ "session": "wd" }));
+    answer(app, bridge, "n");
+    let (said, error) = bridge.result(id);
+    assert!(error && said.to_string().contains("refused"), "{said}");
+    refused_archive(bridge, "wd", "a moment ago");
+    assert!(!archived(bridge, "wd"));
+
+    settled_idle(app, flow, &run_c, "wc");
+    let id = bridge.call("session_archive", json!({ "session": "wc" }));
+    let question = answer(app, bridge, "y");
+    assert!(
+        question.contains("stop idle session \"wc\" in "),
+        "{question}"
+    );
+    let (done, error) = bridge.result(id);
+    assert!(!error, "{done}");
+    assert_eq!(
+        (done["stopped"].clone(), done["asked"].clone()),
+        (json!(true), json!(true))
+    );
+    stopped_and_archived(app, bridge, "wc");
 }

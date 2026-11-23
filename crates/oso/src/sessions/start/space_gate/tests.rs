@@ -40,7 +40,7 @@ fn directory() -> PathBuf {
 
 fn said(stored: &Stored, root: Option<&Path>, who: u8, persons: bool) -> Result<(), NotAdmitted> {
     let id = id(who);
-    let standing = Standing {
+    let standing = Standing::Of {
         id: &id,
         persons_there: persons,
     };
@@ -58,6 +58,35 @@ fn the_current_and_earlier_orchestrators_and_the_persons_sessions_run_natively_t
         said(&stored, root, 3, false),
         Err(NotAdmitted::NotTheSpaces)
     );
+}
+
+/// A new orchestrator, which has no conversation yet, runs natively in its open space's
+/// directory oso made, as its other sessions do (part O-3).
+#[test]
+fn a_new_orchestrator_runs_natively_only_in_its_open_spaces_directory_oso_made() {
+    let root = Some(Path::new(ROOT));
+    let its = SpaceId::from_random([9; 16]);
+    let new = |stored: &Stored, root: Option<&Path>| {
+        let standing = Standing::NewOrchestrator { space: &its };
+        judge(stored, root, &directory(), standing).map(|_| ())
+    };
+    // Another space's new orchestrator does not run in this one's directory.
+    let other = SpaceId::from_random([8; 16]);
+    let elsewhere = Standing::NewOrchestrator { space: &other };
+    assert_eq!(
+        judge(&space(), root, &directory(), elsewhere).map(|_| ()),
+        Err(NotAdmitted::NotTheSpaces)
+    );
+    let mut none_yet = space();
+    none_yet.orchestrator = None;
+    none_yet.earlier.clear();
+    assert_eq!(new(&none_yet, root), Ok(()));
+    let mut closed = space();
+    closed.archived = true;
+    assert_eq!(new(&closed, root), Err(NotAdmitted::Closed));
+    let moved = Path::new(ROOT).join("elsewhere");
+    assert_eq!(new(&space(), Some(&moved)), Err(NotAdmitted::NotMade));
+    assert_eq!(new(&space(), None), Err(NotAdmitted::NotMade));
 }
 
 #[test]
@@ -135,7 +164,7 @@ fn checks(
 
 fn gate() -> ByGate {
     let one = id(1);
-    let standing = Standing {
+    let standing = Standing::Of {
         id: &one,
         persons_there: false,
     };

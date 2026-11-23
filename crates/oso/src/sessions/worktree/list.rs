@@ -178,6 +178,7 @@ mod tests {
                 external: Vec::new(),
                 registry_untold: None,
                 busy: Vec::new(),
+                shell: Vec::new(),
                 gh_pending: None,
                 removing: false,
                 looked_at: std::time::Instant::now(),

@@ -43,7 +43,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "agent-starts-ask",
-        doc: "Make every session an agent starts ask you first, until oso restarts.\n\nWith `[sessions] agents_start_without_asking` in `config.toml`, a session you started may start sessions without asking; this takes that back for now. `agent-starts-allow` gives it again.",
+        doc: "Make every session an agent starts ask you first, until oso restarts.\n\nWith `[sessions] agents_start_without_asking` in `config.toml`, a session you started may start sessions, and stop an idle one to archive it, without asking; this takes that back for now. `agent-starts-allow` gives it again.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: agent_starts_ask,
@@ -51,7 +51,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "agent-starts-allow",
-        doc: "Let sessions you started start sessions without asking again, as `config.toml` says, after `agent-starts-ask`.\n\nIt changes nothing unless `[sessions] agents_start_without_asking` was set when oso started.",
+        doc: "Let sessions you started start sessions without asking again, as `config.toml` says, after `agent-starts-ask`.\n\nThe same goes for an agent's archive that stops an idle session. It changes nothing unless `[sessions] agents_start_without_asking` was set when oso started.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: agent_starts_allow,

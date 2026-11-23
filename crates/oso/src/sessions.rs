@@ -30,6 +30,8 @@
 //!   `adopt`: what `session-adopt` offers, found on a thread of its own.
 //! - `moving`: a session started outside oso that asks to move into a space (ADR 0151): who
 //!   asks, where it runs, and the wait for it to stop there.
+//! - `registry_look`: one look at a hosted session's own registry entry, on a thread of its
+//!   own, before an agent's archive stops it (ADR 0179).
 //! - `history`: what was said in them, held and searched for `session-search` on a thread of
 //!   its own (ADR 0145).
 //! - `messages`: who sent a session a message, from its screen.
@@ -61,6 +63,7 @@ pub mod past;
 pub mod recap;
 pub mod record;
 pub mod registry;
+pub mod registry_look;
 pub mod rules;
 pub mod screen;
 pub mod send;

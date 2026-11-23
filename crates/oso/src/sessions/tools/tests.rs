@@ -1,25 +1,19 @@
-//! The session tools' rules: the table of reach, the person's refusals, the
-//! questions' wording, and that `oso mcp` describes each tool as the table says.
+//! The session tools' rules: the table of reach, the questions' wording, and that `oso mcp`
+//! describes each tool as the table says. The guard's refusals and rate are tested in `guard`.
 //!
 //! Must not depend on: the app or threads; the rules are plain data and functions.
-
-use std::time::{Duration, Instant};
 
 use oso_core::command::Reach;
 
 use super::add_repo::AddDir;
+use super::guard::{CALLS_A_MINUTE, RATE_WINDOW};
 use super::{
-    Asks, Branch, Guard, REFUSED_FOR, Refusal, Renamable, Resumable, StartLimit, TOOLS, Unasked,
-    add_dir, add_repo_question, add_repo_said, addable, quoted, renamable, rename_clash,
-    rename_note, renamed_said, resumable, resume_question, resume_started, start_question,
-    start_started, starts_without_asking, tool, worktree_question, worktree_started,
+    Asks, Branch, Renamable, Resumable, StartLimit, TOOLS, Unasked, add_dir, add_repo_question,
+    add_repo_said, addable, quoted, renamable, rename_clash, rename_note, renamed_said, resumable,
+    resume_question, resume_started, start_question, start_started, starts_without_asking, tool,
+    worktree_question, worktree_started,
 };
 use crate::sessions::identity::Origin;
-use crate::sessions::identity::SessionId;
-
-fn session(n: u8) -> SessionId {
-    SessionId::from_random([n; 16])
-}
 
 /// What each tool may do, spelled out: a change to the table shows here in review.
 #[test]
@@ -74,6 +68,15 @@ fn the_tools_and_their_reach() {
                 true,
                 false
             ),
+            // A stopped session's row with no question; an idle one stopped first as a start
+            // goes without asking (ADR 0179).
+            (
+                "session_archive",
+                Reach::Change,
+                Asks::UnlessAllowed,
+                true,
+                false
+            ),
         ]
     );
     let destructive: Vec<_> = TOOLS
@@ -105,83 +108,6 @@ fn every_tool_keeps_the_rules_of_reach() {
         assert_eq!(tool(t.name), Some(t));
     }
     assert!(tool("state").is_none());
-}
-
-/// No count of calls bounds a session (ADR 0177): only the person's refusal holds a call back.
-#[test]
-fn a_session_may_make_any_number_of_calls() {
-    let mut guard = Guard::default();
-    let a = session(1);
-    let now = Instant::now();
-    for n in 0..1000 {
-        assert_eq!(guard.admit(&a, "session_start", "same", now), Ok(()));
-        assert_eq!(
-            guard.admit(&a, "session_start", &n.to_string(), now),
-            Ok(())
-        );
-    }
-    guard.refused(&a, "session_start", "same", now);
-    assert_eq!(
-        guard.admit(&a, "session_start", "same", now),
-        Err(Refusal::Person)
-    );
-    assert_eq!(guard.admit(&a, "session_start", "other", now), Ok(()));
-}
-
-#[test]
-fn a_refusal_holds_the_same_call_from_the_same_session_for_a_minute() {
-    let mut guard = Guard::default();
-    let (a, b) = (session(1), session(2));
-    let now = Instant::now();
-    guard.refused(&a, "start_worktree_session", "x", now);
-    let soon = now + Duration::from_secs(59);
-    assert_eq!(
-        guard.admit(&a, "start_worktree_session", "x", soon),
-        Err(Refusal::Person)
-    );
-    // Another target, tool or session asks again.
-    assert_eq!(guard.admit(&a, "start_worktree_session", "y", soon), Ok(()));
-    assert_eq!(guard.admit(&a, "session_start", "x", soon), Ok(()));
-    assert_eq!(guard.admit(&b, "start_worktree_session", "x", soon), Ok(()));
-    assert_eq!(
-        guard.admit(&a, "start_worktree_session", "x", now + REFUSED_FOR),
-        Ok(())
-    );
-}
-
-/// A resolved target, such as the branch git names, is looked up.
-#[test]
-fn a_refusal_is_seen_by_its_resolved_target() {
-    let mut guard = Guard::default();
-    let a = session(1);
-    let now = Instant::now();
-    guard.refused(&a, "start_worktree_session", "main", now);
-    let soon = now + Duration::from_secs(30);
-    assert!(guard.was_refused(&a, "start_worktree_session", "main", soon));
-    assert!(!guard.was_refused(&a, "start_worktree_session", "other", soon));
-    assert!(!guard.was_refused(&session(2), "start_worktree_session", "main", soon));
-    assert!(!guard.was_refused(&a, "start_worktree_session", "main", now + REFUSED_FOR));
-}
-
-#[test]
-fn refusals_are_bounded_and_the_oldest_goes() {
-    let mut guard = Guard::default();
-    let a = session(1);
-    let now = Instant::now();
-    for n in 0..300 {
-        guard.refused(
-            &a,
-            "session_start",
-            &n.to_string(),
-            now + Duration::from_millis(n),
-        );
-    }
-    let later = now + Duration::from_millis(400);
-    assert_eq!(
-        guard.admit(&a, "session_start", "299", later),
-        Err(Refusal::Person)
-    );
-    assert_eq!(guard.admit(&a, "session_start", "0", later), Ok(()));
 }
 
 #[test]
@@ -241,6 +167,14 @@ fn the_bridge_lists_each_tool_with_its_hints() {
         assert!(methods.contains(&t.name), "{}", t.name);
     }
     assert_eq!(methods.len(), TOOLS.len());
+}
+
+/// The bridge's instructions tell agents the rate the guard keeps.
+#[test]
+fn the_instructions_name_the_rate() {
+    let said = format!("at most {CALLS_A_MINUTE} session tool calls that ask or change a minute");
+    assert!(crate::channel::mcp::instructions().contains(&said));
+    assert_eq!(RATE_WINDOW, std::time::Duration::from_secs(60));
 }
 
 /// Invisible and look-alike characters show as escapes, and a long path keeps its end.

@@ -1372,6 +1372,15 @@ a switch made with its command stands until that setting changes in the file
   projects (part 4a; else it says why, and that `session-fork` continues it in a terminal); `session-fork` forks a session
   natively there, and `session-adopt` and `move_to_space` resume a conversation from outside
   oso natively there (part 4e), unless `mode = "tui"`; each runs in a terminal elsewhere. A
+  space's orchestrator runs natively in the space's own directory, under the space's gate in
+  place of a project's trust, with `--setting-sources=user`, so that none of the directory's
+  settings, hooks, MCP servers, commands or `CLAUDE.md` load ([ADR 0176](adr/0176-native-orchestrators.md)):
+  `space-orchestrator-start`, `space-new`'s start and a successor's start a new one natively
+  unless `mode = "tui"`, a successor's brief going as its first message, and a resume, a fork,
+  `oso-restart`'s resume and the switch both ways run there for the space's orchestrator, an
+  earlier one or a native session of the person's there. A TUI orchestrator keeps its mode
+  until it is switched or replaced; an adoption there, and a session an agent started there,
+  keep the terminal. A
   stopped TUI session resumes in its terminal, as it ran, and a TUI session carried over
   `oso-restart` stays one. An agent's start with no brief, and a restricted project, keep the
   terminal; a wrong `mode` is said, and native holds. A call that asks the person's
@@ -1518,18 +1527,23 @@ a switch made with its command stands until that setting changes in the file
   that has needed input longest, `C-c a d` the one done longest, `C-c a e` explains the shown
   session's state in `*Session explain*`.
 - With `[sessions] agents_start_without_asking`, a session the person started starts sessions with
-  no question in a trusted project, up to `agents_start_limit` each, or with no limit at all for
-  `"none"` ([ADR 0135](adr/0135-agents-start-sessions-without-asking.md),
+  no question in a trusted project, up to `agents_start_limit` each, or with no limit but the
+  session tools' 30 calls a minute for `"none"` ([ADR 0135](adr/0135-agents-start-sessions-without-asking.md),
   [ADR 0144](adr/0144-agent-starts-with-no-limit-and-in-the-background.md),
-  [ADR 0177](adr/0177-no-loop-guard-on-the-session-tools.md)), and a space's
+  [ADR 0177](adr/0177-no-loop-guard-on-the-session-tools.md),
+  [ADR 0178](adr/0178-a-rate-limit-on-the-session-tools.md)), and a space's
   orchestrator adds a trusted repository oso already knew to its space with no question and no
-  limit ([ADR 0161](adr/0161-an-orchestrator-adds-a-repository-to-its-space.md)). A session an agent's
+  limit but the rate and 16 members ([ADR 0161](adr/0161-an-orchestrator-adds-a-repository-to-its-space.md)). A session an agent's
   tool starts, asked or not, starts in the background: the selected window keeps its buffer. Once its start is under way, the
   echo area says `Agent: session "repo" is starting a session in a new worktree … without asking
   (brief: 1 line; C-c a e explains)`, the row's place ends in `· unasked` (alone under its worktree in the tree), and
   `*Session explain*` starts with who started it and ends with its brief, or says that the brief
-  is not kept across a restart. `agent-starts-ask` and `agent-starts-allow` turn the question back on and off
-  until oso restarts.
+  is not kept across a restart. The same setting lets `session_archive` stop an idle session of
+  the caller's reach with no question, unless the session shows in the selected window; the echo
+  area says `Agent: session "lead" archived session "w", stopping it first without asking; A
+  under Archived in *Spaces* brings it back` ([ADR 0179](adr/0179-agents-archive-sessions.md)).
+  `agent-starts-ask` and `agent-starts-allow` turn the question back on and off, for starts and
+  these stops alike, until oso restarts.
 - A space is a project with its sessions, and keeps its own windows. `C-c a j` (`space-switch`)
   switches to another; showing a session of another space switches to it first. A space
   entered for the first time shows its last file and its last session side by side; one

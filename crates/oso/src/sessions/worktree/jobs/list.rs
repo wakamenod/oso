@@ -126,7 +126,7 @@ fn list(
         if !live() {
             return;
         }
-        let held = snapshot.held(&listed.path, &facts.hosted_idle);
+        let held = snapshot.held(&listed.path, (&facts.hosted_idle, &facts.hosted_shell));
         let mut looked = checks::look(repo, gh.as_ref(), &facts, listed, &held, Depth::Local);
         looked.removing = removals.running_at(&looked.listed.path);
         if let (Some(tip), Some(branch)) = (&looked.gh_pending, &looked.listed.branch) {
