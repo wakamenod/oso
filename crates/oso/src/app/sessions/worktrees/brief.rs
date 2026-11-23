@@ -180,6 +180,13 @@ impl App {
             // The brief stays, to send again.
             Err(why) => return self.editor.message(why),
         };
+        if !self.trust_holds(&trusted) {
+            // The brief stays here too, for its text.
+            return self.editor.message(format!(
+                "Worktree {} made; its session did not start: its project is no longer trusted",
+                printable(&created.path.display().to_string(), 200),
+            ));
+        }
         self.hosting.worktrees.briefs.remove(&brief.buffer);
         self.editor.kill_buffer(brief.buffer);
         let copied = match (&created.include_note, created.copied.files) {

@@ -11,7 +11,10 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, mpsc};
 use std::time::Duration;
 
+use oso_core::project::TrustList;
+
 use super::super::jobs::{Asked, Jobs, MAIN_UNTRUSTED, Report, Snapshot, Trust};
+use super::super::prepare::Prepare;
 use super::{Scratch, order};
 use crate::git::TrustedRoot;
 
@@ -99,6 +102,55 @@ fn a_worktree_whose_main_repository_is_not_trusted_makes_nothing() {
         }
     }
     assert!(s.root.join(".claude/worktrees/next").is_dir());
+}
+
+/// The record of trusted projects that holds `root` alone.
+fn record(root: &Path) -> TrustList {
+    let line = match crate::git::identity(&fs::symlink_metadata(root).unwrap()) {
+        Some((dev, ino)) => format!("{}\tdev={dev} ino={ino}\n", root.display()),
+        None => format!("{}\n", root.display()),
+    };
+    TrustList::parse(&line).0
+}
+
+#[test]
+fn a_made_worktrees_trust_holds_while_the_record_holds_its_main_repository() {
+    let s = Scratch::new("main-kept");
+    let linked = s.create("linked").unwrap().path;
+    let (jobs, got) = jobs(&s);
+    let made = |token, from: &Path, branch: &str| {
+        jobs.create(token, trust(from, &[from, &s.root]), order(branch));
+        loop {
+            match next(&got) {
+                Report::Step { .. } => {}
+                Report::Created { result, .. } => break result.unwrap().1,
+                other => panic!("{other:?}"),
+            }
+        }
+    };
+    // From the main checkout, and from one of its linked worktrees.
+    for (token, from, branch) in [(1, &s.root, "one"), (2, &linked, "two")] {
+        let trusted = made(token, from, branch);
+        assert_ne!(trusted.path(), from);
+        assert!(trusted.listed_in(&record(&s.root)), "from {from:?}");
+        assert!(!trusted.listed_in(&record(&linked)), "from {from:?}");
+        assert!(!trusted.listed_in(&TrustList::default()));
+    }
+    // A directory of the repository that a start names.
+    let from = trust(&linked, &[&linked, &s.root]);
+    let named = made(3, &s.root, "three").path().to_owned();
+    let asked = Prepare::Directory(named);
+    jobs.prepare(4, from, asked, Vec::new());
+    match next(&got) {
+        Report::Prepared {
+            result: Ok((_, Some(trusted), _)),
+            ..
+        } => {
+            assert!(trusted.listed_in(&record(&s.root)));
+            assert!(!trusted.listed_in(&record(&linked)));
+        }
+        other => panic!("{other:?}"),
+    }
 }
 
 #[test]

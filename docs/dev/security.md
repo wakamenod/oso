@@ -699,8 +699,7 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
 - A native session's `claude -p` runs only in a trusted project, or in an issue space's own
   directory as below, as Claude Code asks it no trust question of its own ([ADR 0165](adr/0165-native-claude-sessions-the-route.md), Q5): a
   new start at a trusted project's root, and a resume or a fork only at the root of a project
-  trusted now, never under the trust the session started with, which an untrust does not take
-  back. An open buffer of the project decides; with none open, the record of trusted projects
+  trusted now, never under the trust the session started with. An open buffer of the project decides; with none open, the record of trusted projects
   does, by the root's path on the UI thread and by its path and identity on the start thread,
   as an issue space's member is (part 4a): a directory made again at the path, a link there
   and a linked worktree (whose main repository the record holds) are refused. A record not

@@ -18,8 +18,8 @@ impl Jobs {
         self.on_repo(
             trust,
             true,
-            move |root, repo, send| {
-                let merged = merged::work_merged(repo, root.path(), &tree).is_merged();
+            move |trust, repo, send| {
+                let merged = merged::work_merged(repo, trust.root.path(), &tree).is_merged();
                 send(Report::WorkMerged {
                     key,
                     judgment,

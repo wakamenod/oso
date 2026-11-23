@@ -908,7 +908,8 @@ The UI thread never blocks on I/O or parsing:
     0121, "Removal archives its sessions, as amended").
   - Each job takes the project's trust when it is asked for (`jobs::Trust`), checks it again
     before it runs, and refuses a repository whose main checkout is not trusted too. What
-    touches the disk, the new worktree's trust included, is made on the job's thread.
+    touches the disk, the new worktree's trust included, is made on the job's thread. That
+    trust names the main repository it holds through, which the UI judges it by.
   - A job reads the repository's remotes, main branches, GitHub repository and the registry's
     sessions once (`facts.rs`). A listing (`jobs/list.rs`) sends every row without `gh`, then, for the person's
     listing only, the repository's open pull requests (`Report::Pulls`, ADR 0127 step 5b-2),

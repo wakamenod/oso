@@ -754,8 +754,8 @@ R1 as built, with the author's Q2 (a) and their choices of 2026-11-22:
   root of a project that an open buffer says is trusted now, and the start thread looks at it
   again before the spawn. Else a resume refuses and says why: the project is not open (open a
   file of it), not trusted now, or the session runs below its root; `session-fork` then
-  continues it in a terminal. The trust a session started with is not used: it is not taken
-  back when the person untrusts the project. **Follow-up:** judging trust from the trust list
+  continues it in a terminal. The trust a session started with is not used: the
+  resume is judged where it runs. **Follow-up:** judging trust from the trust list
   by the root's path and identity, on the start thread, so that a resume needs no open buffer.
   Built in part 4a: an open buffer still decides where there is one.
 - **A fork** follows the mode: native, in a new buffer with its composer selected, under

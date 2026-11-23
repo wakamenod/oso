@@ -60,6 +60,10 @@ impl App {
     /// the session's start is under way, so that the echo area ends on it.
     pub(super) fn carry_out(&mut self, pending: Pending, plan: Plan, said: Option<String>) {
         match plan {
+            // Its trust was taken back since the question.
+            Plan::Worktree { trust, .. } if !self.trust_holds(&trust.root) => {
+                pending.answer(Err("the repository is no longer trusted".into()));
+            }
             Plan::Worktree {
                 trust,
                 order,

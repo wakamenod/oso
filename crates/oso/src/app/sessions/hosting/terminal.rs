@@ -241,7 +241,8 @@ impl App {
     /// `buffer`'s terminal has no program, and its modeline says `note`.
     /// Keeps the table within its cap: a buffer whose session went past it says so.
     pub(super) fn prune_sessions(&mut self) {
-        for (id, buffer) in self.hosting.table.prune() {
+        for (key, id, buffer) in self.hosting.table.prune() {
+            self.hosting.trusts.remove(&key);
             // The images of a session dropped go with it (ADR 0142).
             self.drop_session_images(id);
             let Some(buffer) = buffer else {

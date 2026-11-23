@@ -353,9 +353,9 @@ impl Table {
     /// Keeps at most [`MAX_SESSIONS`](super::record::MAX_SESSIONS) sessions, so that the table
     /// and each record written stay bounded in a long-running oso: past that, the ones that do
     /// not run go, archived ones first, then unpinned ones, each the one that changed longest
-    /// ago. Their ids stay known, so the record drops them too. Returns the ids of those that
-    /// went, each with its buffer if it had one, which holds no session any more.
-    pub fn prune(&mut self) -> Vec<(SessionId, Option<BufferId>)> {
+    /// ago. Their ids stay known, so the record drops them too. Returns the keys and ids of those
+    /// that went, each with its buffer if it had one, which holds no session any more.
+    pub fn prune(&mut self) -> Vec<(SessionKey, SessionId, Option<BufferId>)> {
         let mut gone = Vec::new();
         while self.sessions.len() > super::record::MAX_SESSIONS {
             let oldest = self
@@ -367,7 +367,7 @@ impl Table {
                 .map(|(at, _)| at);
             let Some(at) = oldest else { break };
             let session = self.sessions.remove(at);
-            gone.push((session.id, session.buffer));
+            gone.push((session.key, session.id, session.buffer));
         }
         gone
     }
@@ -587,7 +587,8 @@ mod tests {
         table.recall(many(MAX_SESSIONS, 1));
         let gone = table.prune();
         assert_eq!(gone.len(), 1, "one past the cap");
-        assert_eq!(gone[0].1, None, "it had no buffer");
+        assert_eq!(gone[0].2, None, "it had no buffer");
+        assert!(table.get(gone[0].0).is_none(), "the one its key names");
         assert!(
             table.iter().all(|s| !s.archived),
             "the archived one went first"
@@ -597,7 +598,7 @@ mod tests {
         assert_eq!(gone.len(), 2);
         assert_eq!(
             gone.iter()
-                .filter_map(|(_, buffer)| *buffer)
+                .filter_map(|(.., buffer)| *buffer)
                 .collect::<Vec<_>>(),
             [buffer]
         );
