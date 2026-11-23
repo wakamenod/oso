@@ -655,8 +655,10 @@ fn archived(bridge: &mut Bridge, name: &str) -> bool {
 }
 
 /// Archives session `name` through `bridge`, which must go: its reply's `stopped` and `asked`.
+/// A stopped session's archive asks nobody, so it waits for the person's typing to be over
+/// (ADR 0085), which the flow's own keys to set the space up may be within.
 fn archive_of(bridge: &mut Bridge, name: &str) -> (Value, Value) {
-    let (done, error) = bridge.tool("session_archive", json!({ "session": name }));
+    let (done, error) = bridge.tool_when_free("session_archive", &json!({ "session": name }));
     assert!(!error, "{done}");
     (done["stopped"].clone(), done["asked"].clone())
 }
