@@ -7,7 +7,9 @@
 //!
 //! An offer is a question the host asks with `space-confirm` as its `y`: what it would paste is
 //! kept beside the question's id, dropped when another question is asked, and done only when
-//! `y` answers that same question, as the person's paste, never submitted. Every such question,
+//! `y` answers that same question, as the person's paste, never submitted. The paste is oso's own
+//! `/add-dir PATH`, made from the recorded path only while that is one plain line, and so not
+//! escaped as composed text is (`sessions::send::Command`, ADR 0165, part 2f). Every such question,
 //! the space's and a review's offer to resume the orchestrator (ADR 0163), is asked through
 //! [`App::ask_confirm`], which drops the others first, and `y` runs the one still kept.
 
@@ -17,6 +19,7 @@ use oso_core::minibuffer::PromptId;
 
 use crate::app::App;
 use crate::app::sessions::hosting::{Begin, Then};
+use crate::sessions::send::Command;
 use crate::sessions::spaces::orchestrator::{Repository, TEXT, header};
 use crate::sessions::spaces::stored::{now_ms, same};
 use crate::sessions::spaces::{Member, SpaceId};
@@ -43,7 +46,7 @@ pub(in crate::app) struct Offer {
     /// The space and the repository it offers.
     space: SpaceId,
     root: PathBuf,
-    text: String,
+    command: Command,
 }
 
 impl App {
@@ -376,6 +379,10 @@ impl App {
         let Some(key) = self.live_orchestrator(at) else {
             return false;
         };
+        // `claude -p` takes no `/add-dir`: a native orchestrator is offered none.
+        if self.hosting.natives.has(key) {
+            return false;
+        }
         let Some(stored) = self.watch.spaces().stored(at) else {
             return false;
         };
@@ -383,14 +390,16 @@ impl App {
         if self.was_given(&space, root) {
             return false;
         }
-        let Some(text) = root.to_str().map(|root| format!("/add-dir {root}")) else {
+        // oso's own command, not escaped, so that it runs as one: made from the recorded path
+        // alone, and only while that is one plain line.
+        let Some(command) = Command::add_dir(root) else {
             return false;
         };
         // The orchestrator answers to the space's slug.
         let name = stored.name.clone();
         let question = format!(
             "Paste {} into orchestrator {name}'s prompt, not sent? (y or n)",
-            super::printable(&text)
+            command.as_str()
         );
         // A question asked anew drops the one before, and what it offered.
         match self.ask_confirm(question) {
@@ -400,7 +409,7 @@ impl App {
                     session: key,
                     space,
                     root: root.to_owned(),
-                    text,
+                    command,
                 });
             }
             Err(e) => self.editor.message(e.to_string()),
@@ -436,7 +445,7 @@ impl App {
                 .editor
                 .message("Not pasted: the space or its orchestrator changed meanwhile".to_owned());
         }
-        match self.send_to_session(offer.session, offer.text) {
+        match self.send_command(offer.session, &offer.command) {
             Ok(()) => (self.hosting.spaces.given.entry(offer.space))
                 .or_default()
                 .push(offer.root),

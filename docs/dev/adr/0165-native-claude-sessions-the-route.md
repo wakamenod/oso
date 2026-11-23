@@ -942,13 +942,23 @@ stream-json's standard input are still assumed to read text the same way.
   in whitespace before an `@` of the draft, so that nothing put in makes the person's `x@y`
   the start of a word, a kept image's `@PATH` (`sessions::send::reference`) included, which is
   otherwise not escaped, nor is what the person types.
+- **oso's own command** (amended 2026-11-23): the space's offer to paste `/add-dir PATH` into
+  its orchestrator (ADR 0136, step 3; ADR 0161) is not escaped, as the escape's space made it
+  no command since this part. It goes as a `sessions::send::Command`, which only
+  `Command::add_dir` makes, from the space's recorded path, and only while that is absolute,
+  in UTF-8, with no control or invisible character, no blank but a space, none at its end and
+  no `@` after one, the command within 512 bytes; otherwise nothing is offered. The path is
+  one of the space's repositories that the person trusts, looked at again at `y`, though an
+  agent may have named it (`space_add_repo`) and anyone its directory; no other text takes
+  this way. Only a terminal takes it: `claude -p` runs no `/add-dir`, so a native orchestrator
+  is offered none, and a native session's composer refuses a command.
 - **A send to a native session** (Q1 (a)): `paste_into_session` and `send_to_session` put the
   escaped text into its composer at point, not sent, and `send_to_session` shows the session
   with point in the composer after it; the person sends it with `C-c C-c`. A stopped session's
   composer takes it, its send waiting as part 2a says. Nothing goes in that would make the
   composer hold more than 64 KiB, though a send may be 256 KiB: "The composer would hold over
-  64 KiB: nothing was put in"; nor into one a yank turned secret, which sends nothing. `session-send`, `session-mention`, review comments, git
-  drafts and orchestrator offers all go this way, and say "Put into NAME's composer: C-c C-c
+  64 KiB: nothing was put in"; nor into one a yank turned secret, which sends nothing. `session-send`, `session-mention`, review comments and git
+  drafts all go this way, and say "Put into NAME's composer: C-c C-c
   in its composer sends it".
 - **A clipboard image** (Q3 (a)): `C-c C-y` in the composer, or the transcript, puts the kept
   file's `@PATH` there, plain text in the composer's own face; the session is shown only if
