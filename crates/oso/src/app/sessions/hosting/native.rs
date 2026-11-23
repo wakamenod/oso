@@ -82,6 +82,7 @@ use crate::sessions::native::control::Control;
 use crate::sessions::native::interrupt::Interrupt;
 use crate::sessions::native::mode::ModeState;
 use crate::sessions::native::placed::Placed;
+use crate::sessions::native::remote::Remote;
 use crate::sessions::native::render;
 use crate::sessions::native::rows::{Changes, Kind, RowChange, Rows};
 use crate::sessions::native::slash::SlashCommands;
@@ -176,6 +177,8 @@ struct Native {
     /// the model and effort level the person chose (part 3c).
     mode: ModeState,
     choice: Choice,
+    /// Where Remote Control is in its process (ADR 0181): off, as nothing asks for it yet.
+    remote: Remote,
     /// Its start reads its earlier turns (step 5): the notes said meanwhile, drawn after them.
     notes_after_past: Option<Vec<String>>,
     /// Its conversation may have gone on elsewhere since its rows: its process ended other
@@ -390,7 +393,7 @@ impl App {
             suggested |= suggesting::suggestion_event(native, &event);
             recap::recap_event(native, &event, seen);
             noted |= control::control_event(native, &mut event, &mut follows, resumable);
-            noted |= native.mode.event(&event);
+            noted |= mode::mode_event(native, &event);
             let (changed, ask) = status::status_event(native, &event);
             noted |= changed;
             usage_id = usage_id.or(ask);

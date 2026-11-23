@@ -1,6 +1,6 @@
 # 0179. Agents archive sessions
 
-- Status: Accepted
+- Status: Accepted, amended by 0181
 - Date: 2026-11-23
 
 ## Context

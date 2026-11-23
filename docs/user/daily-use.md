@@ -738,6 +738,7 @@ Long lines wrap there, in the composer and in the results; `C-x x t` in one of t
 the window's edge instead.
 The `C-c` keys of a session's terminal work there too, except `C-c +` and `C-c -`. Claude
 Code's Remote Control is off in native sessions; in the TUI (`C-c a t`), your own settings decide.
+A note in the transcript says so if a claude says that it is available all the same.
 
 You write the next messages in the composer under the conversation, which agents cannot read.
 While it is empty it says in grey what it is and its keys. `i` goes there and `C-c C-o` back, `C-c C-c` sends, and `M-p` and `M-n` bring back what you

@@ -1,6 +1,6 @@
 # 0176. Native orchestrators
 
-- Status: Accepted
+- Status: Accepted, amended by 0181
 - Date: 2026-11-23
 
 ## Context

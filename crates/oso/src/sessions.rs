@@ -13,7 +13,8 @@
 //! - `explain`: what `session-explain` and `session-explain-file` show.
 //! - `worker`: the thread.
 //! - `identity`: a session's id and name.
-//! - `command`: the `claude` command line, and `launch`: the login shell that runs it.
+//! - `command`: the `claude` command line, and `launch`: the login shell that runs it;
+//!   `settings`: what its `--settings` holds.
 //! - `registry`: Claude Code's registry of running sessions, and whether each is live.
 //! - `record`: the sessions oso remembers, in its state directory.
 //! - `hosted`: the table of the sessions oso hosts.
@@ -67,6 +68,7 @@ pub mod registry_look;
 pub mod rules;
 pub mod screen;
 pub mod send;
+pub mod settings;
 pub mod spaces;
 pub mod spinner;
 pub mod start;

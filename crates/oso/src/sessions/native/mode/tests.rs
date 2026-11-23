@@ -23,7 +23,7 @@ const BUSY: Process = Process {
 
 fn in_mode(name: &str) -> ModeState {
     let mut modes = ModeState::default();
-    assert!(modes.said(name));
+    assert!(modes.said(name, false));
     modes
 }
 
@@ -71,14 +71,14 @@ fn the_cycle_is_the_terminals_and_a_mode_oso_never_sends_goes_to_default() {
 fn the_mode_shown_is_the_clis_and_odd_text_is_not_shown() {
     let mut modes = in_mode("plan");
     assert_eq!(modes.shown(), Some("plan"));
-    assert!(!modes.said("plan"), "the same");
-    assert!(!modes.said(""), "says nothing");
-    assert!(modes.said("bypassPermissions"));
-    assert!(!modes.said("bypassPermissions"), "the same");
+    assert!(!modes.said("plan", false), "the same");
+    assert!(!modes.said("", false), "says nothing");
+    assert!(modes.said("bypassPermissions", false));
+    assert!(!modes.said("bypassPermissions", false), "the same");
     assert_eq!(modes.shown(), Some("bypassPermissions"));
-    assert!(modes.said("plan\u{202e}"));
+    assert!(modes.said("plan\u{202e}", false));
     assert_eq!(modes.shown(), None, "not readable as itself");
-    assert!(modes.said("acceptEdits"));
+    assert!(modes.said("acceptEdits", false));
     assert_eq!(modes.shown(), Some("acceptEdits"));
 }
 
@@ -98,16 +98,19 @@ fn a_new_process_carries_a_mode_that_asks_or_one_the_person_chose_and_none_else(
     let (mut control, mut modes) = (on(now), in_mode("default"));
     let (id, _) = asked(&mut modes, &mut control, now);
     assert_eq!(modes.answered(&mut control, id, None, IDLE), Vec::new());
-    assert!(modes.said("acceptEdits"));
+    assert!(modes.said("acceptEdits", false));
     assert_eq!(modes.for_start(), Some(AcceptEdits));
-    assert!(!modes.said("acceptEdits"), "the new process says it again");
-    assert!(modes.said("auto"), "a line no switch asked for");
+    assert!(
+        !modes.said("acceptEdits", false),
+        "the new process says it again"
+    );
+    assert!(modes.said("auto", false), "a line no switch asked for");
     assert_eq!(
         modes.for_start(),
         Some(Default),
         "not the settings' mode either"
     );
-    assert!(modes.said("bypassPermissions"));
+    assert!(modes.said("bypassPermissions", false));
     assert_eq!(modes.carried(), Some(Default));
 }
 
@@ -123,7 +126,7 @@ fn a_fork_starts_as_its_source_would() {
         Some(Auto),
         "the person chose it in the source"
     );
-    assert!(fork.said("auto"));
+    assert!(fork.said("auto", false));
     assert_eq!(fork.carried(), Some(Auto));
     assert_eq!(in_mode("auto").forked().carried(), None, "nobody switched");
 }
@@ -148,7 +151,7 @@ fn a_mode_oso_gave_is_carried_and_switched_from_until_the_process_says_one() {
     assert_eq!(modes.for_start(), Some(Default));
     assert!(!modes.ended(false), "the process ended before it spoke");
     assert_eq!(modes.carried(), Some(Default), "not the `auto` it left");
-    assert!(modes.said("default"), "the next process says it");
+    assert!(modes.said("default", false), "the next process says it");
     assert_eq!(modes.shown(), Some("default"));
     assert_eq!(modes.carried(), Some(Default));
 }
@@ -161,7 +164,7 @@ fn in_auto() -> ModeState {
     let (id, mode) = asked(&mut modes, &mut control, now);
     assert_eq!(mode, Auto);
     assert_eq!(modes.answered(&mut control, id, None, IDLE), Vec::new());
-    assert!(modes.said("auto"));
+    assert!(modes.said("auto", false));
     modes
 }
 
@@ -221,7 +224,7 @@ fn on_tier_two_a_switch_is_a_request_that_changes_nothing_shown() {
     assert_eq!(modes.deadline(), None);
     assert_eq!(modes.shown(), Some("default"), "until the CLI says so");
     assert!(!modes.respawns());
-    assert!(modes.said("acceptEdits"));
+    assert!(modes.said("acceptEdits", false));
     assert_eq!(asked(&mut modes, &mut control, now).1, Plan);
 }
 
@@ -248,7 +251,7 @@ fn a_request_unanswered_or_refused_falls_back_to_a_resume_while_idle() {
         Some(AcceptEdits),
         "until the process says one"
     );
-    assert!(modes.said("acceptEdits"));
+    assert!(modes.said("acceptEdits", false));
     assert_eq!(modes.for_start(), Some(AcceptEdits), "the person chose it");
 
     let (mut control, mut modes) = (on(now), in_mode("default"));
@@ -364,7 +367,7 @@ fn a_mode_the_cli_says_after_an_answer_wins_over_the_one_asked() {
     let (mut control, mut modes) = (on(now), in_mode("default"));
     let (id, _) = asked(&mut modes, &mut control, now);
     assert_eq!(modes.answered(&mut control, id, None, IDLE), Vec::new());
-    assert!(modes.said("plan"));
+    assert!(modes.said("plan", false));
     assert_eq!(modes.carried(), Some(Plan));
     assert_eq!(asked(&mut modes, &mut control, now).1, Auto);
 }
@@ -374,10 +377,10 @@ fn a_plan_approved_with_a_mode_is_the_persons_choice() {
     let mut modes = in_mode("plan");
     modes.chose(AcceptEdits);
     assert_eq!(modes.carried(), Some(AcceptEdits), "before the CLI says it");
-    assert!(modes.said("acceptEdits"));
+    assert!(modes.said("acceptEdits", false));
     assert_eq!(modes.for_start(), Some(AcceptEdits));
-    assert!(!modes.said("acceptEdits"));
-    assert!(modes.said("auto"), "no approval asked for it");
+    assert!(!modes.said("acceptEdits", false));
+    assert!(modes.said("auto", false), "no approval asked for it");
     assert_eq!(modes.carried(), Some(Default));
 }
 
@@ -385,14 +388,14 @@ fn a_plan_approved_with_a_mode_is_the_persons_choice() {
 fn a_session_an_oso_restart_resumes_starts_in_the_mode_carried_and_keeps_it() {
     let mut modes = ModeState::restarted(Some(AcceptEdits));
     assert_eq!(modes.for_start(), Some(AcceptEdits));
-    assert!(modes.said("acceptEdits"));
+    assert!(modes.said("acceptEdits", false));
     assert_eq!(
         modes.carried(),
         Some(AcceptEdits),
         "the person's, before the restart"
     );
     // A mode that asks less, which the stream alone says, is not carried.
-    assert!(modes.said("auto"));
+    assert!(modes.said("auto", false));
     assert_eq!(modes.carried(), Some(Default));
     let mut none = ModeState::restarted(None);
     assert_eq!(
@@ -400,7 +403,7 @@ fn a_session_an_oso_restart_resumes_starts_in_the_mode_carried_and_keeps_it() {
         None,
         "nobody switched it: the settings' mode"
     );
-    assert!(none.said("auto"));
+    assert!(none.said("auto", false));
     assert_eq!(none.carried(), None);
 }
 
@@ -420,4 +423,174 @@ fn a_respawn_waits_for_an_idle_spoken_free_process() {
         ..IDLE
     };
     assert_eq!(held.respawn_refusal(), Some(Refusal::Held));
+}
+
+/// The phone's, or a forged line's, is shown while Remote Control is asked for, and never
+/// carried (ADR 0181).
+#[test]
+fn a_mode_no_switch_here_gave_is_not_carried_while_remote_control_is_asked_for() {
+    for (chosen, said, carried) in [
+        // The person's `auto`, put to `default` from the phone, then to `auto` again.
+        (Some(Auto), &["default"][..], Default),
+        (Some(Auto), &["default", "auto"], Default),
+        (Some(Auto), &["plan", "auto"], Default),
+        (Some(Auto), &["bypassPermissions"], Default),
+        (Some(Auto), &["plan\u{202e}", "auto"], Default),
+        (Some(Default), &["auto"], Default),
+        (Some(Plan), &["auto"], Plan),
+        (Some(Plan), &["default"], Plan),
+        (Some(Plan), &["auto", "plan", "auto"], Plan),
+        (Some(AcceptEdits), &["plan"], Default),
+        // Nobody switched: the settings' mode is not gone back to.
+        (None, &["auto"], Default),
+        (None, &["default", "acceptEdits"], Default),
+    ] {
+        let mut modes = in_mode("acceptEdits");
+        if let Some(mode) = chosen {
+            modes.chose(mode);
+            modes.said(mode.name(), false);
+            assert_eq!(modes.carried(), Some(mode));
+        }
+        for text in said {
+            modes.said(text, true);
+        }
+        let shown = said.last().copied().filter(|text| text.is_ascii());
+        assert_eq!(modes.shown(), shown, "it is shown");
+        assert_eq!(modes.carried(), Some(carried), "{chosen:?} {said:?}");
+        assert_eq!(modes.forked().carried(), Some(carried));
+        assert_eq!(modes.for_start(), Some(carried));
+        // In the next process too, whatever its stream says.
+        modes.said(carried.name(), false);
+        modes.said("auto", false);
+        assert_eq!(modes.carried(), Some(Default), "{chosen:?} {said:?}");
+    }
+}
+
+#[test]
+fn the_persons_switch_here_is_carried_while_remote_control_is_asked_for() {
+    let now = Instant::now();
+    let (mut control, mut modes) = (on(now), in_mode("default"));
+    assert!(!modes.said("default", true), "said again");
+    assert_eq!(modes.carried(), Some(Default));
+    let (id, mode) = asked(&mut modes, &mut control, now);
+    assert_eq!(mode, AcceptEdits);
+    // Said before the answer, it is not the switch's until that comes.
+    assert!(modes.said("acceptEdits", true));
+    assert_eq!(modes.carried(), Some(Default));
+    assert_eq!(modes.answered(&mut control, id, None, IDLE), Vec::new());
+    assert!(!modes.said("acceptEdits", true));
+    assert_eq!(modes.carried(), Some(AcceptEdits));
+    // The phone's, and the person's again after it.
+    assert!(modes.said("auto", true));
+    assert_eq!(modes.carried(), Some(Default));
+    modes.chose(AcceptEdits);
+    assert!(modes.said("acceptEdits", true));
+    assert_eq!(modes.carried(), Some(AcceptEdits));
+}
+
+/// A mode said while a switch to it is in flight is not the switch's once that comes to nothing.
+#[test]
+fn a_mode_said_while_a_switch_to_it_comes_to_nothing_is_not_carried() {
+    let now = Instant::now();
+    for chosen in [None, Some(Auto)] {
+        for end in 0..5 {
+            let (mut control, mut modes) = (on(now), in_mode("plan"));
+            if let Some(mode) = chosen {
+                modes.chose(mode);
+                modes.said(mode.name(), false);
+                modes.said("plan", false);
+            }
+            let (id, mode) = asked(&mut modes, &mut control, now);
+            assert_eq!(mode, Auto);
+            assert!(modes.said("auto", true));
+            let refused = vec![Then::Refused(Refusal::Busy)];
+            match end {
+                0 => {
+                    let then = modes.answered(&mut control, id, Some("no"), BUSY);
+                    assert_eq!(then[1..], refused);
+                }
+                1 => {
+                    let then = modes.due(&mut control, BUSY, now + ANSWER_WAIT);
+                    assert_eq!(then[1..], refused);
+                }
+                2 => assert!(!modes.ended(false)),
+                3 => assert_eq!(modes.forked().carried(), Some(Plan)),
+                _ => {}
+            }
+            assert_eq!(modes.carried(), Some(Plan), "{chosen:?} {end}");
+            assert_eq!(modes.for_start(), Some(Plan));
+            modes.said("plan", false);
+            modes.said("auto", false);
+            assert_eq!(modes.carried(), Some(Default));
+        }
+    }
+}
+
+#[test]
+fn the_mode_not_carried_stays_so_through_a_restart_and_a_respawn_that_fails() {
+    let now = Instant::now();
+    let mut modes = in_mode("auto");
+    modes.chose(Auto);
+    modes.said("auto", false);
+    modes.said("default", true);
+    modes.said("auto", true);
+    let mut next = ModeState::restarted(modes.carried());
+    assert_eq!(next.for_start(), Some(Default));
+    next.said("auto", false);
+    assert_eq!(next.carried(), Some(Default));
+    // A tier-1 switch is the person's, until it comes to nothing.
+    let mut control = tier_one(now);
+    let then = modes.begin(Some(&mut control), IDLE, now);
+    assert_eq!(then, Ok(Then::Respawn(Default)));
+    assert!(modes.ended(false));
+    assert_eq!(modes.carried(), Some(Default));
+    // One from elsewhere while the person's is pending.
+    let mut modes = in_mode("default");
+    modes.chose(Auto);
+    modes.said("acceptEdits", true);
+    modes.said("auto", true);
+    assert_eq!(modes.carried(), Some(Default));
+}
+
+/// Whatever the stream says in a process that may be connected, the next start asks, unless the
+/// person's last choice was what the process was in ever since.
+mod any {
+    use proptest::prelude::*;
+
+    use super::*;
+
+    proptest! {
+        #[test]
+        fn mode_from_elsewhere_is_not_carried(
+            steps in prop::collection::vec((0..4u8, 0..6usize), 0..40),
+        ) {
+            let names = ["default", "acceptEdits", "plan", "auto", "bypassPermissions", "dontAsk"];
+            let mut modes = ModeState::default();
+            modes.said("default", false);
+            // The person's choice, while nothing else was said since.
+            let mut held = None;
+            for (step, at) in steps {
+                match step {
+                    0 | 1 => {
+                        modes.said(names[at], true);
+                        held = held.filter(|mode: &PermissionMode| mode.name() == names[at]);
+                    }
+                    2 => {
+                        let mode = PermissionMode::ALL[at % 4];
+                        modes.chose(mode);
+                        held = Some(mode);
+                    }
+                    _ => {
+                        let carried = modes.for_start();
+                        held = held.filter(|mode| Some(*mode) == carried);
+                    }
+                }
+                let carried = modes.carried();
+                if let Some(mode @ (AcceptEdits | Auto)) = carried {
+                    prop_assert_eq!(held, Some(mode));
+                }
+                prop_assert_eq!(modes.forked().carried(), carried);
+            }
+        }
+    }
 }

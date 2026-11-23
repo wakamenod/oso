@@ -1,6 +1,6 @@
 # 0165. Native Claude sessions: the route
 
-- Status: Accepted, amended by 0170, 0173, 0176 and 0180; "Following the end, as amended" and "Remote Control is off, as amended" (2026-11-24)
+- Status: Accepted, amended by 0170, 0173, 0176, 0180 and 0181; "Following the end, as amended" and "Remote Control is off, as amended" (2026-11-24)
 - Date: 2026-11-21
 
 ## Context
@@ -2307,6 +2307,8 @@ its own asks for it, in an ADR of its own.
   with the hook beside it; no terminal's has it, handed or not), `steer`'s (the JSON, and that
   it needs no path in UTF-8). End to end: the line `claude` was started with, of a new native
   session, a switch to the TUI and back, and a space's new orchestrator.
+  - Erratum (2026-11-24, ADR 0181's part RC-1): the JSON's tests are `sessions::settings`', where
+    `steer`'s settings moved.
 - **New public items:** none.
 
 ## Questions

@@ -26,8 +26,9 @@
 //! - Where a streamed reply is drawn again from is `shown`'s to say: its lines are read once as
 //!   they end.
 //! - A message is the person's only when oso sent its text ([`Rows::sent`]) and the CLI
-//!   replayed it, or as a listed slash command, never replayed (step 2d). Any other replay is a note, or nothing when a command or hook wrapped it, so
-//!   no text from elsewhere is shown as the person's words.
+//!   replayed it as one that came through oso (ADR 0181), or as a listed slash command, never
+//!   replayed (step 2d). Any other replay is a note, or nothing when a command or hook wrapped
+//!   it, so no text from elsewhere is shown as the person's words.
 //! - Rows are kept for the session's life; each holds at most what `wire`'s limits let in.
 //! - A session's earlier turns, read from its transcript at its start, are folded in by
 //!   `past` before anything its process says, and the ids of its newest messages are kept so
@@ -37,6 +38,7 @@ use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 
 use super::shown::{self, LineStart};
+use super::wire::remote::Came;
 use super::wire::{
     Assistant, Block, BlockKind, Event, PartKind, Partial, Task, ToolInput, ToolResult, TurnResult,
     User,
@@ -248,6 +250,8 @@ impl Rows {
             | Event::RateLimit(_)
             | Event::Status { .. }
             | Event::Answer(_)
+            | Event::Connection(_)
+            | Event::Lifecycle(_)
             | Event::Suggestion(_)
             | Event::Other(_) => Vec::new(),
         };
@@ -477,7 +481,12 @@ impl Rows {
             return changes;
         }
         if let Some(text) = message.text {
-            changes.extend(self.replayed(text));
+            changes.extend(match message.came {
+                Came::AsSaid => self.replayed(text),
+                // Not oso's, whatever its text: what oso sent still waits for its own replay.
+                Came::Elsewhere => self.not_sent(text),
+                Came::Remote => Some(self.remote(&text)),
+            });
         }
         changes
     }

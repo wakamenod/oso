@@ -11,6 +11,9 @@ use crate::sessions::transcripts::WRAPPERS;
 /// The most texts oso sent that wait for the CLI to replay them.
 const MAX_SENT: usize = 64;
 
+/// What starts the note of a message from claude.ai.
+const FROM_REMOTE: &str = "From claude.ai, not from oso: ";
+
 /// A command's output that the CLI replays as a message: shown as a note.
 const COMMAND_OUTPUT: (&str, &str) = ("<local-command-stdout>", "</local-command-stdout>");
 
@@ -36,6 +39,12 @@ impl Rows {
             return Some(self.push(Kind::Prompt(text), 0, false));
         }
         self.not_sent(text)
+    }
+
+    /// A message from claude.ai (ADR 0181): a note that says so, whatever it holds, so that none
+    /// reads as oso's or the CLI's words, or draws nothing.
+    pub(super) fn remote(&mut self, text: &str) -> RowChange {
+        self.push(Kind::Note(format!("{FROM_REMOTE}{text}")), 0, false)
     }
 
     /// A message that is not the person's: a command's output is a note, as is any other

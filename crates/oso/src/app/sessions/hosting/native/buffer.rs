@@ -21,6 +21,7 @@ use crate::sessions::native::control::Control;
 use crate::sessions::native::interrupt::Interrupt;
 use crate::sessions::native::mode::ModeState;
 use crate::sessions::native::placed::Placed;
+use crate::sessions::native::remote::Remote;
 use crate::sessions::native::rows::Rows;
 use crate::sessions::native::slash::SlashCommands;
 use crate::sessions::start::NativeOrder;
@@ -99,6 +100,8 @@ impl App {
             native.cli_id = None;
             native.status.new_process();
             native.choice.new_process();
+            // Each native start's settings block it (`sessions::start::launch_of`).
+            native.remote = Remote::default();
         }
         // The mode it was in, as `--resume` keeps none (part 3b), and the model and effort
         // chosen (part 3c).
@@ -176,6 +179,7 @@ impl App {
             status: status::StatusState::default(),
             mode: ModeState::default(),
             choice: Choice::default(),
+            remote: Remote::default(),
             todo: todo::TodoStrip::default(),
             notes_after_past: None,
             may_have_gone_on: false,
