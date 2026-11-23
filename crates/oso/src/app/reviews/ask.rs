@@ -23,8 +23,10 @@
 //!   dialog, a picker or another mode shows, nothing is pasted or submitted.
 //! - **To a native session** (ADR 0165, part 2f; ADR 0163, "A native session's question, as
 //!   amended"): sent at once as a message, or queued behind the turn under way
-//!   (`send_confirmed`), the composer's draft untouched; a stopped one is refused, as it is
-//!   resumed first. Its transcript shows in the slot as a terminal does.
+//!   (`send_confirmed`), the composer's draft untouched. A stopped native orchestrator is
+//!   offered a resume as a terminal's is, and the question held goes once its process runs
+//!   (ADR 0176, part O-2); one whose resume did not start drops it. Its transcript shows in the
+//!   slot as a terminal does.
 //! - **Refused** as any send is, and then the session's terminal still shows in the slot, so
 //!   the person sees why; the question is in the prompt's history, `M-p` there brings it back.
 //! - A file that may hold secrets sends its place alone, judged again before a held question
@@ -43,6 +45,7 @@ use super::super::App;
 use super::super::sessions::{Orchestrator, Outgoing, Shown};
 use crate::commands::agent_sessions::MAX_SEND_BYTES;
 use crate::review::ask::{About, Where, compose, region_rows, row_text};
+use crate::sessions::hosted::Run;
 use crate::sessions::send::{InputBox, NoBox, input_box};
 use crate::sessions::spaces::SpaceId;
 use crate::sessions::worker::SessionKey;
@@ -122,11 +125,7 @@ impl App {
         self.look_for_enter(Instant::now(), true);
         match self.review_orchestrator(review) {
             Some(Orchestrator::Running(key)) => self.deliver_question(key, question),
-            // A native session takes it or says why not: a stopped one is resumed first
-            // (ADR 0165, part 2f).
-            Some(Orchestrator::Stopped { key, .. }) if self.hosting.natives.has(key) => {
-                self.deliver_question(key, question);
-            }
+            // A native one too (ADR 0176, part O-2).
             Some(Orchestrator::Stopped { key, .. }) => self.offer_resume(key, question),
             Some(stopped @ Orchestrator::NoTerminal { .. }) => {
                 if let Some(why) = self.not_running(&stopped, "nothing was sent") {
@@ -316,8 +315,9 @@ impl App {
     }
 
     /// After each event: the Enter that waits is looked for, and a held question goes once its
-    /// orchestrator takes a paste at an input box, or is dropped once [`HOLD_FOR`] passed, the
-    /// session is gone, or its file may now hold secrets.
+    /// orchestrator takes a paste at an input box, or a native one's process runs, or is
+    /// dropped once [`HOLD_FOR`] passed, the session is gone, a native one's resume did not
+    /// start, or its file may now hold secrets.
     pub(super) fn sync_review_ask(&mut self) {
         let now = Instant::now();
         self.look_for_enter(now, false);
@@ -331,9 +331,21 @@ impl App {
                 .editor
                 .message("The orchestrator is gone: the question was not sent");
         }
-        let ready = self
-            .paste_target(key)
-            .is_ok_and(|buffer| !matches!(self.input_box_of(buffer), InputBox::Other(_)));
+        let ready = match self.native_run(key) {
+            Some(Run::Running { .. }) => true,
+            Some(Run::Starting) => false,
+            Some(Run::Stopped | Run::Failed) => {
+                self.reviews.asking.held = None;
+                let name = self.review_session_name(key);
+                return self.editor.message(format!(
+                    "{name} did not resume: the question was not sent; M-p in the question's \
+                     prompt brings it back"
+                ));
+            }
+            None => self
+                .paste_target(key)
+                .is_ok_and(|buffer| !matches!(self.input_box_of(buffer), InputBox::Other(_))),
+        };
         if ready {
             let Some(held) = self.reviews.asking.held.take() else {
                 return;

@@ -13,6 +13,7 @@ mod members;
 mod naming;
 mod native;
 mod new_space;
+mod offers;
 mod orchestrator;
 
 pub(in crate::app) use orchestrator::Orchestrator;
@@ -82,7 +83,7 @@ pub(in crate::app) struct SpaceWork {
     /// dropped when another is asked or it is answered otherwise. A review's offer to resume
     /// the orchestrator is the third kind (ADR 0163), kept by `reviews::ask`; every such
     /// question is asked through `App::ask_confirm`, which drops the others.
-    pub(in crate::app) offer: Option<orchestrator::Offer>,
+    pub(in crate::app) offer: Option<offers::Offer>,
     /// A replacement of an orchestrator asked about, which `y` does (step 5).
     pub(in crate::app) replace_asked: Option<handover::Asked>,
     /// The orchestrators being stopped for a successor, by key: what starts once each ended.

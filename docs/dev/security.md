@@ -898,7 +898,9 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     path also naming it with no link or `..` on the way, and looked at again at the person's
     `y`. It asks as a start does, past no limit, and goes without asking only for a trusted
     repository oso knew before the call, by device and inode; one oso does not trust always
-    asks and joins restricted. A running orchestrator reads it only after the person's `/add-dir` paste.
+    asks and joins restricted. A running orchestrator reads it only after the person's `/add-dir` paste,
+    or, run natively, after their `y` to its resume with it, which oso judges again at each
+    event until the session is idle ([ADR 0176](adr/0176-native-orchestrators.md), part O-2).
   - `session_rename` ([ADR 0155](adr/0155-renaming-sessions.md)) asks nothing, as it changes
     metadata only, and nothing bounds how many it makes
     ([ADR 0177](adr/0177-no-loop-guard-on-the-session-tools.md)). An agent

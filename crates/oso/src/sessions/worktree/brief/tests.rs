@@ -79,7 +79,7 @@ fn with_a_name_and_every_fact() {
     };
     let expected = format!(
         "{HEAD}\n\
-This work was handed to you by session lead; report back with SendMessage (to: lead).\n\
+This work was handed to you by session lead; report back with SendMessage (to: lead). If SendMessage finds no lead, oso may be restarting it: send again in a minute.\n\
 \n\
 Hand-off facts from that session:\n\
 - Its transcript: /home/.claude/projects/-repo/1.jsonl\n\
@@ -105,7 +105,7 @@ fn a_name_without_facts() {
     assert_eq!(
         text,
         format!(
-            "{HEAD}\nThis work was handed to you by session lead; report back with SendMessage (to: lead).\n\nb"
+            "{HEAD}\nThis work was handed to you by session lead; report back with SendMessage (to: lead). If SendMessage finds no lead, oso may be restarting it: send again in a minute.\n\nb"
         )
     );
 }

@@ -111,7 +111,10 @@ impl App {
             native.composing.busy = false;
             native.composing.resumed();
         }
-        self.native_note_row(key, "Resumed.");
+        // One resumed with a repository added says so once its start thread reports.
+        if !self.resume_takes_dirs(key) {
+            self.native_note_row(key, "Resumed.");
+        }
         self.draw_queue(key);
         // Its to-do list is not read back: empty until its next to-do call (part 3e).
         self.clear_todo(key);
@@ -138,6 +141,7 @@ impl App {
         };
         let change = native.rows.note("It did not resume.");
         super::draw(&mut self.editor, native, [change]);
+        self.adding_over(key);
         self.editor.set_running(buffer, false);
         self.set_native_state(key, NativeState::Stopped);
         self.composer_ended(key);

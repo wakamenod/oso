@@ -115,7 +115,9 @@ often, so it must rebuild within 2 s.
   (part 3b), its model and effort level as `/model` and `/effort` chose them
   `sessions/native/choice.rs`, kept beside its mode, with their argument's completion listed
   by `native/slash.rs` and opened by `dispatch/slash.rs` (part 3c), and its resume, a
-  native fork and a native adoption `native/resume.rs`, under the trust `sessions/start/trust.rs` judges, from what
+  native fork and a native adoption `native/resume.rs`, an orchestrator's resume with a
+  repository added `native/adding.rs`, offered by `app/sessions/spaces/offers.rs` (ADR 0176,
+  part O-2), under the trust `sessions/start/trust.rs` judges, from what
   `app/sessions/hosting/trust.rs` gives it, and by the record on the start thread
   (ADR 0165, step 2), or in an issue space's own directory under the space's gate
   `sessions/start/space_gate.rs`, from what `app/sessions/spaces/native.rs` judges (ADR 0176);
