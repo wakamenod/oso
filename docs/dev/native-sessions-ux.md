@@ -124,7 +124,7 @@ the rest).
 | 11 | **A focus toggle** (`C-c C-f`): only prompts, replies and turn footers; tool rows hidden. | M | S | 2 |
 | 12 | **The composer's `@`** completes files with the preview float of `C-x p f`, and puts a chip (`@auth/redirect.rs`); a pasted image is a chip, `[image 1 · 1280×720]`. | M | M | 2 |
 | 13 | **Status in the session window's modeline:** model · mode · `ctx 41%` · cost · `5h 63%`, each a word or a unit, once. A narrow window drops from the right. Built (ADR 0165 part 3a): the model is the one that answered last, `ctx` is the context used. | H | S | 3 |
-| 14 | **A pinned to-do strip** between the transcript and the composer: one line (`☐ 2/5 ▶ Run the tests`) while a list exists, `C-c C-t` opens it to at most 6 rows. | H | M | 3 |
+| 14 | **A pinned to-do strip** between the transcript and the composer: one line (`▸ Tasks (2/5)  [/] Run the tests`) while a list exists, `C-c C-t` opens it to at most 6 rows. | H | M | 3 |
 | 15 | **Plan review** as ADR 0130 has it, in an editable buffer, with `y` approve, `n` keep planning with a note. | H | M | 3 |
 | 16 | **A recap** when the person comes back to a session they had not seen finish: the turn's last reply's first sentence in the echo area. | M | S | 3 |
 | 17 | **`/btw` in a top-edge float** (ADR 0075), streaming, out of the history; `C-g` closes it. | M | M | 5 |
@@ -196,15 +196,16 @@ The status line, as the session window's modeline:
 The to-do strip, folded and opened:
 
 ```text
- ☐ 2/5 ▶ Run the auth tests                                      C-c C-t list
+ ▸ Tasks (2/5)  [/] Run the auth tests                           C-c C-t list
 ```
 
 ```text
- ☑ Read the redirect handler
- ☑ Patch safe_next
- ▶ Run the auth tests
- ☐ Add a test for absolute URLs
- ☐ Update the changelog
+ ▾ Tasks (2/5)                                                   C-c C-t fold
+     [x] Read the redirect handler
+     [x] Patch safe_next
+     [/] Run the auth tests
+     [ ] Add a test for absolute URLs
+     [ ] Update the changelog
 ```
 
 ## 5. Slash commands

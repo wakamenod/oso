@@ -9,7 +9,7 @@ use oso_core::editor::Editor;
 use oso_core::frame::CellRect;
 use oso_core::window::Screen;
 use oso_render::{
-    Bands, CursorStyle, Layer, Pane, PaneContent, PaneId, Panel, TextMarks, TextView,
+    Bands, CursorStyle, Layer, Pane, PaneContent, PaneId, Panel, Rules, TextMarks, TextView,
 };
 
 /// The base of the description's panes, a range of its own past the menus' and the
@@ -45,6 +45,7 @@ pub(in crate::app::draw) fn hover_panes<'a>(
             border: true,
         }),
         bands: Bands::NONE,
+        rules: Rules::NONE,
         content: PaneContent::Lines(&[]),
     });
     let view = TextView {
@@ -74,6 +75,7 @@ pub(in crate::app::draw) fn hover_panes<'a>(
         background: None,
         panel: None,
         bands: Bands::NONE,
+        rules: Rules::NONE,
         content: PaneContent::Text(view),
     });
 }

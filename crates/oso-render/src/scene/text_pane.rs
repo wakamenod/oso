@@ -13,6 +13,7 @@ use oso_platform::text::{CellMetrics, TextSystem};
 
 use super::boxes::underline_links;
 use super::marks::draw_marks;
+use super::rules::draw_rules;
 use super::{Covered, Draws, Fade, GlyphSource, RowFaces, line_width};
 use crate::pane::{CursorStyle, Face, Pane, PaneContent, TextView};
 use crate::rows::Rows;
@@ -90,19 +91,27 @@ pub(super) fn underline_preedit(
 }
 
 /// Fills what is behind `view`'s boxes and glyphs, in `layout`, the pane's unscrolled one: its
-/// fills back to front, so the text keeps its face, then the flash, then a server's marks over
-/// them and under the glyphs, but in the `cursor`'s cells (ADR 0138).
+/// fills back to front, so the text keeps its face, with the pane's lines just over the current
+/// line's band (ADR 0170), then the flash, then a server's marks over them and under the glyphs,
+/// but in the `cursor`'s cells (ADR 0138).
 pub(super) fn draw_fills(
     draws: &mut Draws,
-    view: &TextView<'_>,
+    (view, pane): (&TextView<'_>, &Pane<'_>),
     (layout, cursor): (&Layout, Option<CellRect>),
     metrics: CellMetrics,
 ) {
-    for &(face, cells) in view.fills {
-        for cells in cells {
-            draws.fill(layout.frame_cells(*cells), face);
+    let band = (view.fills.iter()).rposition(|(face, _)| *face == Face::CurrentLine);
+    let (behind, over) = view.fills.split_at(band.map_or(0, |band| band + 1));
+    let fill = |draws: &mut Draws, fills: &[(Face, &[CellRect])]| {
+        for &(face, cells) in fills {
+            for cells in cells {
+                draws.fill(layout.frame_cells(*cells), face);
+            }
         }
-    }
+    };
+    fill(draws, behind);
+    draw_rules(draws, pane, layout, metrics);
+    fill(draws, over);
     if let Some(flash) = view.flash {
         let cells = layout.frame_cells(flash.cells);
         draws.fill_faded(cells, Face::Flash, flash.strength);

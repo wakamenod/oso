@@ -160,6 +160,8 @@ mod tests {
         CellMetrics, FontId, FontStyle, GlyphBitmap, GlyphFormat, GlyphId, ShapedGlyph,
     };
 
+    mod rules;
+
     const WIDTH: u32 = 128;
     const HEIGHT: u32 = 128;
 
@@ -363,6 +365,7 @@ mod tests {
             background,
             panel: None,
             bands: Bands::NONE,
+            rules: crate::pane::Rules::NONE,
             content: PaneContent::Lines(lines),
         }
     }

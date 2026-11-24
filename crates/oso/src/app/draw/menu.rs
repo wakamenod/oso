@@ -18,7 +18,7 @@ use oso_core::editor::Editor;
 use oso_core::frame::CellRect;
 use oso_core::menu::{self, Definition, HeadAction, Layout, Open, Stay};
 use oso_core::minibuffer::cells_of;
-use oso_render::{Bands, Face, Layer, Pane, PaneContent, PaneId, Panel, Span};
+use oso_render::{Bands, Face, Layer, Pane, PaneContent, PaneId, Panel, Rules, Span};
 
 use super::reuse;
 use crate::dispatch::{Described, HeadNow, OpenMenu};
@@ -446,6 +446,7 @@ pub(super) fn panes<'a>(
         background: None,
         panel: None,
         bands: Bands::NONE,
+        rules: Rules::NONE,
         content: PaneContent::Lines(rows),
     };
     // A completion's panel, at the center of the tiled area (ADR 0117 step 2).
@@ -468,6 +469,7 @@ pub(super) fn panes<'a>(
             border: true,
         }),
         bands: Bands::NONE,
+        rules: Rules::NONE,
         content: PaneContent::Lines(&[]),
     });
     if layout.title.columns > 0 {

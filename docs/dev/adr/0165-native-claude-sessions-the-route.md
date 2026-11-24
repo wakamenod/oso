@@ -1660,6 +1660,21 @@ As built:
   transcript and the composer, not in the strip itself, whose buffer has no keymap of its
   own.
 
+- **Its words and faces, amended on 2026-11-24** (the look, element 19; the author's choices). What
+  is above of its marks and faces was so before:
+  - Folded: `▸ Tasks (2/5)  [/] ITEM` and `C-c C-t list` at its right edge. With less room the keys
+    are left out first (an item is cut to no fewer than 8 cells for them), then the item, then the
+    head is cut.
+  - Opened: `▾ Tasks (2/5)`, with `C-c C-t fold` at its right edge, then a row an item, four columns
+    in: `[x]` completed, `[/]` in progress or `[ ]` not started, and its text. The head is one of
+    the 6 rows: with more than 5 items, the 5 around the first not completed show, and the head says
+    `… N more`.
+  - The head is plain text, not bold (Q-F7). A mark and its item are one: in progress in the amber
+    of a state at work, completed quiet, not started as a target. oso's keys, its `…` and
+    `… N more` are in a face no item has. Claude's text is still after oso's mark, on cells of its
+    own: an item's face is its state's, so what tells it from oso's words is its place and that
+    none of them has its face.
+
 ### Part 3f, as built: prompt suggestions and the recap
 
 The author's (a) on Q-F1 and Q-F2 of the step 3 plan, and the recap as below (2026-11-23),

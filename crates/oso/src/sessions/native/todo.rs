@@ -12,10 +12,11 @@
 //! - The strip shows while any item is not completed, and once all are, until the turn ends:
 //!   then the list goes. Nothing is read of the CLI's own task files: a session resumed shows
 //!   no list until its next to-do call (the author's Q-E2 (a)).
-//! - oso's marks (`☐ 2/5 ▶`, `☑`, `C-c C-t list`) are in faces of oso's own; each item's text,
-//!   which is Claude's, is after them in a face of its own, its control characters as spaces,
-//!   and cut to the strip's width with `…`, so none of it runs past the strip's edge, wraps,
-//!   or stands where oso's keys are (ADR 0170).
+//! - oso's words (`▸ Tasks (2/5)`, `… 4 more`, `C-c C-t list`) are in faces no item has; each
+//!   item's text, which is Claude's, is after its mark (`[x]`, `[/]`, `[ ]`), in the mark's face
+//!   and columns oso's words never have, its control characters as spaces, and cut to the strip's
+//!   width with `…`, so none of it runs past the strip's edge, wraps, or stands where oso's keys
+//!   are (ADR 0170).
 
 use std::ops::Range;
 
@@ -28,10 +29,17 @@ use super::wire::{Block, Event};
 
 pub use super::wire::todo::MAX_ITEMS;
 
-/// The most rows the strip opens to (ADR 0170's strip).
+/// The most rows the strip opens to, its head among them (ADR 0170's strip).
 pub const OPEN_ROWS: usize = 6;
-/// What the folded strip says opens it.
-pub const KEYS: &str = "C-c C-t list";
+/// What the folded strip says opens it, and the opened one folds it.
+const KEYS_LIST: &str = "C-c C-t list";
+const KEYS_FOLD: &str = "C-c C-t fold";
+/// The cells between the strip's head, what follows it and its keys.
+const APART: usize = 2;
+/// What an opened item's mark is after.
+const INDENT: &str = "    ";
+/// The fewest cells a folded item is cut to, its `…` among them, for the keys after it.
+const MIN_ITEM: usize = 8;
 /// The most calls waiting for their result that are kept.
 const MAX_CALLS: usize = 64;
 /// What a character that would join oso's text around an item's goes on, as a lone mark is
@@ -58,9 +66,18 @@ impl Status {
 
     fn mark(self) -> &'static str {
         match self {
-            Self::Pending => "☐",
-            Self::InProgress => "▶",
-            Self::Completed => "☑",
+            Self::Pending => "[ ]",
+            Self::InProgress => "[/]",
+            Self::Completed => "[x]",
+        }
+    }
+
+    /// The face of an item's mark and text, which no word of oso's in the strip has.
+    fn face(self) -> Face {
+        match self {
+            Self::Pending => Face::Target,
+            Self::InProgress => Face::Waiting,
+            Self::Completed => Face::Dim,
         }
     }
 }
@@ -97,18 +114,43 @@ pub struct Strip {
 }
 
 impl Strip {
-    fn put(&mut self, text: &str, face: Face) {
+    fn put(&mut self, text: &str, face: Option<Face>) {
         let start = self.text.len();
         self.text.push_str(text);
-        if !text.is_empty() {
+        if let Some(face) = face
+            && !text.is_empty()
+        {
             self.faces.push((start..self.text.len(), face));
         }
     }
 
-    fn row(&mut self) {
-        if !self.text.is_empty() {
-            self.text.push('\n');
+    /// `text` of oso's, as plain text, or in `face`, cut to `room` cells.
+    fn own(&mut self, text: &str, face: Option<Face>, room: usize) {
+        if room == 0 {
+            return;
         }
+        let (kept, cut) = cut_to(text, room);
+        self.put(kept, face);
+        self.put(cut, Some(Face::Prompt));
+    }
+
+    /// `item`'s mark and its text, cut to `room` cells, which is not 0.
+    fn item(&mut self, item: &Item, room: usize) {
+        let face = Some(item.status.face());
+        self.put(item.status.mark(), face);
+        self.put(" ", None);
+        let text = fenced(&item.text);
+        let (kept, cut) = cut(&text, room);
+        self.put(kept, face);
+        self.put(cut, Some(Face::Prompt));
+    }
+
+    /// `keys` at the right edge of a row of `width` cells, `used` of them taken, which leave it
+    /// the room.
+    fn keys(&mut self, keys: &str, used: usize, width: usize) {
+        let gap = width.saturating_sub(used + cells_of(keys));
+        self.put(&" ".repeat(gap), None);
+        self.put(keys, Some(Face::Prompt));
     }
 }
 
@@ -267,71 +309,89 @@ impl Todo {
         (done, self.items.len())
     }
 
-    /// The strip folded, `width` cells wide: `☐ 2/5 ▶ ITEM`, the item in progress or else the
-    /// first not started, and `C-c C-t list` at its right edge, where there is room for it.
+    /// The strip's head: `mark`, and how many tasks are completed of how many.
+    fn head(&self, mark: char) -> String {
+        let (done, total) = self.counts();
+        format!("{mark} Tasks ({done}/{total})")
+    }
+
+    /// The strip folded, `width` cells wide: `▸ Tasks (2/5)  [/] ITEM`, the item in progress or
+    /// else the first not started, and `C-c C-t list` at its right edge. With less room the keys
+    /// are left out first, then the item.
     pub fn folded(&self, width: usize) -> Strip {
         let mut strip = Strip::default();
-        let (done, total) = self.counts();
-        let mark = if done == total { "☑" } else { "☐" };
-        let count = format!("{mark} {done}/{total}");
+        let head = self.head('▸');
+        let used = cells_of(&head);
+        strip.own(&head, None, width);
+        let keys = APART + cells_of(KEYS_LIST);
         let current = (self.items.iter())
             .find(|item| item.status == Status::InProgress)
             .or_else(|| (self.items.iter()).find(|item| item.status == Status::Pending));
-        let used = cells_of(&count) + current.map_or(0, |item| cells_of(item.status.mark()) + 2);
-        let keys = cells_of(KEYS) + 2;
-        let (room, keyed) = match width.checked_sub(used + keys) {
-            Some(room) if room > 0 => (room, true),
-            _ => (width.saturating_sub(used), false),
+        let Some(item) = current else {
+            if used + keys <= width {
+                strip.keys(KEYS_LIST, used, width);
+            }
+            return strip;
         };
-        strip.put(&count, Face::Dim);
-        let mut shown = 0;
-        if let Some(item) = current.filter(|_| room > 0) {
-            strip.put(&format!(" {} ", item.status.mark()), Face::Dim);
-            let text = fenced(&item.text);
-            let (kept, cut) = cut(&text, room);
-            strip.put(kept, Face::Target);
-            strip.put(cut, Face::Dim);
-            shown = cells_of(kept) + cells_of(cut);
+        let before = used + APART + cells_of(item.status.mark()) + 1;
+        let room = width.saturating_sub(before);
+        // For the keys: the item whole, or enough of it.
+        let least = MIN_ITEM.min(cells_of(&fenced(&item.text)));
+        let keyed = room >= keys + least;
+        let room = if keyed { room - keys } else { room };
+        if room > 0 {
+            strip.put(&" ".repeat(APART), None);
+            strip.item(item, room);
         }
         if keyed {
-            strip.put(&" ".repeat(room - shown.min(room) + 2), Face::Dim);
-            strip.put(KEYS, Face::Prompt);
+            let used = cells_of(&strip.text);
+            strip.keys(KEYS_LIST, used, width);
         }
         strip
     }
 
-    /// The strip opened, `width` cells wide: a row of each item, its mark then its text, at
-    /// most [`OPEN_ROWS`]; with more, the rows around the first not completed, and how many
-    /// more there are.
+    /// The strip opened, `width` cells wide: its head, with `C-c C-t fold` at its right edge, then a
+    /// row of each item, its mark then its text, at most [`OPEN_ROWS`] in all; with more, the rows
+    /// around the first not completed, and on the head how many more there are. With less room the
+    /// keys are left out first, then how many more.
     pub fn opened(&self, width: usize) -> Strip {
         let mut strip = Strip::default();
         let items = &self.items;
-        let (from, shown) = if items.len() <= OPEN_ROWS {
-            (0, items.len())
-        } else {
-            let first = (items.iter())
-                .position(|item| item.status != Status::Completed)
-                .unwrap_or(0);
-            let shown = OPEN_ROWS - 1;
-            (first.saturating_sub(1).min(items.len() - shown), shown)
-        };
-        for item in &items[from..from + shown] {
-            let room = width.saturating_sub(cells_of(item.status.mark()) + 1);
-            strip.row();
-            strip.put(item.status.mark(), Face::Dim);
-            if room == 0 {
-                continue;
-            }
-            strip.put(" ", Face::Dim);
-            let text = fenced(&item.text);
-            let (kept, cut) = cut(&text, room);
-            strip.put(kept, Face::Target);
-            strip.put(cut, Face::Dim);
-        }
+        let shown = items.len().min(OPEN_ROWS - 1);
+        let first = (items.iter())
+            .position(|item| item.status != Status::Completed)
+            .unwrap_or(0);
+        let from = first.saturating_sub(1).min(items.len() - shown);
+        let head = self.head('▾');
+        let mut used = cells_of(&head);
+        strip.own(&head, None, width);
         if shown < items.len() {
-            strip.row();
             let more = format!("… {} more", items.len() - shown);
-            strip.put(cut_to(&more, width).0, Face::Dim);
+            let cells = APART + cells_of(&more);
+            if used + cells <= width {
+                strip.put(&" ".repeat(APART), None);
+                strip.put(&more, Some(Face::Prompt));
+                used += cells;
+            }
+        }
+        if used + APART + cells_of(KEYS_FOLD) <= width {
+            strip.keys(KEYS_FOLD, used, width);
+        }
+        for item in &items[from..from + shown] {
+            strip.put("\n", None);
+            let before = cells_of(INDENT) + cells_of(item.status.mark()) + 1;
+            match width.saturating_sub(before) {
+                // Its mark alone, as far as it shows.
+                0 => strip.own(
+                    &format!("{INDENT}{}", item.status.mark()),
+                    Some(item.status.face()),
+                    width,
+                ),
+                room => {
+                    strip.put(INDENT, None);
+                    strip.item(item, room);
+                }
+            }
         }
         strip
     }

@@ -121,6 +121,7 @@ fn frame(theme: Theme) -> Option<(u32, u32, Vec<u8>)> {
         background: Some(Face::Text),
         panel: None,
         bands: Bands::NONE,
+        rules: crate::pane::Rules::NONE,
         content: PaneContent::Text(TextView {
             display: buffer.display(),
             buffer: oso_core::editor::Editor::default().window().buffer(),

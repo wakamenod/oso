@@ -439,6 +439,7 @@ pub oso_render::Pane::id: oso_render::PaneId
 pub oso_render::Pane::layer: oso_render::Layer
 pub oso_render::Pane::panel: core::option::Option<oso_render::Panel<'a>>
 pub oso_render::Pane::region: oso_core::frame::CellRect
+pub oso_render::Pane::rules: oso_render::Rules
 pub struct oso_render::PaneId(pub u32)
 impl core::clone::Clone for oso_render::PaneId
 pub fn oso_render::PaneId::clone(&self) -> oso_render::PaneId
@@ -474,6 +475,22 @@ pub fn oso_render::RenderState::set_theme(&mut self, &str) -> core::option::Opti
 pub fn oso_render::RenderState::surface_size(&self) -> (u32, u32)
 impl oso_render::RenderState
 pub fn oso_render::RenderState::gpu_info(&self) -> oso_render::GpuInfo
+pub struct oso_render::Rules
+pub oso_render::Rules::above: core::option::Option<oso_render::Face>
+pub oso_render::Rules::below: core::option::Option<oso_render::Face>
+impl oso_render::Rules
+pub const oso_render::Rules::NONE: Self
+impl core::clone::Clone for oso_render::Rules
+pub fn oso_render::Rules::clone(&self) -> oso_render::Rules
+impl core::cmp::Eq for oso_render::Rules
+impl core::cmp::PartialEq for oso_render::Rules
+pub fn oso_render::Rules::eq(&self, &oso_render::Rules) -> bool
+impl core::default::Default for oso_render::Rules
+pub fn oso_render::Rules::default() -> oso_render::Rules
+impl core::fmt::Debug for oso_render::Rules
+pub fn oso_render::Rules::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_render::Rules
+impl core::marker::StructuralPartialEq for oso_render::Rules
 pub struct oso_render::Span<'a>
 pub oso_render::Span::face: oso_render::Face
 pub oso_render::Span::text: &'a str

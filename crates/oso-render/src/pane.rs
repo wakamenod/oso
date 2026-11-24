@@ -57,6 +57,26 @@ impl Bands {
     };
 }
 
+/// Lines drawn inside a pane's region, each from its left edge to its right, a thin line's width
+/// along it, in a face's foreground: along the top of its first row and the bottom of its last
+/// (ADR 0170). They take no cell. They are over the background and a view's current line's band,
+/// and under its other fills, its flash and its cursor; the pane's text, its boxes and what an
+/// input method composes are cut to between them, so no text is drawn where a line is. A grid, a
+/// divider and signs are not cut.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Rules {
+    pub above: Option<Face>,
+    pub below: Option<Face>,
+}
+
+impl Rules {
+    /// None.
+    pub const NONE: Self = Self {
+        above: None,
+        below: None,
+    };
+}
+
 /// How a view's cursor is drawn.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CursorStyle {
@@ -371,6 +391,8 @@ pub struct Pane<'a> {
     pub panel: Option<Panel<'a>>,
     /// The bands its glyphs keep past its region.
     pub bands: Bands,
+    /// The lines along its edges.
+    pub rules: Rules,
     pub content: PaneContent<'a>,
 }
 

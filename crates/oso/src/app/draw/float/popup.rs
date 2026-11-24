@@ -10,7 +10,7 @@ use oso_core::editor::Editor;
 use oso_core::frame::FloatRegions;
 use oso_core::minibuffer;
 use oso_core::window::Screen;
-use oso_render::{Bands, Layer, Pane, PaneContent, PaneId, Panel, Span};
+use oso_render::{Bands, Layer, Pane, PaneContent, PaneId, Panel, Rules, Span};
 
 use super::row::candidate_spans;
 
@@ -87,6 +87,7 @@ impl<'a> PopupSpans<'a> {
                 border: true,
             }),
             bands: Bands::NONE,
+            rules: Rules::NONE,
             content: PaneContent::Lines(&[]),
         });
         list.push(Pane {
@@ -96,6 +97,7 @@ impl<'a> PopupSpans<'a> {
             background: None,
             panel: None,
             bands: Bands::NONE,
+            rules: Rules::NONE,
             content: PaneContent::Lines(lines),
         });
     }

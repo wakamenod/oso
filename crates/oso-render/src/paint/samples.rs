@@ -90,6 +90,7 @@ fn text_pane<'a>(
         background: Some(Face::Text),
         panel: None,
         bands: Bands::NONE,
+        rules: crate::pane::Rules::NONE,
         content: PaneContent::Text(TextView {
             display: buffer.display(),
             buffer: id,
@@ -124,6 +125,7 @@ fn lines<'a>(id: u32, region: CellRect, layer: Layer, lines: &'a [&'a [Span<'a>]
         background,
         panel: None,
         bands: Bands::NONE,
+        rules: crate::pane::Rules::NONE,
         content: PaneContent::Lines(lines),
     }
 }
@@ -213,10 +215,6 @@ fn completion_frame(theme: Theme) -> Option<(u32, u32, Vec<u8>)> {
         lines(1, cells(TEXT_ROWS, 0, 1, COLUMNS), Layer::TILED, &modeline),
         lines(2, cells(TEXT_ROWS + 1, 0, 1, COLUMNS), Layer::TILED, &echo),
         Pane {
-            id: PaneId(3),
-            region: cells(0, 0, TEXT_ROWS, COLUMNS),
-            layer: Layer::FLOAT,
-            background: None,
             panel: Some(Panel {
                 cells: cells(10, 10, 9, 60),
                 field: None,
@@ -226,8 +224,7 @@ fn completion_frame(theme: Theme) -> Option<(u32, u32, Vec<u8>)> {
                 selected: Some(cells(14, 11, 1, 58)),
                 border: true,
             }),
-            bands: Bands::NONE,
-            content: PaneContent::Lines(&[]),
+            ..lines(3, cells(0, 0, TEXT_ROWS, COLUMNS), Layer::FLOAT, &[])
         },
         lines(4, cells(11, 12, 1, 56), Layer::FLOAT_CONTENT, &answer),
         lines(5, cells(13, 12, 4, 56), Layer::FLOAT_CONTENT, &candidates),
@@ -301,6 +298,7 @@ fn question_frame(theme: Theme) -> Option<(u32, u32, Vec<u8>)> {
                 border: false,
             }),
             bands: Bands::NONE,
+            rules: crate::pane::Rules::NONE,
             content: PaneContent::Lines(&[]),
         },
         lines(4, cells(1, 6, 1, 68), Layer::FLOAT_CONTENT, &label),
@@ -444,6 +442,7 @@ fn tiled_pane<'a>(
         background,
         panel: None,
         bands: Bands::NONE,
+        rules: crate::pane::Rules::NONE,
         content,
     }
 }

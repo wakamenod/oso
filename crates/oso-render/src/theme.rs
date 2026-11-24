@@ -563,8 +563,10 @@ pub(crate) mod tests {
             Face::Escape => &ESCAPE_PAIRS,
             Face::Boxed => &[(Face::Boxed, LABEL)],
             // A prompt's label, and the dim `Agent` on a modeline (ADR 0085, ADR 0112).
+            // A composer's rules, over its current line's band too (ADR 0170).
             Face::Prompt => &[
                 (Face::Float, LABEL),
+                (Face::CurrentLine, MARK),
                 (Face::Modeline, LABEL),
                 (Face::ModelineInactive, LABEL),
             ],
@@ -574,7 +576,9 @@ pub(crate) mod tests {
             }
             Face::CompletionPrompt => &[(Face::Text, LABEL)],
             // The gutter has no band and no fill, and a menu's titles are on the text's background.
-            Face::LineNumber | Face::MenuTitle => &[(Face::Text, LABEL)],
+            // A composer's mark is in a line number's face, on the float's background (ADR 0170).
+            Face::LineNumber => &[(Face::Text, LABEL), (Face::Float, MARK)],
+            Face::MenuTitle => &[(Face::Text, LABEL)],
             Face::LineNumberCurrent => &[(Face::Text, READ)],
             Face::Whitespace | Face::WrapMark => &MARK_PAIRS,
             // Text that is read, on what is behind a line. Under the fills and the flash it is
@@ -607,9 +611,9 @@ pub(crate) mod tests {
             Face::DiffAdded => &[(Face::DiffAdded, READ), (Face::Card, READ)],
             Face::DiffRemoved => &[(Face::DiffRemoved, READ), (Face::Card, READ)],
             Face::DiffHunkHeader | Face::DiffFileHeader => &[(Face::DiffFileHeader, READ)],
-            Face::ReviewCommentPerson | Face::ReviewCommentAgent => {
-                &[(Face::ReviewCommentPerson, READ)]
-            }
+            // The to-do strip's keys too, on a float's background (ADR 0165).
+            Face::ReviewCommentPerson => &[(Face::ReviewCommentPerson, READ), (Face::Float, LABEL)],
+            Face::ReviewCommentAgent => &[(Face::ReviewCommentPerson, READ)],
             Face::ReviewOutdated => &[(Face::ReviewCommentPerson, LABEL), (Face::Text, LABEL)],
             // A sent comment's text is still read on its card, dimmed as a label is.
             Face::ReviewSent => &[(Face::ReviewCommentPerson, LABEL)],
@@ -642,11 +646,19 @@ pub(crate) mod tests {
                 (Face::DiffRemoved, LABEL),
                 (Face::Card, LABEL),
                 (Face::CardTitle, LABEL),
+                (Face::Float, LABEL),
             ],
-            Face::SessionWorking
-            | Face::SessionFront
-            | Face::SessionSpace
-            | Face::SessionRepository => &[
+            // The to-do strip's item under way too, on a float's background (ADR 0165): 6.69 in
+            // dusk, as the author chose the amber.
+            Face::SessionWorking => &[
+                (Face::Text, LABEL),
+                (Face::CurrentLine, LABEL),
+                (Face::SessionHeader, LABEL),
+                (Face::SessionFrontTint, LABEL),
+                (Face::SessionPoint, LABEL),
+                (Face::Float, LABEL),
+            ],
+            Face::SessionFront | Face::SessionSpace | Face::SessionRepository => &[
                 (Face::Text, LABEL),
                 (Face::CurrentLine, LABEL),
                 (Face::SessionHeader, LABEL),

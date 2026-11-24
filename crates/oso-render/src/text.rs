@@ -153,6 +153,8 @@ pub(crate) struct Layout {
     keeps_band_above: bool,
     /// Glyphs keep the band below the region, on the row below it.
     keeps_band_below: bool,
+    /// A line is along the region's top, so its glyphs keep no band above it (ADR 0170).
+    ruled_above: bool,
 }
 
 impl Layout {
@@ -168,6 +170,7 @@ impl Layout {
             cursor: None,
             keeps_band_above: false,
             keeps_band_below: false,
+            ruled_above: false,
         }
     }
 
@@ -271,7 +274,9 @@ impl Layout {
     /// The pixels above the region that its glyphs may paint: in the top margin on
     /// the frame's top row, and on the row above if the pane keeps its band.
     fn top_band(&self) -> f32 {
-        if self.keeps_band_above || (self.region.row == 0 && self.region.rows > 0) {
+        if self.ruled_above {
+            0.0
+        } else if self.keeps_band_above || (self.region.row == 0 && self.region.rows > 0) {
             self.metrics.descent
         } else {
             0.0

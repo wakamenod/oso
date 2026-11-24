@@ -13,7 +13,7 @@ use oso_core::editor::Editor;
 use oso_core::frame::{CellRect, WindowRegions};
 use oso_core::minibuffer::{cells_of, cut_to};
 use oso_core::window::{DockSlot, Screen, WindowId};
-use oso_render::{Bands, Face, Layer, Pane, PaneContent, Span};
+use oso_render::{Bands, Face, Layer, Pane, PaneContent, Rules, Span};
 
 use super::{Part, WindowCells, pane_id};
 use crate::app::draw::reuse;
@@ -128,8 +128,8 @@ fn texts<'a>(
     (fits.or(says.usual.last())).map(|text| [text.as_str(), "", ""])
 }
 
-/// The pane of a placeholder over its window's text, `line` its spans.
-pub(super) fn pane<'a>((id, region, _): &Row<'_>, line: &'a Line<'a>) -> Pane<'a> {
+/// The pane of a placeholder over its window's text, `line` its spans, between its window's `rules`.
+pub(super) fn pane<'a>((id, region, _): &Row<'_>, line: &'a Line<'a>, rules: Rules) -> Pane<'a> {
     Pane {
         id: pane_id(*id, Part::Placeholder),
         region: *region,
@@ -138,6 +138,7 @@ pub(super) fn pane<'a>((id, region, _): &Row<'_>, line: &'a Line<'a>) -> Pane<'a
         background: None,
         panel: None,
         bands: Bands::NONE,
+        rules,
         content: PaneContent::Lines(line),
     }
 }

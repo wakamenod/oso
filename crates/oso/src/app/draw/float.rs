@@ -17,8 +17,8 @@ use oso_core::frame::{CellRect, FloatRegions};
 use oso_core::minibuffer::{self, Kind, PromptLayout};
 use oso_core::window::Screen;
 use oso_render::{
-    Bands, CursorStyle, Face, Layer, Masked, Pane, PaneContent, PaneId, Panel, Span, TextMarks,
-    TextView,
+    Bands, CursorStyle, Face, Layer, Masked, Pane, PaneContent, PaneId, Panel, Rules, Span,
+    TextMarks, TextView,
 };
 
 mod hover;
@@ -377,6 +377,7 @@ pub(super) fn panes<'a>(
         background: None,
         panel: None,
         bands: content_bands(layout, region),
+        rules: Rules::NONE,
         content,
     };
     let field = Some(layout.field).filter(|field| field.columns > 0);
@@ -403,6 +404,7 @@ pub(super) fn panes<'a>(
             border: parts.list.is_some(),
         }),
         bands: Bands::NONE,
+        rules: Rules::NONE,
         content: PaneContent::Lines(&[]),
     });
     if layout.label_cells.rows > 0 && layout.label_cells.columns > 0 {
@@ -475,6 +477,7 @@ fn list_panes<'a>(parts: &'a Parts<'a>, lines: &'a Lines<'a>, list: &mut Vec<Pan
         background: None,
         panel: None,
         bands: Bands::NONE,
+        rules: Rules::NONE,
         content: PaneContent::Lines(&lines.count),
     };
     if parts.list.is_some() && layout.count.columns > 0 {
@@ -492,6 +495,7 @@ fn list_panes<'a>(parts: &'a Parts<'a>, lines: &'a Lines<'a>, list: &mut Vec<Pan
                 above: false,
                 below: regions.candidates_padded(),
             },
+            rules: Rules::NONE,
             content: PaneContent::Lines(&lines.candidates),
         });
     }

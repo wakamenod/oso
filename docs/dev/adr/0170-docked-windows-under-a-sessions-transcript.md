@@ -1,6 +1,6 @@
 # 0170. Docked windows under a session's transcript
 
-- Status: Accepted, amended by 0180 and 0182; "An empty composer's placeholder, as amended" (2026-11-24)
+- Status: Accepted, amended by 0180 and 0182; "An empty composer's placeholder, as amended" (2026-11-24); "The composer's rules, as amended" (2026-11-24)
 - Date: 2026-11-22
 
 ## Context
@@ -73,7 +73,8 @@ The facts it builds on (`frame`, `window`, `draw`):
   - The card and the strip are as many rows as their text has, at most 12 and 6
     (native-sessions-ux.md's card, and U3's opened strip).
   - Each is measured again as its text changes, and the host's layout is redone at once.
-- **No row of their own:** a docked window has no modeline and no divider (D3).
+- **No row of their own:** a docked window has no modeline and no divider (D3). The composer's two
+  rules (amended, below) are drawn in its own rows.
   - The composer's gutter shows `›` on its first row, in the gutter's face, and nothing on the
     rows below.
   - The card draws its own frame as text, and the strip is one line.
@@ -177,6 +178,8 @@ kept as they were put.
 3. **D3: a row between the transcript and the docks.**
    (a) None: the composer's `›` in its gutter and the faces tell them apart.
    (b) A one-row rule in the divider's face above the first dock, which costs a row.
+   (a) was chosen; the rules drawn inside the composer's rows, which cost none, are neither option
+   (amended 2026-11-24).
 
 ## Changes to accepted ADRs
 
@@ -234,7 +237,7 @@ Once accepted:
 
 Amended on 2026-11-24, the author's choice: the mark and the background alone did not show the
 composer as a place to type. A rule above it and a stronger background were the other options, and
-neither was taken.
+neither was taken then; the rules came later the same day (below).
 
 - **While the composer is empty, it says what it is and its keys,** dim, on its first row:
   `Write to Claude · C-c C-c sends · C-c C-o transcript`. The keys are the real ones: the shortest
@@ -258,3 +261,17 @@ neither was taken.
 - **When it shows:** whether the composer is selected or not, until the buffer holds anything or an
   input method composes there. A composer that a yank turned secret, which sends nothing, shows
   none.
+
+## The composer's rules, as amended
+
+Amended on 2026-11-24, the author's wish (ADR 0165, the look).
+
+- **A composer has a rule above and below it:** a thin line in the prompt's dim colour along its
+  first row's top and its last row's bottom, from its window's edge to its edge, its gutter among
+  it, which is on the float's background as its text is. It is drawn in the composer's rows and takes none; heights, wraps and presses are as before.
+- **It is the composer's alone:** a card, the strip, a request's line and any other buffer docked in
+  the composer's place have none.
+- **It is oso's alone:** the composer's text, its escapes, a text being composed and the placeholder
+  are cut to inside it, and it crosses the gutter, where no text is.
+- **The current line's band is behind it;** the selection, the flash and the cursor are over it.
+- **Nothing of it is text:** the agent channel, copying and search see nothing new.

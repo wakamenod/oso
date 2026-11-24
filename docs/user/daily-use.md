@@ -742,7 +742,7 @@ The `C-c` keys of a session's terminal work there too, except `C-c +` and `C-c -
 Code's Remote Control is off in native sessions; in the TUI (`C-c a t`), your own settings decide.
 A note in the transcript says so if a claude says that it is available all the same.
 
-You write the next messages in the composer under the conversation, which agents cannot read.
+You write the next messages in the composer under the conversation, between two lines, which agents cannot read.
 While it is empty it says in grey what it is and its keys. `i` goes there and `C-c C-o` back, `C-c C-c` sends, and `M-p` and `M-n` bring back what you
 sent. After a turn, Claude's guess at your next message shows there in grey instead, with
 `(C-c C-s takes it)` after it. `C-c C-s`, in the composer or the conversation, puts it at the
@@ -804,9 +804,9 @@ screen. In the composer, while it is empty, `y`, `n`, `N` and a question's `o` a
 the card too, but not a call; once you have written something, every key is text. Elsewhere, the session shows
 that it needs you, as a terminal session does.
 
-When Claude keeps a to-do list, it shows as one line above the composer and what asks you something, `☐ 2/5 ▶` and the
+When Claude keeps a to-do list, it shows as one line above the composer and what asks you something, `▸ Tasks (2/5)` and the
 item it works on; `C-c C-t`, in the conversation or the composer, opens it to a row an item
-and folds it back. It goes once every item is done and the turn ends. Claude Code gives a
+(`[x]` done, `[/]` under way, `[ ]` not started), at most five, and folds it back. It goes once every item is done and the turn ends. Claude Code gives a
 session its to-do tools only when you turn them on, in `~/.claude/settings.json`:
 
 ```json

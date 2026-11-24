@@ -40,6 +40,7 @@ mod highlight;
 mod labels;
 mod marks;
 mod panel;
+mod rules;
 mod text_pane;
 
 use boxes::{draw_divider, fill_cursor, line_width, masked_cursor, outline, outline_others};
@@ -48,6 +49,7 @@ use highlight::{CellRows, RowFaces};
 use labels::{Covered, Keys, Over, draw_labels};
 use marks::{Fade, draw_signs};
 
+use rules::{between, draw_rules};
 use text_pane::{cursor_cells, draw_fills, draw_text, preedit_lines, underline_preedit};
 
 /// Where a frame's glyphs come from, as an atlas gives them.
@@ -427,16 +429,14 @@ fn draw_pane<G: GlyphSource>(
     let hollow = matches!(&pane.content, PaneContent::Text(view) if view.cursor_style == CursorStyle::Hollow);
     let held = held_rects(pane, cursor, hollow);
     draws.held += held;
-    if let Some(face) = pane.background {
-        draws.fill(unscrolled.frame_cells(pane.region), face);
-    }
-    draw_panel(draws, pane, metrics);
+    draw_behind(draws, pane, &unscrolled, metrics);
     match &pane.content {
         PaneContent::Text(view) => {
-            draw_fills(draws, view, (&unscrolled, cursor), metrics);
+            draw_fills(draws, (view, pane), (&unscrolled, cursor), metrics);
             draws.cursor_box = cursor.filter(|_| !hollow);
             let left = view.screen.left();
-            let mut layout = unscrolled.with_left(left).with_bands(pane.bands);
+            let layout = unscrolled.with_left(left).with_bands(pane.bands);
+            let mut layout = between(layout, pane.rules, metrics);
             if let Some(cells) = cursor.filter(|_| !hollow) {
                 // Glyphs take the box's color only where the box is.
                 layout = layout.with_cursor(cells);
@@ -444,10 +444,11 @@ fn draw_pane<G: GlyphSource>(
             draw_text(draws, view, pane, &layout, rows, system, glyphs);
             draws.cursor_box = None;
             draws.held -= held;
-            outline_others(draws, view, &layout, metrics);
+            // The cursors' boxes are over the lines, in their whole cells.
+            outline_others(draws, view, &unscrolled, metrics);
             underline_preedit(draws, view, &layout, metrics);
             if let Some(cells) = cursor {
-                fill_cursor(draws, &layout, cells, hollow, metrics);
+                fill_cursor(draws, &unscrolled, cells, hollow, metrics);
             }
             // Over all of it, the cursor box too, and over the rest of the layer (ADR 0116).
             draw_labels(draws, view.labels, (pane, metrics), system, glyphs);
@@ -460,6 +461,7 @@ fn draw_pane<G: GlyphSource>(
             } else {
                 unscrolled.with_bands(pane.bands)
             };
+            let layout = between(layout, pane.rules, metrics);
             draw_lines(draws, lines, &layout, rows_shown, rows, system, glyphs);
         }
         PaneContent::Divider => draw_divider(draws, &unscrolled, pane.region),
@@ -469,7 +471,8 @@ fn draw_pane<G: GlyphSource>(
             grid_pane::draw_grid(draws, view, pane, layout, (rows, system, glyphs));
         }
         PaneContent::Masked(masked) => {
-            let mut layout = unscrolled.with_bands(pane.bands);
+            let layout = unscrolled.with_bands(pane.bands);
+            let mut layout = between(layout, pane.rules, metrics);
             if let Some(cells) = cursor {
                 layout = layout.with_cursor(cells);
             }
@@ -489,9 +492,21 @@ fn draw_pane<G: GlyphSource>(
             );
             draws.held -= held;
             if let Some(cells) = cursor {
-                fill_cursor(draws, &layout, cells, false, metrics);
+                fill_cursor(draws, &unscrolled, cells, false, metrics);
             }
         }
+    }
+}
+
+/// Draws what is behind `pane`'s content, in its unscrolled `layout`: its background, its panel and
+/// its rules, but a view's, which its fills are drawn around.
+fn draw_behind(draws: &mut Draws, pane: &Pane<'_>, layout: &Layout, metrics: CellMetrics) {
+    if let Some(face) = pane.background {
+        draws.fill(layout.frame_cells(pane.region), face);
+    }
+    draw_panel(draws, pane, metrics);
+    if !matches!(&pane.content, PaneContent::Text(_)) {
+        draw_rules(draws, pane, layout, metrics);
     }
 }
 
@@ -657,6 +672,7 @@ mod tests {
             background: None,
             panel: None,
             bands: Bands::NONE,
+            rules: crate::pane::Rules::NONE,
             content,
         }
     }
