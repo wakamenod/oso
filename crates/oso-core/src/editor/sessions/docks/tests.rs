@@ -110,6 +110,27 @@ fn a_dock_goes_with_its_host_and_its_own_buffer() {
     assert_eq!(editor.dock_window(host, DockSlot::Composer), None);
 }
 
+/// A slot that shows another buffer shows it in the same window, docked there still, and shows the
+/// one before again where it was.
+#[test]
+fn another_buffer_in_a_slot_takes_the_same_window() {
+    let (mut editor, host, input) = docked(30, "one\ntwo\nthree");
+    let composer = editor.dock_window(host, DockSlot::Composer).unwrap();
+    editor.select_window(composer);
+    editor.current_mut().0.selections.move_primary(6);
+    let answer = editor.add_buffer(Buffer::from_text("answer", ""));
+    for (buffer, at, its_rows) in [(answer, 0, 1), (input, 6, 3)] {
+        editor.set_dock(host, DockSlot::Composer, Some(buffer));
+        assert_eq!(editor.dock_window(host, DockSlot::Composer), Some(composer));
+        let window = editor.window();
+        assert_eq!((window.id(), window.buffer()), (composer, buffer));
+        assert_eq!(window.docked(), Some((host, DockSlot::Composer)));
+        assert_eq!(window.selections.primary().cursor, at);
+        assert_eq!(rows(&editor, composer), its_rows);
+        assert_eq!(editor.windows().count(), 2);
+    }
+}
+
 #[test]
 fn the_strip_and_the_card_stack_above_the_composer() {
     let (mut editor, host, _) = docked(30, "");
@@ -401,6 +422,8 @@ fn only_a_composer_is_padded() {
     assert_eq!(editor.frame().padding(strip), None);
     let other = editor.add_buffer(Buffer::from_text("other", ""));
     editor.set_dock(host, DockSlot::Composer, Some(other));
+    assert_eq!(editor.dock_window(host, DockSlot::Composer), Some(composer));
+    assert_eq!(rows(&editor, composer), 1);
     assert_eq!(editor.frame().padding(composer), None);
     assert!(editor.frame().footer(editor.window().id()).is_some());
 }

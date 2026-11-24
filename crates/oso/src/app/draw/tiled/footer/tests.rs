@@ -203,6 +203,8 @@ fn another_buffer_in_the_composers_place_names_no_key() {
     let (mut editor, host) = session(24, 100);
     let other = editor.add_internal_buffer("*answer: s*".to_owned(), Mode::Fundamental);
     editor.set_dock(host, DockSlot::Composer, Some(other));
+    let docked = editor.dock_window(host, DockSlot::Composer).unwrap();
+    assert_eq!(editor.window_by_id(docked).unwrap().buffer(), other);
     let said = said(&shown(&editor, editor.window().id(), (host, auto())));
     assert!(!said.contains(&dim(" (S-TAB to cycle)")), "{said:?}");
 }

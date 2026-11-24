@@ -105,8 +105,8 @@ impl Window {
     /// Shows `buffer`, keeping where the window was in the one it leaves, and dropping its
     /// wrap of it (ADR 0103). Gives where it was in `buffer` the last time, for the editor to
     /// clip to the text as it is now; until then it shows `buffer` from its start, with one
-    /// cursor. Showing the buffer it shows changes nothing there. Ends a walk of `M-,` and
-    /// `M-/`.
+    /// cursor. Showing the buffer it shows changes nothing there. A docked window stays docked
+    /// where it is (ADR 0170). Ends a walk of `M-,` and `M-/`.
     pub(crate) fn show(&mut self, buffer: BufferId) -> Option<Place> {
         self.places.end_walk();
         if buffer == self.buffer {
@@ -126,6 +126,7 @@ impl Window {
             gutter_floor: self.gutter_floor,
             way_back: std::mem::take(&mut self.way_back),
             jumps: std::mem::take(&mut self.jumps),
+            docked: self.docked,
             ..Self::new(self.id, buffer)
         };
         place
