@@ -126,6 +126,11 @@ impl App {
         }
     }
 
+    /// Whether the channel is starting: its thread has not said how that went.
+    pub(in crate::app) fn agent_channel_starting(&self) -> bool {
+        self.agent.starting
+    }
+
     /// Whether the channel is on, or starting.
     pub(in crate::app) fn agent_channel_on(&self) -> bool {
         self.agent.channel.is_some() || self.agent.starting

@@ -278,6 +278,7 @@ fn a_session_carried_over_a_restart_is_judged_and_takes_a_send() {
     new.wait_for("the session carried", |state| {
         terminal(state, session).is_some_and(|terminal| terminal["running"] == true)
     });
+    crate::terminal::restart::channel_on(&mut new);
     print(&flow, "proj", PERMISSION);
     new.wait_for("needs input", |state| {
         state_of(state, "proj").is_some_and(|s| s.starts_with("needs input"))

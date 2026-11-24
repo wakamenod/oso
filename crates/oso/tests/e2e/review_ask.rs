@@ -356,6 +356,7 @@ fn a_restart_keeps_the_split_slot_and_a_question_after_it_reuses_the_window_belo
     new.wait_for("the session carried", |state| {
         terminal(state, "*claude: repo*").is_some_and(|terminal| terminal["running"] == true)
     });
+    crate::terminal::restart::channel_on(&mut new);
     let state = split_slot(&mut new, "README.md", "*claude: repo*");
     assert_eq!(state["buffer"]["name"], REVIEW, "{state}");
     sized_below(&mut new, "*claude: repo*");

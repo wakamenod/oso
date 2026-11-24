@@ -1779,7 +1779,9 @@ and after `oso-restart` stayed stopped.
   is ordered, and no "Resumed." row comes before it; so does "oso-restart stayed here: resumed.".
   Once every resume of a restart has reported, the echo area and `*Messages*` say once
   "oso-restart left 2 sessions stopped: A, B; each transcript says why", three names at most,
-  then "and N more", in place of a line for each. Its row of `*Spaces*` takes a second line, "not
+  then "and N more", in place of a line for each. That waits until the agent channel, which the
+  resumes ask for, has come on or failed, as its own line would take the echo area at once: 5 s
+  at most, as its thread may hang. Its row of `*Spaces*` takes a second line, "not
   resumed: WHY", cleaned as a recap is, while it is stopped, until it runs; kept in memory only
   (it amends ADR 0131's Q2, as the author answered Q5). There each of oso's own reasons has words
   short enough for a recap's 80 characters, as "not resumed: repository not trusted;
@@ -1795,7 +1797,8 @@ and after `oso-restart` stayed stopped.
   crate.
 - **Tests:** the judge's table and the looks at real directories, each refusal, what changes
   between the look and the spawn, and the taking back (`start/trust/tests/claims.rs`);
-  `check_main`'s comparison (`project`); the rows' and the echo's words; the list's second line.
+  `check_main`'s comparison (`project`); the rows' and the echo's words; when a restart's line is
+  said, and that it never waits for ever; the list's second line.
   End to end (`worktree_resume`): a restart resumes an agent's worktree session with no file of
   it open; one whose repository was untrusted stays stopped and says why, until it is trusted
   again and resumed; an orchestrator's `session_resume`. Not tested: the app's own wiring of
