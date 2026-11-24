@@ -15,7 +15,7 @@
 //! which then takes the person's keys, so it is `Person` too. Yanking an image reads the
 //! clipboard and may start `sips`: `Person`.
 
-use oso_core::buffer::Buffer;
+use oso_core::buffer::{Buffer, Mode};
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
 use oso_core::diagnostic::Severity;
 use oso_core::editor::{SendDiagnostic, SendExcerpt, SendPart, SendTo, SessionRequest};
@@ -90,7 +90,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "session-mention",
-        doc: "Give a live session's name, read with completion, as `@NAME`: inserted at each cursor, or pasted into the session whose terminal this is.\n\nAn agent addresses another session by that name with Claude Code's own `SendMessage`.",
+        doc: "Give a live session's name, read with completion, as `@NAME`: inserted at each cursor, or pasted into the session whose terminal this is, or put into the composer of the native session whose transcript or composer this is.\n\nAn agent addresses another session by that name with Claude Code's own `SendMessage`.",
         args: ArgSpec::Listed {
             list: MENTION_LIST,
             prompt: "Mention session:",
@@ -111,7 +111,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: YANK_IMAGE,
-        doc: "Keep the image on the clipboard in a file and paste an `@` reference to it into the session whose terminal is this buffer.\n\nThe reference is the file's absolute path, which Claude Code reads when you press Enter: the image goes by path, never inline. A PNG, JPEG, GIF or WebP is kept as it came; a TIFF alone, as some macOS apps copy, is converted to PNG with `sips`. The files are private to you, under the cache directory's `oso/images`, and go when the session is archived, or after a week. As with `session-send`, a session that asks for permission or another answer is refused until you answer it. macOS only for now.",
+        doc: "Keep the image on the clipboard in a file and paste an `@` reference to it into the session whose terminal is this buffer, or put it into the composer of the native session whose transcript or composer this is.\n\nThe reference is the file's absolute path, which Claude Code reads when you send it: the image goes by path, never inline. A PNG, JPEG, GIF or WebP is kept as it came; a TIFF alone, as some macOS apps copy, is converted to PNG with `sips`. The files are private to you, under the cache directory's `oso/images`, and go when the session is archived, or after a week. As with `session-send`, a session in a terminal that asks for permission or another answer is refused until you answer it. macOS only for now.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: session_yank_image,
@@ -349,12 +349,13 @@ fn session_mention(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     let buffer = ctx.editor.current().1;
     // A native session's composer sends what it holds as the person's: the name, which other
     // programs may choose, goes in as a send does, escaped (ADR 0165, part 2f).
-    let composer = buffer.mode() == oso_core::buffer::Mode::Composer;
-    if !buffer.is_terminal() && !composer {
+    let composer = buffer.mode() == Mode::Composer;
+    // A native session's transcript is the session's too, and takes no text of its own.
+    if !buffer.is_terminal() && !buffer.hosts_session() && !composer {
         return insert_at_cursors(ctx, &format!("@{name}"), 1);
     }
     // In a terminal: pasted, as the person's typing, into the session it holds, or put into a
-    // composer; the host refuses a buffer that holds none.
+    // native one's composer; the host refuses a buffer that holds none.
     let id = ctx.editor.window().buffer();
     ctx.editor.request_session(SessionRequest::Send {
         to: SendTo::Buffer(id),
@@ -372,7 +373,15 @@ fn session_follow_message(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError
 }
 
 fn session_yank_image(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    let buffer = super::mode::session_buffer(ctx)?;
+    let composer = ctx.editor.current().1.mode() == Mode::Composer;
+    // A native session's composer takes it too (ADR 0165, part 2f): the host knows whose it is.
+    let buffer = match composer {
+        true => {
+            super::super::not_in_prompt(ctx)?;
+            ctx.editor.window().buffer()
+        }
+        false => super::mode::session_buffer(ctx)?,
+    };
     ctx.editor
         .request_session(SessionRequest::YankImage(buffer));
     Ok(())

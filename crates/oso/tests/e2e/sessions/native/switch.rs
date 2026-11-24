@@ -209,9 +209,20 @@ fn a_native_session_is_handed_to_the_tui_which_resumes_its_conversation() {
     let shown = text(&state);
     assert!(shown.contains("reply 1.1"), "{shown}");
     assert!(shown.contains("In the TUI since here"), "{shown}");
-    for key in ["i", "S-TAB", "C-c C-k"] {
+    app.call(
+        "clipboard",
+        Some(serde_json::json!({ "image": "png", "bytes": [1] })),
+    );
+    for key in ["i", "S-TAB", "C-c C-k", "C-c C-y"] {
         refused(&mut app, key);
     }
+    // Nor does its composer, and no image is kept.
+    app.send_keys(&format!("C-x b {} RET", keys("*compose: proj*")));
+    app.wait_for("its composer", in_composer);
+    refused(&mut app, "C-c C-y");
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(text(&app.state()).trim(), "");
+    assert_eq!(super::image::kept(&flow), Vec::<std::path::PathBuf>::new());
     // No third run: nothing else started.
     std::thread::sleep(Duration::from_millis(500));
     assert!(!flow.scratch.path().join("run.3").exists());
