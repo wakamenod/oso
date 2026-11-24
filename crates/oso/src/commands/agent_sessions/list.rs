@@ -25,7 +25,7 @@ pub const ROW_MARKS: &str = "▾▸⚠✗▶◆●○■⠋⠙⠹⠸⠼⠴⠦⠧
 pub const GUIDES: &str = "│├└";
 
 /// What `?` says in `*Spaces*` (ADR 0131, ADR 0140): the marks, then the keys.
-pub const LEGEND: &str = "⚠ needs input  ✗ failed  ▶ working  ◆ ready for review  ● done  ○ idle  ■ stopped · RET show  n/p move  M-n/M-p headings  TAB fold  S-TAB fold all  ←/→ close/open  q back  c new  w worktree  a add repo  / switch  s group  </> width  k stop  R rename  e explain";
+pub const LEGEND: &str = "⚠ needs input  ✗ failed  ▶ working  ◆ ready for review  ● done  ○ idle  ■ stopped · RET show  n/p move  M-n/M-p headings  TAB fold  S-TAB fold all  ←/→ close/open  q back  c new  w worktree  a add repo  / switch  s group  </> width  k stop  A archive  R rename  e explain";
 
 /// How many columns `<` and `>` take from or give to the pane, once each (ADR 0131).
 pub const PANE_STEP: isize = 4;
@@ -152,7 +152,7 @@ pub const COMMANDS: &[Command] = &[
     ),
     row(
         "sessions-archive",
-        "Archive the session on this row, or bring an archived one back.\n\nAn archived session is listed last, folded, and is not brought back at the next start.",
+        "Archive the session on this row, or bring an archived one back; on a space's row, close the space, as `space-close` does.\n\nAn archived session is listed last, folded, and is not brought back at the next start.",
         Reach::Person,
         archive,
     ),

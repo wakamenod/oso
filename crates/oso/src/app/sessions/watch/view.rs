@@ -19,7 +19,7 @@ use oso_core::selection::SelectionSet;
 use oso_core::syntax::Highlights;
 
 use crate::app::App;
-use crate::sessions::list::{Entry, Key, Line, Rendered, SpaceBands};
+use crate::sessions::list::{Entry, Key, Line, Rendered, SpaceBands, point_line};
 use crate::sessions::recap::{clean, without_spinner};
 use crate::sessions::spinner::Clock;
 use crate::sessions::width;
@@ -284,14 +284,7 @@ impl App {
             self.watch.view.lines = rendered.lines;
             return !same_faces || lit_moved;
         }
-        let line = was
-            .and_then(|was| rendered.lines.iter().position(|line| *line == was))
-            .or(on.filter(|&line| line < rendered.lines.len()))
-            // Not on the title, where no key acts: on the first row under it (ADR 0140).
-            .map(|line| match rendered.lines.get(line) {
-                Some(Line::Title) if rendered.lines.len() > 1 => line + 1,
-                _ => line,
-            });
+        let line = point_line(was.as_ref(), on, &rendered.lines);
         if let Some(line) = line {
             let offset: usize = rendered
                 .text

@@ -1,7 +1,7 @@
 //! The issue space commands (ADR 0136, step 1b): making a space for an issue, adding and
 //! taking out its repositories, closing and reopening it, renaming it, and its instructions
-//! and directory. Each but `space-new` and `space-reopen` acts on the space in front; the host
-//! does the work, its disk work on the sessions worker.
+//! and directory. Each but `space-new`, `space-close` and `space-reopen` acts on the space in
+//! front; the host does the work, its disk work on the sessions worker.
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the host-owned state
 //! and asks the host.
@@ -26,6 +26,9 @@ pub const SPACE_RENAME_TO: &str = "space-rename-to";
 
 /// The list `space-reopen` completes over: the archived spaces.
 pub const ARCHIVED_LIST: &str = "spaces-archived";
+
+/// The list `space-close` completes over: the open spaces, the one in front first.
+pub const CLOSE_LIST: &str = "spaces-open";
 
 /// Whether the prompt of a command over `list` takes any text as its answer, not only a
 /// candidate's: a repository's path need not be one oso knows yet.
@@ -92,10 +95,14 @@ The orchestrator runs in the space's own directory, in no repository: with one t
     },
     Command {
         name: "space-close",
-        doc: "Archive the space in front.
+        doc: "Archive a space, read with completion over the open ones, the one in front first, so that `RET` alone closes it.
 
-It is refused while a session of the space is working or needs input. Its idle sessions are stopped; its worktrees, branches and directory are kept. `space-reopen` opens it again.",
-        args: ArgSpec::None,
+It is refused while a session of the space is working or needs input. Its idle sessions are stopped; its worktrees, branches and directory are kept. Closing a space that is not in front leaves the one in front, and its windows, as they are. `space-reopen` opens it again. In `*Spaces*`, `A` on a space's row closes it.",
+        args: ArgSpec::Listed {
+            list: CLOSE_LIST,
+            prompt: "Close space:",
+            history: "space",
+        },
         reach: Reach::Person,
         run: space_close,
         state: None,
@@ -224,7 +231,8 @@ fn space_use_repo(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 }
 
 fn space_close(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    ask(ctx, SpaceRequest::Close)
+    let name = answer(ctx, "No space")?;
+    ask(ctx, SpaceRequest::Close(name))
 }
 
 fn space_reopen(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {

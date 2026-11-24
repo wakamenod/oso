@@ -37,7 +37,7 @@ fn has_row(state: &Value, start: &str) -> bool {
 }
 
 /// The row point is on, in the selected buffer.
-fn point_row(state: &Value) -> usize {
+pub(super) fn point_row(state: &Value) -> usize {
     state["cursor"]["row"]
         .as_u64()
         .and_then(|row| usize::try_from(row).ok())

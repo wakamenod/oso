@@ -1,6 +1,6 @@
 # 0140. A spaces pane with sections and guides
 
-- Status: Accepted, amended by 0143 and 0159; "Waiting rows blink, as amended" (2026-11-21)
+- Status: Accepted, amended by 0143 and 0159; "Waiting rows blink, as amended" (2026-11-21); "`A` on a space's row, as amended" (2026-11-24)
 - Date: 2026-11-16
 
 ## Context
@@ -329,3 +329,9 @@ answered.
   again to leave loses the pane.
 - **Renaming the commands to `spaces-*`:** churn in keys and documents for a name only the docs
   show; the author kept them.
+
+## `A` on a space's row, as amended
+
+Amended on 2026-11-24, with the author's choices through the coordinator: `A` on a space's row did
+nothing, and now closes that space, asking nothing
+([ADR 0136](0136-issue-spaces.md), "A chosen space is closed, as amended").

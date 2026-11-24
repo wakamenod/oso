@@ -274,8 +274,8 @@ const REVIEW_START: BuiltInMenu = BuiltInMenu {
 };
 
 /// Issue spaces (ADR 0136, step 1b): the space in front's repositories, instructions,
-/// directory and name, and closing and reopening. `o` and `O` are kept for the orchestrator's
-/// start and replacement (steps 3 and 5).
+/// directory and name, and closing and reopening one chosen. `o` and `O` are kept for the
+/// orchestrator's start and replacement (steps 3 and 5).
 const SPACE: BuiltInMenu = BuiltInMenu {
     name: "space",
     title: "Space",
@@ -306,7 +306,7 @@ const SPACE: BuiltInMenu = BuiltInMenu {
         (
             "Open",
             &[
-                exit("c", "space-close", "close"),
+                exit("c", "space-close", "close\u{2026}"),
                 exit("R", "space-reopen", "reopen\u{2026}"),
             ],
         ),

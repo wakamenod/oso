@@ -338,6 +338,19 @@ impl App {
                 }
                 return;
             }
+            // Its sessions stop and it goes in `Archived spaces`, as a session's `A` sends it to
+            // `Archived` (ADR 0136, "A chosen space is closed, as amended").
+            Line::Space(id) if action == RowAction::Archive => {
+                if let Some(at) = self.watch.spaces.find(&id) {
+                    // A held key's repeats are not meant for where point goes next.
+                    self.held_key.point_moved();
+                    self.close_space(at);
+                }
+                return;
+            }
+            Line::ClosedSpace(_) if action == RowAction::Archive => {
+                return self.editor.message("RET opens it again");
+            }
             Line::ClosedSpace(_) | Line::Title => return,
             // A repository's row folds on `RET` too, as its worktrees are what it holds.
             Line::Space(_) | Line::Repository(..) | Line::Worktree(..) => {

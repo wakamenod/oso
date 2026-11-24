@@ -594,7 +594,7 @@ mod row;
 mod tree;
 
 use lines::Fold;
-pub use lines::{Group, Line};
+pub use lines::{Group, Line, point_line};
 use row::Row;
 pub use tree::{ClosedSpace, Project, SpaceInput, SpaceRows, Tree, Worktree, space_rows};
 

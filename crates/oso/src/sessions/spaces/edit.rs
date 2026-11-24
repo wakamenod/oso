@@ -28,6 +28,15 @@ pub struct Naming {
     pub slug: String,
 }
 
+/// Why an answer names no one open space.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NotNamed {
+    /// No open space is called so.
+    Nothing,
+    /// More than one open space is.
+    Several,
+}
+
 /// Why a repository was not added to a space.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NotAdded {
@@ -182,14 +191,18 @@ impl Spaces {
     }
 
     /// Archives space `at`. If its tree is in the frame, the other open space entered last is
-    /// entered first, else none is current and the frame keeps its tree (P4).
+    /// entered first, else none is current and the frame keeps its tree (P4); otherwise the
+    /// frame stays as it is.
     ///
     /// # Errors
     ///
-    /// [`Refused`] while a prompt is open and the space is in the frame: nothing changed.
+    /// [`Refused`] while a prompt is open: nothing changed.
     pub fn archive(&mut self, editor: &mut Editor, at: usize, now: u64) -> Result<(), Refused> {
         if at >= self.spaces.len() {
             return Ok(());
+        }
+        if editor.prompt().is_some() {
+            return Err(Refused);
         }
         if self.current == Some(at) {
             let next = (0..self.spaces.len())
@@ -323,13 +336,33 @@ impl Spaces {
     /// The archived space the person sees called `name`, else of that slug.
     pub fn archived_named(&self, name: &str) -> Option<usize> {
         let archived = (0..self.spaces.len()).filter(|&at| !self.spaces[at].is_open());
-        (archived.clone())
-            .find(|&at| self.spaces[at].label() == name)
-            .or_else(|| {
-                archived
-                    .clone()
-                    .find(|&at| self.spaces[at].stored.name == name)
-            })
+        self.called(archived, name)
+    }
+
+    /// The open space a `space-close` answer names: the one the person sees called `name`, else
+    /// of that slug.
+    ///
+    /// # Errors
+    ///
+    /// [`NotNamed`] when none is, or two are called so, as a record may hold two of one slug:
+    /// the answer does not say which, and the wrong one's sessions would stop.
+    pub fn open_named(&self, name: &str) -> Result<usize, NotNamed> {
+        let mut called = self.open().filter(|&at| self.spaces[at].label() == name);
+        let found = match called.next() {
+            Some(at) if called.next().is_none() => Some(at),
+            Some(_) => return Err(NotNamed::Several),
+            None => self.called(self.open(), name),
+        };
+        found.ok_or(NotNamed::Nothing)
+    }
+
+    /// The first of `among` the person sees called `name`, else the first of that slug.
+    fn called(&self, among: impl Iterator<Item = usize> + Clone, name: &str) -> Option<usize> {
+        (among.clone().find(|&at| self.spaces[at].label() == name)).or_else(|| {
+            among
+                .clone()
+                .find(|&at| self.spaces[at].stored.name == name)
+        })
     }
 
     /// Whether as many spaces as the file keeps are made.
@@ -343,6 +376,16 @@ impl Spaces {
         let mut order: Vec<&Space> = self.spaces.iter().filter(|s| !s.is_open()).collect();
         order.sort_by_key(|space| std::cmp::Reverse(space.stored.changed));
         order.into_iter().map(super::candidate).collect()
+    }
+
+    /// The candidates of `space-close`: each open space as `space-switch` lists them, but the one
+    /// in front first, so that `RET` alone closes it.
+    pub fn closing_candidates(&self) -> Arc<[Candidate]> {
+        let mut order: Vec<usize> = self.open().collect();
+        order.sort_by_key(|&at| (self.current != Some(at), self.spaces[at].label()));
+        (order.into_iter())
+            .map(|at| super::candidate(&self.spaces[at]))
+            .collect()
     }
 
     /// Space `at`'s orchestrator replaced: kept as an earlier one, and no session is its
@@ -492,6 +535,11 @@ pub fn sessions_to_stop<K>(sessions: Vec<(K, String, State)>) -> Result<Vec<K>, 
         }
     }
     Ok(idle)
+}
+
+/// What the echo area says of a space, as the person sees it called, that `session` keeps open.
+pub fn kept_open(session: &str, space: &str) -> String {
+    format!("Session {session} of space {space} is working or needs input; the space stays open")
 }
 
 #[cfg(test)]

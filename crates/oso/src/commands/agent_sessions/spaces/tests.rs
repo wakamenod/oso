@@ -1,4 +1,5 @@
 //! The space commands' requests (ADR 0159): `space-new` asks for a space for its description,
+//! `space-close` for the close of the one chosen,
 //! `space-rename` asks the host for its prompt, `space-rename-to` gives the name it read, and an
 //! answer from a prompt that may have held secrets asks for nothing.
 //!
@@ -52,6 +53,25 @@ fn space_new_asks_for_its_description_unless_it_may_hold_secrets() {
     );
     let refused = run_answered(&mut editor, "space-new", typed, true);
     assert!(refused.is_err_and(|why| why.contains("secret")));
+    assert!(spaces_asked(&mut editor).is_empty(), "nothing asked");
+}
+
+#[test]
+fn space_close_asks_for_the_space_its_prompt_chose() {
+    let mut editor = Editor::with_buffer(Buffer::from_text("a.rs", "a\n"));
+    let chosen = Some("ログイン 🔧");
+    assert_eq!(
+        run_answered(&mut editor, "space-close", chosen, false),
+        Ok(())
+    );
+    assert_eq!(
+        spaces_asked(&mut editor),
+        [SpaceRequest::Close("ログイン 🔧".to_owned())]
+    );
+    for none in [None, Some(""), Some("  ")] {
+        let refused = run_answered(&mut editor, "space-close", none, false);
+        assert_eq!(refused, Err("No space".to_owned()));
+    }
     assert!(spaces_asked(&mut editor).is_empty(), "nothing asked");
 }
 

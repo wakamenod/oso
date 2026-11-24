@@ -397,7 +397,7 @@ planned.
     (ADR 0122, ADR 0160): a review of each scope and the session's baseline, with each scope's
     count of files; see [Reviews](#reviews).
   - `space` on `S` in the Agents menu (ADR 0136): the space in front's repositories,
-    instructions, directory and name, and closing and reopening.
+    instructions, directory and name, and closing and reopening one chosen.
   - `commit` on `c` in a git status (ADR 0127): its switches and kinds; see
     [Committing](#committing).
   - `push` on `P`, `pull` on `F` (with `- r` and `- m` from step 3a) and `fetch` on `f` in a
@@ -1551,7 +1551,9 @@ a switch made with its command stands until that setting changes in the file
     under, `q` goes back to the tree's window, `g`
     renders again with fresh ages and lists each project's worktrees again, `s` groups by
     state instead, `P` pins, `A` archives or
-    brings back, `r` resumes, `k` hangs up (asking first while it works or needs input), `e`
+    brings back (on a space's row it closes the space, asking nothing, and point goes to the `Archived spaces`
+    heading, so that a held or second `A` closes no other; on a closed one's it says
+    that `RET` opens it again), `r` resumes, `k` hangs up (asking first while it works or needs input), `e`
     explains its state, `?` says what the marks mean and the keys, `/` is `session-switch`.
   - On a worktree's row, `RET` enters its space, or opens `C-x C-f`'s prompt in it when no
     space is there; on a project's or a group's row it folds; `k` says that `worktree-remove`
@@ -1592,6 +1594,10 @@ a switch made with its command stands until that setting changes in the file
   entered for the first time shows its last file and its last session side by side; one
   `space-new` just made shows `*scratch*` alone until its orchestrator starts there
   ([ADR 0159](adr/0159-space-new-starts-the-orchestrator-and-display-names.md)).
+  `space-close` (`C-c a S` `c`) reads the open space to close, the one in front first, so that
+  `RET` alone closes it; closing another leaves the front, its windows and the selected window
+  as they are, and a refusal names the session at work and the space
+  ([ADR 0136](adr/0136-issue-spaces.md)).
   `C-c a z` (`space-zoom`) shows the selected window alone, and back. Under `oso dev`, a
   restart keeps only the windows in front: the other spaces' windows go, and a zoomed
   window stays alone.

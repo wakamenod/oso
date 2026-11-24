@@ -93,6 +93,61 @@ fn the_switch_floats_complete_over_what_the_host_listed() {
 }
 
 #[test]
+fn space_close_offers_the_space_in_front_first_and_closes_the_one_chosen() {
+    use oso_core::editor::SpaceRequest;
+    let (mut d, mut editor) = (Dispatcher::new(), editor());
+    // As the host gives them: the one in front first, though it is the longest.
+    let spaces: Arc<[Candidate]> = Arc::from([
+        Candidate::new("the one in front", "", "oso"),
+        Candidate::new("api", "", "web"),
+        Candidate::new("fix", "", "oso"),
+    ]);
+    editor.set_listed("spaces-open", spaces);
+    let closed = |editor: &mut Editor, name: &str| {
+        assert_eq!(
+            editor.take_session_requests(),
+            [SessionRequest::Spaces(SpaceRequest::Close(name.to_owned()))]
+        );
+    };
+    send(&mut d, &mut editor, "C-c a S c");
+    let prompt = editor.prompt().expect("the list");
+    assert!(
+        prompt.label().starts_with("Close space:"),
+        "{}",
+        prompt.label()
+    );
+    send(&mut d, &mut editor, "f i x RET");
+    closed(&mut editor, "fix");
+    // RET alone, though another was closed before.
+    send(&mut d, &mut editor, "C-c a S c RET");
+    closed(&mut editor, "the one in front");
+    // From `M-x` too.
+    let typed: Vec<String> = "space-close".chars().map(String::from).collect();
+    send(
+        &mut d,
+        &mut editor,
+        &format!("M-x {} RET RET", typed.join(" ")),
+    );
+    closed(&mut editor, "the one in front");
+    // Only a listed space is an answer, and `C-g` closes none.
+    send(&mut d, &mut editor, "C-c a S c z z RET");
+    assert!(
+        editor.prompt().is_some(),
+        "nothing matches: the prompt stays"
+    );
+    send(&mut d, &mut editor, "C-g C-c a S c C-g");
+    assert!(editor.prompt().is_none());
+    assert!(editor.take_session_requests().is_empty());
+}
+
+#[test]
+fn with_no_open_space_a_close_asks_nothing() {
+    let (mut d, mut editor) = (Dispatcher::new(), editor());
+    send(&mut d, &mut editor, "C-c a S c RET");
+    assert!(editor.take_session_requests().is_empty());
+}
+
+#[test]
 fn a_switch_over_nothing_asks_nothing() {
     let (mut d, mut editor) = (Dispatcher::new(), editor());
     send(&mut d, &mut editor, "C-c a b RET");

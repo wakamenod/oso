@@ -1,6 +1,6 @@
 # 0136. Issue spaces
 
-- Status: Accepted, amended by 0140, 0143, 0151, 0153, 0155, 0159, 0161, 0162, 0163, 0173, 0176 and 0177
+- Status: Accepted, amended by 0140, 0143, 0151, 0153, 0155, 0159, 0161, 0162, 0163, 0173, 0176 and 0177; "A chosen space is closed, as amended" (2026-11-24)
 - Date: 2026-11-15
 
 ## Context
@@ -851,6 +851,25 @@ accepted and the step that builds each is merged.
   spawns": a session whose trusted root was put in another's place since oso found it does not
   start, and the echo area says to trust the directory there again with `trust-project` (the
   author's choice, 2026-11-15, step 4a).
+
+## A chosen space is closed, as amended
+
+Amended on 2026-11-24, with the author's choices through the coordinator: `space-close` closed only
+the space in front.
+
+- **`space-close` reads an open space's name** with completion, the space in front first, so that
+  `RET` alone closes it.
+- **In `*Spaces*`, `A` on a space's row closes that space,** asking nothing. `c` there stays
+  `claude`.
+- **Closing one that is not in front leaves the front and its windows as they are;** what closing
+  refuses, stops and keeps is the same for both, and a refusal names the space.
+- **`Person`,** as before.
+- **Built:** `SpaceRequest::Close` carries the name chosen. A name two open spaces
+  have closes neither, and with no space in front the first by name is the one `RET` closes. The
+  pane's `A` is the existing `RowAction::Archive`, by the space's id, and on a
+  closed space's row says that `RET` opens it again. After it closes a space, point goes to the
+  `Archived spaces` heading, scrolled into view, and a held `A` does nothing more, so that no
+  second space closes.
 
 ## Consequences
 

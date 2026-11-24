@@ -1,6 +1,6 @@
 //! The lists the space prompts complete over (ADR 0136, step 1b): the repositories oso knows,
-//! the space in front's, and the closed spaces, made when the sessions or the spaces change,
-//! or another space comes in front.
+//! the space in front's, the closed spaces, and the open ones to close, made when the sessions or
+//! the spaces change, or another space comes in front.
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 
@@ -12,20 +12,22 @@ use oso_core::complete::Candidate;
 
 use super::spelled;
 use crate::app::App;
-use crate::commands::agent_sessions::{ARCHIVED_LIST, MEMBERS_LIST, REPOSITORIES_LIST};
+use crate::commands::agent_sessions::{ARCHIVED_LIST, CLOSE_LIST, MEMBERS_LIST, REPOSITORIES_LIST};
 use crate::sessions::spaces::stored::is_plain;
 
 impl App {
     /// Gives the space prompts their lists: the repositories oso knows, the space in front's,
-    /// and the closed spaces.
+    /// the closed spaces, and the open ones to close, the one in front first.
     pub(in crate::app) fn space_lists(&mut self) {
         let spaces = self.watch.spaces();
         let members = spaces.member_candidates();
         let archived = spaces.archived_candidates();
+        let closing = spaces.closing_candidates();
         let known = self.known_repositories();
         self.editor.set_listed(REPOSITORIES_LIST, known);
         self.editor.set_listed(MEMBERS_LIST, members);
         self.editor.set_listed(ARCHIVED_LIST, archived);
+        self.editor.set_listed(CLOSE_LIST, closing);
         self.keep_space_scope(true);
     }
 
