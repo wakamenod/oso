@@ -508,7 +508,7 @@ impl Editor {
             + status.waits.len()
             + text_cells(&status.state);
         let columns = regions.modeline.columns;
-        let others = note::fit(&mut status.state, note, others, columns);
+        let others = note::fit(status, note, others, columns);
         let cells = columns.saturating_sub(others).max(MIN_NAME_CELLS);
         push_name(&mut status.name, buffer, marker, cells);
 
@@ -735,6 +735,43 @@ mod tests {
         let least = at(30);
         assert_eq!(least.state, "1:0  Session 2 queued");
         assert_eq!(text_cells(&least.name), 3 + MIN_NAME_CELLS + 2);
+    }
+
+    #[test]
+    fn a_native_notes_first_part_comes_before_the_project_and_the_space() {
+        let root = PathBuf::from("/work/some-project");
+        let at = |columns| {
+            let mut editor =
+                named_native("*claude: some-session*", "⇄ claude.ai: auto · m", columns);
+            let id = editor.window().buffer();
+            editor.set_front_space("a-space");
+            let found = crate::project::Found {
+                root: crate::project::RootIdentity {
+                    path: root.clone(),
+                    identity: None,
+                },
+                worktree_of: None,
+                checked_main: None,
+            };
+            editor.set_buffer_project(id, Some(found));
+            status(&editor)
+        };
+        let wide = at(200);
+        assert!(!wide.project.is_empty() && !wide.space.is_empty());
+        let mut dropped = Vec::new();
+        for columns in (68..200).rev() {
+            let status = at(columns);
+            assert!(status.state.contains("⇄ claude.ai: auto"), "{columns}");
+            assert!(
+                super::text_cells(&status.modeline()) <= columns,
+                "{columns}: {}",
+                status.modeline()
+            );
+            dropped.push((status.space.is_empty(), status.project.is_empty()));
+        }
+        // The space goes first.
+        assert!(dropped.contains(&(true, false)) && dropped.contains(&(true, true)));
+        assert!(!dropped.contains(&(false, true)));
     }
 
     #[test]

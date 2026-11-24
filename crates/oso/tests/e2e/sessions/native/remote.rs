@@ -15,14 +15,15 @@ use serde_json::{Value, json};
 use super::super::super::harness::{App, sockets};
 use super::super::super::spaces::trust_restricted;
 use super::modes::{modeline, send};
-use super::restart::{show_transcript, transcript_says};
+use super::restart::show_transcript;
 use super::{Flow, git_init, in_composer, remote_control_off, text};
 
 /// The fake: run `N` from 1 writes its arguments to `run.N`, and answers `initialize` with
 /// `remote_control_available` as its `--settings` allow. `remote_control` on it writes to `on.N`,
 /// answers with the session id in `there`, and says that it connected; off it writes to `off.N`.
 /// Each message `M` it writes to `sent.N.M`, and, unless it starts with `long`, ends its turn. What
-/// the flow puts in `say.N` it prints, as if the phone had caused it.
+/// the flow puts in `say.N` it prints, as if the phone had caused it. With `slow` there, it takes
+/// 2 s to end.
 const REMOTE_FAKE: &str = r#"#!/bin/sh
 dir='DIR'
 n=$(ls "$dir" | grep -c '^run\.')
@@ -44,7 +45,7 @@ done
 ) &
 phone=$!
 trap 'kill $phone 2>/dev/null' EXIT
-trap 'kill $phone 2>/dev/null; exit 0' TERM INT
+trap 'kill $phone 2>/dev/null; [ -f "$dir/slow" ] && sleep 2; exit 0' TERM INT
 m=0
 while IFS= read -r line; do
   case "$line" in
@@ -131,6 +132,19 @@ fn args(flow: &Flow, run: &str) -> Vec<String> {
 
 fn there(flow: &Flow, name: &str) -> bool {
     flow.scratch.path().join(name).exists()
+}
+
+/// Waits until `app`'s transcript says `row`, its lines wrapped anywhere.
+fn transcript_says(app: &mut App, row: &str) {
+    app.send_keys("C-c C-o");
+    app.wait_for(row, |state| {
+        let rows = text(state);
+        let words: Vec<&str> = rows
+            .split_whitespace()
+            .filter(|word| *word != "↩")
+            .collect();
+        state["buffer"]["name"] == "*claude: proj*" && words.join(" ").contains(row)
+    });
 }
 
 /// Waits until the echo area says `words`.
@@ -224,7 +238,10 @@ fn the_phones_message_and_mode_are_shown_and_never_the_persons() {
         &mut app,
         "The permission mode changed, by no key here: plan.",
     );
-    app.wait_for("the mode", |state| modeline(state).contains("plan"));
+    // Beside the mark, which a narrow modeline keeps.
+    app.wait_for("the mode", |state| {
+        modeline(state).contains("⇄ claude.ai: plan")
+    });
     // The person's key goes to default first, not on to auto.
     app.send_keys("S-TAB");
     assert_eq!(flow.wait_for_file("asked.2").trim(), "default");
@@ -281,14 +298,28 @@ fn off_during_a_turn_is_told_at_once_and_ends_at_a_second_press() {
 
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
-fn a_turn_a_session_given_no_message_and_a_remotes_password_refuse() {
+fn a_stopped_session_a_turn_and_a_remotes_password_refuse() {
     let (flow, mut app) = idle("native-remote-refused");
+    app.send_keys("C-c C-o");
+    app.wait_for("the transcript", |state| {
+        state["buffer"]["name"] == "*claude: proj*"
+    });
     app.run_command("session-stop", None).unwrap();
     app.wait_for("stopped", |state| modeline(state).contains("stopped"));
     app.run_command("native-remote-control", None).unwrap();
     echoes(&mut app, "runs no claude: resume it first");
     app.run_command("session-resume", None).unwrap();
     flow.wait_for_file("run.2");
+    app.wait_for("the composer", in_composer);
+    // Once its process runs: it is refused, as starting, till then.
+    app.send_keys("C-c C-o");
+    app.wait_for("the session running", |state| {
+        let line = modeline(state);
+        state["buffer"]["name"] == "*claude: proj*"
+            && !line.contains("starting")
+            && !line.contains("stopped")
+    });
+    app.send_keys("i");
     app.wait_for("the composer", in_composer);
     // A remote's address with a password: said without it, and nothing respawns.
     let config = flow.project.join(".git/config");
@@ -312,7 +343,8 @@ fn a_turn_a_session_given_no_message_and_a_remotes_password_refuse() {
 }
 
 /// Restarts the connected session's oso; `there` is the session the fake answers then.
-fn restarted(test: &str, there: &str) -> (Flow, App) {
+/// The instance going is the caller's to drop last, as the new one has its log.
+fn restarted(test: &str, there: &str) -> (Flow, App, App) {
     let (flow, mut old) = idle(test);
     connected(&flow, &mut old);
     flow.scratch.write("there", there.as_bytes());
@@ -322,13 +354,13 @@ fn restarted(test: &str, there: &str) -> (Flow, App) {
     let mut new = App::started_by_a_restart(&before);
     assert!(old.wait_for_exit().success(), "the instance going exits");
     new.wait_until_ready();
-    (flow, new)
+    (flow, old, new)
 }
 
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
 fn a_connected_session_comes_back_to_the_same_session_after_oso_restart() {
-    let (flow, mut new) = restarted("native-remote-restart", "cse_a1");
+    let (flow, _old, mut new) = restarted("native-remote-restart", "cse_a1");
     let asked: Value = serde_json::from_str(&flow.wait_for_file("on.3")).unwrap();
     assert_eq!(asked["request"]["reattach_session_id"], "cse_a1");
     assert!(!there(&flow, "off.2"), "it was never told that it is off");
@@ -342,7 +374,7 @@ fn a_connected_session_comes_back_to_the_same_session_after_oso_restart() {
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
 fn another_session_answered_after_oso_restart_turns_it_off() {
-    let (flow, mut new) = restarted("native-remote-restart-other", "cse_other");
+    let (flow, _old, mut new) = restarted("native-remote-restart-other", "cse_other");
     flow.wait_for_file("on.3");
     flow.wait_for_file("off.3");
     assert!(remote_control_off(&args(&flow, "run.4")));
@@ -370,6 +402,25 @@ fn a_directory_made_again_before_oso_restart_connects_nothing() {
     assert!(remote_control_off(&args(&flow, "run.3")));
     show_transcript(&mut new);
     transcript_says(&mut new, "Remote Control stays off");
+    assert!(!there(&flow, "on.3"));
+    let _ = new.exchange("exit", None);
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn off_pressed_while_oso_restart_waits_is_not_connected_again() {
+    let (flow, mut old) = idle("native-remote-restart-off");
+    connected(&flow, &mut old);
+    flow.scratch.write("slow", b"x");
+    let before = sockets();
+    old.run_command("oso-restart", None)
+        .expect("oso-restart runs");
+    old.run_command("native-remote-control", None).unwrap();
+    let mut new = App::started_by_a_restart(&before);
+    assert!(old.wait_for_exit().success(), "the instance going exits");
+    new.wait_until_ready();
+    assert!(remote_control_off(&args(&flow, "run.3")));
+    thread::sleep(Duration::from_millis(500));
     assert!(!there(&flow, "on.3"));
     let _ = new.exchange("exit", None);
 }

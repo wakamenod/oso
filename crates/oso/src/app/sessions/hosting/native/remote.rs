@@ -49,6 +49,10 @@ const MAX_NAME: usize = 64;
 const OFF: &str =
     "Remote Control is off: claude.ai keeps what it has, and may still list this session.";
 
+/// What the person is told as it goes off at once.
+const OFF_NOW: &str =
+    "Turning Remote Control off: claude.ai is told, and claude ends, to resume its conversation.";
+
 /// What the person is told as it goes off while a turn runs.
 const GOING_OFF: &str = "Turning Remote Control off: claude.ai is told, and claude ends once its turn is over, in \
      60 s at the latest, to resume its conversation. native-remote-control again ends it now.";
@@ -294,7 +298,8 @@ impl App {
                 .editor
                 .message(format!("Ending {name}'s claude to turn Remote Control off"));
         }
-        self.native_note_row(key, GOING_OFF);
+        let idle = !native.composing.busy && !native.interrupt.interrupting();
+        self.native_note_row(key, if idle { OFF_NOW } else { GOING_OFF });
         self.native_note_changed(key);
         self.sessions_touched();
         self.editor

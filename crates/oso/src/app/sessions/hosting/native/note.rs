@@ -69,22 +69,22 @@ impl App {
             state => state.said(),
         };
         // Remote Control's mark first, as a narrow modeline drops its parts from the right
-        // (ADR 0181).
+        // (ADR 0181), and with it a mode no key here gave, which decides what asks.
+        let strayed = native.mode.strayed().filter(|_| native.remote.marked());
         let queued = match native.composing.queued() {
             0 => String::new(),
             count => format!("{count} queued"),
         };
         let mark = native.remote.mark().unwrap_or_default();
-        let mut note = [mark, state, &queued]
+        let mark = strayed.map_or_else(|| mark.to_owned(), |mode| format!("{mark}: {mode}"));
+        let mut note = [mark.as_str(), state, &queued]
             .into_iter()
             .filter(|part| !part.is_empty())
             .collect::<Vec<_>>()
             .join(SEPARATOR);
         let effort = native.choice.effort();
-        native
-            .status
-            .line
-            .write(native.mode.shown(), effort, &mut note);
+        let mode = native.mode.shown().filter(|_| strayed.is_none());
+        native.status.line.write(mode, effort, &mut note);
         let buffer = native.buffer;
         let same = (self.editor.buffer(buffer)).is_some_and(|b| b.mode_note() == note);
         if !same {

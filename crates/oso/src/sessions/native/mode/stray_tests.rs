@@ -71,6 +71,7 @@ fn a_row_says_it_once_a_change_and_no_line_floods_them() {
     modes.said("default", true);
     assert_eq!(modes.take_stray_row(), None);
     modes.event(&status("auto"), true);
+    assert_eq!(modes.strayed(), Some("auto"));
     let row = modes.take_stray_row().unwrap();
     assert!(row.contains("by no key here: auto."), "{row}");
     assert_eq!(modes.take_stray_row(), None);
@@ -81,6 +82,7 @@ fn a_row_says_it_once_a_change_and_no_line_floods_them() {
     assert_eq!(rows.count(), MAX_STRAY_ROWS - 1);
     // A new process may say more.
     modes.for_start();
+    assert_eq!(modes.strayed(), None);
     modes.said("plan", true);
     modes.event(&status("auto"), true);
     assert!(modes.take_stray_row().is_some());
@@ -92,5 +94,6 @@ fn the_persons_own_switch_gives_no_row() {
     modes.said("default", true);
     modes.chose(AcceptEdits);
     modes.event(&status("acceptEdits"), true);
+    assert_eq!(modes.strayed(), None);
     assert_eq!(modes.take_stray_row(), None);
 }

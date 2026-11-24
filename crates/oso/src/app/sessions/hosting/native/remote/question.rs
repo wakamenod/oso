@@ -33,6 +33,9 @@ use crate::sessions::worker::SessionKey;
 /// The most characters of a path in the report.
 const MAX_PATH: usize = 400;
 
+/// The rows of the frame's top the question's float may take.
+const FLOAT_ROWS: usize = 6;
+
 const READING: &str = "reading…";
 
 /// What a thread read of a session's repository, for the question numbered `token`.
@@ -76,8 +79,10 @@ impl Report<'_> {
                 sent.branch.clone().unwrap_or_else(|| "none".to_owned()),
             ),
         };
+        // Below the question's float, at the frame's top.
+        let below = "\n".repeat(FLOAT_ROWS);
         format!(
-            "Remote Control of {name}\n\
+            "{below}Remote Control of {name}\n\
              \n\
              Connected, this goes to Anthropic's servers and stays there:\n\
              \n\
@@ -88,11 +93,11 @@ impl Report<'_> {
              \x20 - its branch: {branch}\n\
              \x20 - its directory: {directory}\n\
              \n\
-             Whoever holds your account can follow it at claude.ai, send it messages, stop it and\n\
-             change its permission mode, to auto too, where calls run without asking you. They may\n\
+             Whoever holds your account can follow it at claude.ai, send it messages, stop it and \
+             change its permission mode, to auto too, where calls run without asking you. They may \
              read its files. Permission questions are answered here alone.\n\
              \n\
-             claude ends and resumes its conversation to connect. claude.ai may go on with a session\n\
+             claude ends and resumes its conversation to connect. claude.ai may go on with a session \
              it lists for this conversation already. Turned off again, it keeps what it has.\n",
             name = self.name,
             directory = self.directory,
@@ -355,7 +360,7 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use super::{READING, Report, Sent};
+    use super::{FLOAT_ROWS, READING, Report, Sent};
 
     fn report(sent: Option<&Sent>) -> String {
         Report {
@@ -382,14 +387,14 @@ mod tests {
             "its branch: main\n",
             "its directory: /w/wa\n",
             "Whoever holds your account can",
-            "send it messages, stop it and",
-            "change its permission mode, to auto too",
+            "send it messages, stop it and \
+             change its permission mode, to auto too",
             "Permission questions are answered here alone",
             "Turned off again, it keeps what it has",
         ] {
             assert!(text.contains(said), "{said}:\n{text}");
         }
-        assert!(text.lines().all(|line| line.chars().count() <= 96));
+        assert!(text.starts_with(&"\n".repeat(FLOAT_ROWS)));
         let none = report(Some(&Sent::default()));
         assert!(none.contains("addresses: none\n") && none.contains("branch: none\n"));
         assert_eq!(report(None).matches(READING).count(), 2);

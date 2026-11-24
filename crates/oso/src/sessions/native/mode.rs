@@ -261,6 +261,11 @@ impl ModeState {
         }
     }
 
+    /// The mode in force, if no key here gave it and it is shown (ADR 0181).
+    pub fn strayed(&self) -> Option<&str> {
+        self.strayed.and_then(|_| self.shown())
+    }
+
     /// The mode shown, as the CLI said it.
     pub fn shown(&self) -> Option<&str> {
         match self.said.as_ref()? {

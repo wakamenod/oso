@@ -310,6 +310,7 @@ impl Remote {
     /// The row that says where it is now, if it came there since the last and rows are left.
     pub fn take_row(&mut self) -> Option<String> {
         let row = match &self.phase {
+            Phase::On if self.rows > 0 => "Remote Control is on again.".to_owned(),
             Phase::On => {
                 "Remote Control is on: claude.ai follows this session, sends it messages and stops \
                  it. native-remote-control turns it off; native-remote-control-address copies its \
