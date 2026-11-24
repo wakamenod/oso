@@ -130,6 +130,7 @@ fn order(gate: ByGate, space: Option<crate::sessions::start::SpaceStart>) -> sup
         runs: Runs::Native(NativeOrder {
             buffer,
             trust: crate::sessions::start::trust::ByRecord::No,
+            by_claim: false,
             gate,
             settings: crate::terminal::shell::Settings::default(),
             env: Vec::new(),

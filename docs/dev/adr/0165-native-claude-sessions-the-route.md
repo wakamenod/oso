@@ -1,6 +1,6 @@
 # 0165. Native Claude sessions: the route
 
-- Status: Accepted, amended by 0170, 0173, 0176, 0180 and 0181; "Following the end, as amended", "Remote Control is off, as amended" and part 3f's suggestion (2026-11-24)
+- Status: Accepted, amended by 0170, 0173, 0176, 0180 and 0181; "Worktrees' resumes", "Following the end, as amended", "Remote Control is off, as amended" and part 3f's suggestion (2026-11-24)
 - Date: 2026-11-21
 
 ## Context
@@ -761,7 +761,8 @@ R1 as built, with the author's Q2 (a) and their choices of 2026-11-22:
   continues it in a terminal. The trust a session started with is not used: the
   resume is judged where it runs. **Follow-up:** judging trust from the trust list
   by the root's path and identity, on the start thread, so that a resume needs no open buffer.
-  Built in part 4a: an open buffer still decides where there is one.
+  Built in part 4a, and, for a worktree, "Worktrees' resumes": an open buffer still decides
+  where there is one.
 - **A fork** follows the mode: native, in a new buffer with its composer selected, under
   `mode = "native"` at such a root; else in a terminal. It takes no baseline, as a terminal
   fork took none.
@@ -1616,17 +1617,19 @@ The author's Q4-10 (a), part 2b's follow-up:
   trust now is the answer, as in part 2b: open and not trusted, or its trust taken back,
   refuses whatever the record says.
 - **With none open, the record decides,** in two looks. The UI thread asks whether the record
-  holds the root's path (if not, the resume says, as in part 2b, that the project is not open
-  and the record does not hold it: open a file of it, or fork), and the order carries a copy
-  of the record to the start thread (a few lines; at the file's 256 KiB cap about 14 000, a
+  holds the root's path (if not, a fork or an adoption runs in a terminal, and a
+  resume is judged by its worktree's claim, "Worktrees' resumes" below), and the order carries a
+  copy of the record to the start thread (a few lines; at the file's 256 KiB cap about 14 000, a
   copy of about 1 MiB, once per resume or fork, as oso-core gives no line of it alone). There,
   before the root's other checks, the root's identity is read (not following a link; a
   directory) and judged by path and identity as an issue space's member is
   (`TrustedRoot::of_member`, ADR 0136, step 4): a directory made again at the path, a link
   there, a file or nothing is refused, "the record of trusted projects does not hold the
   directory at its project's root now". The usual look again before the spawn follows. The
-  record holds no worktree claim (ADR 0114), so a session in a linked worktree still needs a
-  buffer of it open. Only at the project's root, as before.
+  record holds no worktree claim; a resume of a native session oso has in a linked worktree is
+  judged by ADR 0114's check, read afresh on its start thread ("Worktrees' resumes" below). A
+  new start, a fork, an adoption or a move into a space in one still needs an open, trusted buffer
+  of it. Only at the project's root, as before.
 - **Taken back until it starts** (the security review's finding): the start thread's checks
   before the spawn can take seconds (the registry, a worker's reads with git), so the UI keeps
   each native resume's or fork's trust until its start thread reports, and after each event
@@ -1657,6 +1660,80 @@ The author's Q4-10 (a), part 2b's follow-up:
   `app/sessions/hosting/trust.rs` (the editor's projects and record into the judge); the
   record's first report in `app/projects.rs`, which lets the waiting starts go; and the e2e
   flow `sessions::native::resume::a_native_session_resumes_with_no_file_of_its_project_open`.
+
+### Worktrees' resumes (the author's answers of 2026-11-24)
+
+The author's (a) on Q1, Q2, Q5 and Q6. Part 4a's record holds a worktree's main repository, not
+the worktree, and a native session's transcript is an internal buffer, which no buffer of a
+project is counted by; so a native session in a worktree resumed only with a file of it open,
+and after `oso-restart` stayed stopped.
+
+- **The rule.** With no buffer of its project open and the record read, a resume whose root's
+  path the record does not hold is judged by ADR 0114's check on its start thread. A root the
+  record holds stays the record's to judge: held with another identity, it is refused. The
+  order carries a copy of the record and the home directory. There, the root must be where its
+  path leads with no link on the way, the session's directory and its project's root; the walk
+  must find it as its own root, never the home directory; its claim must hold both ways; and
+  the record must trust the main repository by path and identity. Nothing is run, and nothing
+  is read on the UI thread or on the `oso-project` thread. The worktree's own directory is
+  compared before and after the reads, as the main repository's is.
+- **Twice:** once where part 4a's look is made, and the whole of it again just before the spawn,
+  when it must also give the same directory by its identity.
+- **Taken back until it starts:** as part 4a's, with the claim's own rule, as the UI does not
+  know which root the claim names: an open buffer of the worktree that is not trusted, the
+  record refused, or any root leaving the record while it starts takes it back. A root added
+  does not.
+- **Which resumes:** of a session oso has: the person's `session-resume`, an agent's
+  `session_resume`, `oso-restart`'s resume and the resume of a restart that stays, the respawn
+  after an interrupt, a mode change or a repository added, a review's question's `y`, and a TUI
+  session taken back natively (part 4d-2), once its terminal is gone: the switch's checks before
+  that ask no claim, so that nothing is hung up that may not come back. Not a new start, a fork,
+  an adoption or a move into a space, held ones among them; a session moved before resumes as
+  any other. An issue space's own directory stays its gate's
+  (ADR 0176).
+- **A record not read yet** is waited for, as in part 4a, also before an open buffer of its
+  project that is not trusted refuses such a resume, as no project is trusted until the record
+  is read. **A known limit:** a file of the worktree carried over a restart is asked for its
+  project again only once the record is read. A resume that waited for the record is judged then,
+  before that answer, so it may find the buffer not trusted and refuse; it says that
+  `session-resume` resumes it once it is trusted, which it then soon is. Seen once end to end, the
+  record was read before the instance going had gone, and such a session resumed. A plain
+  repository's carried file does not refuse so, as the record alone trusts it.
+- **No baseline, no tool trust:** a resume takes no baseline, as before, and nothing is kept in
+  `hosting.trusts`; an agent's `session_resume` asks as it did (ADR 0153).
+- **Accepted.** Trusting a repository trusts its worktrees' settings, hooks and `.mcp.json` at a
+  resume too, also at a restart with no person there, as at their start and as a repository's
+  own root's: the author accepted it. They run as they are at the restart, whatever changed
+  while the session was stopped. As in ADR 0114, a directory git records at the path again is
+  the worktree.
+- **What is said.** A native resume refused on its start thread or after it waited, and one oso
+  makes itself (a restart's, a respawn), says why in its transcript, "It did not resume: WHY",
+  and after a restart "It did not resume after oso-restart: WHY", with the
+  mode carried as before. "Resumed after oso-restart." comes once its process started, not as it
+  is ordered, and no "Resumed." row comes before it; so does "oso-restart stayed here: resumed.".
+  Once every resume of a restart has reported, the echo area and `*Messages*` say once
+  "oso-restart left 2 sessions stopped: A, B; each transcript says why", three names at most,
+  then "and N more", in place of a line for each. Its row of `*Spaces*` takes a second line, "not
+  resumed: WHY", cleaned as a recap is, while it is stopped, until it runs; kept in memory only
+  (it amends ADR 0131's Q2, as the author answered Q5). There each of oso's own reasons has words
+  short enough for a recap's 80 characters, as "not resumed: repository not trusted;
+  trust-project, then session-resume"; an error of the system's or of a space's checks may still
+  be cut, and a narrow list cuts what to do, which the transcript says. In the transcript a
+  claim's WHY is "its repository is not trusted now: trust-project it, then session-resume" where
+  the repository its `.git` names is not a root of the record, "its project is no longer trusted"
+  once taken back, and "its directory is neither a trusted repository nor a worktree of one now"
+  for anything else. What its `.git` names is never shown.
+- **Built with:** `sessions/start/trust.rs` (the judge, `Claimed` and its two looks),
+  `TrustedRoot::of_claim`, `project::detect_root`, and
+  `app/sessions/hosting/native/resumed.rs` (what is said). No new public item of a library
+  crate.
+- **Tests:** the judge's table and the looks at real directories, each refusal, what changes
+  between the look and the spawn, and the taking back (`start/trust/tests/claims.rs`);
+  `check_main`'s comparison (`project`); the rows' and the echo's words; the list's second line.
+  End to end (`worktree_resume`): a restart resumes an agent's worktree session with no file of
+  it open; one whose repository was untrusted stays stopped and says why, until it is trusted
+  again and resumed; an orchestrator's `session_resume`. Not tested: the app's own wiring of
+  each caller's flag and the switch's checks (the app has no harness).
 
 ### Part 4b: `oso-restart` waits for native turns
 
@@ -1785,7 +1862,8 @@ the restart; Q4-10 (a), the resume is judged by part 4a's trust.
   terminals' import. Then, once the record of sessions is read,
   each id the record has as a stopped native session with its buffer is resumed with
   `session-resume`'s checks: the name, directory and root are the record's, never the
-  state's; its trust is part 4a's, as no person is there to open a file (an open buffer of
+  state's; its trust is part 4a's, or for a linked worktree its claim's ("Worktrees'
+  resumes"), as no person is there to open a file (an open buffer of
   the project decides; else the record of trusted projects, by path and identity); its start
   waits for the configuration's first look (ADR 0173); and the start thread refuses a
   conversation live elsewhere, by Claude Code's registry. A refusal leaves it stopped, its
@@ -1920,7 +1998,8 @@ of "One session, and the TUI as a hand-off" (Q3).
   known yet (a TUI just started), while it is being started, nor while a resume is held (a stop
   asked, oso waiting to quit or restarting, an orchestrator's replacement). Only where a native
   session may run (Q5): its project's root trusted now, by an open buffer of it or the record of
-  trusted projects (part 4a), judged before anything changes, and again once the TUI ended;
+  trusted projects (part 4a), judged before anything changes, and again once the TUI ended
+  (the resume then may be judged by its worktree's claim, "Worktrees' resumes");
   else it says why ("Session NAME stays in the TUI, as a native session runs only at a trusted
   project's root: …"). A running TUI whose process id is not known (its start outlasted the
   start thread's wait) does not switch: its end could not be waited for.
@@ -2525,6 +2604,12 @@ Each passage stays in its ADR as written; what holds now follows it.
   heads of this menu: … ADR 0129's dictation on `t`": `t` is `session-switch-mode`'s (part
   4d-1, the author's Q4-8 (a)), and part 4d-2's `C-c C-t` in a session's terminal is too; ADR
   0129's dictation, deferred, takes another head when it is decided.
+- [ADR 0114](0114-projects-trust-finding-files-and-searching-a-project.md), a worktree's claim is checked
+  on the `oso-project` thread for its open buffers: and, by the same check, on a native resume's
+  start thread with no buffer open ("Worktrees' resumes").
+- [ADR 0131](0131-an-orca-style-sessions-pane.md), "A second line, only for a session that needs
+  input or failed (Q2)" and "Where recaps show": and why a stopped native session did not resume
+  ("Worktrees' resumes").
 - [ADR 0133](0133-keeping-terminals-over-an-update.md), step 2, as built: "The host refuses
   as `check-handover` with terminals does …, then stops the agent channel and starts the
   `oso-restart` thread": while a native session has a turn under way, asks the person, is

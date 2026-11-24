@@ -21,19 +21,24 @@ use crate::sessions::worker::SessionKey;
 impl App {
     /// `session-resume`: the stopped session whose terminal is `buffer`, in the same buffer.
     pub(in crate::app) fn resume_session(&mut self, buffer: BufferId) {
-        self.resume_session_shown(buffer, true);
+        self.resume_session_shown(buffer, true, true);
     }
 
     /// Resumes the stopped session whose terminal is `buffer`, as the person's act, shown in
     /// the selected window if `shown`: `session-resume`, and a session moved into a space
-    /// (ADR 0151).
-    pub(in crate::app) fn resume_session_shown(&mut self, buffer: BufferId, shown: bool) {
+    /// (ADR 0151). A move is not judged by its worktree's claim (`by_claim`).
+    pub(in crate::app) fn resume_session_shown(
+        &mut self,
+        buffer: BufferId,
+        shown: bool,
+        by_claim: bool,
+    ) {
         let Some(session) = self.hosting.table.by_buffer(buffer) else {
             self.editor.message("This buffer holds no session");
             return;
         };
         let key = session.key;
-        match self.resume_hosted(key, shown) {
+        match self.resume_hosted_with(key, shown, None, by_claim) {
             // The person's resume: no agent resumed it any more (ADR 0153).
             Ok(()) => self.forget_agent_resume(key),
             Err(why) => self.editor.message(why),
@@ -54,13 +59,14 @@ impl App {
         key: SessionKey,
         shown: bool,
     ) -> Result<(), String> {
-        self.resume_hosted_with(key, shown, None)
+        self.resume_hosted_with(key, shown, None, true)
     }
 
     /// [`App::resume_hosted`], a TUI given `chosen`: what the native session handed to it
     /// held (ADR 0165, part 4d-1), which no other resume passes. A native resume of a session
     /// whose TUI's `claude` may still run waits for it to be gone on its start thread, whoever
-    /// resumes it (part 4d-2).
+    /// resumes it (part 4d-2). With `by_claim`, as every resume but a move's into a space, a native
+    /// one in a linked worktree with no buffer of it open is judged by its claim there.
     ///
     /// # Errors
     ///
@@ -70,6 +76,7 @@ impl App {
         key: SessionKey,
         shown: bool,
         chosen: Option<Chosen>,
+        by_claim: bool,
     ) -> Result<(), String> {
         let Some(session) = self.hosting.table.get(key) else {
             return Err("That session is gone".into());
@@ -114,7 +121,8 @@ impl App {
         }
         let (trusted, trust, gate) = match (native, &kind) {
             (true, Kind::Resume(id)) => {
-                self.native_gate_or_trust(key, id, &name, &directory, root.as_deref())?
+                let root = root.as_deref();
+                self.native_gate_or_trust(key, id, &name, &directory, root, by_claim)?
             }
             _ => (None, ByRecord::No, ByGate::No),
         };
@@ -128,6 +136,7 @@ impl App {
         let runs = match native {
             true => Runs::Native(NativeOrder {
                 trust,
+                by_claim,
                 gate,
                 tui_to_end: self.hosting.table.get(key).and_then(|s| s.tui_process),
                 ..self.resume_native_buffer(key, buffer, shown)
@@ -162,7 +171,8 @@ impl App {
     /// What native start `key`, `name`, of conversation `of` (its own, or the one a fork
     /// copies) runs under in `directory`, of the project at `root`: its space's gate in a
     /// space's directory (ADR 0176), else its project's trust (ADR 0165, part 4a), each kept
-    /// to be taken back until it starts.
+    /// to be taken back until it starts. A resume of a session oso has may be judged by its
+    /// worktree's claim (`by_claim`); a fork, an adoption or a move into a space never is.
     ///
     /// # Errors
     ///
@@ -174,11 +184,12 @@ impl App {
         name: &str,
         directory: &Path,
         root: Option<&Path>,
+        by_claim: bool,
     ) -> Result<(Option<TrustedRoot>, ByRecord, ByGate), String> {
         if let Some(gate) = self.native_space_gate(key, of, name, directory) {
             return Ok((None, ByRecord::No, gate?));
         }
-        let judged = self.native_resume_trust(name, directory, root)?;
+        let judged = self.native_resume_trust(name, directory, root, by_claim)?;
         let (trusted, trust) = self.native_judged(key, judged);
         Ok((trusted, trust, ByGate::No))
     }

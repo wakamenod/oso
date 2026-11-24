@@ -1053,7 +1053,7 @@ read. See [ADR 0019](adr/0019-configuration.md).
   ([ADR 0173](adr/0173-starts-wait-for-the-configurations-first-look.md), ADR 0138). A
   native resume, a fork or an adoption with no open buffer of its project waits there too,
   for the record of trusted projects' first report, within the same bound (ADR 0165, parts 4a
-  and 4e); one in an issue space's own directory waits for `[spaces] root`, its space's gate
+  and 4e); a resume in a worktree is then judged by its claim on its start thread; one in an issue space's own directory waits for `[spaces] root`, its space's gate
   judged once the configuration is read (ADR 0176).
 - The record of trusted projects, `trusted-projects` beside the file, has a thread of its own
   (`config::TrustFile`, `oso-trust`): it reads the record with the file's checks, refusing a
@@ -1164,7 +1164,7 @@ not hold it, as they are carried. The restart then stops each native session's p
 waits for each end as an event, and names the sessions in the state (`carry::natives`); the
 new instance resumes them once the instance going has gone, which `import-terminals` says
 with no terminal too, and a restart that stays resumes them here (part 4c,
-`app/sessions/hosting/native/restarting.rs`).
+`app/sessions/hosting/native/restarting.rs`); how each went is said by its `resumed.rs`.
 
 When the window gains focus, a thread of `carry::notice` looks at the binary's path off the UI
 thread. Once the file there is not the one this instance started from (device, inode,

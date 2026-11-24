@@ -1399,7 +1399,8 @@ these points:
   only when no open project has that root (a worktree just made) do they run under the trust the
   session started with, which oso drops when it forgets the session. From 2026-11 oso takes the
   trust a session started with back once its project, or its worktree's main repository, is no
-  longer trusted, and starts no session under one that no longer holds.
+  longer trusted, and starts no session under one that no longer holds. The trust a worktree
+  session starts with is not kept over a restart: its resume is judged again (ADR 0165).
 - **`worktree_list` runs git and `gh` without a question,** as step 4 recorded. This is a second
   exception to ADR 0085's "anything that spawns a process is `Person`", beside an agent's
   `worktree_remove`: a trusted project only, with every git run ADR 0122's runner. Each caller

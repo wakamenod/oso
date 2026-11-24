@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use oso_core::project::TrustList;
 
-use super::{Judged, Listed, NotTrusted, TrustRecord, judge};
+use super::{Claims, Judged, Listed, NotTrusted, TrustRecord, judge};
 use crate::git::TrustedRoot;
 
 #[cfg(not(windows))]
@@ -39,17 +39,28 @@ fn record(path: &Path, identity: Option<(u64, u64)>) -> TrustList {
     list
 }
 
-/// What `judge` says at `ROOT`, as a word.
+/// What `judge` says at `ROOT` with `claims`, as a word.
+fn said_with(
+    open: Option<Option<TrustedRoot>>,
+    record: Option<TrustRecord<'_>>,
+    may_wait: bool,
+    claims: Claims<'_>,
+) -> Result<&'static str, NotTrusted> {
+    judge(true, Path::new(ROOT), open, record, may_wait, claims).map(|judged| match judged {
+        Judged::Open(_) => "open",
+        Judged::Listed(_) => "listed",
+        Judged::Claimed(_) => "claimed",
+        Judged::Waits => "waits",
+    })
+}
+
+/// What `judge` says at `ROOT`, as a word, of a start no claim is asked for.
 fn said(
     open: Option<Option<TrustedRoot>>,
     record: Option<TrustRecord<'_>>,
     may_wait: bool,
 ) -> Result<&'static str, NotTrusted> {
-    judge(true, Path::new(ROOT), open, record, may_wait).map(|judged| match judged {
-        Judged::Open(_) => "open",
-        Judged::Listed(_) => "listed",
-        Judged::Waits => "waits",
-    })
+    said_with(open, record, may_wait, Claims::Never)
 }
 
 #[test]
@@ -128,7 +139,7 @@ fn below_its_root_it_never_runs_natively() {
         (None, Some(TrustRecord::Unread)),
     ] {
         assert_eq!(
-            judge(false, Path::new(ROOT), open, record, true).unwrap_err(),
+            judge(false, Path::new(ROOT), open, record, true, Claims::Never).unwrap_err(),
             NotTrusted::NotAtRoot
         );
     }
@@ -162,7 +173,14 @@ fn identity(path: &Path) -> Option<(u64, u64)> {
 
 /// The start thread's look at `root` as the record `list` holds it.
 fn look(list: &TrustList, root: &Path) -> Option<TrustedRoot> {
-    match judge(true, root, None, Some(TrustRecord::Read(list)), false) {
+    match judge(
+        true,
+        root,
+        None,
+        Some(TrustRecord::Read(list)),
+        false,
+        Claims::Never,
+    ) {
         Ok(Judged::Listed(listed)) => listed.look(),
         other => panic!("not judged by the record: {other:?}"),
     }
@@ -221,6 +239,7 @@ fn a_listed_root_carries_the_record_as_read() {
         None,
         Some(TrustRecord::Read(&list)),
         true,
+        Claims::Never,
     )
     else {
         panic!("not listed");
@@ -266,7 +285,15 @@ fn what_the_ui_keeps_takes_back_the_root_the_start_thread_makes() {
     let root = scratch.0.join("proj");
     std::fs::create_dir(&root).unwrap();
     let list = record(&root, identity(&root));
-    let judged = judge(true, &root, None, Some(TrustRecord::Read(&list)), false).unwrap();
+    let judged = judge(
+        true,
+        &root,
+        None,
+        Some(TrustRecord::Read(&list)),
+        false,
+        Claims::Never,
+    )
+    .unwrap();
     let kept = judged.kept().expect("kept");
     assert_eq!(kept.root(), root);
     let Judged::Listed(listed) = judged else {
@@ -286,3 +313,5 @@ fn what_the_ui_keeps_takes_back_the_root_the_start_thread_makes() {
     assert!(trusted.revoked());
     assert!(Judged::Waits.kept().is_none());
 }
+
+mod claims;

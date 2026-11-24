@@ -1377,7 +1377,8 @@ a switch made with its command stands until that setting changes in the file
   it from elsewhere says it takes none yet. `session-resume` resumes a stopped native session
   natively, in its own buffer, with a "Resumed" row and the composer selected, at the root of
   a project trusted now, by an open buffer of it or, with none open, by the record of trusted
-  projects (part 4a; else it says why, and that `session-fork` continues it in a terminal); `session-fork` forks a session
+  projects (part 4a), or in a worktree of a repository it trusts ("Worktrees' resumes"; else it
+  says why, and that `session-fork` continues it in a terminal); `session-fork` forks a session
   natively there, and `session-adopt` and `move_to_space` resume a conversation from outside
   oso natively there (part 4e), unless `mode = "tui"`; each runs in a terminal elsewhere. A
   space's orchestrator runs natively in the space's own directory, under the space's gate in
@@ -1478,8 +1479,9 @@ a switch made with its command stands until that setting changes in the file
   state's mark (⚠ needs input, ✗ failed, ▶ working, ◆ ready for review, ● done, ○ idle,
   ■ stopped), its name, cut in the middle when long so that its end shows, its space and
   branch where there is room, and its age at the right: the time since it last changed state,
-  `now` under a minute. A session that needs input or failed takes a second line, its reason:
-  the dialog's question. Marks take their state's face: needs input and failed red, working
+  `now` under a minute. A session that needs input or failed, or a stopped native one
+  whose last resume was refused, takes a second line, its reason: the dialog's question, or why
+  it did not resume. Marks take their state's face: needs input and failed red, working
   amber, ready for review and done green, idle and stopped grey; a working mark of a session
   oso hosts turns through ten Braille frames, 8 a second, while it is in view, unless
   `[sessions] spinner = false`. A session oso hosts that needs input blinks while it is in

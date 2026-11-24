@@ -269,7 +269,8 @@ impl App {
                 if !shown {
                     self.watch.spaces_mut().showed(at, Some(buffer), None);
                 }
-                self.resume_session_shown(buffer, shown);
+                // Judged where it runs, but never by a worktree's claim.
+                self.resume_session_shown(buffer, shown, false);
                 self.editor.message_unlogged(format!(
                     "Moved {} into space {}",
                     quoted(&moving.name),
