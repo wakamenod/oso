@@ -225,7 +225,7 @@ impl App {
     ) {
         match action {
             NativeAction::Approve(approval) => {
-                // A macro, and an edit nothing waits for, are told so first, by `approve_edit`.
+                // `approve_edit` says why an edit nothing waits for is not approved.
                 let edit = self.hosting.natives.permissions.plans.of(key);
                 let waiting = edit.filter(|edit| self.edit_waits(edit));
                 let place = waiting.map(|edit| edit.buffer);

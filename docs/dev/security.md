@@ -857,7 +857,8 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     quiet wait, as on any card, and then `y` to a question, as `A` begins many a typed
     sentence. The question is kept for the call it asked about, and its `y` approves only that
     call while it still waits, its edit checked again, and only after the card's quiet moment
-    since the question opened and since the key before it, as a question takes other keys
+    since the question opened, or oso's window came in front again, and since the key before
+    it, as a question takes other keys
     without closing; a question closed otherwise is dropped.
     An edit of the plan, `*plan: NAME*`, is the person's draft: withheld from agents, which may
     not change it (`Mode::Plan`, kept as a composer's mode is), approved only by the person's
@@ -899,7 +900,7 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     `*Agent*` lists each request without its text.
   - While a native session's request waits in front of the person (its card, composer, transcript
     or plan's edit selected), `open` shows no file, one it is loading among them, which is
-    dropped; and while any card waits, highlighting stays as it is.
+    dropped; and while any card waits, an agent does not switch highlighting.
   - It runs registered commands only, by name, with arguments checked against their spec, and
     no keys. Each command declares a reach: `Look`, `Change` or `Person`. The channel refuses
     `Person` commands: exiting, `M-x`, answering prompts, reading the clipboard, emergency
