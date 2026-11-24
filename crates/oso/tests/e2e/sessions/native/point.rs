@@ -15,7 +15,9 @@ use serde_json::{Value, json};
 use super::super::super::harness::App;
 use super::super::super::worktrees::keys;
 use super::request::Keyboard::{self, Japanese, Plain};
-use super::request::{allow, answer, answers, asking, asks, comes, go, keyboard, on_line, read_on};
+use super::request::{
+    allow, answer, answers, asking, asks, comes, go, keyboard, on_line, read_on, until,
+};
 use super::{Flow, in_composer, text};
 
 /// Longer than point waits before it goes by itself.
@@ -114,7 +116,7 @@ fn point_goes_to_the_line_in_the_empty_composers_place_and_text_typed_as_it_goes
     stays(&mut app, "the second y kept", "y");
     app.send_keys("DEL");
     comes(&mut app, "point on the line once more");
-    app.wait_for("the line to take an answer", |state| {
+    until(&mut app, "the line to take an answer", |state| {
         state["request"]["takes_answer"] == true
     });
     // `i` is the composer, from which point does not go by itself, sent or cleared.
@@ -182,7 +184,7 @@ fn a_draft_stays_where_it_is_until_it_is_cleared() {
     // Over a draft the line stands above it, and an answer leads back to it.
     go(&mut app);
     assert_eq!(slots(&app.state()), ["card", "composer"]);
-    app.wait_for("some of it read", |state| {
+    until(&mut app, "some of it read", |state| {
         state["request"]["may_ask"] == true
     });
     answer(&mut app, "n");
@@ -225,7 +227,7 @@ fn a_press_on_the_line_as_it_took_the_composers_place_is_the_composers() {
     front(&mut app, true);
     stays(&mut app, "the composer pressed on", "");
     go(&mut app);
-    app.wait_for("some of it read", |state| {
+    until(&mut app, "some of it read", |state| {
         state["request"]["may_ask"] == true
     });
     answer(&mut app, "n");

@@ -64,6 +64,28 @@ pub(super) fn request(app: &mut App, what: &str) {
     });
 }
 
+/// Waits until `done` says so of a request that is read or answered, which it is only in front:
+/// oso's window is put there again meanwhile, as the person may use the screen, and each time no sooner
+/// than a wait since it came there ends.
+pub(super) fn until(app: &mut App, what: &str, done: impl Fn(&Value) -> bool) -> Value {
+    let mut state = Value::Null;
+    for turn in 0..300 {
+        if turn % 12 == 11 {
+            app.try_call("focus", Some(json!({ "focused": true })))
+                .unwrap();
+        }
+        state = app.state();
+        if done(&state) {
+            return state;
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+    panic!(
+        "no {what}: request {}, buffer {}",
+        state["request"], state["buffer"]["name"]
+    );
+}
+
 /// Waits until point went to the line by itself, as a plain input source has it.
 pub(super) fn comes(app: &mut App, what: &str) -> Value {
     let mut state = Value::Null;
@@ -91,7 +113,7 @@ pub(super) fn go(app: &mut App) {
 /// does on a card.
 pub(super) fn answer(app: &mut App, key: &str) {
     for _ in 0..3 {
-        app.wait_for("the line to take an answer", |state| {
+        until(app, "answer taken by the line", |state| {
             state["request"]["takes_answer"] == true
         });
         app.send_keys(key);
@@ -107,7 +129,7 @@ pub(super) fn answer(app: &mut App, key: &str) {
 
 /// Allows the call whose line point is on, once what its window shows of it was read.
 pub(super) fn allow(app: &mut App) {
-    app.wait_for("all of it to be read", |state| {
+    until(app, "reading of all of it", |state| {
         state["request"]["allows"] == true
     });
     answer(app, "y");
@@ -246,7 +268,7 @@ fn a_call_is_read_in_the_conversation_and_allowed_from_its_line() {
 
     // `y` on the line shows what was not read, and answers nothing.
     go(&mut app);
-    app.wait_for("its end to be read", |state| read(state) > 10);
+    until(&mut app, "its end to be read", |state| read(state) > 10);
     answer(&mut app, "y");
     let state = app.state();
     assert!(docked(&state), "{state}");
@@ -255,7 +277,9 @@ fn a_call_is_read_in_the_conversation_and_allowed_from_its_line() {
         "{state}"
     );
     let before = read(&state);
-    app.wait_for("its start to be read", |state| read(state) > before);
+    until(&mut app, "its start to be read", |state| {
+        read(state) > before
+    });
     read_on(&mut app);
     allow(&mut app);
     // Answered, point goes to the draft, as it was.
@@ -268,7 +292,7 @@ fn a_call_is_read_in_the_conversation_and_allowed_from_its_line() {
     request(&mut app, "the command's block");
     assert!(in_composer(&app.state()));
     go(&mut app);
-    app.wait_for("some of it in view", |state| {
+    until(&mut app, "some of it in view", |state| {
         state["request"]["may_ask"] == true
     });
     answer(&mut app, "RET");
@@ -303,7 +327,7 @@ fn a_call_not_read_is_allowed_after_a_question_and_one_that_goes_takes_its_block
     asks(&flow, &mut app, "ask", Keyboard::Japanese);
     request(&mut app, "the edit's block");
     go(&mut app);
-    app.wait_for("some of it in view", |state| {
+    until(&mut app, "some of it in view", |state| {
         state["request"]["may_ask"] == true
     });
     answer(&mut app, "C-u y");
@@ -323,7 +347,7 @@ fn a_call_not_read_is_allowed_after_a_question_and_one_that_goes_takes_its_block
     assert_eq!(state["request"]["takes_answer"], false, "{state}");
     app.try_call("focus", Some(json!({ "focused": true })))
         .unwrap();
-    app.wait_for("some of it in view", |state| {
+    until(&mut app, "some of it in view", |state| {
         state["request"]["may_ask"] == true
     });
     answer(&mut app, "C-u y");
