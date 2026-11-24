@@ -515,6 +515,7 @@ mod compose;
 mod composed;
 mod follow;
 mod front;
+mod image;
 mod interrupt;
 mod markdown;
 mod model;

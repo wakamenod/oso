@@ -159,7 +159,7 @@ the head's letter with Control, `C-c C-n` for `n`:
 | `C-c C-e`, `C-c C-f` | Explain this session's state; show who sent it its newest message. |
 | `C-c C-z` | Zoom the selected window. |
 | `C-c C-v` | The review layout, as `C-x v r`: from the layout's slot, back to the review. `C-c a D` reviews what changed in its project since its baseline. |
-| `C-c @` | Insert a session's name as `@NAME`. |
+| `C-c @` | Insert a session's name as `@NAME`; in a native session's conversation, into its composer. |
 | `C-c +`, `C-c -` | Let the agent channel read a TUI session's screen, or take that back. |
 | `C-c C-u` | A prefix argument for the next key, as `C-u` elsewhere: `C-c C-u C-c a m` sends the place only. |
 | `C-c C-y` | Attach the image on the clipboard: oso keeps it in a private file and pastes `@` and its path into the prompt, or a native session's composer, for you to send. A TIFF is converted to PNG. macOS only for now. |

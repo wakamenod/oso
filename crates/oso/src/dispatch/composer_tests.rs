@@ -160,6 +160,86 @@ fn c_c_c_j_goes_to_the_request_from_the_transcript_and_the_composer() {
     assert_eq!(text(&editor), "ya draft");
 }
 
+#[test]
+fn c_c_c_y_in_the_composer_asks_for_the_clipboards_image_as_the_persons() {
+    let (mut d, mut editor) = (Dispatcher::new(), Editor::default());
+    composer(&mut editor, "a draft");
+    let id = editor.window().buffer();
+    send(&mut d, &mut editor, "C-c C-y");
+    assert_eq!(
+        editor.take_session_requests(),
+        [SessionRequest::YankImage(id)]
+    );
+    assert!(!d.take_image_yank_origin(), "the person's own key");
+    assert!(d.take_image_yank_origin(), "noted once");
+    assert_eq!(text(&editor), "a draft", "the host puts it in");
+}
+
+/// The host reads no system clipboard for a socket's (ADR 0142).
+#[cfg(feature = "dev")]
+#[test]
+fn a_sockets_c_c_c_y_in_the_composer_is_noted_as_the_sockets() {
+    let (mut d, mut editor) = (Dispatcher::new(), Editor::default());
+    composer(&mut editor, "");
+    d.set_input_from_socket(true);
+    send(&mut d, &mut editor, "C-c C-y");
+    d.set_input_from_socket(false);
+    // The person's after it: each request has its own origin, in order.
+    send(&mut d, &mut editor, "C-c C-y");
+    assert_eq!(editor.take_session_requests().len(), 2);
+    assert!(d.take_image_yank_origin(), "the socket's");
+    assert!(!d.take_image_yank_origin(), "the person's");
+}
+
+#[test]
+fn c_c_c_y_in_the_transcript_asks_for_the_image_and_elsewhere_it_is_refused() {
+    let (mut d, mut editor) = (Dispatcher::new(), Editor::default());
+    let transcript = editor.add_native_session_buffer("*claude: s*");
+    editor.set_hosts_session(transcript, true);
+    editor.show(transcript);
+    send(&mut d, &mut editor, "C-c C-y");
+    assert_eq!(
+        editor.take_session_requests(),
+        [SessionRequest::YankImage(transcript)]
+    );
+    assert!(!d.take_image_yank_origin());
+    // On a card, a request's line or a plan's edit, or with a prompt over the composer, nothing is
+    // asked and no origin noted.
+    for mode in [Mode::Card, Mode::Request, Mode::Plan, Mode::Fundamental] {
+        let other = editor.add_buffer(Buffer::from_text("*other*", ""));
+        assert!(editor.buffer_mut(other).unwrap().set_mode(mode) || mode == Mode::Fundamental);
+        editor.show(other);
+        d.run_command(&mut editor, "session-yank-image", None)
+            .1
+            .unwrap_err();
+    }
+    composer(&mut editor, "");
+    send(&mut d, &mut editor, "M-x");
+    d.run_command(&mut editor, "session-yank-image", None)
+        .1
+        .unwrap_err();
+    assert!(editor.take_session_requests().is_empty());
+    assert!(d.take_image_yank_origin(), "none noted");
+}
+
+#[test]
+fn c_c_at_in_the_transcript_mentions_a_session_in_its_composer() {
+    let (mut d, mut editor) = (Dispatcher::new(), Editor::default());
+    let transcript = editor.add_native_session_buffer("*claude: s*");
+    editor.set_hosts_session(transcript, true);
+    editor.show(transcript);
+    let listed = [oso_core::complete::Candidate::new("other", "", "")];
+    editor.set_listed(crate::commands::agent_sessions::MENTION_LIST, listed.into());
+    send(&mut d, &mut editor, "C-c @ o t h e r RET");
+    assert_eq!(
+        editor.take_session_requests(),
+        [SessionRequest::Send {
+            to: oso_core::editor::SendTo::Buffer(transcript),
+            parts: vec![oso_core::editor::SendPart::Note("@other ".to_owned())],
+        }]
+    );
+}
+
 /// A composer, selected, holding `text`.
 fn composer(editor: &mut Editor, text: &str) {
     let composer = editor.add_buffer(Buffer::from_text("*compose: s*", text));
