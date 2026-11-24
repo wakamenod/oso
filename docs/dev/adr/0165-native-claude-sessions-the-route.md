@@ -1,6 +1,6 @@
 # 0165. Native Claude sessions: the route
 
-- Status: Accepted, amended by 0170, 0173, 0176, 0180 and 0181; "Worktrees' resumes", "Following the end, as amended", "Remote Control is off, as amended" and part 3f's suggestion (2026-11-24)
+- Status: Accepted, amended by 0170, 0173, 0176, 0180, 0181 and 0182; "Worktrees' resumes", "Following the end, as amended", "Remote Control is off, as amended" and part 3f's suggestion (2026-11-24)
 - Date: 2026-11-21
 
 ## Context
