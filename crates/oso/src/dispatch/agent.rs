@@ -405,6 +405,7 @@ fn has_own_keys(mode: Mode) -> bool {
         | Mode::Sessions => true,
         Mode::Fundamental
         | Mode::SessionMove
+        | Mode::Todo
         | Mode::Rust
         | Mode::Markdown
         | Mode::Toml

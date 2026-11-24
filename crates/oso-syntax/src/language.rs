@@ -98,6 +98,7 @@ impl Language {
             | Mode::NativeSession
             | Mode::Card
             | Mode::Request
+            | Mode::Todo
             | Mode::GitDiscarded
             | Mode::Sessions => None,
         }

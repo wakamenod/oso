@@ -245,6 +245,7 @@ impl Editor {
             | Mode::NativeSession
             | Mode::Card
             | Mode::Request
+            | Mode::Todo
             | Mode::Plan
             | Mode::GitDiscarded
             | Mode::Sessions => {}
@@ -888,7 +889,7 @@ mod tests {
     }
 
     #[test]
-    fn the_sessions_list_alone_takes_the_hosts_highlights_and_only_whole() {
+    fn a_generated_buffer_alone_takes_the_hosts_highlights_and_only_whole() {
         use crate::syntax::{Highlight, Highlights};
         let mut editor = Editor::default();
         let list = editor.add_internal_buffer("*Spaces*", Mode::Sessions);
@@ -907,6 +908,15 @@ mod tests {
         let short = Highlights::new(2);
         assert!(editor.set_internal_highlights(list, short).is_some());
         assert!(editor.buffer(list).unwrap().highlights().is_some());
+        // So does a session's to-do strip (ADR 0165).
+        let strip = editor.add_internal_buffer("*todo: s*", Mode::Todo);
+        editor.set_internal_text(strip, "⚠ ask\n");
+        assert!(
+            editor
+                .set_internal_highlights(strip, marks.clone())
+                .is_none()
+        );
+        assert!(editor.buffer(strip).unwrap().highlights().is_some());
         // Another internal buffer, and a buffer of the person's, take none.
         let report = editor.add_internal_buffer("*Report*", Mode::Fundamental);
         editor.set_internal_text(report, "⚠ ask\n");

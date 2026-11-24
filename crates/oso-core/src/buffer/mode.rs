@@ -110,6 +110,9 @@ pub enum Mode {
     /// the keys that answer the call whose block ends the transcript, which oso writes
     /// (ADR 0182).
     Request,
+    /// A native session's to-do list, `*todo: NAME*`, docked under its transcript as a strip, which
+    /// oso writes (ADR 0165, part 3e). It has no keys of its own.
+    Todo,
     /// A native session's plan being edited before it is approved, `*plan: NAME*`, shown in
     /// place of its transcript: Claude's plan, then the person's (ADR 0165, part 3d).
     Plan,
@@ -205,6 +208,7 @@ impl Mode {
             Self::NativeSession => "Session",
             Self::Card => "Card",
             Self::Request => "Request",
+            Self::Todo => "Todo",
             Self::Plan => "Plan",
         }
     }
@@ -262,6 +266,7 @@ impl Mode {
             | Self::NativeSession
             | Self::Card
             | Self::Request
+            | Self::Todo
             | Self::Plan => None,
         };
         given.unwrap_or_default()
@@ -324,6 +329,7 @@ impl Mode {
             | Self::NativeSession
             | Self::Card
             | Self::Request
+            | Self::Todo
             | Self::GitDiscarded
             | Self::Sessions => None,
         }

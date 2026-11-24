@@ -1625,7 +1625,7 @@ As built:
   call. A `TodoWrite` replaces the list whole. At most 100 items, each text cut to 256 bytes
   as read (`wire::todo`, the only place that reads them), and at most 64 calls waiting for
   their result. A subagent's calls are not the session's list.
-- **`*todo: NAME*`,** an internal buffer, read-only and withheld from agents, as the card is,
+- **`*todo: NAME*`,** an internal buffer, of `Mode::Todo` since the amendment below, read-only and withheld from agents, as the card is,
   docked in `DockSlot::Strip`, under the card and above the composer, while the list has an
   item. Folded it is one line, `☐ 2/5 ▶ ITEM`, the item in progress or else the first not
   started, and `C-c C-t list` at its right edge where there is room; `C-c C-t`
@@ -1677,6 +1677,11 @@ As built:
     text's, a completed item is in the placeholder's and the rules' dim colour, and the amber is the
     one a call that waits for the person has in the transcript. An item too narrow for the keys may
     reach the cells they would have.
+  - **Its faces were not drawn before this:** the strip's buffer was in `Fundamental`, and oso-core
+    takes a host's faces only in the modes of buffers a host generates, so it was all in the text's
+    colour, and its fence was the place alone. It has a mode of its own now, `Mode::Todo` (a public
+    item the author approved on 2026-11-24), which takes them, with no keys of its own. The card, the
+    request's line and the transcript have such a mode, and drew theirs.
 
 ### Part 3f, as built: prompt suggestions and the recap
 

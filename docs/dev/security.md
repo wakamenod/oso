@@ -905,7 +905,8 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   - A session's to-do strip (step 3, part 3e), `*todo: NAME*`, is withheld from agents too, and
     fences Claude's text as the card does: each item's text after oso's mark, in its state's
     face, which no word of oso's there but the mark has, its control characters as spaces, cut to
-    the strip's width, so that none of it runs off the strip or stands where oso's keys show. Its list comes only from the main thread's
+    the strip's width, so that none of it runs off the strip or stands where oso's keys show. (Until
+    2026-11-24 the faces were not drawn, and the place alone told it.) Its list comes only from the main thread's
     to-do calls' results, matched with their calls, at most 100 items of 256 bytes; oso
     never reads the CLI's task files.
 - Its MCP tools reach oso only through the `oso mcp` stdio bridge and the agent channel, a Unix
