@@ -6,9 +6,10 @@
 //! on the native resume's start thread.
 //!
 //! - Only where a native session may run: its project's root trusted now, by an open buffer
-//!   of it or the record of trusted projects (part 4a), or in an issue space's own directory
-//!   its space's gate (ADR 0176), judged before anything changes and again once the TUI
-//!   ended; else it says why, and the session stays in the TUI.
+//!   of it (its terminal is one) or the record of trusted projects (part 4a), or in an issue
+//!   space's own directory its space's gate (ADR 0176), judged before anything changes and
+//!   again once the TUI ended; else it says why, and the session stays in the TUI. Only the
+//!   resume itself, its terminal gone, may be judged by its worktree's claim.
 //! - A running TUI is hung up as oso's stop hangs a terminal up, but not noted as a stop: a
 //!   stop made meanwhile, or a resume held (a stop asked, oso waiting to quit or restarting,
 //!   an orchestrator's replacement), gives the switch up, and the session stays a stopped TUI
@@ -103,7 +104,7 @@ impl App {
             return gate
                 .map_err(|why| format!("Session {name} stays in the TUI, as it {}", why.reason()));
         }
-        let why = match self.native_trust_listed(directory, root) {
+        let why = match self.native_trust_listed(directory, root, false) {
             Ok(_) => return Ok(()),
             Err(NotTrusted::NotOpen) => {
                 "its project is not open, and the record of trusted \

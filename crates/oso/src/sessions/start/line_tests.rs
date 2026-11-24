@@ -28,6 +28,7 @@ fn native() -> Runs {
     Runs::Native(NativeOrder {
         buffer: editor.add_terminal_buffer("*claude: test*"),
         trust: trust::ByRecord::No,
+        by_claim: false,
         gate: space_gate::ByGate::No,
         settings: Settings::default(),
         env: Vec::new(),

@@ -188,7 +188,7 @@ pub(super) fn settle(order: &mut Order) -> Result<Option<SpaceGate>, String> {
 }
 
 /// What a start whose gate was taken back says.
-pub(super) const TAKEN_BACK: &str = "The session did not start: its space closed, its directory \
+pub const TAKEN_BACK: &str = "The session did not start: its space closed, its directory \
                                      changed, or it is no longer the space's";
 
 #[cfg(test)]

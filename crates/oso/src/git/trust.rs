@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use oso_core::editor::Editor;
-use oso_core::project::{ProjectId, RootIdentity, TrustList};
+use oso_core::project::{Found, ProjectId, RootIdentity, TrustList};
 
 use super::path::identity_of;
 
@@ -21,6 +21,7 @@ use super::path::identity_of;
 /// [`TrustedRoot::of_member`] one from an issue space's repository the trust list holds by path
 /// and identity, or a native session's root with no open buffer of its project (ADR 0165, part
 /// 4a); the latter is made fresh for each use, so its users ask the trust list again.
+/// [`TrustedRoot::of_claim`] makes one from a linked worktree's claim, read afresh.
 /// [`TrustedRoot::for_worktree`] makes a worktree's. Its clones share one revocation: once one
 /// is revoked, so are all, but for [`TrustedRoot::apart`]'s.
 #[derive(Clone, Debug)]
@@ -37,7 +38,8 @@ enum Made {
     Project(ProjectId),
     /// A root the trust list holds.
     Listed,
-    /// The main checkout a worktree job found, as it was then, which the root belongs with.
+    /// The main checkout a worktree job found, or a claim checked, as it was then, which the
+    /// root belongs with.
     Worktree(RootIdentity),
 }
 
@@ -72,6 +74,18 @@ impl TrustedRoot {
         list.trusts(&root).then(|| TrustedRoot {
             root,
             made: Made::Listed,
+            revoked: Arc::default(),
+        })
+    }
+
+    /// The root of the linked worktree `found`, as the walk read it just now, if `list` trusts
+    /// the main repository its claim, checked both ways, belongs with (ADR 0114): for a native
+    /// session's resume (ADR 0165).
+    pub(crate) fn of_claim(list: &TrustList, found: &Found) -> Option<TrustedRoot> {
+        let main = found.checked_main.as_ref()?;
+        list.trusts(main).then(|| TrustedRoot {
+            root: found.root.clone(),
+            made: Made::Worktree(main.clone()),
             revoked: Arc::default(),
         })
     }

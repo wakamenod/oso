@@ -78,11 +78,12 @@ impl App {
             match &order.kind {
                 Kind::Resume(of) | Kind::Fork(of) => {
                     let of = of.clone();
+                    let (token, by_claim) = (order.token, native.by_claim);
                     (order.trusted, native.trust, native.gate) =
-                        self.native_gate_or_trust(order.token, &of, name, directory, root)?;
+                        self.native_gate_or_trust(token, &of, name, directory, root, by_claim)?;
                 }
                 Kind::New => {
-                    let judged = self.native_resume_trust(name, directory, root)?;
+                    let judged = self.native_resume_trust(name, directory, root, false)?;
                     (order.trusted, native.trust) = self.native_judged(order.token, judged);
                 }
             }

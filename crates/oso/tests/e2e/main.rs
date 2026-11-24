@@ -70,6 +70,7 @@ mod starts_wait;
 mod terminal;
 mod undo;
 mod windows;
+mod worktree_resume;
 mod worktrees;
 mod wrap;
 mod yank_pop;

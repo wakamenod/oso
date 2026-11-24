@@ -285,6 +285,24 @@ fn a_link_at_a_worktrees_place_or_its_git_belongs_with_nothing() {
 }
 
 #[test]
+fn a_worktrees_directory_is_compared_before_and_after_the_reads() {
+    let scratch = Scratch::new("compared");
+    let (main, worktree) = worktree_pair(&scratch, "main", "wt");
+    let git_file = fs::read(worktree.join(".git")).unwrap();
+    let trusted = [main.clone()];
+    let check = |place: &Metadata| check_main((&worktree, place), &git_file, &main, &trusted);
+    let walked = fs::symlink_metadata(&worktree).unwrap();
+    assert!(check(&walked).is_some());
+    let old = scratch.0.join("old");
+    fs::rename(&worktree, &old).unwrap();
+    worktree_pair(&scratch, "main", "wt");
+    #[cfg(unix)]
+    assert!(check(&fs::symlink_metadata(&old).unwrap()).is_none());
+    assert!(check(&fs::symlink_metadata(&worktree).unwrap()).is_some());
+    assert!(linked_worktree(&main, &worktree).is_some());
+}
+
+#[test]
 fn the_thread_answers_each_request_and_wakes_once_answers_wait() {
     let scratch = Scratch::new("thread");
     let root = scratch.dir("p");
