@@ -133,13 +133,12 @@ impl Strip {
         self.put(cut, Some(Face::Prompt));
     }
 
-    /// `item`'s mark and its text, cut to `room` cells, which is not 0.
-    fn item(&mut self, item: &Item, room: usize) {
-        let face = Some(item.status.face());
-        self.put(item.status.mark(), face);
+    /// An item's mark and its `text`, fenced, cut to `room` cells, which is not 0.
+    fn item(&mut self, status: Status, text: &str, room: usize) {
+        let face = Some(status.face());
+        self.put(status.mark(), face);
         self.put(" ", None);
-        let text = fenced(&item.text);
-        let (kept, cut) = cut(&text, room);
+        let (kept, cut) = cut(text, room);
         self.put(kept, face);
         self.put(cut, Some(Face::Prompt));
     }
@@ -335,12 +334,13 @@ impl Todo {
         let before = used + APART + cells_of(item.status.mark()) + 1;
         let room = width.saturating_sub(before);
         // For the keys: the item whole, or enough of it.
-        let least = MIN_ITEM.min(cells_of(&fenced(&item.text)));
+        let text = fenced(&item.text);
+        let least = MIN_ITEM.min(cells_of(&text));
         let keyed = room >= keys + least;
         let room = if keyed { room - keys } else { room };
         if room > 0 {
             strip.put(&" ".repeat(APART), None);
-            strip.item(item, room);
+            strip.item(item.status, &text, room);
         }
         if keyed {
             let used = cells_of(&strip.text);
@@ -388,7 +388,7 @@ impl Todo {
                 ),
                 room => {
                     strip.put(INDENT, None);
-                    strip.item(item, room);
+                    strip.item(item.status, &fenced(&item.text), room);
                 }
             }
         }
@@ -403,13 +403,11 @@ fn cut(text: &str, room: usize) -> (&str, &'static str) {
     let (mut kept, mut cut) = cut_to(text, room);
     while !cut.is_empty() && !kept.is_empty() {
         let joined = format!("{kept}{cut}");
-        let apart = cells_of(&joined) == cells_of(kept) + cells_of(cut)
-            && (text_clusters(&joined, 0).last()).is_some_and(|last| last.offset == kept.len());
-        if apart {
+        let last = (text_clusters(&joined, 0).last()).map_or(0, |last| last.offset);
+        if last == kept.len() && cells_of(&joined) == cells_of(kept) + cells_of(cut) {
             break;
         }
         // The cluster the `…` went in, or with a limit between them, the last character.
-        let last = (text_clusters(&joined, 0).last()).map_or(0, |last| last.offset);
         let before = kept.floor_char_boundary(kept.len() - 1);
         kept = &kept[..last.min(before)];
         cut = "…";
