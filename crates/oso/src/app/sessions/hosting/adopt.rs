@@ -9,11 +9,9 @@
 //! - An answer is looked up in the list its prompt showed: a list made while the prompt is
 //!   open waits until it closes.
 
-use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::collections::HashMap;
+use std::path::Path;
 use std::time::{Duration, Instant, SystemTime};
-
-use oso_core::project::ProjectId;
 
 use super::fork::ForkFrom;
 use super::{Baseline, base_name};
@@ -340,22 +338,6 @@ impl App {
             }
         }
         gate
-    }
-
-    /// The deepest open project whose root holds `directory`.
-    pub(super) fn project_holding(&self, directory: &Path) -> Option<ProjectId> {
-        let mut seen = HashSet::new();
-        let roots: Vec<(ProjectId, PathBuf)> = self
-            .editor
-            .buffers()
-            .filter_map(|(_, buffer)| buffer.project())
-            .filter(|id| seen.insert(*id))
-            .filter_map(|id| Some((id, self.editor.project(id)?.root().to_path_buf())))
-            .collect();
-        adopt::holding(
-            directory,
-            roots.iter().map(|(id, root)| (*id, root.as_path())),
-        )
     }
 
     /// The adoption started with `key`, if it is one, as its start was refused or it is

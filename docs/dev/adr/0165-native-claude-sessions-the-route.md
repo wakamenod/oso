@@ -1705,8 +1705,8 @@ The author's Q4-10 (a), part 2b's follow-up:
   is said only when the configuration was the one not read. A record refused or broken, or no
   record at all, is read: nothing waits for it, and it trusts nothing.
 - **Session tools:** a fork judged by the record keeps no trust of its own for its tools
-  (`hosting.trusts`), so its caller's project is judged by an open buffer, as an untrusted
-  one is: less, not more.
+  (`hosting.trusts`), so its caller's project is judged by an open buffer, its own transcript
+  among them ("Transcripts count as open").
 - **Built with:** `sessions/start/trust.rs` (the judge, pure, with its table of tests, and the
   start thread's look, with tests on real directories: made again, gone, a file, a link);
   `app/sessions/hosting/trust.rs` (the editor's projects and record into the judge); the
@@ -1716,8 +1716,8 @@ The author's Q4-10 (a), part 2b's follow-up:
 ### Worktrees' resumes (the author's answers of 2026-11-24)
 
 The author's (a) on Q1, Q2, Q5 and Q6. Part 4a's record holds a worktree's main repository, not
-the worktree, and a native session's transcript is an internal buffer, which no buffer of a
-project is counted by; so a native session in a worktree resumed only with a file of it open,
+the worktree, and a native session's transcript is an internal buffer, which no lookup of
+open buffers counted then, and which still decides no resume; so a native session in a worktree resumed only with a file of it open,
 and after `oso-restart` stayed stopped.
 
 - **The rule.** With no buffer of its project open and the record read, a resume whose root's
@@ -1752,7 +1752,8 @@ and after `oso-restart` stayed stopped.
   record was read before the instance going had gone, and such a session resumed. A plain
   repository's carried file does not refuse so, as the record alone trusts it.
 - **No baseline, no tool trust:** a resume takes no baseline, as before, and nothing is kept in
-  `hosting.trusts`; an agent's `session_resume` asks as it did (ADR 0153).
+  `hosting.trusts`; an agent's `session_resume` asks as it did (ADR 0153), until
+  "Transcripts count as open".
 - **Accepted.** Trusting a repository trusts its worktrees' settings, hooks and `.mcp.json` at a
   resume too, also at a restart with no person there, as at their start and as a repository's
   own root's: the author accepted it. They run as they are at the restart, whatever changed
@@ -1786,6 +1787,53 @@ and after `oso-restart` stayed stopped.
   it open; one whose repository was untrusted stays stopped and says why, until it is trusted
   again and resumed; an orchestrator's `session_resume`. Not tested: the app's own wiring of
   each caller's flag and the switch's checks (the app has no harness).
+
+### Transcripts count as open (the author's answer of 2026-11-24, Q3), as built
+
+A native session's own transcript counts as an open buffer of its project wherever ADR 0132 and
+ADR 0153 mean one, as a TUI session's terminal does: for the session tools' trust, so an unasked
+`session_resume`, `session_start` and the worktree tools under what ADR 0135 and ADR 0153 allow;
+for a turn's end look for ready for review; for the tree's listings, `w`, `*Worktrees*` and its
+removals from `*Spaces*` and from an orchestrator's buffer; for saved reviews and those a restart
+carried; for the repositories oso knows; and for where `session-adopt` and a fork of what
+`session-search` finds place a conversation. Each is gated by trust as before. Where this ADR's
+parts say an open buffer decides a native start, resume, fork or adoption, a file or a terminal
+is meant.
+
+- **Never a native start where it runs, or a resume.** What judges one stays on files and
+  terminals: no transcript, its session's or another's, makes one native or refuses one. A
+  worktree just made starts under its repository's trust, as before, which a transcript may
+  give, as a terminal does. The sweep that takes back what sessions started under (ADR 0121)
+  stays on files and terminals too, as a start's order shares what it takes back; a tool's call
+  asks the transcripts first, so a restricted one refuses its session's tools.
+- **An agent's `session_start` in its own directory** is judged native or not as before: a
+  transcript alone gives that start no trust, and so no baseline.
+- **What a tool holds is taken back** with what its session started under, where both are of one
+  directory: the tools act under that, not under a fresh look at the buffer.
+- **A new session from `*Spaces*`** in a project only a transcript has open takes its root and
+  its baseline there, and is not native. The selected buffer's project is a new start's as
+  before, whichever buffer it is.
+- **Placing a conversation:** the deepest open project that holds its directory, a transcript's
+  among them, with two exceptions, where the files and terminals decide as before. A transcript
+  never changes whether the conversation runs natively; it could only where the record itself
+  holds a root nested in another open project. And a restricted transcript never takes a
+  conversation out of the project of an open file or terminal.
+- **At a resume** a transcript's project is found again, as a terminal's is.
+- **Which transcripts:** those of the sessions in the table, stopped ones and archived ones whose
+  buffer stays among them, as TUI sessions' terminals; not one whose start is under way, nor one set aside while its
+  session runs in the TUI, whose terminal counts. The files and terminals are asked first.
+- **`Editor::buffers()` is unchanged:** a transcript stays an internal buffer, with nothing to
+  save, hand over or list.
+- **Measured** (release, one pass over every open project): 0.4 µs at 50 buffers and 10
+  transcripts, 42 µs at 500 and 256, the sessions' cap. No lookup runs for each key; the tree's
+  asks at most 8 times a second, while a repository of it is not listed.
+- **Built with:** `app/sessions/hosting/open_projects.rs` (what counts), `placing.rs` beside it,
+  and `app/sessions/tools/trust.rs`. No new public item of a library crate.
+- **Tests:** what counts and what does not, the tools' trust, a new session's and a placed
+  conversation's mode, the sweep left alone (unit tests over a real editor). End to end
+  (`worktree_resume`): with no file of a native worktree session open, its turn's end with
+  changes makes it ready for review, its orchestrator resumes it without asking, and asks once
+  its repository is untrusted. Not tested: each lookup's own call (the app has no harness).
 
 ### Part 4b: `oso-restart` waits for native turns
 
@@ -2662,6 +2710,11 @@ Each passage stays in its ADR as written; what holds now follows it.
 - [ADR 0131](0131-an-orca-style-sessions-pane.md), "A second line, only for a session that needs
   input or failed (Q2)" and "Where recaps show": and why a stopped native session did not resume
   ("Worktrees' resumes").
+- [ADR 0132](0132-a-session-mode-for-hosted-sessions.md), "Every lookup of \"the selected buffer's
+  project\" or \"an open buffer of the project\" now counts a session's buffer too": a native
+  session's transcript among them ("Transcripts count as open"), as in
+  [ADR 0131](0131-an-orca-style-sessions-pane.md), "only under the trust of a buffer in it", and
+  [ADR 0153](0153-agents-resume-sessions.md), "the session's own among them".
 - [ADR 0133](0133-keeping-terminals-over-an-update.md), step 2, as built: "The host refuses
   as `check-handover` with terminals does …, then stops the agent channel and starts the
   `oso-restart` thread": while a native session has a turn under way, asks the person, is

@@ -101,6 +101,8 @@ impl App {
         if !self.resume_takes_dirs(key) && !self.resume_says_on_start(key) {
             self.native_note_row(key, "Resumed.");
         }
+        // Its project is found again, as a terminal's is (ADR 0132).
+        self.mark_session_buffer(key, buffer);
         self.draw_queue(key);
         // Its to-do list is not read back: empty until its next to-do call (part 3e).
         self.clear_todo(key);
