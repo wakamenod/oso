@@ -82,7 +82,8 @@ impl App {
             .collect::<Vec<_>>()
             .join(SEPARATOR);
         let effort = native.choice.effort();
-        let mode = native.mode.shown().filter(|_| strayed.is_none());
+        let said = strayed.is_some() && !native.remote_control.off();
+        let mode = native.mode.shown().filter(|_| !said);
         native.status.line.write(mode, effort, &mut note);
         let buffer = native.buffer;
         let same = (self.editor.buffer(buffer)).is_some_and(|b| b.mode_note() == note);

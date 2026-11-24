@@ -314,6 +314,8 @@ impl Remote {
     /// modeline cuts the end.
     pub fn mark_with(&self, strayed: Option<&str>) -> Option<String> {
         let mark = self.mark()?;
+        // Going off, a mode before it would read as what goes off.
+        let strayed = strayed.filter(|_| self.phase != Phase::Ended);
         Some(match (strayed, mark.strip_prefix(SIGN)) {
             (Some(mode), Some(at)) => format!("{SIGN}{mode}: {at}"),
             _ => mark.to_owned(),

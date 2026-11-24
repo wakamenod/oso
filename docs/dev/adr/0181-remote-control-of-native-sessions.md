@@ -224,7 +224,7 @@ the five calls that ask, and forks of an agent's session.
 - **The respawn.** Leave to connect is a value that cannot be copied, made at the `y` or from the
   parent's restart state, held from the stop to that end alone and given to that resume; it alone
   decides the block in the line and the state in the app. Such a line has
-  `"remoteControlAtStartup": false` too, so that only oso's request connects it: not measured.
+  `"remoteControlAtStartup": false` too, so that only oso's request connects it (measured, below).
   `keep_session_on_exit` is always asked, as coming back was measured only with it. An answer with
   the id of another session oso has turns it off.
 - **Off** is told at once. Idle, the process ends and resumes blocked. During a turn it ends once
@@ -238,7 +238,8 @@ the five calls that ask, and forks of an agent's session.
 - **The mark** is `⇄ connecting`, `⇄ claude.ai`, `⇄ dropped` or `⇄ going off`, first in the
   modeline's note, with a mode no key here gave in it (`⇄ auto: claude.ai`), as a narrow modeline drops
   the note's later parts and cuts the end; before the note's first part, a native session's modeline drops the
-  space's and the project's names; in `*Spaces*`, `⇄` before the name, never cut, which no name or reason begins
+  space's and the project's names, then the position and `Session`, and then shortens the name: at
+  44 columns it is whole. Going off, the mode is left out, as it would read as what goes off; in `*Spaces*`, `⇄` before the name, never cut, which no name or reason begins
   with; also while its buffer is killed and its process ends. At most six rows a process say that
   it is on or dropped, the latter "and may connect again by itself".
 - **Across `oso-restart`** a connected session is not told off. The state carries its id there, its
@@ -261,8 +262,27 @@ the five calls that ask, and forks of an agent's session.
   nothing until RC-3, for a connected session too.
 - **One-shot runs** (a space's name, a dictation's fix) are started with the block. Whether
   `--safe-mode` heeds it is not measured.
-- **Tests** are fakes': no session was connected. Not measured, for the third probe: what is said
-  above, and what is not measured in "Context".
+- **Tests** are fakes': none connects.
+- **Measured** by the third probe on 2026-11-24, CLI 2.1.331, Haiku, a scratch repository, the author
+  with their phone, whose own settings have `remoteControlAtStartup` true:
+  - Blocked, `initialize` said `remote_control_available` false and `remote_control_auto_enable`
+    true, and no `bridge_state` came in a turn.
+  - Unblocked, with `remoteControlAtStartup` false, it said available true and auto_enable false, and
+    the first `bridge_state` (`ready`, then `connected`) came after oso's request was written.
+  - Seven messages from the phone each had `command_lifecycle` `queued` and `started`, a replay with
+    `origin` `human`, and `completed` or, once, `cancelled`; in the transcript, `promptSource` `sdk`,
+    `origin` `human` and `clientPlatform` `ios`. Those looked at in oso were rows of their own.
+  - Two calls of a message's turns, in `default`, asked in oso alone and ran after its answer.
+  - The phone's Stop ended a turn after 2.1 s (`aborted_streaming`); the process stayed and the next
+    message ran.
+  - `@readme.md` in a message put the file in the conversation as an attachment: no call, and oso
+    was not asked. It is accepted below, measured for an ordinary file; none that may hold secrets
+    was tried.
+  - Turned off while idle, `enabled:false` was answered with success within about a second, and the
+    next process was blocked. oso's log and records held neither the address nor the id.
+- **Not measured:** a message during a turn, the modes the phone offers and a mode set there, what it
+  shows while a request waits in oso, whether the session is listed or archived after off, coming back
+  over `oso-restart`, a fork of a connected session, and whether `--safe-mode` heeds the block.
 - **New public items,** approved: `NativeAction::{RemoteControl, RemoteConfirmed, RemoteAddress}`.
 
 ## Changes to accepted ADRs
@@ -305,7 +325,8 @@ the five calls that ask, and forks of an agent's session.
   - What the session reads or prints, secret files it was let read among it, is kept on
     Anthropic's servers, and turning it off deletes nothing. oso's withholding of secrets does
     not reach there.
-  - The remote side may read the session's files with no card of oso's (not measured).
+  - The remote side may read the session's files with no card of oso's (measured for `@` and an
+    ordinary file).
   - Whoever holds the account can send a connected orchestrator a message, and it has the session
     tools, which then ask the person at oso before they start, remove or archive.
 - oso has no network code still: `claude` connects, as it does for the model.

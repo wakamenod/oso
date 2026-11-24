@@ -197,7 +197,7 @@ fn the_mark_and_the_rows_say_where_it_is() {
     assert_eq!(rows, MAX_ROWS);
     remote.end(None, now);
     assert_eq!(remote.mark(), Some("⇄ going off"));
-    assert_eq!(with(&remote, Some("auto")), "⇄ auto: going off");
+    assert_eq!(with(&remote, Some("auto")), "⇄ going off");
     remote.event(&mut bridge("connected", ""));
     assert_eq!(remote.mark(), Some("⇄ going off"), "until it ended");
 }
