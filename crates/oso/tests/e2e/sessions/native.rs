@@ -518,6 +518,7 @@ mod carried;
 mod compose;
 mod composed;
 mod follow;
+mod front;
 mod interrupt;
 mod markdown;
 mod model;

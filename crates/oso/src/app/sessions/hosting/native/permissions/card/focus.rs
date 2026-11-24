@@ -1,5 +1,6 @@
-//! When point moves to a native session's permission card, and since when the card, or the
-//! session's empty composer, is where an answer may come from (ADR 0165, step 2e-2; ADR 0180).
+//! When point moves to a native session's permission card, and since when the card, the
+//! session's empty composer or its plan's edit is where an answer may come from (ADR 0165, step
+//! 2e-2 and part 3d; ADR 0180).
 //!
 //! Must not depend on: key presses or how a frame is drawn; the loop says when an event ended
 //! and what is due.
@@ -86,21 +87,25 @@ impl App {
         }
     }
 
-    /// oso's window came in front, or in sight, again: the card in front waits again, as the
-    /// person may see it only now.
+    /// oso's window came in front, or in sight, again: the card in front, or a plan's question,
+    /// waits again, as the person may see it only now.
     pub(in crate::app) fn card_seen_again(&mut self) {
+        let plans = &mut self.hosting.natives.permissions.plans;
+        plans.wait_again(Instant::now());
         if let Some(current) = self.hosting.natives.permissions.current {
             self.wait_on_card_again(current.key);
         }
     }
 
     /// The selected tiled buffer, or the one beneath the prompts, if a card may be answered from
-    /// it, and its session: a card, or the empty composer of a session whose card shows.
+    /// it, and its session: a card, the empty composer of a session whose card shows, or the
+    /// edit of a plan that waits.
     fn answering_place(&self) -> Option<(SessionKey, BufferId)> {
         let (window, buffer) = self.editor.tiled();
         let selected = window.buffer();
         match buffer.mode() {
             Mode::Card => Some((self.card_session(selected)?, selected)),
+            Mode::Plan => Some((self.waiting_edit(selected)?, selected)),
             Mode::Composer => {
                 let key = self.composer_session(selected)?;
                 let shown = self.hosting.natives.permissions.asks.shown(key).is_some();

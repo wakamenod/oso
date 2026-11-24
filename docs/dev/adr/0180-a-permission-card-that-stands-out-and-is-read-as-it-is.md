@@ -1,6 +1,6 @@
 # 0180. A permission card that stands out and is read as it is
 
-- Status: Accepted
+- Status: Accepted, amended by 0182
 - Date: 2026-11-24
 
 ## Context

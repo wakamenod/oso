@@ -5,7 +5,7 @@
 //! its card pages with `SPC` and `DEL` (ADR 0180). A plan's card (part 3d) also
 //! approves with accept edits (`a`) or auto (`A`, after `y` to a question) after it, or edits
 //! it (`e`) in `*plan: NAME*`, where `C-c C-c` approves the edit, `C-c C-a` and `C-c C-A` with
-//! those modes, and `C-c C-k` gives it up. Each asks the host,
+//! those modes, after `y` to a question if it differs, and `C-c C-k` gives it up. Each asks the host,
 //! which holds the call and answers its bridge; a note and an own answer are read in the
 //! minibuffer, from the host, which opens [`CARD_NOTE`]'s or [`CARD_OWN`]'s prompt.
 //!
@@ -20,7 +20,7 @@ use oso_core::editor::{Approval, NativeAction, SessionRequest};
 
 use super::native::at_point;
 
-/// The command a question's `y` runs to approve a plan with auto (part 3d).
+/// The command a question's `y` runs to approve a plan (part 3d).
 pub const PLAN_CONFIRMED: &str = "native-plan-confirmed";
 /// The command whose prompt reads a denial's note.
 pub const CARD_NOTE: &str = "native-card-note-text";
@@ -103,7 +103,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "native-card-approve-accept-edits",
-        doc: "Approve the plan a native session's card shows, or as edited in *plan: NAME*, and let the session's edits run unasked after it (accept edits): `a` on the card, `C-c C-a` in the edit.",
+        doc: "Approve the plan a native session's card shows, or as edited in *plan: NAME*, and let the session's edits run unasked after it (accept edits): `a` on the card, `C-c C-a` in the edit, after `y` to a question if it differs from Claude's plan.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: approve_accept_edits,
@@ -127,7 +127,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "native-plan-approve",
-        doc: "Approve the plan of a native session as edited in *plan: NAME*: the session's claude is given the edit.",
+        doc: "Approve the plan of a native session as edited in *plan: NAME*, after `y` to a question if the edit differs from Claude's plan: the session's claude is given the edit.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: plan_approve,
@@ -143,7 +143,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: PLAN_CONFIRMED,
-        doc: "Approve the plan a native session's card or *plan: NAME* asked about with auto, after `y` to the question `A` or `C-c C-A` asks.",
+        doc: "Approve the plan a native session's card or *plan: NAME* asked about, as it asked, after `y` to its question.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: confirmed,

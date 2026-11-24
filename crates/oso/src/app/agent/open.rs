@@ -61,7 +61,7 @@ impl App {
         let refused = |why: &str| {
             let _ = reply.send(Err(why.to_owned()));
         };
-        if let Some(why) = self.agent_waits() {
+        if let Some(why) = self.open_waits() {
             return refused(why);
         }
         // A file a buffer already visits by this path is shown in it, without a load, if it
@@ -172,14 +172,15 @@ impl App {
     }
 
     /// Shows `open`, a buffer that already holds the file the agent asked for, at `line`, if
-    /// it may be shown: judged ordinary, read, and the person not in the middle of something.
+    /// it may be shown: judged ordinary, read, and the person not in the middle of something,
+    /// with no native session's request in front.
     /// Its mark stays as it is: a buffer the person visited stays theirs (ADR 0094).
     fn show_open_for_agent(&mut self, open: BufferId, line: Option<usize>, jump: bool) -> Reply {
         let refused = match self.editor.buffer(open) {
             None => Some("the file could not be opened"),
             Some(buffer) => reusable(buffer),
         };
-        if let Some(why) = refused.or_else(|| self.agent_waits()) {
+        if let Some(why) = refused.or_else(|| self.open_waits()) {
             self.agent_log("open: refused");
             return Err(why.into());
         }
@@ -187,9 +188,10 @@ impl App {
     }
 
     /// Shows a file the channel opened, which is judged ordinary and read, and goes to its
-    /// line, unless the person is in the middle of something: then it is dropped.
+    /// line, unless the person is in the middle of something, or a native session's request
+    /// waits in front: then it is dropped.
     fn show_agents_file(&mut self, opening: &Opening) -> Reply {
-        if let Some(why) = self.agent_waits() {
+        if let Some(why) = self.open_waits() {
             self.drop_agents_file(opening.buffer);
             self.agent_log("open: dropped, the person was busy");
             return Err(why.into());
