@@ -111,7 +111,7 @@ fn a_dock_goes_with_its_host_and_its_own_buffer() {
 }
 
 #[test]
-fn the_card_and_the_strip_stack_above_the_composer() {
+fn the_strip_and_the_card_stack_above_the_composer() {
     let (mut editor, host, _) = docked(30, "");
     let card = editor.add_buffer(Buffer::from_text("*card*", "a\nb\nc"));
     let strip = editor.add_buffer(Buffer::from_text("*strip*", "todo"));
@@ -127,7 +127,7 @@ fn the_card_and_the_strip_stack_above_the_composer() {
         at(DockSlot::Composer),
     );
     assert_eq!((card.rows, strip.rows, composer.rows), (3, 1, 1));
-    assert!(card.row < strip.row && strip.row < composer.row);
+    assert!(strip.row < card.row && card.row < composer.row);
 }
 
 /// A card's rows are as wide as it is (ADR 0180): none counts as two.

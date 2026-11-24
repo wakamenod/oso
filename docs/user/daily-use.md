@@ -780,8 +780,8 @@ resume says why, and the fork runs in a terminal. One that `M-x oso-restart` cou
 says why in its conversation and under its row in `*Spaces*`.
 
 When Claude asks to run something, a framed card opens between the conversation and the composer,
-and the cursor moves to it at once, unless you are writing
-in the composer (then `C-x o` goes to it): Claude's own words are inside the frame, on rows that
+under the to-do line if there is one, and the cursor moves to it at once, unless you are writing
+in the composer (then `C-x o` from the conversation goes to it, past the to-do line): Claude's own words are inside the frame, on rows that
 start with `│`, and the keys on its last row. The card takes keys once you have typed none for half
 a second, so that what you were typing never answers it. `y` allows it once, `n` denies it,
 `N` denies it with a note Claude is told, and `RET` shows all of the call. A question from
@@ -792,7 +792,7 @@ screen. In the composer, while it is empty, `y`, `n`, `N` and a question's `o` a
 the card too; once you have written something, every key is text. Elsewhere, the session shows
 that it needs you, as a terminal session does.
 
-When Claude keeps a to-do list, it shows as one line above the composer, `☐ 2/5 ▶` and the
+When Claude keeps a to-do list, it shows as one line above the composer and any card, `☐ 2/5 ▶` and the
 item it works on; `C-c C-t`, in the conversation or the composer, opens it to a row an item
 and folds it back. It goes once every item is done and the turn ends. Claude Code gives a
 session its to-do tools only when you turn them on, in `~/.claude/settings.json`:

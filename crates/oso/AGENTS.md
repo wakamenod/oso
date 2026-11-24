@@ -108,7 +108,7 @@ often, so it must rebuild within 2 s.
   `oso-native-err`, and written to on `oso-native-write` (`stream`);
   `app/sessions/hosting/native.rs` draws its rows on the UI thread, row by row, in the buffer
   `native/buffer.rs` makes, its tool rows' look `sessions/native/render/tools.rs`, its turns' results
-  kept at the right edge, and its replies' tables (`sessions/native/shown/table.rs`) for the window's width, by `native/widths.rs` and its bands and chips drawn by `app/draw/transcript.rs`. Only
+  kept at the right edge, and its replies' tables (`sessions/native/shown/table.rs`) for the window's width, by `native/widths.rs`, what stands after its rows one tail of parts (`sessions/native/tail.rs`, ADR 0182), and its bands and chips drawn by `app/draw/transcript.rs`. Only
   oso's marks stand in a row's first two columns. Its composer and
   queue are `app/sessions/hosting/native/composer.rs`, over the queue's rules in
   `sessions/native/queue.rs`, what oso composed put in or sent there `composer/composed.rs`
@@ -259,8 +259,8 @@ often, so it must rebuild within 2 s.
   `dispatch/card.rs`, its pages in `card/pages.rs`, its size in `card/size.rs`, and what is drawn behind it in
   `app/draw/card.rs`, ADR 0180), and a plan's
   edit and its approvals with a mode in `permissions/card/plan.rs` (part 3d), the question before
-  them in `card/plan/ask.rs`; `card/front.rs` says whether a request waits in front, for
-  `app/agent/requests.rs`. `src/app/agent.rs` answers it on the UI thread, and
+  them in `card/plan/ask.rs`; `card/front.rs` says where a request waits, for
+  `app/agent/requests.rs` and what is shown late (ADR 0182). `src/app/agent.rs` answers it on the UI thread, and
   `src/dispatch/agent.rs` runs its commands. `channel/diagnostics.rs` reads `oso-lsp`'s
   reports and URI rules, the one module of the channel that does (ADR 0138, step 11).
 - End-to-end flows live in `tests/e2e` and run with `just e2e` (ADR 0049). They

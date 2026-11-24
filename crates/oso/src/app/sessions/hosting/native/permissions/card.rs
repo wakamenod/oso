@@ -28,6 +28,7 @@ mod pages;
 mod plan;
 mod size;
 
+pub(in crate::app) use front::RequestWaits;
 pub(super) use plan::Plans;
 
 use std::time::Instant;

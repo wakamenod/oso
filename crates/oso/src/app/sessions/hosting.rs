@@ -47,7 +47,7 @@ use fork::ForkFrom;
 pub(in crate::app) use adopt::Adopting;
 pub(in crate::app) use begin::{Begin, Then};
 pub(in crate::app) use moving::{Moves, Moving};
-pub(in crate::app) use native::{NativeSessions, Placeholder};
+pub(in crate::app) use native::{NativeSessions, Placeholder, RequestWaits};
 
 /// What the app keeps of its hosted sessions.
 #[derive(Debug, Default)]

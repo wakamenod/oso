@@ -403,6 +403,16 @@ fn who_renames_which_session() {
         },
     ] {
         assert_eq!(renamable(allowed), Ok(()), "{allowed:?}");
+        let asks = Renamable {
+            asks: true,
+            ..allowed
+        };
+        assert!(renamable(asks).is_err(), "{asks:?}");
+        let person = Renamable {
+            agent: false,
+            ..asks
+        };
+        assert_eq!(renamable(person), Ok(()), "the person's own");
         for orchestrator in [
             Renamable {
                 orchestrator: true,

@@ -1,6 +1,6 @@
 //! Docked windows (ADR 0170): windows the split tree does not hold, laid out inside the tiled
 //! window that shows their host buffer, from the rows it gives up at its bottom, above its
-//! modeline. A native session's buffer hosts its permission card, its to-do strip and its
+//! modeline. A native session's buffer hosts its to-do strip, its permission card and its
 //! composer this way.
 //!
 //! Must not depend on: the host's threads or the window system; plain state over the editor's

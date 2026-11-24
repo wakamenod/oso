@@ -275,7 +275,8 @@ Expected, each **approved at its PR; none is approved here:**
   `DockSlot::Card` becomes `DockSlot::Request`, after `Strip`; `SessionRequest::CardText` becomes
   `RequestText`. `NativeAction` loses `Choose(u8)`, `Other`, `Page(isize)` and `EditPlan`, and gets
   `Request`, `ReadOn(isize)`, `Choice(isize)`, `Mark`, `Take`, `Edit` and `Unread`.
-- **Maybe one argument of `Editor::replace_native_rows`,** for a place kept in the tail; R1 says.
+- **Maybe one argument of `Editor::replace_native_rows`,** for a place kept in the tail: none, R1a
+  found.
 - **oso-render:** `Face::{Card, CardTitle}` become `{Request, RequestTitle}`.
 - **oso-platform:** nothing, if `Event::InputSource` is told as oso starts and comes in front, the app
   keeping the last; else the current input source. R1 checks.
@@ -292,7 +293,11 @@ Expected, each **approved at its PR; none is approved here:**
 One PR a step, in one train:
 
 - **R0:** this ADR.
-- **R1, calls:** the block, the tail, reading, the line, point's rules, the gate, agents, `C-c C-j`.
+- **R1, calls,** in four PRs (the author, 2026-11-24): **R1a,** the agents ("Point" 8), the tail's
+  type and the line's place under the strip; **R1b,** the block's text, its diff and what is read, as
+  pure functions; **R1c,** calls leave the card, the line above the composer and point not going to
+  it by itself; **R1d,** "Point" 1 to 4 and 7, and the line in the composer's place, in one train with
+  R1c. In all: the block, the tail, reading, the line, point's rules, the gate, agents, `C-c C-j`.
   Questions and plans keep their cards. A fuzz target holds that only oso stands in columns 0 and 1
   and in its faces, and that the tail's parts stay apart whatever is put in above.
 - **R2, questions:** the choices, the answer input, the answered row.
@@ -348,6 +353,8 @@ Each holds from the step that builds it.
 - **[ADR 0117](0117-menus.md):** a menu's key's face is a line's keys', on its band.
 - **[ADR 0097](0097-visual-aids.md):** the line and the choices have no current line's band; the block
   has it as a prompt's rows do.
+- **[ADR 0151](0151-moving-a-session-into-a-space.md), [ADR 0155](0155-renaming-sessions.md):** as "R1a,
+  as built" says of a session that moves and of a rename.
 - **Elsewhere,** as in ADR 0176, ADR 0181 and other parts of ADR 0165, a waiting call's "card" is read
   "request". ADR 0100's "off by default" stands as native transcripts made of it, and ADR 0085's
   `open` and `Look` commands as part 2e-2 did.
@@ -372,11 +379,46 @@ Each holds from the step that builds it.
   out, 20 to 31 µs, only after an event that moved the view of a window in front while its request
   waits. Not measured: the diff of 64 KiB, the first wrap of 2000 long rows.
 
+## R1a, as built (2026-11-24)
+
+- **"Point" 8** holds for cards as they are (`app/agent/requests.rs`). In front, none of an agent's
+  commands runs and `open` shows nothing. With a request in a window of the frame, an agent runs no
+  command of the windows (`commands::WINDOW_COMMANDS`: a split, a deletion, a size, another window
+  selected), nor `global-display-line-numbers-mode`, `global-hl-line-mode`, `next-buffer`,
+  `previous-buffer`, `view-echo-area-messages`, `review-files`, `review-quit`, `review-toggle-panes`,
+  `session-explain`, `sessions-wider` and `sessions-narrower`;
+  and while the side window is selected, from which a buffer goes to a window of the tree, nothing
+  runs and `open` shows nothing. While one waits anywhere, not `global-font-lock-mode`,
+  `toggle-truncate-lines` or `session-switch`. A test walks every command an agent may run, in
+  an ordinary file, and holds that the transcript's window and its docks stay as they are, and that
+  what asks the host for something, which it does not see, is held or named there; a command of
+  another kind of buffer is judged by its name alone.
+- **An explanation** (`session-explain`, `session-explain-file`) that comes while a request waits
+  where it would be shown is not put there, unless it was asked for there, which only the person
+  can; its job carries which. The person is told.
+- **A session that moves into a space** ([ADR 0151](0151-moving-a-session-into-a-space.md)) starts
+  behind while a request waits where it would be shown, as one whose space is not in front,
+  whatever ended its process: what is shown there then is the person's to choose. An
+  agent does not rename a session while that session's request waits
+  ([ADR 0155](0155-renaming-sessions.md)).
+- **The tail** (`sessions/native/tail.rs`) has three parts: the queue's rows, the block's title and
+  its body. The title is a part of its own, as it alone is drawn again, and starts with the row
+  between the block and what is above. Until R1c only the queue has text.
+- **The order of docks** is the strip, the card, the composer, and so is that of `C-x o` and of
+  `windmove`. Public: `DockSlot::Card` is declared
+  after `DockSlot::Strip`.
+- **"Open", read in the code and not run:** `Event::InputSource` is told as oso first comes in
+  front, and each change after, so the app keeps the last and oso-platform needs nothing. oso's own
+  switch to ASCII is told too, as `Other`: while oso wants ASCII, and 500 ms after, an `Other` does not
+  take the place of a Japanese known before. Linux and Windows tell of no source. No row's width need
+  become public, and `Editor::replace_native_rows` no argument: a place under the block's title keeps
+  its byte, which the tail's property test holds.
+
 ## Open
 
-- Whether `Event::InputSource` comes at oso's start, that oso's own switch to ASCII for a prompt
-  ([ADR 0158](0158-japanese-in-prompts-and-review-drafts.md)) is not taken for the person's choice, and
-  whether other platforms can tell the source: R1.
+- What R1a says of the input source, of oso's own switch to ASCII for a prompt
+  ([ADR 0158](0158-japanese-in-prompts-and-review-drafts.md)) and of other platforms is from the code:
+  R1d runs it.
 - Whether [ADR 0175](0175-dictation-through-typewhisper.md)'s dictation writes in the answer input: R2.
 
 ## Alternatives considered

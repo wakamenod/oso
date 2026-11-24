@@ -23,6 +23,7 @@
 //!   `markdown`'s (part 2g); its status line, `status`'s (part 3a); its permission mode,
 //!   `mode`'s (part 3b); its `/model` and `/effort` completion, `slash`'s (part 3c); its
 //!   to-do strip, `todo`'s (part 3e).
+//! - What stands after its rows, the queue's, is one tail (`put_tail`, ADR 0182).
 //! - Its turns' results stand at its window's right edge, and its replies' tables are drawn for
 //!   its width, by `widths`.
 //! - Its prompt suggestion is `suggesting`'s, and the recap of a turn that ended out of sight
@@ -78,6 +79,7 @@ use oso_core::project::ProjectId;
 
 pub(in crate::app) use self::composer::Placeholder;
 use self::note::NativeState;
+pub(in crate::app) use self::permissions::RequestWaits;
 use super::Begin;
 use crate::app::App;
 use crate::git::TrustedRoot;
@@ -91,6 +93,7 @@ use crate::sessions::native::remote::Remote;
 use crate::sessions::native::render;
 use crate::sessions::native::rows::{Changes, RowChange, Rows, UNSHOWN_WIDTH};
 use crate::sessions::native::slash::SlashCommands;
+use crate::sessions::native::tail::{Part, Run, Tail};
 use crate::sessions::native::turns;
 use crate::sessions::native::wire::Event;
 use crate::sessions::start::{Ready, Started};
@@ -131,6 +134,8 @@ struct Native {
     buffer: BufferId,
     rows: Rows,
     placed: Placed,
+    /// What stands after its rows: the queue's.
+    tail: Tail,
     /// Its rows that a window's width changes, and the width each was drawn for last.
     widths: widths::Widths,
     stream: Option<Stream>,
@@ -191,6 +196,12 @@ struct Native {
 }
 
 impl Native {
+    /// Where `part` of what stands after its rows is in its buffer.
+    fn part_place(&self, part: Part) -> Range<usize> {
+        let (start, place) = (self.placed.end(), self.tail.place(part));
+        start + place.start..start + place.end
+    }
+
     /// Whether its process is being started: from its order, held or not (ADR 0173), until
     /// the start thread reports.
     fn starting(&self) -> bool {
@@ -505,9 +516,31 @@ fn draw(
         native.placed.put(at, range, rendered.text.len());
         debug_assert_eq!(
             editor.buffer(native.buffer).map(|b| b.text().len()),
-            Some(native.placed.end() + native.composing.rows.len())
+            Some(native.placed.end() + native.tail.len())
         );
     }
+}
+
+/// Puts `text`, in `runs`, as `part` of what stands after the session's rows. Whether it changed.
+fn put_tail(
+    editor: &mut oso_core::editor::Editor,
+    native: &mut Native,
+    part: Part,
+    text: String,
+    runs: Vec<Run>,
+) -> bool {
+    let start = native.placed.end();
+    let Some(place) = native.tail.put(part, text, runs) else {
+        return false;
+    };
+    let (text, runs) = native.tail.text(part);
+    let range = start + place.start..start + place.end;
+    editor.replace_native_rows(native.buffer, range, text, runs);
+    debug_assert_eq!(
+        editor.buffer(native.buffer).map(|b| b.text().len()),
+        Some(start + native.tail.len())
+    );
+    true
 }
 
 /// Whether `brief` says anything: a blank one is none, and starts nothing natively on its own.

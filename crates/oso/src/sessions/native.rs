@@ -64,6 +64,7 @@ pub mod slash;
 pub mod status;
 pub mod suggest;
 pub mod switch;
+pub mod tail;
 pub mod todo;
 pub mod turns;
 pub mod usage;

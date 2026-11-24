@@ -277,8 +277,9 @@ impl App {
                 .editor
                 .message("A native session's state comes from its stream: nothing to explain");
         }
+        let there = self.request_waits().holds_shown();
         match &self.sessions {
-            Some(worker) => worker.send(Job::Explain(key)),
+            Some(worker) => worker.send(Job::Explain(key, there)),
             None => self
                 .editor
                 .message("Sessions are not available: see the log"),

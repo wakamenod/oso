@@ -24,6 +24,7 @@ use std::time::Instant;
 
 mod card;
 
+pub(in crate::app) use card::RequestWaits;
 pub(super) use card::Writing;
 use oso_platform::control::Peer;
 use serde_json::Value;
@@ -76,7 +77,7 @@ pub(in crate::app) struct Permissions {
 impl App {
     /// Whether native session `key` asks the person now: a card shown, a plan's edit among
     /// them (part 3d).
-    pub(super) fn native_asks_person(&self, key: SessionKey) -> bool {
+    pub(in crate::app) fn native_asks_person(&self, key: SessionKey) -> bool {
         self.hosting.natives.permissions.asks.shown(key).is_some()
     }
 

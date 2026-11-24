@@ -190,6 +190,6 @@ pub(super) fn draw_added(editor: &mut Editor, native: &mut Native, from: usize) 
     }
     debug_assert_eq!(
         editor.buffer(native.buffer).map(|b| b.text().len()),
-        Some(native.placed.end() + native.composing.rows.len())
+        Some(native.placed.end() + native.tail.len())
     );
 }

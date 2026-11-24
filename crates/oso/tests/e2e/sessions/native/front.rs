@@ -1,7 +1,8 @@
-//! An agent's `open` shows no file while a native session's request waits in front of the person
-//! (ADR 0165), with the cards' fake asking about two `ExitPlanMode` calls: it is refused with the
-//! card, the composer, the transcript and the plan's edit in front, and shows the file once the
-//! first is answered. While the second waits, in sight or not, highlighting stays as it is.
+//! What an agent may not do while a native session's request waits (ADR 0182, "Point" 8), with the
+//! cards' fake asking about two `ExitPlanMode` calls: its `open` and its commands, a look among
+//! them, are refused with the card, the composer, the transcript and the plan's edit in front, and
+//! run once the first is answered. While the second waits out of sight, highlighting, wrapping and
+//! the session shown stay as they are; in a window beside the selected one, the windows too.
 //!
 //! Must not depend on: the app's internals; which buffers are in front has its own test.
 
@@ -42,11 +43,20 @@ fn open(agent: &mut Agent, path: &Path) -> Result<Value, String> {
     })
 }
 
-/// The agent's `global-font-lock-mode`, given `arg`.
-fn font_lock(agent: &mut Agent, arg: i64) -> Result<Value, String> {
-    answer(agent, |agent| {
-        agent.run("global-font-lock-mode", Some(arg), "look")
-    })
+/// The agent's look `name`, given `arg`.
+fn look(agent: &mut Agent, name: &str, arg: Option<i64>) -> Result<Value, String> {
+    answer(agent, |agent| agent.run(name, arg, "look"))
+}
+
+/// The agent's look `name` is refused, as a request waits.
+fn held(app: &mut App, agent: &mut Agent, name: &str) {
+    let said = look(agent, name, None);
+    let why = said.expect_err(name);
+    assert!(
+        why.contains("request waits"),
+        "{name}: {why}: {}",
+        app.state()
+    );
 }
 
 /// The agent's `open` of `path` is refused, and the buffer named `front` stays in front.
@@ -56,6 +66,42 @@ fn refused(app: &mut App, agent: &mut Agent, path: &Path, front: &str) {
     assert_eq!(state["buffer"]["name"], front, "{said:?}: {state}");
     let why = said.expect_err(front);
     assert!(why.contains("request waits"), "{front}: {why}");
+    for name in ["forward-char", "scroll-up-command", "previous-buffer"] {
+        held(app, agent, name);
+    }
+    let state = app.state();
+    assert_eq!(state["buffer"]["name"], front, "{state}");
+}
+
+/// With the request's transcript in a window beside the selected one, an agent moves in the
+/// selected one and shows files there, and changes no window. Point is in the card before and after.
+fn in_sight(app: &mut App, agent: &mut Agent, path: &Path) {
+    // The transcript in the new window, the other window selected.
+    app.send_keys("C-x o");
+    app.wait_for("the composer", in_composer);
+    app.send_keys("C-c C-o");
+    app.send_keys("C-x 3");
+    app.send_keys("C-x b");
+    app.send_keys(&keys("other.txt"));
+    app.send_keys("RET");
+    app.wait_for("the file beside the transcript", |state| {
+        state["buffer"]["name"] == "other.txt"
+    });
+    look(agent, "forward-char", None).expect("in the file's window");
+    let opened = open(agent, path);
+    assert_eq!(opened.expect("in the file's window")["name"], "notes.md");
+    for name in ["other-window", "delete-other-windows", "enlarge-window"] {
+        held(app, agent, name);
+    }
+    let state = app.state();
+    assert_eq!(state["buffer"]["name"], "notes.md", "{state}");
+    // Round the transcript's window to its card.
+    app.send_keys("C-x 0");
+    app.wait_for("the transcript", |state| {
+        state["buffer"]["name"] == "*claude: proj*"
+    });
+    app.send_keys("C-x o");
+    card(app, "the second plan's card again");
 }
 
 #[test]
@@ -114,16 +160,19 @@ fn an_agent_shows_no_file_while_a_request_waits_in_front() {
     app.wait_for("the session to need the person", |state| {
         state["sessions"].to_string().contains("needs input")
     });
-    let why = font_lock(&mut agent, 0).expect_err("a request waits");
-    assert!(why.contains("request waits"), "{why}");
+    for name in ["global-font-lock-mode", "toggle-truncate-lines"] {
+        held(&mut app, &mut agent, name);
+    }
+    look(&mut agent, "forward-char", None).expect("the request is out of sight");
     open(&mut agent, &other).expect("the request is out of sight");
     app.send_keys("C-x b");
     app.send_keys(&keys("*claude: proj*"));
     app.send_keys("RET");
     card(&mut app, "the second plan's card");
+    in_sight(&mut app, &mut agent, &notes);
     answer_after_quiet(&mut app, "n");
     flow.wait_for_file("answers");
-    font_lock(&mut agent, 1).expect("nothing waits");
+    look(&mut agent, "global-font-lock-mode", Some(1)).expect("nothing waits");
     flow.scratch.write("go", b"0");
     let _ = app.exchange("exit", None);
     app.wait_for_exit();
