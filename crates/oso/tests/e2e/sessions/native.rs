@@ -403,10 +403,11 @@ fn a_native_sessions_calls_are_asked_of_the_person_with_the_agent_channel_off() 
             .as_str()
             .is_some_and(|modeline| !modeline.starts_with("Agent  "))
     });
-    flow.scratch.write("ask", b"");
+    request::asks(&flow, &mut app, "ask", request::Keyboard::Japanese);
 
     // Each call the stream has is asked in turn, in the conversation, from what the stream says of
-    // it; point stays where it is.
+    // it; point stays where it is, as with a Japanese
+    // input source.
     request::request(&mut app, "the first block");
     let state = app.state();
     assert_eq!(state["buffer"]["name"], "*claude: proj*", "{state}");

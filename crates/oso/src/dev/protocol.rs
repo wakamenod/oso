@@ -119,8 +119,8 @@ pub enum UiOp {
     /// Gain the focus as the window system's event says it, with all that follows it: files
     /// and the configuration looked at again, and the binary (ADR 0133, step 4).
     WindowFocus,
-    /// The person chose a Japanese input mode, or not, as the window system would say, as no flow
-    /// switches a real one (ADR 0182).
+    /// The person types with a Japanese input mode, or not, whatever the window system says from then
+    /// on, as no flow switches a real one (ADR 0182).
     InputSource { japanese: bool },
 }
 

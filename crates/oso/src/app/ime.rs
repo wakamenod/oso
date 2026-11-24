@@ -112,7 +112,7 @@ pub(super) struct ImeState {
     /// Whether the window was last asked for an ASCII input source (ADR 0106, ADR 0158).
     ascii: bool,
     /// The kind of input source the person types with (ADR 0182).
-    source: source::Source,
+    pub(super) source: source::Source,
     /// The tiled window selected after the last event, or the one beneath the prompts, so
     /// that a composition ends when another is selected, as keys go only there (ADR 0112).
     selected: Option<WindowId>,

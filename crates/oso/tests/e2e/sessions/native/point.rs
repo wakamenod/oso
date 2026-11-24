@@ -14,7 +14,8 @@ use serde_json::{Value, json};
 
 use super::super::super::harness::App;
 use super::super::super::worktrees::keys;
-use super::request::{allow, answer, answers, asking, go, japanese, on_line, read_on};
+use super::request::Keyboard::{self, Japanese, Plain};
+use super::request::{allow, answer, answers, asking, asks, comes, go, keyboard, on_line, read_on};
 use super::{Flow, in_composer, text};
 
 /// Longer than point waits before it goes by itself.
@@ -25,23 +26,11 @@ fn front(app: &mut App, focused: bool) {
         .unwrap();
 }
 
-/// Waits until point went to the line by itself, oso's window in front and its source no Japanese one
-/// again and again, whatever the window system says meanwhile of a screen the person uses.
-fn comes(app: &mut App, what: &str) -> Value {
-    let mut state = Value::Null;
-    for _ in 0..80 {
-        front(app, true);
-        japanese(app, false);
-        thread::sleep(Duration::from_millis(250));
-        state = app.state();
-        if on_line(&state) {
-            return state;
-        }
-    }
-    panic!(
-        "no {what}: focused {}, request {}, buffer {}",
-        state["sessions"]["focused"], state["request"], state["buffer"]["name"]
-    );
+/// The person chose `source`.
+fn source(app: &mut App, source: Keyboard) {
+    let japanese = source == Japanese;
+    app.try_call("input-source", Some(json!({ "japanese": japanese })))
+        .unwrap();
 }
 
 /// The slots docked in a window that shows the session, as drawn.
@@ -55,8 +44,7 @@ fn slots(state: &Value) -> Vec<String> {
 /// The session's flow, point in its empty composer, oso's window in front for a while.
 fn in_empty_composer(name: &str) -> (Flow, App) {
     let (flow, mut app) = asking(name);
-    front(&mut app, true);
-    japanese(&mut app, false);
+    keyboard(&mut app, Plain);
     app.send_keys("i");
     app.wait_for("the composer", in_composer);
     thread::sleep(LONG);
@@ -81,7 +69,7 @@ fn end(flow: &Flow, mut app: App) {
 #[ignore = "opens windows; run with `just e2e`"]
 fn point_goes_to_the_line_in_the_empty_composers_place_and_text_typed_as_it_goes_is_a_draft() {
     let (flow, mut app) = in_empty_composer("native-point");
-    flow.scratch.write("ask", b"");
+    asks(&flow, &mut app, "ask", Plain);
     let state = comes(&mut app, "point on the line");
     assert_eq!(slots(&state), ["card"], "in the composer's place: {state}");
 
@@ -116,7 +104,7 @@ fn point_goes_to_the_line_in_the_empty_composers_place_and_text_typed_as_it_goes
     );
 
     // The next request, right after: an impatient second `y` is a draft, and answers nothing.
-    flow.scratch.write("ask2", b"");
+    asks(&flow, &mut app, "ask2", Plain);
     comes(&mut app, "point on the next line");
     front(&mut app, false);
     app.send_keys("y");
@@ -146,36 +134,36 @@ fn point_goes_to_the_line_in_the_empty_composers_place_and_text_typed_as_it_goes
 #[ignore = "opens windows; run with `just e2e`"]
 fn with_a_japanese_source_the_person_goes_to_the_line() {
     let (flow, mut app) = in_empty_composer("native-point-japanese");
-    japanese(&mut app, true);
+    source(&mut app, Japanese);
     thread::sleep(LONG);
-    flow.scratch.write("ask", b"");
+    asks(&flow, &mut app, "ask", Japanese);
     stays(&mut app, "a Japanese source", "");
     assert_eq!(slots(&app.state()), ["card", "composer"]);
     // A prompt's ASCII source is not the person's.
     app.send_keys("M-x");
-    japanese(&mut app, false);
+    source(&mut app, Plain);
     app.send_keys("C-g");
     stays(&mut app, "after a prompt", "");
     // Another source, and half a second: point goes.
     thread::sleep(LONG);
-    japanese(&mut app, false);
-    japanese(&mut app, true);
-    japanese(&mut app, false);
+    source(&mut app, Plain);
+    source(&mut app, Japanese);
+    source(&mut app, Plain);
     comes(&mut app, "point on the line");
     // Japanese told of late, the person having done nothing since: point goes back.
-    japanese(&mut app, true);
+    source(&mut app, Japanese);
     let state = app.wait_for("the composer again", in_composer);
     assert_eq!(slots(&state), ["card", "composer"], "{state}");
     stays(&mut app, "Japanese told late", "");
     // There by their own doing, point stays.
     go(&mut app);
-    japanese(&mut app, false);
-    japanese(&mut app, true);
+    source(&mut app, Plain);
+    source(&mut app, Japanese);
     thread::sleep(LONG);
     assert!(on_line(&app.state()));
     answer(&mut app, "n");
     app.wait_for("the composer", in_composer);
-    flow.scratch.write("ask2", b"");
+    asks(&flow, &mut app, "ask2", Japanese);
     stays(&mut app, "the next request", "");
     go(&mut app);
     allow(&mut app);
@@ -188,7 +176,7 @@ fn with_a_japanese_source_the_person_goes_to_the_line() {
 fn a_draft_stays_where_it_is_until_it_is_cleared() {
     let (flow, mut app) = in_empty_composer("native-point-draft");
     app.send_keys(&keys("wait, y"));
-    flow.scratch.write("ask", b"");
+    asks(&flow, &mut app, "ask", Plain);
     stays(&mut app, "a draft", "wait, y");
     assert_eq!(slots(&app.state()), ["card", "composer"]);
     // Over a draft the line stands above it, and an answer leads back to it.
@@ -200,7 +188,7 @@ fn a_draft_stays_where_it_is_until_it_is_cleared() {
     answer(&mut app, "n");
     let state = app.wait_for("the draft", in_composer);
     assert_eq!(text(&state), "wait, y", "{state}");
-    flow.scratch.write("ask2", b"");
+    asks(&flow, &mut app, "ask2", Plain);
     stays(&mut app, "the next, over the draft", "wait, y");
     app.send_keys("C-a C-k");
     comes(&mut app, "point on the line");
@@ -223,7 +211,7 @@ fn a_draft_stays_where_it_is_until_it_is_cleared() {
 #[ignore = "opens windows; run with `just e2e`"]
 fn a_press_on_the_line_as_it_took_the_composers_place_is_the_composers() {
     let (flow, mut app) = in_empty_composer("native-point-press");
-    flow.scratch.write("ask", b"");
+    asks(&flow, &mut app, "ask", Plain);
     let state = comes(&mut app, "point on the line");
     front(&mut app, false);
     let line = (state["windows"].as_array().unwrap().iter())
@@ -249,11 +237,10 @@ fn a_press_on_the_line_as_it_took_the_composers_place_is_the_composers() {
 #[ignore = "opens windows; run with `just e2e`"]
 fn a_block_taller_than_its_window_shows_its_head_and_then_the_end_again() {
     let (flow, mut app) = asking("native-point-head");
-    front(&mut app, true);
-    japanese(&mut app, false);
+    keyboard(&mut app, Plain);
     thread::sleep(LONG);
     let shown = |state: &Value| text(state);
-    flow.scratch.write("ask", b"");
+    asks(&flow, &mut app, "ask", Plain);
     // From the transcript's end, where the window follows.
     comes(&mut app, "point on the line");
     app.send_keys("C-g");

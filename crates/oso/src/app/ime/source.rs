@@ -18,7 +18,7 @@ use crate::app::agent::QUIET;
 
 /// The kind of input source, as oso knows it.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub(super) struct Source {
+pub(in crate::app) struct Source {
     japanese: bool,
     /// When that last changed.
     changed: Option<Instant>,
@@ -27,11 +27,30 @@ pub(super) struct Source {
     secure: bool,
     /// When it last wanted one.
     until: Option<Instant>,
+    /// The dev socket said what it is: what the window system tells is not looked at.
+    #[cfg(feature = "dev")]
+    pinned: bool,
 }
 
 impl Source {
     /// The window system told of `source` at `now`.
     pub(super) fn told(&mut self, source: InputSource, now: Instant) {
+        #[cfg(feature = "dev")]
+        if self.pinned {
+            return;
+        }
+        self.is(source, now);
+    }
+
+    /// The dev socket says it is `source` at `now`, as the window system would, which is not looked at
+    /// from then on: a flow's does not change with the machine's.
+    #[cfg(feature = "dev")]
+    pub(in crate::app) fn pin(&mut self, source: InputSource, now: Instant) {
+        self.pinned = true;
+        self.is(source, now);
+    }
+
+    fn is(&mut self, source: InputSource, now: Instant) {
         let japanese = source == InputSource::Japanese;
         let after = (self.until).is_some_and(|until| now < until + QUIET);
         let osos = self.ascii || self.secure || after;
@@ -93,6 +112,20 @@ mod tests {
         assert_eq!(source.japanese(), (true, Some(at(10))));
         source.told(Other, at(30));
         assert_eq!(source.japanese(), (false, Some(at(30))));
+    }
+
+    #[cfg(feature = "dev")]
+    #[test]
+    fn a_source_the_dev_socket_said_stays_whatever_the_window_system_tells() {
+        let start = Instant::now();
+        let at = |ms| start + Duration::from_millis(ms);
+        let mut source = Source::default();
+        source.pin(Japanese, at(0));
+        source.told(Other, at(1000));
+        assert_eq!(source.japanese(), (true, Some(at(0))));
+        source.pin(Other, at(2000));
+        source.told(Japanese, at(3000));
+        assert_eq!(source.japanese(), (false, Some(at(2000))));
     }
 
     /// A prompt opens, oso chooses ASCII, the prompt closes and the person's Japanese is given back,

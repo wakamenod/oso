@@ -405,9 +405,11 @@ the dev control socket ([ADR 0023](adr/0023-control-socket-protocol-and-restart.
   and the configuration are looked at again, adoptable sessions listed, and the binary looked
   at for a change ([ADR 0133](adr/0133-keeping-terminals-over-an-update.md), step 4). `focus`
   sets only whether the window has the keys, so flows that send it do none of that work.
-- `input-source` with `japanese` says that the person chose a Japanese input mode, or not, as the
-  window system would ([ADR 0182](adr/0182-a-native-sessions-requests-in-its-conversation.md)); the
-  keyboard's own stays as it is.
+- `input-source` with `japanese` says that the person types with a Japanese input mode, or not, as the
+  window system would, for a native session's request
+  ([ADR 0182](adr/0182-a-native-sessions-requests-in-its-conversation.md)). From then on what the window
+  system says of it does not count there, so that a flow does not change with the machine's keyboard,
+  which stays as it is. Every flow that shows a call says one or the other (`request::Keyboard`).
 - `get-text` reads whole rows, up to 512 KiB and 10,000 rows, and fails clearly
   past that.
 - `show-buffer` shows a buffer by id, until `switch-to-buffer` arrives in M2.
