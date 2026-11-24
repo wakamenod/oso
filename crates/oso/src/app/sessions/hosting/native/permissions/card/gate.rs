@@ -1,6 +1,7 @@
 //! Whether a native session's permission card takes an answer now (ADR 0165, step 2e-2): the
 //! one check of the card's keys, of the composer's that answer it (ADR 0180) and of the dev state,
-//! so that end-to-end flows wait for exactly what the card checks.
+//! so that end-to-end flows wait for exactly what the card checks. And whether its plan's edit
+//! takes an approval (part 3d), as the edit's keys and the dev state check it.
 //!
 //! Must not depend on: key presses or how a frame is drawn; the card's keys ask, and this
 //! answers.
@@ -10,6 +11,7 @@ use std::time::Instant;
 use oso_core::buffer::BufferId;
 use oso_core::window::DockSlot;
 
+use super::Current;
 use super::plan::answered_in_time;
 use crate::app::App;
 use crate::sessions::native::card::NARROWEST;
@@ -48,6 +50,41 @@ impl App {
         }
         self.editor.message(refusal.message());
         false
+    }
+
+    /// The gate of session `key`'s plan's edit's approvals: whether the edit, in `buffer`, takes
+    /// one now; else the echo area says why.
+    pub(super) fn edit_admits_approval(&mut self, key: SessionKey, buffer: BufferId) -> bool {
+        let now = self.agent_person_typed().unwrap_or_else(Instant::now);
+        let Some(refusal) = self.edit_refusal(key, buffer, now) else {
+            return true;
+        };
+        // Point came to it with this key: the wait starts now.
+        if refusal == Refusal::NotCurrent {
+            self.note_current_card();
+        }
+        log::debug!("native sessions: a plan's edit took no approval: {refusal:?}");
+        self.editor.message(match refusal {
+            Refusal::Macro => "A macro does not approve a plan",
+            _ => "Wait a moment, then approve the plan",
+        });
+        false
+    }
+
+    fn edit_refusal(&self, key: SessionKey, buffer: BufferId, now: Instant) -> Option<Refusal> {
+        if self.editor.macro_replaying() {
+            return Some(Refusal::Macro);
+        }
+        edit_refusal(self.hosting.natives.permissions.current, key, buffer, now)
+    }
+
+    /// Whether the plan's edit selected, if one is, takes an approval now: what its keys check.
+    /// For end-to-end flows.
+    #[cfg(feature = "dev")]
+    pub(in crate::app) fn plan_takes_answer(&self) -> Option<bool> {
+        let buffer = self.editor.window().buffer();
+        let key = self.plan_session(buffer)?;
+        Some(self.edit_refusal(key, buffer, Instant::now()).is_none())
     }
 
     /// Why session `key`'s card takes no answer from buffer `from` at `now`, if it takes none;
@@ -133,6 +170,21 @@ impl App {
     }
 }
 
+/// Why session `key`'s plan's edit in `buffer` takes no approval at `now`, the time of the
+/// approval's key, if it takes none: the wait is since the edit became the selected buffer, as a
+/// card's, but not since the key before, as the person writes the edit and then approves it.
+fn edit_refusal(
+    current: Option<Current>,
+    key: SessionKey,
+    buffer: BufferId,
+    now: Instant,
+) -> Option<Refusal> {
+    let Some(current) = current.filter(|at| at.key == key && at.place == buffer) else {
+        return Some(Refusal::NotCurrent);
+    };
+    (!answered_in_time(current.since, None, now)).then_some(Refusal::Wait)
+}
+
 /// Why a card takes no answer yet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Refusal {
@@ -154,5 +206,51 @@ impl Refusal {
             Self::NotCurrent | Self::Wait => "Wait a moment, then answer the card",
             Self::Cut => "The card is cut: make the window taller to answer it",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, Instant};
+
+    use oso_core::buffer::Buffer;
+
+    use super::{Current, Refusal, edit_refusal};
+    use crate::app::agent::QUIET;
+
+    #[test]
+    fn an_edit_is_approved_only_after_a_quiet_moment_since_it_came_in_front() {
+        let mut editor = oso_core::editor::Editor::default();
+        let edit = editor.add_buffer(Buffer::from_text("*plan: s*", ""));
+        let other = editor.add_buffer(Buffer::from_text("*plan: t*", ""));
+        let since = Instant::now();
+        let current = |place| {
+            Some(Current {
+                key: 7,
+                place,
+                since,
+                whole: false,
+            })
+        };
+        let late = since + QUIET;
+        assert_eq!(edit_refusal(current(edit), 7, edit, late), None);
+        let soon = since + Duration::from_millis(80);
+        assert_eq!(
+            edit_refusal(current(edit), 7, edit, soon),
+            Some(Refusal::Wait)
+        );
+        // Another buffer, or another session's, came in front.
+        for (at, key) in [(None, 7), (current(other), 7), (current(edit), 8)] {
+            assert_eq!(edit_refusal(at, key, edit, late), Some(Refusal::NotCurrent));
+        }
+        // An agent's prompt that closed lately put the moment off.
+        let after = Current {
+            since: since + Duration::from_millis(1500),
+            ..current(edit).unwrap()
+        };
+        assert_eq!(
+            edit_refusal(Some(after), 7, edit, late),
+            Some(Refusal::Wait)
+        );
     }
 }

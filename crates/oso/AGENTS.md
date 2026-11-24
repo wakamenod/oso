@@ -259,7 +259,9 @@ often, so it must rebuild within 2 s.
   to it in `card/focus.rs`, its keys typed in the session's empty composer in `card/composer.rs` and
   `dispatch/card.rs`, its pages in `card/pages.rs`, its size in `card/size.rs`, and what is drawn behind it in
   `app/draw/card.rs`, ADR 0180), and a plan's
-  edit and its approvals with a mode in `permissions/card/plan.rs` (part 3d). `src/app/agent.rs` answers it on the UI thread, and
+  edit and its approvals with a mode in `permissions/card/plan.rs` (part 3d), the question before
+  them in `card/plan/ask.rs`; `card/front.rs` says whether a request waits in front, for
+  `app/agent/requests.rs`. `src/app/agent.rs` answers it on the UI thread, and
   `src/dispatch/agent.rs` runs its commands. `channel/diagnostics.rs` reads `oso-lsp`'s
   reports and URI rules, the one module of the channel that does (ADR 0138, step 11).
 - End-to-end flows live in `tests/e2e` and run with `just e2e` (ADR 0049). They

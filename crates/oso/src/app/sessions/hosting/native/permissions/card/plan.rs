@@ -13,25 +13,23 @@
 //!   the CLI is given an edit only if the text differs, never cut, at most
 //!   [`permission::MAX_PLAN`] bytes, and never once a yank made it secret.
 //! - Only a key in it sends the edit: `C-c C-c`, manual after it, `C-c C-a` with accept edits
-//!   and `C-c C-A` with auto, and only for the call it was made for, never from a macro. While an edit that differs waits, the card's approvals are refused,
-//!   as they would approve the plan the person changed.
+//!   and `C-c C-A` with auto, and only for the call it was made for, never from a macro, and
+//!   only after [`QUIET`] since the edit became the selected buffer, as a card's keys (`focus`;
+//!   not since the key before, as the person writes the edit and then approves it).
+//! - While an edit that differs waits, the card's approvals are refused, as they would approve
+//!   the plan the person changed.
 //! - The card closing otherwise (denied, its call gone) takes an edit the person never
 //!   changed with it; a changed one stays, stale, for the person to copy, and says so once. A
 //!   later plan's `e` is refused until `C-c C-k` gave the stale one up: it is never lost
 //!   unasked.
-//! - Auto, `A` on the card or `C-c C-A` in the edit, asks y or n first (the author's answer to
-//!   1): `A` is the first letter of many a sentence typed where point came to the card. The
-//!   question is kept for the call it asked about, and its `y` approves only that call, if it
-//!   still waits and the edit, if any, still passes; the question closed otherwise is dropped.
-//!   The `y` counts only after [`QUIET`] since the question opened and since the key before
-//!   it, as the card's own keys do: a question takes every key but `y` and `n` without
-//!   closing, so a sentence typed on ("Are you…") would otherwise answer it.
+//! - Auto, and an edit that differs, ask y or n first (`ask`).
+
+mod ask;
 
 use std::time::Instant;
 
 use oso_core::buffer::{BufferId, Mode};
 use oso_core::editor::{Approval, NativeAction};
-use oso_core::minibuffer::PromptId;
 use oso_core::window::DockSlot;
 
 use super::{Answer, Card, Mark};
@@ -40,29 +38,17 @@ use crate::app::agent::QUIET;
 use crate::app::sessions::withheld_draft;
 use crate::channel::protocol::mode::PermissionMode;
 use crate::channel::protocol::permission;
-use crate::commands::agent_sessions::PLAN_CONFIRMED;
 use crate::sessions::worker::SessionKey;
 
 /// What the echo area says while a plan is edited.
 const EDITING: &str = "Edit the plan: C-c C-c approves it, C-c C-a with accept edits, C-c C-A with auto; C-c C-k gives the edit up";
 
 /// The plans being edited, one a session at most, and the question asked last before an
-/// approval with auto.
+/// approval.
 #[derive(Debug, Default)]
 pub(in crate::app::sessions::hosting::native) struct Plans {
     edits: Vec<Edit>,
-    asked: Option<Asked>,
-}
-
-/// The question `prompt`, asked `at`, before session `key`'s plan, its call `of`, is approved
-/// with auto, from its edit if `edit`.
-#[derive(Debug)]
-struct Asked {
-    prompt: PromptId,
-    at: Instant,
-    key: SessionKey,
-    of: String,
-    edit: bool,
+    asked: Option<ask::Asked>,
 }
 
 /// Session `key`'s plan's edit in `buffer`, made for its call `of` from Claude's `plan`; `stale`
@@ -89,6 +75,11 @@ impl Edit {
 impl Plans {
     fn of(&self, key: SessionKey) -> Option<&Edit> {
         self.edits.iter().find(|edit| edit.key == key)
+    }
+
+    /// The session whose plan's edit `buffer` is.
+    pub(super) fn session(&self, buffer: BufferId) -> Option<SessionKey> {
+        (self.edits.iter()).find_map(|edit| (edit.buffer == buffer).then_some(edit.key))
     }
 
     fn take(&mut self, key: SessionKey) -> Option<Edit> {
@@ -144,8 +135,8 @@ impl App {
                  C-c C-c there approves it, C-c C-k gives it up"
             ));
         }
-        if approval == Approval::Auto && !confirmed {
-            return self.ask_auto(key, false);
+        if !confirmed && ask::asks(false, approval) {
+            return self.ask_approval(key, approval, None);
         }
         self.answer_card(key, Answer::Plan(None, approval));
     }
@@ -200,97 +191,9 @@ impl App {
             return self.editor.message("The session's window is not shown");
         }
         self.editor.show(buffer);
+        self.note_current_card();
         self.editor.message(EDITING);
         self.request_redraw();
-    }
-
-    /// Asks whether to approve session `key`'s plan, from its edit if `edit`, with auto; the
-    /// question asked anew replaces the one before.
-    fn ask_auto(&mut self, key: SessionKey, edit: bool) {
-        let Some(of) = (self.hosting.natives.permissions.asks.shown(key))
-            .map(|ask| ask.call.tool_use_id.clone())
-        else {
-            return;
-        };
-        let name = self.plan_name(key);
-        let edited = if edit { " as you edited it" } else { "" };
-        let question = format!(
-            "Approve {name}'s plan{edited} and leave it in auto mode, \
-             where calls its classifier judges safe run unasked? (y or n)"
-        );
-        self.hosting.natives.permissions.plans.asked = None;
-        match self.editor.ask(question, PLAN_CONFIRMED) {
-            Ok(prompt) => {
-                self.hosting.natives.permissions.plans.asked = Some(Asked {
-                    prompt,
-                    at: Instant::now(),
-                    key,
-                    of,
-                    edit,
-                });
-            }
-            Err(e) => self.editor.message(format!("Cannot ask: {e}")),
-        }
-        self.request_redraw();
-    }
-
-    /// `y` to the question asked last before an approval with auto: the plan it asked about
-    /// approved with auto, if its call still waits on its card, from the edit it was asked in,
-    /// which is checked again.
-    pub(in crate::app::sessions::hosting::native) fn plan_confirmed(&mut self) {
-        let Some(asked) = self.hosting.natives.permissions.plans.asked.take() else {
-            return self.editor.message("Nothing was asked about a plan");
-        };
-        if self.editor.macro_replaying() {
-            return self.editor.message("A macro does not approve a plan");
-        }
-        if !answered_in_time(asked.at, self.agent_key_before(), Instant::now()) {
-            return self.editor.message(
-                "Not approved: wait a moment after the question, then answer it; A asks again",
-            );
-        }
-        let key = asked.key;
-        let waits = (self.hosting.natives.permissions.asks.shown(key))
-            .is_some_and(|ask| ask.call.tool_use_id == asked.of);
-        if !waits || !self.plan_waits(key) {
-            return self
-                .editor
-                .message("Not approved: the plan asked about no longer waits");
-        }
-        if asked.edit {
-            let edit = self.hosting.natives.permissions.plans.of(key);
-            let shown = self.editor.window().buffer();
-            if !edit.is_some_and(|edit| edit.of == asked.of && edit.buffer == shown) {
-                return self
-                    .editor
-                    .message("Not approved: the plan's edit is no longer in front");
-            }
-            return self.approve_edit(key, Approval::Auto, true);
-        }
-        self.approve_card_plan(key, Approval::Auto, true);
-    }
-
-    /// After an event: the question before an approval with auto, once it is no longer open,
-    /// under another prompt or not, and was not answered `y` in it, is dropped, so that no
-    /// later `y` approves.
-    pub(in crate::app) fn drop_unanswered_plan_question(&mut self) {
-        let Some(asked) = self.hosting.natives.permissions.plans.asked.as_ref() else {
-            return;
-        };
-        let prompts = self.editor.prompts();
-        if !prompts.iter().any(|prompt| prompt.id() == asked.prompt) {
-            self.hosting.natives.permissions.plans.asked = None;
-        }
-    }
-
-    /// Whether the question before an approval with auto, if one is the open prompt, takes
-    /// its `y` now. For end-to-end flows.
-    #[cfg(feature = "dev")]
-    pub(in crate::app) fn plan_question_takes_answer(&self) -> Option<bool> {
-        let asked = self.hosting.natives.permissions.plans.asked.as_ref()?;
-        let open = self.editor.prompt().map(|prompt| prompt.id());
-        (open == Some(asked.prompt))
-            .then(|| answered_in_time(asked.at, self.agent_person_typed(), Instant::now()))
     }
 
     /// Whether `buffer` is a plan's edit, and whose.
@@ -298,8 +201,20 @@ impl App {
         &self,
         buffer: BufferId,
     ) -> Option<SessionKey> {
+        self.hosting.natives.permissions.plans.session(buffer)
+    }
+
+    /// The session whose plan's edit `buffer` is, if its call still waits on its card.
+    pub(super) fn waiting_edit(&self, buffer: BufferId) -> Option<SessionKey> {
         let plans = &self.hosting.natives.permissions.plans.edits;
-        (plans.iter()).find_map(|edit| (edit.buffer == buffer).then_some(edit.key))
+        let edit = plans.iter().find(|edit| edit.buffer == buffer)?;
+        self.edit_waits(edit).then_some(edit.key)
+    }
+
+    /// Whether the call `edit` was made for still waits on its card.
+    fn edit_waits(&self, edit: &Edit) -> bool {
+        let shown = self.hosting.natives.permissions.asks.shown(edit.key);
+        !edit.stale && shown.is_some_and(|ask| ask.call.tool_use_id == edit.of)
     }
 
     /// A key of session `key`'s plan's edit: `action`.
@@ -309,14 +224,23 @@ impl App {
         action: NativeAction,
     ) {
         match action {
-            NativeAction::Approve(approval) => self.approve_edit(key, approval, false),
+            NativeAction::Approve(approval) => {
+                // `approve_edit` says why an edit nothing waits for is not approved.
+                let edit = self.hosting.natives.permissions.plans.of(key);
+                let waiting = edit.filter(|edit| self.edit_waits(edit));
+                let place = waiting.map(|edit| edit.buffer);
+                if place.is_none_or(|place| self.edit_admits_approval(key, place)) {
+                    self.approve_edit(key, approval, false);
+                }
+            }
             NativeAction::Cancel => self.give_up_edit(key),
             _ => self.editor.message(EDITING),
         }
     }
 
     /// `C-c C-c`, `C-c C-a` or `C-c C-A` in session `key`'s plan's edit: the plan approved as
-    /// the person edited it, if its call still waits; with auto, once `y` answered the question.
+    /// the person edited it, if its call still waits; with auto, or an edit that differs, once
+    /// `y` answered the question.
     fn approve_edit(&mut self, key: SessionKey, approval: Approval, confirmed: bool) {
         if self.editor.macro_replaying() {
             return self.editor.message("A macro does not approve a plan");
@@ -324,9 +248,7 @@ impl App {
         let Some(edit) = self.hosting.natives.permissions.plans.of(key) else {
             return;
         };
-        let waiting = (self.hosting.natives.permissions.asks.shown(key))
-            .is_some_and(|ask| ask.call.tool_use_id == edit.of);
-        if edit.stale || !waiting {
+        if !self.edit_waits(edit) {
             return self
                 .editor
                 .message("No plan waits for this edit any more: C-c C-k leaves it");
@@ -355,10 +277,14 @@ impl App {
                 .editor
                 .message("The plan is empty: write it, or C-c C-k gives the edit up");
         }
-        if approval == Approval::Auto && !confirmed {
-            return self.ask_auto(key, true);
-        }
         let edited = (text != edit.plan).then_some(text);
+        if !confirmed && ask::asks(edited.is_some(), approval) {
+            let asked = ask::EditToApprove {
+                lines: edited.map(|text| ask::changed_lines(&edit.plan, &text)),
+                revision: buffer.revision(),
+            };
+            return self.ask_approval(key, approval, Some(asked));
+        }
         let Some(edit) = self.hosting.natives.permissions.plans.take(key) else {
             return;
         };
@@ -431,9 +357,7 @@ impl App {
         let Some(edit) = self.hosting.natives.permissions.plans.of(key) else {
             return false;
         };
-        let waits = (self.hosting.natives.permissions.asks.shown(key))
-            .is_some_and(|ask| ask.call.tool_use_id == edit.of);
-        !edit.stale && waits && edit.changed(&self.editor)
+        self.edit_waits(edit) && edit.changed(&self.editor)
     }
 
     /// Session `key`'s shown call's id, plan and whether the request cut it, if it asks to
@@ -459,15 +383,31 @@ impl App {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use std::time::{Duration, Instant};
 
     use oso_core::editor::Approval;
     use serde_json::json;
 
     use super::super::Mark;
-    use super::{QUIET, answered, answered_in_time};
+    use oso_core::buffer::BufferId;
+
+    use super::{Edit, Plans, QUIET, SessionKey, answered, answered_in_time};
     use crate::channel::protocol::permission::MAX_PLAN;
+
+    /// Session `key`'s plan edited in `buffer`.
+    pub(in super::super) fn editing(key: SessionKey, buffer: BufferId) -> Plans {
+        Plans {
+            edits: vec![Edit {
+                key,
+                buffer,
+                of: "p1".to_owned(),
+                plan: "Do it.".to_owned(),
+                stale: false,
+            }],
+            asked: None,
+        }
+    }
 
     #[test]
     fn an_approval_says_its_edit_and_mode_and_a_long_edit_is_denied_never_cut() {

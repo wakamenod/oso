@@ -194,6 +194,7 @@ impl App {
         state["agent_question"] = json!({ "takes_answer": self.agent_question_takes_answer() });
         state["card"] = json!({
             "takes_answer": self.card_takes_answer(),
+            "plan_takes_answer": self.plan_takes_answer(),
             "question_takes_answer": self.plan_question_takes_answer(),
         });
         // The menu open, as the channel's state names it (ADR 0117).

@@ -49,7 +49,7 @@ impl App {
         if self.refuse_aside_key(buffer) {
             return;
         }
-        // The `y` to the question before a plan's approval with auto (part 3d), which keeps
+        // The `y` to the question before a plan's approval (part 3d), which keeps
         // the session it asked about.
         if action == NativeAction::Confirmed {
             return self.plan_confirmed();
