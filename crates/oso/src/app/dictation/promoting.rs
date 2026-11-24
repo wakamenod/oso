@@ -94,7 +94,7 @@ impl App {
     }
 
     /// Whether a dictation is under way, or its text waits to be typed.
-    pub(super) fn dictation_under_way(&self) -> bool {
+    pub(in crate::app) fn dictation_under_way(&self) -> bool {
         self.dictations.due.is_some()
             || (self.dictations.current.as_ref()).is_some_and(|current| !current.cancelled)
     }

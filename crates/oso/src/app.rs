@@ -243,9 +243,9 @@ pub struct App {
     emergency: Emergency,
     /// The emergency copies on offer (ADR 0064).
     offer: Offer,
-    /// A letter pressed as an answer among the copies, whose repeats are dropped until the next
-    /// press, wherever the answer took the window.
-    answering: Option<oso_core::key::KeyPress>,
+    /// The key held down, whose repeats are dropped until the next press once it answered or oso
+    /// moved point.
+    held_key: input::HeldKey,
     /// A file has loaded, so copies may belong to it. Asked for here, as a load's end can
     /// come on the frame path, and looked into before the event loop waits.
     scan_for_copies: bool,
@@ -427,7 +427,7 @@ impl App {
             idle_quit: idle_quit::IdleClock::default(),
             offer: emergency.offer(),
             emergency,
-            answering: None,
+            held_key: input::HeldKey::default(),
             scan_for_copies: false,
             started: Some(started),
             home: home_dir,

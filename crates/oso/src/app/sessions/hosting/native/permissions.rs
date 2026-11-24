@@ -30,6 +30,7 @@ mod sight;
 pub(in crate::app) use card::RequestWaits;
 pub(super) use card::Writing;
 use oso_platform::control::Peer;
+pub(in crate::app) use request::Typing;
 use serde_json::Value;
 
 use crate::app::{App, UserEvent};

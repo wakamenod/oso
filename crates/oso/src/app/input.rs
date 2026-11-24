@@ -13,6 +13,7 @@ use oso_core::window::{WheelRemainder, WindowId};
 use oso_platform::window::{Held, KeyInput, Position, Wheel};
 
 use super::App;
+use super::sessions::Typing;
 use super::shell::Loop;
 #[cfg(feature = "dev")]
 use crate::dev;
@@ -67,6 +68,37 @@ fn answers_once(mode: Mode, question: bool, sequence: bool, key: KeyPress) -> bo
         }
 }
 
+/// The key held down, as far as its repeats go.
+#[derive(Debug, Default)]
+pub(super) struct HeldKey {
+    pressed: Option<KeyPress>,
+    /// It does nothing more until it is pressed again.
+    once: Option<KeyPress>,
+}
+
+impl HeldKey {
+    /// `key` was pressed, which answers `once` or repeats.
+    fn pressed(&mut self, key: KeyPress, once: bool) {
+        self.pressed = Some(key);
+        self.once = once.then_some(key);
+    }
+
+    /// `key` answered, and does nothing more.
+    fn answered(&mut self, key: KeyPress) {
+        self.once = Some(key);
+    }
+
+    /// Whether the repeat of `key`, which would answer `once` where it goes, is dropped.
+    fn drops(&self, key: KeyPress, once: bool) -> bool {
+        once || self.once == Some(key)
+    }
+
+    /// oso moved point: the key held down is not meant for where point is now.
+    pub(super) fn point_moved(&mut self) {
+        self.once = self.pressed;
+    }
+}
+
 impl App {
     /// Remembers the modifier keys held, as the window system reports them.
     pub(super) fn set_modifiers(&mut self, modifiers: Held) {
@@ -76,6 +108,13 @@ impl App {
     /// Turns a key event from the window into a key press, and handles it.
     pub(super) fn handle_key_event(&mut self, event_loop: &Loop<'_>, input: &KeyInput<'_>) {
         if let Some(key) = keys::from_event(input, self.modifiers) {
+            // Before where it goes is asked: text typed as point came to a request's line goes to the
+            // composer (ADR 0182).
+            if !input.repeat && self.typed_as_point_came(Typing::Key(key)) {
+                self.note_key_for_agent(key);
+                self.held_key.pressed(key, true);
+                return;
+            }
             let mode = self.editor.current().1.mode();
             let question = self
                 .editor
@@ -84,11 +123,11 @@ impl App {
             let sequence = self.dispatcher.keys_in_progress();
             let once = answers_once(mode, question, sequence, key);
             if input.repeat {
-                if self.answering == Some(key) || once {
+                if self.held_key.drops(key, once) {
                     return;
                 }
             } else {
-                self.answering = once.then_some(key);
+                self.held_key.pressed(key, once);
             }
             self.dispatcher.set_key_repeats(input.repeat);
             if self.note_key_for_agent(key) {
@@ -103,7 +142,7 @@ impl App {
             self.handle_key(event_loop, key);
             // A key that answered a card from the composer answers once too (ADR 0180).
             if self.dispatcher.take_key_answered_card() {
-                self.answering = Some(key);
+                self.held_key.answered(key);
             }
         } else if let Some(text) = keys::typed_text(input, self.modifiers) {
             self.handle_text(event_loop, text);
@@ -153,6 +192,9 @@ impl App {
     /// Handles text from one key press that types several characters.
     fn handle_text(&mut self, event_loop: &Loop<'_>, text: &str) {
         self.person_typed("text");
+        if self.typed_as_point_came(Typing::Text) {
+            return;
+        }
         self.note_person_acted();
         let started = Instant::now();
         #[cfg(feature = "dev")]
@@ -179,6 +221,13 @@ impl App {
         delta: Wheel,
         at: Option<Position>,
     ) -> Option<(WindowId, bool)> {
+        let turns = match delta {
+            Wheel::Lines { x, y } => x != 0.0 || y != 0.0,
+            Wheel::Pixels { x, y } => x != 0.0 || y != 0.0,
+        };
+        if turns {
+            self.typed_as_point_came(Typing::Act);
+        }
         let view = self.view.as_ref()?;
         let grid = view.render_state.pixel_grid();
         let cell = at.and_then(|at| grid.cell_at(at.x, at.y));
@@ -335,6 +384,29 @@ mod tests {
                 "{mode:?} {name}"
             );
         }
+    }
+
+    /// A held `DEL` neither scrolls the line point went to, nor deletes a draft it came back to.
+    #[test]
+    fn a_held_key_does_nothing_where_oso_moved_point() {
+        use super::HeldKey;
+        let mut held = HeldKey::default();
+        held.pressed(key("DEL"), false);
+        assert!(!held.drops(key("DEL"), false), "it repeats");
+        held.point_moved();
+        assert!(held.drops(key("DEL"), false));
+        assert!(!held.drops(key("C-f"), false), "another one");
+        held.pressed(key("DEL"), false);
+        assert!(!held.drops(key("DEL"), false), "pressed again");
+        held.pressed(key("y"), true);
+        assert!(held.drops(key("y"), false), "it answered");
+        // One that did nothing as point came, wherever point goes then.
+        held.pressed(key("RET"), true);
+        held.point_moved();
+        assert!(held.drops(key("RET"), false));
+        held.pressed(key("C-n"), false);
+        held.answered(key("C-n"));
+        assert!(held.drops(key("C-n"), false));
     }
 
     #[test]

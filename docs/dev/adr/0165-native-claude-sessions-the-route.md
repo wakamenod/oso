@@ -658,7 +658,8 @@ As built:
 - **Amended by [ADR 0182](0182-a-native-sessions-requests-in-its-conversation.md), R1c
   (2026-11-24):** a call is no card: it is a block in the conversation, answered from a line, and
   no letter answers it from the composer. Questions and plans keep the card until that ADR's R2 and
-  R3. Only a key pressed now answers either: no macro's, and none held back.
+  R3. Only a key pressed now answers either: no macro's, and none held back. Since its R1d point goes to
+  the line by itself, and a block taller than its window shows its head.
 - **Amended 2026-11-24 (the author):** while a request waits in front of the person (its card,
   composer, transcript or plan's edit selected), the agent channel's `open` shows no file, and
   while any card waits an agent does not switch highlighting; a held key answers once, `RET` and

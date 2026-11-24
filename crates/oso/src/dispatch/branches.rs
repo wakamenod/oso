@@ -79,6 +79,11 @@ impl Dispatcher {
 
     /// Drops the wait for the branches, if a command waits, as when the person runs another
     /// command or quits: the echo area says so.
+    /// Whether a command waits for the branches, and its prompt with it.
+    pub fn waits_for_branches(&self) -> bool {
+        self.branch_wait.is_some()
+    }
+
     pub(super) fn drop_branch_wait(&mut self, editor: &mut Editor) {
         if self.branch_wait.take().is_some() {
             editor.message("Branch prompt dropped");

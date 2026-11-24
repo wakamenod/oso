@@ -102,6 +102,7 @@ fn a_tui_carried_over_a_restart_and_switched_to_native_asks_the_person() {
             .is_some_and(|modeline| modeline.starts_with("Agent  "))
     });
 
+    request::keyboard(&mut app, request::Keyboard::Japanese);
     // Switched to native: `claude -p` is the new instance's own child, and its bridge asks.
     switch_back(&mut app);
     let native = flow.wait_for_file("run.2");

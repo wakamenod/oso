@@ -11,8 +11,10 @@ use oso_core::editor::Editor;
 use oso_core::frame::FrameSize;
 use oso_core::window::{DockSlot, Screen};
 
+use super::place::{give, take};
 use super::read::view_of;
 use super::{put_title, runs};
+use crate::app::sessions::hosting::native::composer::new_docked_composer;
 use crate::app::sessions::hosting::native::markdown::tests::native;
 use crate::app::sessions::hosting::native::{NativeSessions, put_tail};
 use crate::sessions::native::request::measure_tests::{calls, times};
@@ -39,6 +41,28 @@ fn transcript(columns: usize) -> (Editor, NativeSessions) {
     let mut natives = NativeSessions::default();
     natives.map.insert(KEY, its);
     (editor, natives)
+}
+
+#[test]
+#[ignore = "a timing to read, run by hand in release"]
+#[expect(clippy::disallowed_macros, reason = "the timing is printed to be read")]
+fn what_the_composers_place_costs_the_ui_thread() {
+    for columns in [20, 62, 100] {
+        let (mut editor, mut natives) = transcript(columns);
+        let native = natives.map.get_mut(&KEY).unwrap();
+        let composer = new_docked_composer(&mut editor, native.buffer, "s");
+        native.composing.buffer = Some(composer);
+        let (host, line) = (native.buffer, native.line.unwrap());
+        let mut screen = Screen::default();
+        let window = editor.window().id();
+        let place = times(|| {
+            give(&mut editor, host, line, composer);
+            editor.screen_of(window, &mut screen);
+            take(&mut editor, host, line, composer);
+            editor.screen_of(window, &mut screen);
+        });
+        eprintln!("{columns} columns: its place given and taken back {place}");
+    }
 }
 
 #[test]
@@ -72,15 +96,19 @@ fn what_a_block_costs_the_ui_thread() {
             for _ in 0..100 {
                 let native = natives.map.get_mut(&KEY).unwrap();
                 let started = Instant::now();
+                let heads = super::head::in_block(&editor, native);
                 for part in [Part::Title, Part::Body] {
                     put_tail(&mut editor, native, part, String::new(), Vec::new());
                 }
+                super::head::to_end(&mut editor, native.buffer, &heads);
                 take_took.push(started.elapsed());
                 let started = Instant::now();
                 editor.refill_wraps();
                 put_title(&mut editor, native, &block, ((1, 1), columns - 1));
                 let its = runs(body);
                 put_tail(&mut editor, native, Part::Body, body.text.clone(), its);
+                // Point at its end, then at its head if it is taller, as its line is gone to.
+                super::head::show(&mut editor, native, window);
                 editor.screen_of(window, &mut screen);
                 put_took.push(started.elapsed());
                 // As the answer of one shows the next.
