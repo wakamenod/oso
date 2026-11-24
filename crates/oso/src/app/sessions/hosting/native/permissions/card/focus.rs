@@ -98,8 +98,9 @@ impl App {
     pub(in crate::app) fn note_window_in_front(&mut self, front: bool) {
         let sight = &mut self.hosting.natives.permissions.sight;
         sight.front(front, Instant::now());
-        if !front {
-            self.out_of_sight();
+        match front {
+            true => self.card_seen_again(),
+            false => self.out_of_sight(),
         }
     }
 
@@ -107,8 +108,9 @@ impl App {
     pub(in crate::app) fn note_window_hidden(&mut self, hidden: bool) {
         let sight = &mut self.hosting.natives.permissions.sight;
         sight.hidden(hidden, Instant::now());
-        if hidden {
-            self.out_of_sight();
+        match hidden {
+            true => self.out_of_sight(),
+            false => self.card_seen_again(),
         }
     }
 
@@ -126,7 +128,7 @@ impl App {
 
     /// oso's window came in front, or in sight, again: the card in front, or a question before an
     /// answer, waits again, as the person may see it only now.
-    pub(in crate::app) fn card_seen_again(&mut self) {
+    fn card_seen_again(&mut self) {
         self.unread_question_waits_again();
         let plans = &mut self.hosting.natives.permissions.plans;
         plans.wait_again(Instant::now());

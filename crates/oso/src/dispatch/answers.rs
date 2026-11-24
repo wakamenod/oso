@@ -142,6 +142,12 @@ mod tests {
         send(&mut d, &mut editor, "C-x ( y C-x )");
         assert_eq!(actions(&mut editor), [NativeAction::Allow]);
         send(&mut d, &mut editor, "C-x e");
+        let refused = |name: &str| {
+            let id = registry().lookup(name).unwrap();
+            d.answer_refused(&editor, id).is_some()
+        };
+        assert!(ANSWERS.iter().chain(WRITTEN).all(|name| refused(name)));
+        assert!(!refused("native-request-read-on"));
         let soon = std::time::Instant::now() + std::time::Duration::from_secs(5);
         d.replay(&mut editor, soon);
         assert_eq!(actions(&mut editor), [], "its only key is the answer");
@@ -163,8 +169,7 @@ mod tests {
         assert_eq!(editor.current().1.text().to_string(), "");
     }
 
-    /// A yank waits for the clipboard, the person goes to the line meanwhile, and what was typed
-    /// after the yank runs there.
+    /// A key held behind a yank answers nothing.
     #[test]
     fn a_key_typed_behind_a_yank_answers_no_request() {
         use oso_core::kill::FromClipboard;
@@ -178,7 +183,7 @@ mod tests {
         assert_eq!(actions(&mut editor), [NativeAction::Deny]);
     }
 
-    /// What was typed while a macro replayed runs as it ends, in the line the person went to.
+    /// Nor one held behind a macro's replay.
     #[test]
     fn a_key_typed_while_a_macro_replays_answers_no_request() {
         let (mut d, mut editor) = (Dispatcher::new(), Editor::default());
@@ -190,7 +195,7 @@ mod tests {
         assert_eq!(actions(&mut editor), [NativeAction::ReadOn(1)]);
     }
 
-    /// What was typed while a long replacement went on runs once it has ended.
+    /// Nor one held behind a long replacement.
     #[test]
     fn a_key_typed_while_work_went_on_answers_no_request() {
         let (mut d, mut editor) = super::super::motion_tests::at(&"a ".repeat(3000), &[0]);

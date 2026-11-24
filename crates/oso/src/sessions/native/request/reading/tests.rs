@@ -81,6 +81,21 @@ fn a_row_is_read_once_it_was_in_view_for_long_enough() {
 }
 
 #[test]
+fn a_call_all_read_is_allowed_only_with_its_last_row_in_view() {
+    let mut reading = reading(4);
+    let now = read(&mut reading, &view(0..4), Instant::now());
+    assert!(reading.allows());
+    // Scrolled back, a frame of it presented.
+    reading.look(&view(0..3), true, now + T);
+    assert!(reading.all_read() && !reading.last_in_view());
+    assert!(!reading.allows());
+    reading.look(&view(1..4), false, now + 2 * T);
+    assert!(!reading.allows(), "no frame of it yet");
+    reading.look(&view(1..4), true, now + 3 * T);
+    assert!(reading.allows());
+}
+
+#[test]
 fn a_view_that_changes_starts_the_wait_again() {
     let start = Instant::now();
     let one = view(0..2);

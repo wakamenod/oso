@@ -487,8 +487,8 @@ the line by itself in no case, and the line always stands above the composer:** 
   before and after. **In front** is what the system said, never assumed: until it said so, nothing is
   read or answered. "A float" is a description, a completion, a menu, a jump's labels and an input
   method's composition too.
-- **Looked at** after each event, as each frame was presented, when what is in view is due to be
-  read, and before a key answers.
+- **Looked at** after each event that drew no frame, as each frame was presented, when what is in
+  view is due to be read, and before a key answers.
 - **The wait's start** is the latest of point coming to the line, of the call being shown and of the
   person coming to see oso, worked out as a key comes: what was noted when is no part of it. A key acts
   on the call its session shows; one pressed before that call was shown is too soon. A note and

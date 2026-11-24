@@ -143,12 +143,13 @@ impl App {
     /// After each event: each shown call's title as its place and its window's width are, what its
     /// window shows looked at, and its line as both leave it.
     pub(in crate::app) fn sync_requests(&mut self) {
-        if self.hosting.natives.permissions.requests.drawn.is_empty() {
+        let requests = &mut self.hosting.natives.permissions.requests;
+        // A frame just drawn was looked at as it was.
+        let drawn_now = std::mem::take(&mut requests.drawn_now);
+        if requests.drawn.is_empty() {
             return;
         }
         self.note_current_card();
-        // A frame just drawn was looked at as it was.
-        let drawn_now = std::mem::take(&mut self.hosting.natives.permissions.requests.drawn_now);
         for at in 0..self.hosting.natives.permissions.requests.drawn.len() {
             let Some(drawn) = self.hosting.natives.permissions.requests.drawn.get(at) else {
                 break;
