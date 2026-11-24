@@ -7,7 +7,7 @@
 
 use std::path::Path;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
@@ -17,13 +17,36 @@ use super::super::super::worktrees::keys;
 use super::cards::{CARDS_FAKE, ask};
 use super::{Flow, answer_after_quiet, card, in_composer, plan, sent, text};
 
-/// How long the channel waits after the person's last key, and a moment more.
-const AFTER_TYPING: Duration = Duration::from_millis(1200);
+/// What `call` is answered once the channel says no more that the person is typing: for a second
+/// after a key, and on X11 after an input method's report too, which comes when it comes.
+fn answer(
+    agent: &mut Agent,
+    call: impl Fn(&mut Agent) -> Result<Value, String>,
+) -> Result<Value, String> {
+    let started = Instant::now();
+    loop {
+        match call(agent) {
+            Err(why) if why.contains("person is typing") => {
+                assert!(started.elapsed() < Duration::from_secs(20), "still: {why}");
+                thread::sleep(Duration::from_millis(200));
+            }
+            answer => return answer,
+        }
+    }
+}
 
-/// The agent's `open` of `path`, once the person's last key is past.
+/// The agent's `open` of `path`.
 fn open(agent: &mut Agent, path: &Path) -> Result<Value, String> {
-    thread::sleep(AFTER_TYPING);
-    agent.call("open", Some(json!({ "path": path, "line": null })))
+    answer(agent, |agent| {
+        agent.call("open", Some(json!({ "path": path, "line": null })))
+    })
+}
+
+/// The agent's `global-font-lock-mode`, given `arg`.
+fn font_lock(agent: &mut Agent, arg: i64) -> Result<Value, String> {
+    answer(agent, |agent| {
+        agent.run("global-font-lock-mode", Some(arg), "look")
+    })
 }
 
 /// The agent's `open` of `path` is refused, and the buffer named `front` stays in front.
@@ -91,20 +114,16 @@ fn an_agent_shows_no_file_while_a_request_waits_in_front() {
     app.wait_for("the session to need the person", |state| {
         state["sessions"].to_string().contains("needs input")
     });
-    thread::sleep(AFTER_TYPING);
-    let why = (agent.run("global-font-lock-mode", Some(0), "look")).expect_err("a request waits");
+    let why = font_lock(&mut agent, 0).expect_err("a request waits");
     assert!(why.contains("request waits"), "{why}");
-    assert!(open(&mut agent, &other).is_ok());
+    open(&mut agent, &other).expect("the request is out of sight");
     app.send_keys("C-x b");
     app.send_keys(&keys("*claude: proj*"));
     app.send_keys("RET");
     card(&mut app, "the second plan's card");
     answer_after_quiet(&mut app, "n");
     flow.wait_for_file("answers");
-    thread::sleep(AFTER_TYPING);
-    agent
-        .run("global-font-lock-mode", Some(1), "look")
-        .expect("nothing waits");
+    font_lock(&mut agent, 1).expect("nothing waits");
     flow.scratch.write("go", b"0");
     let _ = app.exchange("exit", None);
     app.wait_for_exit();
