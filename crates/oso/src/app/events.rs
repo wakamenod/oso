@@ -207,6 +207,7 @@ impl App {
         self.review_watch_due();
         self.review_ask_due();
         self.held_starts_due();
+        self.sync_restart_resumes();
         self.dictation_watches_due();
         self.quit_if_idle(event_loop);
         self.restart_if_idle(event_loop);
@@ -325,6 +326,7 @@ impl App {
             self.idle_quit.next_wake(),
             self.restart_wait_deadline(),
             self.held_starts_deadline(),
+            self.hosting.natives.restart_resumes_deadline(),
             self.dictation_watch_deadline(),
         ];
         match earliest(deadlines) {

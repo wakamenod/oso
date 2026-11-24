@@ -25,6 +25,8 @@
 //!   leaves it stopped, saying why, in the mode it had (`resumed`). A session the state does not name
 //!   stays as it came back: stopped; so does one resumed meanwhile by anyone else.
 
+use std::time::Instant;
+
 use super::resumed::ResumeFor;
 use crate::app::App;
 use crate::carry::natives::NativeResume;
@@ -42,6 +44,8 @@ pub(in crate::app) struct Resuming {
     gone: bool,
     /// Those resumed, until each has reported (`resumed`).
     pub(super) asked: Vec<SessionKey>,
+    /// Since when each has reported, while what they left stopped waits to be said.
+    pub(super) reported: Option<Instant>,
 }
 
 impl App {
