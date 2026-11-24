@@ -62,43 +62,43 @@ fn lit(line: &Line) -> Vec<&str> {
 fn a_line_says_the_keys_and_what_was_read() {
     let all = set_up("Bash", 3, 3, 3);
     assert_eq!(
-        text(&all, HERE, 90),
-        " y  allow   n  deny   N  deny, saying why   RET  its input   i  write      Bash · all read"
+        text(&all, HERE, 92),
+        "  y  allow   n  deny   N  deny, saying why   RET  its input   i  write      Bash · all read"
     );
     assert_eq!(
-        text(&all, HERE, 60),
+        text(&all, HERE, 62),
         concat!(
-            " y  allow   n  deny   N  why   RET  input   i  write\n",
-            "                                             Bash · all read"
+            "  y  allow   n  deny   N  why   RET  input   i  write\n",
+            "                                              Bash · all read"
         )
     );
     assert_eq!(
-        text(&all, HERE, 72),
+        text(&all, HERE, 74),
         concat!(
-            " y  allow   n  deny   N  why   RET  input   i  write\n",
-            "                                                         Bash · all read"
+            "  y  allow   n  deny   N  why   RET  input   i  write\n",
+            "                                                          Bash · all read"
         )
     );
     let some = set_up("Edit", 201, 34, 34);
     assert_eq!(
-        text(&some, HERE, 81),
-        " SPC  read on   n  deny   N  why   C-u y  unread   i  write   34 of 202 rows read"
+        text(&some, HERE, 83),
+        "  SPC  read on   n  deny   N  why   C-u y  unread   i  write   34 of 202 rows read"
     );
     let elsewhere = Says {
         here: false,
         ..HERE
     };
     assert_eq!(
-        text(&all, elsewhere, 60),
+        text(&all, elsewhere, 62),
         " Bash asks to run   C-c C-j  answers it"
     );
     assert_eq!(
-        text(&all, elsewhere, 38),
+        text(&all, elsewhere, 39),
         " Bash asks to run   C-c C-j  answers"
     );
     assert_eq!(
         text(&all, elsewhere, 30),
-        " Bash asks to run\n C-c C-j  answers it"
+        " Bash asks to run\n  C-c C-j  answers it"
     );
     assert_eq!(text(&all, HERE, 19), "Bash asks to run");
 }
@@ -119,7 +119,7 @@ fn what_a_line_shows_is_what_a_key_does_now() {
         ..HERE
     };
     assert_eq!(shown(&all, waits).1, "");
-    assert!(shown(&all, waits).2.starts_with(" y  allow   n  deny"));
+    assert!(shown(&all, waits).2.starts_with("  y  allow   n  deny"));
     // All of it in view, and not read yet: `y` would not allow.
     let soon = set_up("Bash", 3, 0, 3);
     assert_eq!(shown(&soon, HERE).0, Keys::Allow);

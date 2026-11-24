@@ -201,7 +201,7 @@ impl App {
         let (id, _) = carrier(&self.editor, native.buffer, DockSlot::Card)?;
         let offset = match at {
             // Past the row between it and what is above.
-            At::Title => native.part_place(Part::Title).start + 1,
+            At::Title | At::Body(0) => native.part_place(Part::Title).start + 1,
             At::Body(at) => native.part_place(Part::Body).start + at,
         };
         Some((id, offset))

@@ -127,10 +127,15 @@ impl Keys {
     }
 }
 
+/// The cells a line keeps free at each end, the cursor's among them.
+const MARGIN: usize = 1;
+
 /// `block`'s line, `width` cells wide, of which `reading` was read. Where point is on it, it has as
 /// many rows at a width whatever it says, so that what it says never moves what it is said of.
 pub fn line(block: &Block, reading: &Reading, says: Says, width: usize) -> Line {
     let keys = Keys::of(says, reading, width);
+    let margin = if keys == Keys::Narrow { 0 } else { MARGIN };
+    let width = width - 2 * margin;
     let rows = match keys {
         Keys::Narrow => vec![vec![(said(block, "", width), Face::CardTitle)]],
         Keys::Go => go(block, width),
@@ -167,6 +172,7 @@ pub fn line(block: &Block, reading: &Reading, says: Says, width: usize) -> Line 
         if at > 0 {
             line.shown.put("\n", Some(Face::CardTitle));
         }
+        line.shown.put(&" ".repeat(margin), Some(Face::CardTitle));
         for (text, face) in row {
             line.shown.put(text, Some(*face));
         }
@@ -211,7 +217,7 @@ fn cells(row: &[(String, Face)]) -> usize {
 
 /// What the line says where point is not: what asks, then how to go there.
 fn go(block: &Block, width: usize) -> Vec<Pieces> {
-    let words = said(block, " ", width);
+    let words = said(block, "", width);
     let chip = |short| {
         let rows = rows_of(Keys::Go.keys(), short, |_| true, width);
         rows.into_iter().flatten()
