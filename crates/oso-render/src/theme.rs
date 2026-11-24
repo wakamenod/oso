@@ -566,6 +566,8 @@ pub(crate) mod tests {
             // A composer's rules, over its current line's band too (ADR 0170).
             Face::Prompt => &[
                 (Face::Float, LABEL),
+                // A session's footer, on the text's background (ADR 0170).
+                (Face::Text, LABEL),
                 (Face::CurrentLine, MARK),
                 (Face::Modeline, LABEL),
                 (Face::ModelineInactive, LABEL),

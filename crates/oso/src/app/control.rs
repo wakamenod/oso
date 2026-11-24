@@ -205,6 +205,11 @@ impl App {
                 .or_else(|| self.unread_question_takes_answer())
                 .or_else(|| self.remote_question_takes_answer()),
         });
+        // The footer shown, withheld as the modelines are (ADR 0170).
+        if state["modeline"].is_string() {
+            let natives = &self.hosting.natives;
+            state["footer"] = json!(super::draw::footer_said(&self.editor, natives));
+        }
         // A call that waits (ADR 0182).
         state["request"] = json!(self.request_state());
         // The menu open, as the channel's state names it (ADR 0117).

@@ -23,7 +23,8 @@ orchestrator:
   answered; the tool row says what came of it (proposal 8, step 2). Since 2026-11-24 a call is asked in
   the conversation instead, at its end, with its line docked, in an empty composer's place (ADR 0182).
 - **The status** is the session window's modeline: model, mode, `ctx N%`, cost and the rate
-  limit's window, each once (proposal 13, step 3).
+  limit's window, each once (proposal 13, step 3). Since 2026-11-24 the model and the mode are in a
+  footer under the composer instead (ADR 0165, "The footer, as built").
 - **The to-do list** is a strip pinned above the composer, one line, opened to at most 6 rows
   (proposal 14, step 3).
 - **Edits:** no changed-files list in the session; `v` on an edit row opens ADR 0122's review at
@@ -187,7 +188,8 @@ ADR 0182):
 › █
 ```
 
-The status line, as the session window's modeline:
+The status line, as the session window's modeline (its model and mode are in the footer since, ADR
+0165, "The footer, as built"):
 
 ```text
  *claude: fix-login*  Session  ● working   Opus 5.5 · auto · ctx 41% · $0.82 · 5h 63%

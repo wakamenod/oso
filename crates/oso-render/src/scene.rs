@@ -49,7 +49,7 @@ use highlight::{CellRows, RowFaces};
 use labels::{Covered, Keys, Over, draw_labels};
 use marks::{Fade, draw_signs};
 
-use rules::{between, draw_rules};
+use rules::{between, draw_rule, draw_rules};
 use text_pane::{cursor_cells, draw_fills, draw_text, preedit_lines, underline_preedit};
 
 /// Where a frame's glyphs come from, as an atlas gives them.
@@ -424,7 +424,8 @@ fn draw_pane<G: GlyphSource>(
         PaneContent::Lines(_)
         | PaneContent::Divider
         | PaneContent::Grid(_)
-        | PaneContent::Signs(_) => None,
+        | PaneContent::Signs(_)
+        | PaneContent::Rule { .. } => None,
     };
     let hollow = matches!(&pane.content, PaneContent::Text(view) if view.cursor_style == CursorStyle::Hollow);
     let held = held_rects(pane, cursor, hollow);
@@ -464,8 +465,9 @@ fn draw_pane<G: GlyphSource>(
             let layout = between(layout, pane.rules, metrics);
             draw_lines(draws, lines, &layout, rows_shown, rows, system, glyphs);
         }
-        PaneContent::Divider => draw_divider(draws, &unscrolled, pane.region),
-        PaneContent::Signs(signs) => draw_signs(draws, signs, &unscrolled, pane.region),
+        PaneContent::Divider | PaneContent::Signs(_) | PaneContent::Rule { .. } => {
+            draw_shapes(draws, pane, &unscrolled, metrics);
+        }
         PaneContent::Grid(view) => {
             let layout = (&unscrolled, held, metrics);
             grid_pane::draw_grid(draws, view, pane, layout, (rows, system, glyphs));
@@ -507,6 +509,21 @@ fn draw_behind(draws: &mut Draws, pane: &Pane<'_>, layout: &Layout, metrics: Cel
     draw_panel(draws, pane, metrics);
     if !matches!(&pane.content, PaneContent::Text(_)) {
         draw_rules(draws, pane, layout, metrics);
+    }
+}
+
+/// Draws a pane whose content has no text in `layout`.
+fn draw_shapes(draws: &mut Draws, pane: &Pane<'_>, layout: &Layout, metrics: CellMetrics) {
+    match pane.content {
+        PaneContent::Divider => draw_divider(draws, layout, pane.region),
+        PaneContent::Signs(signs) => draw_signs(draws, signs, layout, pane.region),
+        PaneContent::Rule { ink, above, below } => {
+            draw_rule(draws, layout, pane.region, [above, ink, below], metrics);
+        }
+        PaneContent::Text(_)
+        | PaneContent::Lines(_)
+        | PaneContent::Masked(_)
+        | PaneContent::Grid(_) => {}
     }
 }
 

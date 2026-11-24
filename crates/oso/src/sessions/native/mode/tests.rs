@@ -11,7 +11,7 @@ use crate::sessions::native::control::tests::{ok, on};
 use crate::sessions::native::control::{Answered, Control};
 use crate::sessions::native::wire::control::{self, INITIALIZE, Request};
 
-const IDLE: Process = Process {
+pub(super) const IDLE: Process = Process {
     idle: true,
     spoke: true,
     resumable: true,
@@ -21,7 +21,7 @@ const BUSY: Process = Process {
     ..IDLE
 };
 
-fn in_mode(name: &str) -> ModeState {
+pub(super) fn in_mode(name: &str) -> ModeState {
     let mut modes = ModeState::default();
     assert!(modes.said(name, false));
     modes
@@ -38,7 +38,11 @@ fn tier_one(now: Instant) -> Control {
 }
 
 /// The id and mode a switch begun on tier 2 asks with.
-fn asked(modes: &mut ModeState, control: &mut Control, now: Instant) -> (u64, PermissionMode) {
+pub(super) fn asked(
+    modes: &mut ModeState,
+    control: &mut Control,
+    now: Instant,
+) -> (u64, PermissionMode) {
     match modes.begin(Some(control), IDLE, now) {
         Ok(Then::Request(id, mode)) => (id, mode),
         other => panic!("{other:?}"),
@@ -101,8 +105,8 @@ fn a_new_process_carries_a_mode_that_asks_or_one_the_person_chose_and_none_else(
     assert!(modes.said("acceptEdits", false));
     assert_eq!(modes.for_start(), Some(AcceptEdits));
     assert!(
-        !modes.said("acceptEdits", false),
-        "the new process says it again"
+        modes.said("acceptEdits", false),
+        "the new process says it: none of its was shown before"
     );
     assert!(modes.said("auto", false), "a line no switch asked for");
     assert_eq!(
@@ -379,7 +383,7 @@ fn a_plan_approved_with_a_mode_is_the_persons_choice() {
     assert_eq!(modes.carried(), Some(AcceptEdits), "before the CLI says it");
     assert!(modes.said("acceptEdits", false));
     assert_eq!(modes.for_start(), Some(AcceptEdits));
-    assert!(!modes.said("acceptEdits", false));
+    assert!(modes.said("acceptEdits", false), "the new process says it");
     assert!(modes.said("auto", false), "no approval asked for it");
     assert_eq!(modes.carried(), Some(Default));
 }

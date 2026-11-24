@@ -4,7 +4,7 @@
 //! Must not depend on: key presses or commands. Before a frame it takes in what
 //! has loaded and fits the gutter to it, as a load is no input, and sets `*Spaces*`' modeline
 //! note for whether the side window is selected (ADR 0140), as any key may have changed that,
-//! and names the keys of an empty composer's placeholder (ADR 0170);
+//! and names the keys of an empty composer's placeholder and of a session's footer (ADR 0170);
 //! otherwise a frame only reads the editor's state.
 //!
 //! Whatever changes the modeline or the echo area gets a frame in one place
@@ -94,7 +94,7 @@ pub(super) fn with_panes<R>(
 }
 
 /// What [`with_frame`] reads: the editor, the terminals, `*Spaces*`' bands, and the native
-/// sessions, whose empty composers' placeholders show (ADR 0170).
+/// sessions, whose empty composers' placeholders and whose footers show (ADR 0170).
 type Shows<'a> = (
     &'a Editor,
     &'a Terminals,
@@ -122,6 +122,8 @@ pub(super) fn with_frame<R>(
     let mut room = std::mem::take(&mut cells.room);
     let hints = tiled::placeholder::rows(editor, &cells.windows, natives, &mut room.hints);
     let hint_lines = tiled::placeholder::lines(&hints, &mut room.hints);
+    let feet = tiled::footer::rows(editor, natives, &mut room.feet);
+    let foot_lines = tiled::footer::lines(&feet, &mut room.feet);
     let windows = editor.frame().windows();
     let spans = tiled::spans_of(windows, statuses, &cells.windows, &empty, &mut room);
     let rows = tiled::rows_of(&spans.0, &spans.1, &mut room);
@@ -137,6 +139,7 @@ pub(super) fn with_frame<R>(
         gutters: &rows.1,
         statuses,
         placeholders: (&hints, &hint_lines),
+        footers: (&feet, &foot_lines),
         natives,
         flash: cells.flash,
     };
@@ -186,12 +189,20 @@ pub(super) fn with_frame<R>(
     cells
         .menu
         .give_back(menu::spans_back(menu_room, menu_spans));
+    tiled::footer::give_back_lines(&mut room.feet, foot_lines);
+    tiled::footer::give_back_rows(&mut room.feet, feet);
     tiled::placeholder::give_back_lines(&mut room.hints, hint_lines);
     tiled::placeholder::give_back_rows(&mut room.hints, hints);
     tiled::give_back_rows(&mut room, rows);
     tiled::give_back_spans(&mut room, spans);
     cells.room = room;
     result
+}
+
+/// What a frame's first footer says, for the dev socket (ADR 0170).
+#[cfg(feature = "dev")]
+pub(super) fn footer_said(editor: &Editor, natives: &NativeSessions) -> Option<String> {
+    tiled::footer::said(editor, natives)
 }
 
 /// What the echo area says, its warnings first.
@@ -513,6 +524,7 @@ mod tests {
                             | PaneContent::Masked(_)
                             | PaneContent::Grid(_)
                             | PaneContent::Signs(_)
+                            | PaneContent::Rule { .. }
                             | PaneContent::Divider => Vec::new(),
                             PaneContent::Lines(lines) => lines[0]
                                 .iter()
@@ -832,6 +844,7 @@ mod tests {
                             })
                             .unwrap_or_default(),
                         PaneContent::Divider => "divider".to_owned(),
+                        PaneContent::Rule { .. } => "rule".to_owned(),
                         PaneContent::Masked(_) => String::new(),
                         PaneContent::Grid(_) => "grid".to_owned(),
                         PaneContent::Signs(signs) => format!("signs {signs:?}"),
@@ -858,9 +871,8 @@ mod tests {
         let [left, right] = [first, second].map(|id| *editor.regions(id).unwrap());
         let ids: Vec<_> = panes.iter().map(|pane| pane.0.0).collect();
         // The texts, the selected one's last, then the gutters, the modelines, the divider and
-        // the echo area. Each window has six ids, the fifth for its sign column and the
-        // last for a composer's placeholder.
-        assert_eq!(ids, [22, 16, 17, 23, 18, 24, 19, ECHO.0]);
+        // the echo area. Each window has ten ids, the others for what is drawn in some alone.
+        assert_eq!(ids, [26, 16, 17, 27, 18, 28, 19, ECHO.0]);
         assert_eq!(panes[0].1, right.text);
         assert_eq!(panes[0].3, "Hollow", "the other");
         assert_eq!(panes[1].1, left.text);
@@ -883,7 +895,7 @@ mod tests {
         // Deleted, the first gives its cells to the second, which keeps its ids.
         editor.delete_window().unwrap();
         let ids: Vec<_> = split_panes(&editor).iter().map(|pane| pane.0.0).collect();
-        assert_eq!(ids, [22, 23, 24, ECHO.0]);
+        assert_eq!(ids, [26, 27, 28, ECHO.0]);
     }
 
     #[test]
@@ -900,7 +912,7 @@ mod tests {
         let panes = split_panes(&editor);
         let tiled: Vec<_> = panes.iter().filter(|pane| pane.0.0 >= 16).collect();
         // The window the prompt came from, the first, has its text last.
-        assert_eq!((tiled[0].0.0, tiled[1].0.0), (22, 16));
+        assert_eq!((tiled[0].0.0, tiled[1].0.0), (26, 16));
         assert_eq!(tiled[0].3, "Hollow");
         assert_eq!(tiled[1].3, "Hollow");
         assert_eq!(tiled[4].2, Some(Face::ModelineInactive));

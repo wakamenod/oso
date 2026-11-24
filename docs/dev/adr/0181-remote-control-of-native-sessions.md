@@ -1,6 +1,6 @@
 # 0181. Remote Control of native sessions
 
-- Status: Accepted
+- Status: Accepted, amended by 0165 ("The mark", 2026-11-24)
 - Date: 2026-11-24
 
 ## Context
@@ -242,6 +242,8 @@ the five calls that ask, and forks of an agent's session.
   44 columns it is whole. Going off, the mode is left out, as it would read as what goes off; in `*Spaces*`, `⇄` before the name, never cut, which no name or reason begins
   with; also while its buffer is killed and its process ends. At most six rows a process say that
   it is on or dropped, the latter "and may connect again by itself".
+  Amended 2026-11-24: a mode no key here gave is in the session's footer too, from the same value (ADR
+  0165, "The footer, as built"); and while the mark leaves it out, going off, the note has it as any.
 - **Across `oso-restart`** a connected session is not told off. The state carries its id there, its
   directory, and the device and inode of that and of its repository, which the start thread
   compares; Windows has none, so nothing connects again there. It also names the forks of

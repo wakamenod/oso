@@ -1,7 +1,7 @@
 //! What an empty composer's placeholder says (ADR 0170, as amended): that it writes to Claude,
 //! and the keys that send and that go back to the transcript, as they are bound now; or, while
 //! its session has one, the CLI's prompt suggestion and the key that takes it (ADR 0165, part
-//! 3f).
+//! 3f); and the key its session's footer names.
 //!
 //! Must not depend on: how a frame is drawn: the drawing decides where and whether it shows.
 
@@ -19,6 +19,8 @@ pub(in crate::app) struct Placeholder {
     pub(in crate::app) usual: [String; 3],
     /// What follows a suggestion.
     pub(in crate::app) takes: String,
+    /// What follows the permission mode in the session's footer.
+    pub(in crate::app) cycles: String,
 }
 
 impl NativeSessions {
@@ -54,12 +56,14 @@ impl App {
 fn texts(dispatcher: &Dispatcher) -> Placeholder {
     let take = dispatcher.where_is_in_composer("native-session-take-suggestion");
     let send = dispatcher.where_is_in_composer("native-composer-send");
+    let cycle = dispatcher.where_is_in_composer("native-session-cycle-mode");
     let back = dispatcher.where_is_in_composer("native-composer-transcript");
     let what = "Write to Claude".to_owned();
     let sends = format!("{what} · {send} sends");
     Placeholder {
         usual: [format!("{sends} · {back} transcript"), sends, what],
         takes: format!("   ({take} takes it)"),
+        cycles: format!(" ({cycle} to cycle)"),
     }
 }
 
@@ -76,6 +80,7 @@ impl NativeSessions {
             placeholder: Some(Placeholder {
                 usual: usual.map(str::to_owned),
                 takes: takes.to_owned(),
+                cycles: " (S-TAB to cycle)".to_owned(),
             }),
             ..Self::default()
         };
@@ -107,6 +112,7 @@ mod tests {
             ]
         );
         assert_eq!(texts(&Dispatcher::new()).takes, "   (C-c C-s takes it)");
+        assert_eq!(texts(&Dispatcher::new()).cycles, " (S-TAB to cycle)");
     }
 
     #[test]

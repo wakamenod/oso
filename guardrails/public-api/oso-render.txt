@@ -249,6 +249,10 @@ pub oso_render::PaneContent::Divider
 pub oso_render::PaneContent::Grid(oso_render::GridView<'a>)
 pub oso_render::PaneContent::Lines(&'a [&'a [oso_render::Span<'a>]])
 pub oso_render::PaneContent::Masked(oso_render::Masked<'a>)
+pub oso_render::PaneContent::Rule
+pub oso_render::PaneContent::Rule::above: oso_render::Face
+pub oso_render::PaneContent::Rule::below: oso_render::Face
+pub oso_render::PaneContent::Rule::ink: oso_render::Face
 pub oso_render::PaneContent::Signs(&'a [core::option::Option<oso_render::Face>])
 pub oso_render::PaneContent::Text(oso_render::TextView<'a>)
 pub enum oso_render::Redraw

@@ -2,7 +2,7 @@
 //! permission mode, how much of the context is used, what the session cost and how much of the
 //! rate limit's window is used, from what the stream and the control layer say. The modeline's
 //! note shows its parts after the run's state, `Haiku 5.5 · default · ctx 3% · $0.82 · 7d 28%`,
-//! each once known.
+//! each once known; beside the session's footer, without the model and the mode, which that says.
 //!
 //! Must not depend on: threads, the stream or the UI; plain values over the events a caller
 //! gives.
@@ -159,28 +159,45 @@ impl StatusLine {
         self.answered.as_deref().or(self.init_model.as_deref())
     }
 
+    /// The whole note and the one beside the footer, which says the model and the mode itself, after
+    /// `front`, the parts before the line's; with `mode` and `effort` as [`Self::write`] has them.
+    pub fn notes(&self, front: &str, mode: Option<&str>, effort: Option<&str>) -> [String; 2] {
+        let (mut whole, mut beside) = (front.to_owned(), front.to_owned());
+        self.write(mode, effort, &mut whole);
+        self.write_rest(&mut beside);
+        [whole, beside]
+    }
+
     /// The line's parts, joined by [`SEPARATOR`], into `out`, after what it holds, with `mode`
     /// as the permission mode, which `mode::ModeState` holds (part 3b), and `effort` as the
     /// effort level, which no stream field gives and `choice::Choice` notes (part 3c, the
     /// author's Q-C1), shown after the model: nothing for a part not known.
-    pub fn write(&self, mode: Option<&str>, effort: Option<&str>, out: &mut String) {
-        let part = |out: &mut String| {
-            if !out.is_empty() {
-                out.push_str(SEPARATOR);
-            }
-        };
-        if let Some(model) = self.model() {
+    fn write(&self, mode: Option<&str>, effort: Option<&str>, out: &mut String) {
+        if self.model().is_some() {
             part(out);
-            out.push_str(&display_name(&self.models, model));
-            if let Some(effort) = effort.filter(|e| readable(e, Kind::Word)) {
-                out.push(' ');
-                out.push_str(effort);
-            }
+            self.write_model(effort, out);
         }
         if let Some(mode) = mode {
             part(out);
             out.push_str(mode);
         }
+        self.write_rest(out);
+    }
+
+    /// The model, and `effort` after it, at the end of `out`: nothing while no model is known.
+    pub fn write_model(&self, effort: Option<&str>, out: &mut String) {
+        let Some(model) = self.model() else {
+            return;
+        };
+        out.push_str(&display_name(&self.models, model));
+        if let Some(effort) = effort.filter(|e| readable(e, Kind::Word)) {
+            out.push(' ');
+            out.push_str(effort);
+        }
+    }
+
+    /// The line's parts after the model and the mode, as [`Self::write`] does.
+    fn write_rest(&self, out: &mut String) {
         if let Some(used) = self.context_used() {
             part(out);
             let _ = write!(out, "ctx {used:.0}%");
@@ -222,6 +239,13 @@ impl StatusLine {
             [Some(five), None] => Some((Window::FiveHour, five)),
             [None, None] => None,
         }
+    }
+}
+
+/// Starts a part in `out`, after the ones it holds.
+fn part(out: &mut String) {
+    if !out.is_empty() {
+        out.push_str(SEPARATOR);
     }
 }
 

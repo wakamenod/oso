@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 
 use super::super::super::harness::{App, sockets};
 use super::super::super::spaces::trust_restricted;
-use super::modes::{modeline, send};
+use super::modes::{footer, modeline, send};
 use super::restart::show_transcript;
 use super::{Flow, git_init, in_composer, remote_control_off, text};
 
@@ -241,6 +241,7 @@ fn the_phones_message_and_mode_are_shown_and_never_the_persons() {
     // Beside the mark, which a narrow modeline keeps.
     app.wait_for("the mode", |state| {
         modeline(state).contains("⇄ plan: claude.ai")
+            && footer(state).starts_with("⏸ plan mode on · set by no key here")
     });
     // The person's key goes to default first, not on to auto.
     app.send_keys("S-TAB");

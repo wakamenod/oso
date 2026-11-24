@@ -44,3 +44,30 @@ fn a_ruled_panes_text_is_between_its_lines_and_no_other_panes_is_drawn_there() {
     assert_is(&pixels, (42, 49), INK(), "the one in front");
     assert_is(&pixels, (42, 68), PAPER(), "nothing past the pane");
 }
+
+#[test]
+#[ignore = "needs a GPU"]
+fn a_rule_along_a_panes_middle_is_one_line_between_two_backgrounds() {
+    let mut rule = pane(0, (2, 0, 1, 6), 0, None, &[]);
+    rule.content = PaneContent::Rule {
+        ink: Face::Warning,
+        above: Face::Modeline,
+        below: Face::Float,
+    };
+    let pixels = draw(&[rule]);
+    let background = |face| theme().background(face);
+    for x in [8, 40, 67] {
+        assert_is(&pixels, (x, 48), background(Face::Modeline), "over it");
+        assert_is(&pixels, (x, 57), background(Face::Modeline), "over it");
+        assert_is(
+            &pixels,
+            (x, 58),
+            theme().foreground(Face::Warning),
+            "the line",
+        );
+        assert_is(&pixels, (x, 59), background(Face::Float), "under it");
+        assert_is(&pixels, (x, 67), background(Face::Float), "under it");
+    }
+    assert_is(&pixels, (40, 47), PAPER(), "nothing past the pane");
+    assert_is(&pixels, (40, 68), PAPER(), "nothing past the pane");
+}

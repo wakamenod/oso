@@ -234,7 +234,7 @@ pub struct Buffer {
     job: bool,
     turn: bool,
     /// What the modeline says after the mode, as the host sets it: a terminal's title.
-    mode_note: String,
+    notes: terminal::Notes,
     /// Whether the person let the agent channel read this terminal (ADR 0120, Q16).
     agent_reads: bool,
     /// Its terminal hosts an agent session, so session mode's keys apply (ADR 0132).
@@ -310,7 +310,7 @@ impl Buffer {
             running: false,
             job: false,
             turn: false,
-            mode_note: String::new(),
+            notes: terminal::Notes::default(),
             agent_reads: false,
             session: false,
             session_directory: None,

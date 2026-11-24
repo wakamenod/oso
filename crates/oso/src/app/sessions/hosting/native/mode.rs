@@ -1,6 +1,6 @@
 //! A native session's permission mode in the app (ADR 0165, Q4; part 3b): `S-TAB` in its
-//! transcript and its composer switches it to the next, and the modeline shows the mode the
-//! CLI says. The rules are `sessions::native::mode`'s: this carries out what they come to, at
+//! transcript and its composer switches it to the next, and the footer and the modeline show the
+//! mode the CLI says. The rules are `sessions::native::mode`'s: this carries out what they come to, at
 //! the times they set; its answers and deadlines come through `control`.
 //!
 //! Must not depend on: key presses or how a frame is drawn.
@@ -81,8 +81,14 @@ impl App {
         }
     }
 
-    /// Carries out `then` for native session `key`.
+    /// Carries out `then` for native session `key`, and has its footer say whether a change is
+    /// under way.
     pub(super) fn mode_step(&mut self, key: SessionKey, then: Then) {
+        self.carry_out_mode(key, then);
+        self.native_note_changed(key);
+    }
+
+    fn carry_out_mode(&mut self, key: SessionKey, then: Then) {
         let (id, mode) = match then {
             Then::Log(why) => return log::info!("native session control: {why:?}"),
             Then::Refused(refusal) => return self.editor.message(refusal.message()),

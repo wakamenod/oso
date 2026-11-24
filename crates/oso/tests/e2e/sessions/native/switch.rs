@@ -209,6 +209,7 @@ fn a_native_session_is_handed_to_the_tui_which_resumes_its_conversation() {
     let shown = text(&state);
     assert!(shown.contains("reply 1.1"), "{shown}");
     assert!(shown.contains("In the TUI since here"), "{shown}");
+    assert!(state["footer"].is_null(), "what the TUI runs in is its own");
     app.call(
         "clipboard",
         Some(serde_json::json!({ "image": "png", "bytes": [1] })),

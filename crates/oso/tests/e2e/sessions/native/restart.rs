@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 use super::super::super::harness::{App, sockets};
 use super::super::super::spaces::trust_restricted;
 use super::super::super::worktrees::keys;
-use super::modes::{MODES_FAKE, mode_shown, modeline, send};
+use super::modes::{MODES_FAKE, footer_says, modeline, send};
 use super::{Flow, in_composer, text};
 
 /// A flow on tier 2 whose session switched to `acceptEdits` and ended a turn, idle, with the
@@ -44,7 +44,7 @@ pub(super) fn idle_in_accept_edits(test: &str, fail: Option<&str>) -> (Flow, App
     assert_eq!(flow.wait_for_file("sent.1.1").trim(), "one");
     app.send_keys("S-TAB");
     assert_eq!(flow.wait_for_file("asked.1").trim(), "acceptEdits");
-    mode_shown(&mut app, "acceptEdits");
+    footer_says(&mut app, "▶▶ accept edits on");
     (flow, app)
 }
 

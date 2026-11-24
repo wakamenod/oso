@@ -50,6 +50,7 @@ pub mod asks;
 pub mod card;
 pub mod choice;
 pub mod control;
+pub mod footer;
 pub mod interrupt;
 pub mod markdown;
 pub mod mode;

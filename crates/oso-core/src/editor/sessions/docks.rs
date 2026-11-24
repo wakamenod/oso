@@ -15,6 +15,8 @@
 //!   lines, at most [`MAX_CARD`]: its host breaks its rows at its width, and it never wraps
 //!   (ADR 0180). The composer's rows are given first, the card's next. A request's line, in the
 //!   card's slot, gives up none of its rows, as its keys are all shown (ADR 0182).
+//! - A composer has a row above and below its text, where there is room, which the host draws its
+//!   rules in; and a host whose buffer has a footer ([`Editor::set_footer`]) a row under its docks.
 //! - A host no window of the tree shows, as a docked buffer is, hides what is docked under it.
 
 use super::super::Editor;
@@ -151,7 +153,8 @@ impl Editor {
                 .docks
                 .wanted
                 .extend(asks.iter().map(|ask| (ask.window, ask.rows)));
-            if self.frame.dock(carrier, &asks) {
+            let footer = (self.buffer(host)).is_some_and(|buffer| buffer.beside_footer().is_some());
+            if self.frame.dock(carrier, &asks, footer) {
                 let carried = asks.iter().map(|ask| (ask.window, carrier));
                 self.sessions.docks.carried.extend(carried);
             }
@@ -206,6 +209,25 @@ impl Editor {
             least,
             rank,
             gutter,
+            padded: slot == DockSlot::Composer && buffer.mode() == Mode::Composer,
+        }
+    }
+
+    /// What `host`'s modeline says in place of its mode's note in the window that shows its footer
+    /// (ADR 0170): the host draws a footer, in the row [`FrameLayout::footer`] gives, under what is
+    /// docked under `host`. With `None` it has no footer. The frame is laid out again as a footer
+    /// comes or goes.
+    ///
+    /// [`FrameLayout::footer`]: crate::frame::FrameLayout::footer
+    pub fn set_footer(&mut self, host: BufferId, note: Option<String>) {
+        let has = note.is_some();
+        let Some(buffer) = self.buffer_mut(host) else {
+            return;
+        };
+        let had = buffer.beside_footer().is_some();
+        buffer.set_beside_footer(note);
+        if had != has {
+            self.lay_out(self.frame.size());
         }
     }
 

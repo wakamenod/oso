@@ -463,6 +463,7 @@ impl App {
             (sent, chosen, self.hosting.natives.map.get_mut(&key))
         {
             native.mode.chose(mode);
+            self.native_note_changed(key);
         }
         match ask.request() {
             Some(_) => self.close_request(key),

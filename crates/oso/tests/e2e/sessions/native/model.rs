@@ -13,6 +13,7 @@ use serde_json::Value;
 
 use super::super::super::harness::App;
 use super::super::super::spaces::trust_restricted;
+use super::modes::footer;
 use super::{Flow, in_composer, text};
 
 /// The fake: run `N` from 1 writes its arguments to `run.N`, and answers with the model its
@@ -145,7 +146,7 @@ fn model_and_effort_complete_their_argument_are_noted_and_a_resume_and_fork_keep
     assert_eq!(flow.wait_for_file("sent.1.2").trim(), "/effort max");
     // Noted from the result: the effort follows the model, which the turn's init names.
     transcript_until(&mut app, "the effort shown", |state| {
-        modeline(state).contains("Haiku 5.5 max")
+        footer(state).ends_with("Haiku 5.5 max")
     });
 
     // Stopped and resumed: the new claude starts with both.

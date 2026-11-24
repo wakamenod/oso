@@ -544,7 +544,9 @@ A docked window (`editor/sessions/docks.rs`, `frame/docks.rs`) is a window the
 split tree does not hold, laid out inside the tiled window that shows its host
 buffer, from that window's bottom rows: a native session's to-do strip, card or
 request's line, and composer ([ADR 0170](adr/0170-docked-windows-under-a-sessions-transcript.md)),
-the card and the line on a face of their own.
+the card and the line on a face of their own. The rows around a composer's text and a session's
+footer under its docks (`FrameLayout::padding`, `footer`) are no windows: the host draws them
+(`app/draw/tiled/composer.rs`, `footer.rs`).
 A terminal view renders a cell grid that the terminal's thread publishes as
 snapshots, at most one in flight, so the UI thread never parses, searches or
 touches the PTY. `C-s` searches the screen and scrollback on that thread, and

@@ -1,6 +1,6 @@
 //! A native session's status line in the app (ADR 0165, part 3a): what its stream and its
 //! control layer say of its model, mode, context, cost and rate limit, kept for its modeline's
-//! note, which `note` writes; and its `get_usage`, asked once a process on tier 2. The rules are
+//! note and its footer, which `note` writes; and its `get_usage`, asked once a process on tier 2. The rules are
 //! `sessions::native::status`'s and `usage`'s.
 //!
 //! Must not depend on: key presses or how a frame is drawn.
@@ -19,8 +19,11 @@
 
 use std::time::Instant;
 
-use super::Native;
+use oso_core::buffer::BufferId;
+
+use super::{Native, NativeSessions};
 use crate::app::App;
+use crate::sessions::native::footer::Footer;
 use crate::sessions::native::status::StatusLine;
 use crate::sessions::native::usage::GetUsage;
 use crate::sessions::native::wire::Event;
@@ -31,6 +34,8 @@ use crate::sessions::worker::SessionKey;
 #[derive(Debug, Default)]
 pub(super) struct StatusState {
     pub(super) line: StatusLine,
+    /// What its footer says, once written (ADR 0170).
+    pub(super) footer: Option<Footer>,
     usage: GetUsage,
     /// An answer changed the line since the last event was noted.
     answered: bool,
@@ -92,6 +97,24 @@ fn ask(native: &mut Native) -> Option<u64> {
     native.status.usage.ask(control, Instant::now())
 }
 
+impl NativeSessions {
+    /// The footer of the session whose transcript `buffer` is, once it has one.
+    pub(in crate::app) fn footer(&self, buffer: BufferId) -> Option<&Footer> {
+        let native = self.map.values().find(|native| native.buffer == buffer)?;
+        native.status.footer.as_ref()
+    }
+
+    /// Sessions that name their keys, one of them with the transcript `buffer`, which says `footer`.
+    #[cfg(test)]
+    pub(in crate::app) fn footed(buffer: BufferId, footer: Footer) -> Self {
+        let mut natives = Self::saying(["hint"; 3], "", None);
+        let mut native = super::markdown::tests::native(buffer);
+        native.status.footer = Some(footer);
+        natives.map.insert(1, native);
+        natives
+    }
+}
+
 impl App {
     /// Writes native session `key`'s `get_usage` if it is due: after its events, and once its
     /// process's stream is there, as its `initialize` may be answered first.
@@ -131,7 +154,7 @@ impl App {
         }
     }
 
-    /// Writes native session `key`'s note again, and asks for a frame if it changed while the
+    /// Writes native session `key`'s note and footer again, and asks for a frame if it changed while the
     /// session is shown.
     pub(super) fn native_note_changed(&mut self, key: SessionKey) {
         let Some(buffer) = self

@@ -193,7 +193,7 @@ A session's buffer belongs to the project its session runs in, so `C-x v r`, `C-
 `C-c a w` work from it.
 
 A TUI session starts in the permission mode your own Claude Code settings give it: oso passes
-it no permission option. A native session shows its mode in the modeline, and `S-TAB` in its
+it no permission option. A native session shows its mode under its composer, and `S-TAB` in its
 buffer or composer changes it. A session starts the agent channel, which its tools need.
 
 ### The spaces pane
@@ -755,7 +755,9 @@ nothing else does. Sessions an agent started, and orchestrators, are not connect
 git remote's address holds a password or a user name (but `git@`).
 
 You write the next messages in the composer under the conversation, which agents cannot read; a thin line is above and below it.
-While it is empty it says in grey what it is and its keys. `i` goes there and `C-c C-o` back, `C-c C-c` sends, and `M-p` and `M-n` bring back what you
+The row under it says the permission mode, with the key that changes it, and the model. It changes
+once `claude` says that it did. In a window too short for the row, the modeline says both.
+While the composer is empty it says in grey what it is and its keys. `i` goes there and `C-c C-o` back, `C-c C-c` sends, and `M-p` and `M-n` bring back what you
 sent. After a turn, Claude's guess at your next message shows there in grey instead, with
 `(C-c C-s takes it)` after it. `C-c C-s`, in the composer or the conversation, puts it at the
 end of what you have written there, for you to edit or send, with a leading `/` or an `@`

@@ -1,12 +1,15 @@
 //! A native session's run state and its modeline note (ADR 0165): `starting`, nothing while
 //! it runs, or `interrupting` (step 2c), `stopped` or `failed`, how many of its messages
 //! wait (step 2), then its status line (part 3a, `status`), each part once known, joined by
-//! ` · `. The note is written here alone; a narrow modeline drops its parts from the right.
+//! ` · `. The note is written here alone; a narrow modeline drops its parts from the right. Its
+//! footer's words are written with it (ADR 0170): the modeline of a window that shows the footer
+//! says the note without the model and the mode, which the footer says from the same values.
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 
 use crate::app::App;
 use crate::sessions::hosted::Run;
+use crate::sessions::native::footer::{Footer, Said};
 use crate::sessions::native::status::SEPARATOR;
 use crate::sessions::worker::SessionKey;
 
@@ -58,9 +61,9 @@ impl App {
     }
 
     /// Native session `key`'s modeline note: its run's state, how many wait, and its status
-    /// line. Returns whether it changed.
+    /// line; and its footer. Returns whether either changed.
     pub(super) fn write_native_note(&mut self, key: SessionKey) -> bool {
-        let Some(native) = self.hosting.natives.map.get(&key) else {
+        let Some(native) = self.hosting.natives.map.get_mut(&key) else {
             return false;
         };
         let interrupting = native.interrupt.interrupting();
@@ -76,19 +79,35 @@ impl App {
             count => format!("{count} queued"),
         };
         let mark = native.remote.mark_with(strayed).unwrap_or_default();
-        let mut note = [mark.as_str(), state, &queued]
+        let front = [mark.as_str(), state, &queued]
             .into_iter()
             .filter(|part| !part.is_empty())
             .collect::<Vec<_>>()
             .join(SEPARATOR);
         let effort = native.choice.effort();
-        let said = strayed.is_some() && !native.remote_control.off();
-        let mode = native.mode.shown().filter(|_| !said);
-        native.status.line.write(mode, effort, &mut note);
+        // Once: in the mark, unless that leaves it out, as it does going off.
+        let in_mark = native.remote.mark().is_some_and(|alone| alone != mark);
+        let mode = native.mode.in_force();
+        let line = &native.status.line;
+        let [note, beside] = line.notes(&front, mode.filter(|_| !in_mark), effort);
+        let mut model = String::new();
+        line.write_model(effort, &mut model);
+        let said = Said {
+            runs: matches!(native.state, NativeState::Starting | NativeState::Running),
+            mode,
+            unshown: native.mode.unshown(),
+            strayed: native.mode.strays_now(),
+            changing: native.mode.changing(),
+        };
+        let footer = Footer::of(said, &model);
         let buffer = native.buffer;
-        let same = (self.editor.buffer(buffer)).is_some_and(|b| b.mode_note() == note);
+        // The note beside the footer is the whole's parts, and changes with the two.
+        let same = native.status.footer.as_ref() == Some(&footer)
+            && (self.editor.buffer(buffer)).is_some_and(|b| b.mode_note() == note);
         if !same {
+            native.status.footer = Some(footer);
             self.editor.set_mode_note(buffer, note);
+            self.editor.set_footer(buffer, Some(beside));
         }
         !same
     }

@@ -16,7 +16,7 @@
 //!   routes the composer's and the queue's to `composer` (step 2).
 //! - Its buffer, made for a start, a resume or a fork, or brought back with no process, is
 //!   `buffer`'s.
-//! - Its composer, queue and history are `composer`'s; its run state and modeline note are
+//! - Its composer, queue and history are `composer`'s; its run state, modeline note and footer are
 //!   `note`'s; its resume and a native fork are `resume`'s; how it ends, stopped, failed,
 //!   archived or forgotten, `end`'s; its interrupt, `interrupting`'s (step 2c); its slash
 //!   commands, `slash`'s (step 2d); its replies' Markdown highlighting, once each is whole,
@@ -433,8 +433,8 @@ impl App {
         let mut changes = Changes::default();
         let mut targets = Vec::new();
         let mut todo = false;
-        let interrupting = |native: &Native| native.interrupt.interrupting();
-        let was_interrupting = interrupting(native);
+        let under_way = |native: &Native| (native.interrupt.interrupting(), native.mode.changing());
+        let was_under_way = under_way(native);
         let (mut noted, mut usage_id) = (false, None);
         let mut suggested = false;
         let (marked, mut stray) = (native.remote.mark(), None);
@@ -467,7 +467,7 @@ impl App {
         if changed {
             self.editor.refill_wraps();
         }
-        let noted = noted || was_interrupting != interrupting(native);
+        let noted = noted || was_under_way != under_way(native);
         draw(&mut self.editor, native, changes);
         // A turn that ended lets the queue's first go, after the event (`send_waiting_queues`).
         for target in targets {
@@ -496,7 +496,7 @@ impl App {
         if usage_id.is_some() {
             self.ask_usage(key, usage_id);
         }
-        // The interrupt ended with its turn, or the status line changed (part 3a).
+        // The interrupt ended with its turn, or the status line or the mode changed (part 3a).
         if noted {
             self.native_note_changed(key);
         }

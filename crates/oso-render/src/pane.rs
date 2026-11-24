@@ -206,6 +206,11 @@ pub enum PaneContent<'a> {
     /// of a cell wide at its left and the row's full height, or nothing (ADR 0138). A row past
     /// the list has none.
     Signs(&'a [Option<Face>]),
+    /// A thin line along the pane's middle, on whole pixels, in `ink`'s foreground, from its left edge
+    /// to its right, with `above`'s background over it and `below`'s under it: one of a composer's,
+    /// half a row from its text (ADR 0170). It has no text. A pane of one row of lines below it may keep
+    /// its band on its last pixels (ADR 0063).
+    Rule { ink: Face, above: Face, below: Face },
 }
 
 /// What [`PaneContent::Grid`] shows: a terminal's visible rows, from the pane's top row, each

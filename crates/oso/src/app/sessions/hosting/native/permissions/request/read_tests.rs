@@ -11,7 +11,7 @@ use oso_core::frame::{FrameSize, Way};
 use oso_core::window::{DockSlot, Screen, WindowId};
 use serde_json::json;
 
-use super::super::{put_title, runs};
+use super::super::{head, place, put_title, runs};
 use super::{View, view_of};
 use crate::app::sessions::hosting::native::carrier::carrier;
 use crate::app::sessions::hosting::native::markdown::tests::native;
@@ -296,4 +296,70 @@ fn a_frame_not_presented_whole_reads_nothing() {
     let view = setup.view(false);
     setup.reading.look(&view, true, setup.now);
     assert!(!setup.reading.allows());
+}
+
+/// The first and the last row of the block that the window shows, by their bytes.
+fn in_view(setup: &Setup) -> Option<(usize, usize)> {
+    let view = setup.view(true);
+    let first = view.rows.first()?.start;
+    Some((first, view.rows.last()?.end))
+}
+
+/// As point goes to the line and the composer gives it its place, the transcript grows by the
+/// composer's row and the two around it, and shrinks by them as the composer has it back: what was
+/// read stays read, the rows in view are at the window's end or at the block's head as they were, and
+/// a block that fits is still read whole, its last row in view.
+#[test]
+fn what_was_read_stays_read_as_the_line_takes_the_composers_place_and_gives_it_back() {
+    let long: String = (0..60).map(|n| format!("echo {n}\n")).collect();
+    for (command, head) in [
+        ("ls\npwd", false),
+        (long.trim_end(), false),
+        (long.trim_end(), true),
+    ] {
+        let mut setup = Setup::new((24, 80), command);
+        setup
+            .editor
+            .set_footer(setup.transcript, Some(String::new()));
+        setup.editor.follow_cursor();
+        let window = setup.carrier().unwrap();
+        let rows = |setup: &Setup| setup.editor.regions(window).unwrap().text.rows;
+        if head {
+            let (natives, editor) = (&setup.natives, &mut setup.editor);
+            assert!(head::show(editor, &natives.map[&KEY], window));
+        }
+        let top = |setup: &Setup| setup.editor.window_by_id(window).unwrap().scroll().start;
+        setup.seen();
+        let (before, read, shown) = (rows(&setup), setup.reading.lines(), top(&setup));
+        assert!(read.0 > 0 && setup.editor.frame().footer(window).is_some());
+        let seen = in_view(&setup).unwrap();
+        let its = &setup.natives.map[&KEY];
+        let (line, composer) = (its.line.unwrap(), its.composing.buffer.unwrap());
+
+        setup.select(DockSlot::Card);
+        place::give(&mut setup.editor, setup.transcript, line, composer);
+        assert_eq!(rows(&setup), before + 3);
+        assert_eq!(setup.reading.lines(), read, "nothing is forgotten");
+        let now = in_view(&setup).unwrap();
+        match head {
+            // Its first row is where it was, and three more are under what was shown.
+            true => assert_eq!((top(&setup), now.0), (shown, seen.0)),
+            // Its last row is still the window's last.
+            false => assert_eq!(now.1, seen.1),
+        }
+        assert!(
+            now.0 <= seen.0 && now.1 >= seen.1,
+            "all that was in view is"
+        );
+        setup.seen();
+        let after = setup.reading.lines();
+        assert!(after.0 >= read.0);
+        assert_eq!(setup.reading.allows(), command.len() < 10);
+
+        place::take(&mut setup.editor, setup.transcript, line, composer);
+        assert_eq!(rows(&setup), before);
+        assert_eq!(setup.reading.lines(), after);
+        assert_eq!(top(&setup), shown, "the rows are where they were");
+        assert_eq!(in_view(&setup), Some(seen));
+    }
 }

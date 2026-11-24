@@ -16,17 +16,15 @@
 //! do (ADR 0051), and the warnings remain for the person at the screen.
 
 use std::fmt::Write;
-use std::ops::Range;
 
-use self::note::NATIVE_NOTE_CELLS;
+use self::state::push_state;
 use super::Editor;
 use super::messages::CUT;
-use crate::buffer::{Buffer, Mode, ServerMark, Verdict};
-use crate::decode::{FileInfo, LineEnding};
+use crate::buffer::{Buffer, Mode, ServerMark};
 use crate::diagnostic::{Counts, Severity};
 use crate::display_map::text_clusters;
 use crate::frame::CellRect;
-use crate::window::{Window, WindowId};
+use crate::window::WindowId;
 
 /// Says that the buffer holds bidirectional controls (`ui.md`, Trojan Source).
 const BIDI_WARNING: &str = "[bidi controls] ";
@@ -305,105 +303,6 @@ fn text_cells(text: &str) -> usize {
     text_clusters(text, 0).map(|cluster| cluster.cells).sum()
 }
 
-/// How far along a load is. It stays under 100 while the load runs, since a file can
-/// grow after its size was read.
-fn percent(read: u64, total: u64) -> u64 {
-    if total == 0 {
-        return 99;
-    }
-    let share = u128::from(read) * 100 / u128::from(total);
-    u64::try_from(share).unwrap_or(99).min(99)
-}
-
-fn push_encoding(out: &mut String, info: FileInfo, invalid: bool) {
-    out.push_str(match (info.binary, invalid, info.bom) {
-        (true, _, _) => "Binary",
-        (false, true, _) => "UTF-8 (invalid)",
-        (false, false, true) => "UTF-8-BOM",
-        (false, false, false) => "UTF-8",
-    });
-    out.push_str(match info.line_ending {
-        LineEnding::Lf => " LF",
-        LineEnding::Crlf => " CRLF",
-    });
-}
-
-/// Writes what the modeline says of `buffer`'s state into `out`, and where a native session's
-/// note is in it.
-fn push_state(out: &mut String, window: &Window, buffer: &Buffer) -> Option<Range<usize>> {
-    // A terminal has no position, no file and no encoding: its mode and what the host notes,
-    // such as its program's title (ADR 0120). A session's says `Session` (ADR 0132).
-    if buffer.is_terminal() {
-        out.push_str(if buffer.hosts_session() {
-            SESSION
-        } else {
-            buffer.mode().name()
-        });
-        if !buffer.mode_note().is_empty() {
-            out.push_str(GAP);
-            push_cut(out, buffer.mode_note(), NOTE_CELLS);
-        }
-        return None;
-    }
-    // `*Spaces*` has no position worth saying: what the host notes, its name, grouping and
-    // keys (ADR 0131, ADR 0140).
-    if buffer.mode() == Mode::Sessions && !buffer.mode_note().is_empty() {
-        push_cut(out, buffer.mode_note(), NOTE_CELLS);
-        return None;
-    }
-    if let Some(progress) = buffer.loading() {
-        let _ = match progress.total {
-            Some(total) => write!(out, "Loading {}%{GAP}", percent(progress.read, total)),
-            None => write!(out, "Loading {} MiB{GAP}", progress.read >> 20),
-        };
-    }
-    match buffer.verdict() {
-        // Nothing has loaded, and whether it may hold secrets is not known yet.
-        Verdict::Unjudged => {}
-        Verdict::Ordinary => {
-            let point = window.cursor_point(&buffer.display());
-            let _ = write!(out, "{}:{}", point.row + 1, point.column);
-            let cursors = window.selections.len();
-            if cursors > 1 {
-                let _ = write!(out, " ({cursors} cursors)");
-            }
-            out.push_str(GAP);
-        }
-        Verdict::Unresolved
-        | Verdict::SecretName
-        | Verdict::Passphrase
-        | Verdict::Yanked
-        | Verdict::EchoOff => {
-            out.push_str(NO_POSITION);
-            out.push_str(GAP);
-        }
-    }
-    out.push_str(buffer.mode().name());
-    // A listing has no encoding: its order instead, as dired's `Dired by name` (ADR 0134). A git
-    // status has none either (ADR 0127), nor a native session, whose state follows (ADR 0165).
-    if matches!(
-        buffer.mode(),
-        crate::buffer::Mode::Directory
-            | crate::buffer::Mode::GitStatus
-            | crate::buffer::Mode::NativeSession
-    ) {
-        if buffer.mode_note().is_empty() {
-            return None;
-        }
-        out.push(' ');
-        let start = out.len();
-        if buffer.mode() == Mode::NativeSession {
-            push_cut(out, buffer.mode_note(), NATIVE_NOTE_CELLS);
-            return Some(start..out.len());
-        }
-        push_cut(out, buffer.mode_note(), NOTE_CELLS);
-        return None;
-    }
-    out.push_str(GAP);
-    push_encoding(out, buffer.file_info(), !buffer.invalid_bytes().is_empty());
-    None
-}
-
 /// The warnings a modeline starts with, of `buffer`, into `out`; `docks_hidden` if the window is
 /// too short for the windows docked under it (ADR 0170).
 fn warnings_into(buffer: &crate::buffer::Buffer, docks_hidden: bool, out: &mut String) {
@@ -469,7 +368,8 @@ impl Editor {
         }
         warnings_into(buffer, self.docks_hidden(id), &mut status.warnings);
         status.state.clear();
-        let note = push_state(&mut status.state, window, buffer);
+        let shows_footer = self.shows_footer(id);
+        let note = push_state(&mut status.state, window, buffer, shows_footer);
         self.review_status_into(window.buffer(), &mut status.state);
         // `Def` while a keyboard macro is recorded, as Emacs's (ADR 0113).
         if id == tiled && self.macro_recording() {
@@ -528,6 +428,23 @@ impl Editor {
         }
     }
 
+    /// Whether window `id` shows a footer, which says some of its note itself: not while a prompt's
+    /// float covers it, as its modeline then says it all (ADR 0170).
+    fn shows_footer(&self, id: WindowId) -> bool {
+        (self.frame.footer(id)).is_some_and(|row| !self.prompt_covers(row))
+    }
+
+    /// Whether a prompt's float is over any of `cells`.
+    fn prompt_covers(&self, cells: CellRect) -> bool {
+        (self.prompt_layout()).is_some_and(|layout| {
+            let float = layout.regions.outer;
+            cells.row < float.row + float.rows
+                && float.row < cells.row + cells.rows
+                && cells.column < float.column + float.columns
+                && float.column < cells.column + cells.columns
+        })
+    }
+
     /// Whether the modeline of the window `id` says what is about the frame, as `Agent`: the
     /// selected tiled window's, `tiled`, and while a prompt's float covers that one, the
     /// bottom-most window's too, the left-most of those on the bottom row, so that it stays in
@@ -536,18 +453,8 @@ impl Editor {
         if id == tiled {
             return true;
         }
-        let Some(float) = self.prompt_layout().map(|layout| layout.regions.outer) else {
-            return false;
-        };
-        let meets = |a: CellRect, b: CellRect| {
-            a.row < b.row + b.rows
-                && b.row < a.row + a.rows
-                && a.column < b.column + b.columns
-                && b.column < a.column + a.columns
-        };
-        let covered = self
-            .regions(tiled)
-            .is_some_and(|regions| meets(regions.modeline, float));
+        let covered =
+            (self.regions(tiled)).is_some_and(|regions| self.prompt_covers(regions.modeline));
         let bottom = self
             .frame
             .windows()
@@ -580,9 +487,12 @@ impl Editor {
 }
 
 mod note;
+mod state;
 
 #[cfg(test)]
 mod tests {
+    use super::note::NATIVE_NOTE_CELLS;
+    use super::state::percent;
     use super::*;
     use crate::buffer::Replacement;
     use crate::editor::AgentChannel;
@@ -829,6 +739,136 @@ mod tests {
                 assert!(line.contains(mark), "{columns}: {line}");
                 assert!(text_cells(&line) <= columns, "{columns}: {line}");
             }
+        }
+    }
+
+    /// A native session as [`placed_native`] with a composer docked under it and its footer, whose note
+    /// is `beside`, in a frame of `rows` rows.
+    #[cfg(unix)]
+    fn footed_native(note: &str, beside: &str, (rows, columns): (usize, usize)) -> Editor {
+        let mut editor = placed_native(note, columns);
+        let id = editor.window().buffer();
+        let composer = editor.add_internal_buffer("*compose: oso*".to_owned(), Mode::Composer);
+        editor.set_dock(id, crate::window::DockSlot::Composer, Some(composer));
+        editor.set_footer(id, Some(beside.to_owned()));
+        editor.set_frame_size(FrameSize { rows, columns });
+        editor
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_window_that_shows_its_footer_says_the_note_beside_it_and_another_the_whole() {
+        let (note, beside) = ("Opus 5.5 · auto · ctx 3% · $0.82", "ctx 3% · $0.82");
+        let mut editor = footed_native(note, beside, (30, 120));
+        let window = editor.window().id();
+        assert!(editor.frame().footer(window).is_some());
+        assert_eq!(status(&editor).state, format!("1:0  Session {beside}"));
+        // The same session in a second window, which carries no docks.
+        let other = editor.split_window(crate::frame::Way::Down, false).unwrap();
+        let mut theirs = Status::default();
+        for id in [window, other] {
+            editor.status_into(id, &mut theirs);
+            let footer = editor.frame().footer(id).is_some();
+            let says = if footer { beside } else { note };
+            assert_eq!(theirs.state, format!("1:0  Session {says}"));
+        }
+        // A short window has no room for it.
+        let mut short = footed_native(note, beside, (8, 120));
+        let id = short.window().id();
+        let rows = (4..12).find(|rows| {
+            short.set_frame_size(FrameSize {
+                rows: *rows,
+                columns: 120,
+            });
+            short.frame().footer(id).is_some()
+        });
+        for (rows, says) in [(rows.unwrap(), beside), (rows.unwrap() - 1, note)] {
+            short.set_frame_size(FrameSize { rows, columns: 120 });
+            assert_eq!(status(&short).state, format!("1:0  Session {says}"));
+        }
+        // With no footer, the whole again.
+        let host = editor.window().buffer();
+        editor.set_footer(host, None);
+        assert_eq!(editor.frame().footer(window), None);
+        assert_eq!(status(&editor).state, format!("1:0  Session {note}"));
+    }
+
+    /// While a prompt's float covers the footer, the modeline in sight says the whole.
+    #[cfg(unix)]
+    #[test]
+    fn a_footer_a_float_covers_leaves_nothing_to_itself() {
+        let (note, beside) = ("Opus 5.5 · auto · ctx 3%", "ctx 3%");
+        let mut editor = footed_native(note, beside, (8, 60));
+        let window = editor.window().id();
+        let row = editor.frame().footer(window).unwrap();
+        let says = |editor: &Editor| {
+            let mut status = Status::default();
+            editor.status_into(window, &mut status);
+            status.state.contains("Opus 5.5")
+        };
+        assert!(!says(&editor));
+        // A question over the window's top rows alone.
+        editor.ask("Exit?", "keyboard-quit").unwrap();
+        let outer = |editor: &Editor| editor.prompt_layout().unwrap().regions.outer;
+        assert!(
+            outer(&editor).row + outer(&editor).rows <= row.row,
+            "{row:?}"
+        );
+        assert!(!says(&editor));
+        editor.quit();
+        // One as tall as the window.
+        let label = "word ".repeat(400);
+        editor.ask(&label, "keyboard-quit").unwrap();
+        assert!(
+            outer(&editor).row + outer(&editor).rows > row.row,
+            "{:?}",
+            outer(&editor)
+        );
+        assert!(says(&editor));
+        editor.quit();
+        assert!(!says(&editor));
+    }
+
+    /// With nothing beside the footer, what is before it goes whole in a narrow window.
+    #[cfg(unix)]
+    #[test]
+    fn a_note_with_nothing_to_say_lets_the_position_go_whole() {
+        for columns in [44, 54] {
+            let line = status(&footed_native("whole", "", (30, columns)));
+            assert!(
+                text_cells(&line.modeline()) <= columns,
+                "{}",
+                line.modeline()
+            );
+            assert!(
+                ["", "1:0  Session"].contains(&line.state.as_str()),
+                "{}",
+                line.state
+            );
+        }
+    }
+
+    /// What narrow windows keep of the note beside a footer: its mark whole, then as many parts as fit.
+    #[cfg(unix)]
+    #[test]
+    fn a_narrow_window_beside_its_footer_keeps_the_notes_first_parts() {
+        let beside = "ctx 40% · $0.82 · 7d 28%";
+        let said: Vec<String> = [44, 54, 99]
+            .map(|columns| status(&footed_native("whole", beside, (30, columns))).state)
+            .to_vec();
+        assert_eq!(
+            said,
+            [
+                "ctx 40%",
+                "ctx 40%",
+                "1:0  Session ctx 40% · $0.82 · 7d 28%"
+            ]
+        );
+        for columns in [44, 54, 99] {
+            let beside = format!("⇄ auto: claude.ai · {beside}");
+            let line = status(&footed_native("whole", &beside, (30, columns))).modeline();
+            assert!(line.contains("⇄ auto: claude.ai"), "{columns}: {line}");
+            assert!(text_cells(&line) <= columns);
         }
     }
 

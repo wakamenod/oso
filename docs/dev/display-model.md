@@ -224,6 +224,8 @@ one layer:
   ([ADR 0170](adr/0170-docked-windows-under-a-sessions-transcript.md)). It takes as many rows as its
   text wraps to, but a permission card a row a line: its host breaks its rows at its width, and it
   never wraps ([ADR 0180](adr/0180-a-permission-card-that-stands-out-and-is-read-as-it-is.md)). A
+  composer has a row of its window's above and below its text, and a host may have a footer, a row
+  under its docks; neither holds text, and a short host gives them up first. A
   request's line is a row a line too, gives up none, and stands in an empty composer's place while point
   is there
   ([ADR 0182](adr/0182-a-native-sessions-requests-in-its-conversation.md)).
