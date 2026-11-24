@@ -79,8 +79,8 @@ use oso_core::project::ProjectId;
 pub(in crate::app) use self::composer::Placeholder;
 use self::note::NativeState;
 use super::Begin;
+use super::trust::starts_natively_in;
 use crate::app::App;
-use crate::git::TrustedRoot;
 use crate::sessions::identity::Origin;
 use crate::sessions::native::choice::Choice;
 use crate::sessions::native::control::Control;
@@ -215,6 +215,11 @@ impl NativeSessions {
         self.aside.get(&key).map(|native| native.buffer)
     }
 
+    /// The buffer of native session `key`'s transcript, unless it is set aside.
+    pub(super) fn transcript(&self, key: SessionKey) -> Option<BufferId> {
+        self.map.get(&key).map(|native| native.buffer)
+    }
+
     /// Whether native session `key`'s conversation moved to a session id oso does not follow.
     pub(in crate::app) fn moved(&self, key: SessionKey) -> bool {
         self.map.get(&key).is_some_and(|native| native.moved)
@@ -254,7 +259,7 @@ impl App {
             _ if self.is_space_directory(directory) => false,
             Some(trusted) if begin.worktree => trusted.path() == directory && !trusted.revoked(),
             Some(_) => self.native_trust_now(directory, Some(directory)).is_ok(),
-            None => project.is_some_and(|id| TrustedRoot::of(&self.editor, id).is_some()),
+            None => project.is_some_and(|id| starts_natively_in(&self.editor, id)),
         };
         self.configuration.native_sessions()
             && trusted

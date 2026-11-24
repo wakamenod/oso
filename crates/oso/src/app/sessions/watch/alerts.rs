@@ -337,15 +337,7 @@ impl App {
     /// The trusted root of the project at `root`, if a buffer of that project is open and
     /// the project is trusted.
     fn trusted_root(&self, root: &std::path::Path) -> Option<(ProjectId, TrustedRoot)> {
-        let id = self
-            .editor
-            .buffers()
-            .filter_map(|(_, buffer)| buffer.project())
-            .find(|id| {
-                self.editor
-                    .project(*id)
-                    .is_some_and(|project| project.root() == root)
-            })?;
+        let id = self.open_project_at(root)?;
         Some((id, TrustedRoot::of(&self.editor, id)?))
     }
 

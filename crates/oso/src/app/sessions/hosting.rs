@@ -3,7 +3,7 @@
 //! set; `bridge`: the connections that hold a session; `naming`: a rename the person was asked
 //! about, and what Claude Code's registry calls oso's running sessions (ADR 0155); `shared`:
 //! the questions asked where another session runs; `session_trusts`: the trust sessions start
-//! under; `switch`: `session-switch-mode` (ADR 0165, part 4d). The work that touches files and
+//! under; `open_projects`: what counts as an open buffer of a project; `switch`: `session-switch-mode` (ADR 0165, part 4d). The work that touches files and
 //! processes is on the start thread and the sessions worker; this only decides and carries out.
 //!
 //! Must not depend on: key presses or how a frame is drawn.
@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use oso_core::buffer::{BufferId, Mode};
+use oso_core::buffer::BufferId;
 use oso_core::minibuffer::PromptId;
 use oso_core::project::ProjectId;
 
@@ -33,6 +33,8 @@ mod held;
 mod moving;
 mod naming;
 mod native;
+mod open_projects;
+mod placing;
 mod record;
 mod resume;
 mod session_trusts;
@@ -354,27 +356,6 @@ impl App {
                     .unwrap_or_else(|| self.editor.start_directory().to_path_buf()),
             ),
         }
-    }
-
-    /// The project whose root `directory` is: the selected buffer's, or in `*Spaces*` any
-    /// buffer's, as no buffer there is in one.
-    fn project_at_root(&self, directory: &Path) -> Option<ProjectId> {
-        let at_root = |id: &ProjectId| {
-            self.editor
-                .project(*id)
-                .is_some_and(|project| project.root() == directory)
-        };
-        let current = self.editor.current().1;
-        current.project().filter(at_root).or_else(|| {
-            (current.mode() == Mode::Sessions)
-                .then(|| {
-                    self.editor
-                        .buffers()
-                        .filter_map(|(_, buffer)| buffer.project())
-                        .find(at_root)
-                })
-                .flatten()
-        })
     }
 
     /// What a session's start thread found.

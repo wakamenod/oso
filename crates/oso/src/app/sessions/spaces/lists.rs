@@ -59,11 +59,7 @@ impl App {
                 roots.push(root);
             }
         }
-        let projects: HashSet<_> = self
-            .editor
-            .buffers()
-            .filter_map(|(_, buffer)| buffer.project())
-            .collect();
+        let projects: HashSet<_> = self.open_projects().collect();
         let project_roots = projects
             .into_iter()
             .filter_map(|id| self.editor.project(id))

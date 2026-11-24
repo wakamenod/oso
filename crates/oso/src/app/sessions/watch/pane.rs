@@ -189,15 +189,12 @@ impl App {
         held
     }
 
-    /// The trusted projects buffers are in, by their roots: one pass over the buffers.
+    /// The trusted projects open buffers are in, by their roots.
     fn trusted_projects(&self) -> HashMap<PathBuf, ProjectId> {
-        let mut trusted = HashMap::new();
-        for id in self
-            .editor
-            .buffers()
-            .filter_map(|(_, buffer)| buffer.project())
-        {
-            if self.editor.project_trusted(id)
+        let (mut trusted, mut seen) = (HashMap::new(), HashSet::new());
+        for id in self.open_projects() {
+            if seen.insert(id)
+                && self.editor.project_trusted(id)
                 && let Some(project) = self.editor.project(id)
             {
                 trusted.entry(project.root().to_owned()).or_insert(id);

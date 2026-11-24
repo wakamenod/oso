@@ -1,10 +1,12 @@
-//! Native sessions an agent started in worktrees, resumed with no file of the worktree open
-//! (ADR 0165, "Worktrees' resumes"), with a fake `claude -p` that answers each message and runs
+//! Native sessions an agent started in worktrees, with no file of the worktree open: resumed
+//! (ADR 0165, "Worktrees' resumes"), and what their transcripts count for ("Transcripts count
+//! as open"), with a fake `claude -p` that answers each message and runs
 //! its bridge as `session_tools`' fake does. `oso-restart` resumes one whose repository is
 //! trusted, and it takes a message; one whose repository was untrusted meanwhile stays stopped
 //! and runs nothing, its transcript, its row of `*Spaces*`, the echo area and `*Messages*`
-//! saying so, until it is trusted again and `session-resume` resumes it; and an orchestrator's `session_resume`
-//! resumes a stopped one.
+//! saying so, until it is trusted again and `session-resume` resumes it; one whose turn ends with
+//! changes is ready for review; and an orchestrator's `session_resume` resumes a stopped one
+//! without asking, and asks once its repository is untrusted.
 //!
 //! Must not depend on: the app's internals; each refusal of the claim has its own test. Driven
 //! by its control socket and the fake's files alone; no real key event is posted.
@@ -19,7 +21,7 @@ use serde_json::{Value, json};
 use super::harness::{App, sockets};
 use super::session_tools::{Bridge, Run, answer, run_in, runs};
 use super::spaces::{PrivateRoot, trust_restricted};
-use super::worktrees::{DEADLINE, Flow, keys, text_until};
+use super::worktrees::{DEADLINE, Flow, asks, keys, text_until};
 
 /// The fake: where it runs and its arguments, as `session_tools`' fake writes them, and the
 /// bridge its flow asks for, run as its child. Each message `M` it writes to `sent.PID.M`, and
@@ -189,6 +191,29 @@ fn says(app: &mut App, row: &str) {
     });
 }
 
+/// Sends the worktree session, whose transcript is selected, `message` by its composer.
+fn send(app: &mut App, message: &str) {
+    app.send_keys("i");
+    until(app, "composer", |state| state["buffer"]["name"] != WORKTREE);
+    app.send_keys(&keys(message));
+    app.send_keys("C-c C-c");
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_turn_that_ends_with_changes_is_ready_for_review_with_no_file_open() {
+    let flow = native("worktree-review", "");
+    let (mut app, _, worktree) = in_a_worktree(&flow);
+    fs::write(worktree.join("work.txt"), "work\n").unwrap();
+    select(&mut app, WORKTREE);
+    send(&mut app, "two");
+    sent(&flow, &run_in(&flow, &worktree), "two");
+    until(&mut app, "session ready for review", |state| {
+        listed(state, "e2e-own").is_some_and(|session| session["state"] == "ready for review")
+    });
+    let _ = app.exchange("exit", None);
+}
+
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
 fn oso_restart_resumes_a_worktree_session_with_no_file_of_it_open() {
@@ -202,12 +227,7 @@ fn oso_restart_resumes_a_worktree_session_with_no_file_of_it_open() {
     let state = new.state();
     assert_ne!(listed(&state, "e2e-own").unwrap()["state"], "stopped");
     // It takes a message.
-    new.send_keys("i");
-    until(&mut new, "composer", |state| {
-        state["buffer"]["name"] != WORKTREE
-    });
-    new.send_keys(&keys("two"));
-    new.send_keys("C-c C-c");
+    send(&mut new, "two");
     sent(&flow, &run, "two");
     let _ = new.exchange("exit", None);
 }
@@ -273,9 +293,29 @@ fn one_whose_repository_was_untrusted_stays_stopped_until_it_is_trusted_again() 
     let _ = new.exchange("exit", None);
 }
 
+/// A worker `name` the orchestrator behind `bridge` starts in a worktree, without asking, which
+/// ended its first turn and stopped; its session's id and its worktree.
+fn stopped_worker(
+    flow: &Flow,
+    app: &mut App,
+    bridge: &mut Bridge,
+    name: &str,
+) -> (String, PathBuf) {
+    let call = json!({ "branch": name, "brief": "exit then", "name": name, "repo": "repo" });
+    let (started, error) = bridge.tool_when_free("start_worktree_session", &call);
+    assert!(!error, "{started}");
+    let id = started["session"]["id"].as_str().unwrap().to_owned();
+    let worktree = flow.repo.join(".claude/worktrees").join(name);
+    sent(flow, &run_in(flow, &worktree), "exit then");
+    until(app, "stopped worker", |state| {
+        listed(state, name).is_some_and(|session| session["state"] == "stopped")
+    });
+    (id, worktree)
+}
+
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
-fn an_orchestrators_session_resume_resumes_a_stopped_worktree_session() {
+fn an_orchestrators_session_resume_asks_only_once_the_repository_is_untrusted() {
     let spaces = PrivateRoot::new("worktree-resume-tool");
     let config = format!(
         "agents_start_without_asking = true\n\n[spaces]\nroot = \"{}\"\n",
@@ -283,21 +323,24 @@ fn an_orchestrators_session_resume_resumes_a_stopped_worktree_session() {
     );
     let flow = native("worktree-resume-tool", &config);
     let (mut app, mut bridge, _) = super::space_tools::orchestrated(&flow, &spaces);
-    let call = json!({ "branch": "wa", "brief": "exit then", "name": "wa", "repo": "repo" });
-    let (started, error) = bridge.tool("start_worktree_session", call);
-    assert!(!error, "{started}");
-    let id = started["session"]["id"].as_str().unwrap().to_owned();
-    let worktree = flow.repo.join(".claude/worktrees/wa");
-    sent(&flow, &run_in(&flow, &worktree), "exit then");
-    until(&mut app, "stopped worker", |state| {
-        listed(state, "wa").is_some_and(|session| session["state"] == "stopped")
-    });
-    // It asks: no file of the worker's project is open.
-    let call = bridge.call("session_resume", json!({ "session": "wa" }));
-    answer(&mut app, &bridge, "y");
-    let (resumed, error) = bridge.result(call);
+    let (id, worktree) = stopped_worker(&flow, &mut app, &mut bridge, "wa");
+    stopped_worker(&flow, &mut app, &mut bridge, "wb");
+    // No question: its transcript has its project open, and its project is trusted.
+    let (resumed, error) = bridge.tool_when_free("session_resume", &json!({ "session": "wa" }));
     assert!(!error, "{resumed}");
+    assert_eq!(asks(&app.state()), None);
     let run = resumed_run(&flow, &mut app, &id);
     assert_eq!(run.cwd, fs::canonicalize(&worktree).unwrap());
+    // Untrusted now, the other one's asks.
+    select(&mut app, "README.md");
+    app.run_command("untrust-project", None).unwrap();
+    until(&mut app, "project restricted", |state| {
+        (state["echo"].as_str()).is_some_and(|echo| echo.ends_with("is restricted again"))
+    });
+    let call = bridge.call("session_resume", json!({ "session": "wb" }));
+    let question = answer(&mut app, &bridge, "n");
+    assert!(question.contains("resume session"), "{question}");
+    let (refused, error) = bridge.result(call);
+    assert!(error, "{refused}");
     let _ = app.exchange("exit", None);
 }

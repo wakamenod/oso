@@ -7,6 +7,8 @@
 //! - An open buffer of the root's project, the same directory, decides, trusted or not. One of
 //!   another directory at its path takes it back while that is restricted, and else decides
 //!   nothing. With none, the record does.
+//! - An open buffer is a file or a terminal here: these are what starts run under, and no
+//!   transcript decides one. A tool's call asks a transcript first (`open_projects`).
 //! - Paths are compared as they are spelled, as a tool's call looks its project up.
 //! - The record holds a root by path and identity, or the main repository its worktree's job
 //!   found. A root made from a project holds too while the editor trusts that project, as a
@@ -19,6 +21,7 @@ use std::path::{Path, PathBuf};
 use oso_core::editor::Editor;
 use oso_core::project::ProjectId;
 
+use super::open_projects::of_files_and_terminals;
 use super::{Baseline, Begin};
 use crate::app::App;
 use crate::git::TrustedRoot;
@@ -36,7 +39,7 @@ impl<'a> TrustNow<'a> {
     fn of(editor: &'a Editor, record: TrustRecord<'a>) -> Self {
         let mut seen = HashSet::new();
         let mut open: HashMap<&Path, Vec<ProjectId>> = HashMap::new();
-        for id in (editor.buffers()).filter_map(|(_, buffer)| buffer.project()) {
+        for id in of_files_and_terminals(editor) {
             if seen.insert(id)
                 && let Some(project) = editor.project(id)
             {
