@@ -1,6 +1,7 @@
 //! Diffing a review's sides in-process with `similar` (ADR 0122): Myers' diff with a deadline,
 //! grouped into hunks with no context lines, as `oso_core::review::Shape` takes them. Also the
-//! matcher and the old sides' hunks that carrying comments asks for.
+//! matcher and the old sides' hunks that carrying comments asks for. A native session's request
+//! (`sessions::native::request`, ADR 0182) shows its changes by it too.
 //!
 //! Must not depend on: `app`, `dispatch` or anything that runs git; this works on bytes.
 //!

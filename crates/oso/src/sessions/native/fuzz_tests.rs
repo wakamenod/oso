@@ -165,7 +165,7 @@ fn only_oso_is_in_its_faces(row: &Row, rendered: &Rendered) -> bool {
         }
         Face::Reply(_) => matches!(row.kind, Kind::Reply { .. }),
         Face::Dim | Face::Error => true,
-        Face::Prompt | Face::Target | Face::CardTitle | Face::CardKey => false,
+        Face::Prompt | Face::Target | Face::CardTitle | Face::CardKey | Face::RequestBody => false,
     })
 }
 

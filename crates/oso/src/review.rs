@@ -51,7 +51,7 @@ mod batch;
 pub(crate) mod commits;
 pub(crate) mod count;
 mod debug;
-mod diff;
+pub(crate) mod diff;
 mod index;
 pub(crate) mod jump;
 mod list;

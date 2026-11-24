@@ -1,7 +1,7 @@
 //! A tool call's input, read into what a native session shows of it (ADR 0165): the path, the
 //! command or the pattern the call works on, by the tool's name; for a tool not known here,
-//! its input as JSON, cut. Nothing past this file, `card`, which reads what a permission card
-//! shows of it, and `todo`, which reads a `TaskUpdate`'s task (part 3e), reads a tool's input
+//! its input as JSON, cut. Nothing past this file, `card` and `request`, which read what a
+//! permission card and a request's block show of it, and `todo`, which reads a `TaskUpdate`'s task (part 3e), reads a tool's input
 //! as JSON.
 //!
 //! Must not depend on: `rows` or `render`; plain functions over a parsed value.
@@ -56,7 +56,7 @@ pub fn decode(name: &str, value: Option<&Value>) -> ToolInput {
             .map(|text| capped(text, max).0.to_owned())
     };
     let mut input = ToolInput {
-        cut: serde_json::to_writer(Counter(MAX_INPUT), value).is_err(),
+        cut: !fits(value, MAX_INPUT),
         ..ToolInput::default()
     };
     match name {
@@ -122,6 +122,11 @@ impl std::io::Write for Counter {
     }
 }
 
+/// Whether `value` takes at most `max` bytes as JSON.
+pub(super) fn fits(value: &Value, max: usize) -> bool {
+    serde_json::to_writer(Counter(max), value).is_ok()
+}
+
 /// Whether a call's input `value` names nothing but `keys` (ADR 0165, step 2): what a question
 /// shows of a call is then all it says.
 pub fn only_keys(value: &Value, keys: &[&str]) -> bool {
@@ -133,16 +138,23 @@ pub fn only_keys(value: &Value, keys: &[&str]) -> bool {
 /// A call's input `value` as indented JSON, cut to at most `max` bytes at a character, for the
 /// person to read whole (ADR 0165, step 2).
 pub fn pretty(value: &Value, max: usize) -> String {
-    written(value, max, true)
+    written(value, max, true).0
+}
+
+/// `value` as indented JSON, if that takes at most `max` bytes.
+pub(super) fn indented(value: &Value, max: usize) -> Option<String> {
+    let (text, cut) = written(value, max, true);
+    (!cut).then_some(text)
 }
 
 /// `value` as JSON, cut to at most `max` bytes at a character, never written whole.
 fn json_cut(value: &Value, max: usize) -> String {
-    written(value, max, false)
+    written(value, max, false).0
 }
 
-/// `value` as JSON, indented if `indented`, cut to at most `max` bytes at a character.
-fn written(value: &Value, max: usize, indented: bool) -> String {
+/// `value` as JSON, indented if `indented`, cut to at most `max` bytes at a character, and whether
+/// it was cut.
+fn written(value: &Value, max: usize, indented: bool) -> (String, bool) {
     struct Kept(Vec<u8>, usize);
     impl std::io::Write for Kept {
         fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
@@ -159,11 +171,12 @@ fn written(value: &Value, max: usize, indented: bool) -> String {
         }
     }
     let mut kept = Kept(Vec::new(), max);
-    let _ = if indented {
+    let written = if indented {
         serde_json::to_writer_pretty(&mut kept, value)
     } else {
         serde_json::to_writer(&mut kept, value)
     };
     let valid = std::str::from_utf8(&kept.0).map_or_else(|error| error.valid_up_to(), str::len);
-    String::from_utf8_lossy(&kept.0[..valid]).into_owned()
+    let text = String::from_utf8_lossy(&kept.0[..valid]).into_owned();
+    (text, written.is_err())
 }

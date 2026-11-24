@@ -35,6 +35,7 @@ impl Face {
             Self::Reply(Style::Link) => Highlight::Link,
             Self::CardTitle => Highlight::CardTitle,
             Self::CardKey => Highlight::CardKey,
+            Self::RequestBody => Highlight::RequestBody,
         }
     }
 }
