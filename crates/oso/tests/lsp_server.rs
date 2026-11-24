@@ -1851,8 +1851,8 @@ fn a_rename_checks_its_place_asks_with_its_name_and_places_its_edit() {
         seen.log
     );
     assert!(
-        !seen.log.iter().any(|line| line.contains("count")),
-        "no new name or edit's text is logged: {:?}",
+        !(seen.log.iter()).any(|line| !line.starts_with("started ") && line.contains("count")),
+        "no new name or edit's text is logged, apart from a path that has it: {:?}",
         seen.log
     );
     seen.server.shut_down();

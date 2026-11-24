@@ -10,7 +10,9 @@ use oso_core::buffer::{Baseline, Buffer, BufferId};
 use oso_core::editor::Editor;
 use oso_core::project::{Found, ProjectId, RootIdentity, TrustList};
 
+use super::super::open_projects::{of_files_and_terminals, trust_at};
 use super::TrustNow;
+use crate::app::sessions::tools::tool_trust;
 use crate::git::TrustedRoot;
 use crate::sessions::start::trust::TrustRecord;
 use crate::sessions::worker::SessionKey;
@@ -332,4 +334,124 @@ fn each_sessions_trust_is_taken_back_by_itself() {
     sweep(&editor, &mut trusts);
     assert!(child.revoked() && !parent.revoked());
     assert_eq!(trusts.keys().collect::<Vec<_>>(), [&1]);
+}
+
+/// A native session's transcript in the project `root`, a worktree of the main repository given
+/// if one is, its claim checked or not.
+fn transcript(
+    editor: &mut Editor,
+    root: &RootIdentity,
+    main: Option<(&RootIdentity, bool)>,
+) -> ProjectId {
+    let id = editor.add_native_session_buffer("*claude: s*");
+    editor.set_hosts_session(id, true);
+    editor.request_directory_project(id, &root.path);
+    let request = editor.take_project_requests().pop().unwrap();
+    let found = Found {
+        root: root.clone(),
+        worktree_of: main.map(|(main, _)| main.path.clone()),
+        checked_main: main
+            .filter(|(_, checked)| *checked)
+            .map(|(main, _)| main.clone()),
+    };
+    editor.project_found(&request, Some(found));
+    editor.buffer(id).unwrap().project().unwrap()
+}
+
+/// A session's own transcript, restricted while its worktree's main repository is trusted.
+#[test]
+fn a_restricted_transcript_refuses_its_tools_and_leaves_what_its_start_runs_under() {
+    let s = Scratch::new("transcript");
+    let main = at(&s.main);
+    let mut editor = editor(record(&[&main]));
+    let kept_root = s.of_worktree(&s.of_main());
+    let project = transcript(&mut editor, &at(&s.worktree), Some((&main, false)));
+    assert!(!editor.project_trusted(project));
+
+    let open = of_files_and_terminals(&editor).chain([project]);
+    let now = trust_at(&editor, open, kept_root.path());
+    assert!(tool_trust(now, Some(&kept_root)).is_none(), "its tools");
+    assert!(kept(&editor, &kept_root), "its start's order");
+}
+
+#[test]
+fn what_a_tool_holds_is_taken_back_with_what_its_session_started_under() {
+    let s = Scratch::new("held");
+    let (main, root) = (at(&s.main), at(&s.worktree));
+    let mut editor = editor(record(&[&main]));
+    let kept_root = s.of_worktree(&s.of_main());
+    let mut trusts = HashMap::from([(1, kept_root)]);
+    open(&mut editor, &root, Some(&main));
+    let now = |editor: &Editor| trust_at(editor, of_files_and_terminals(editor), &root.path);
+    let held = tool_trust(now(&editor), trusts.get(&1)).expect("trusted");
+    editor.set_trust_list(Some(TrustList::default()));
+    sweep(&editor, &mut trusts);
+    assert!(held.revoked(), "a job that holds it is refused");
+    assert!(tool_trust(now(&editor), trusts.get(&1)).is_none());
+    // Trusted again, nothing is kept, and the open buffer's is fresh.
+    editor.set_trust_list(Some(record(&[&main])));
+    let again = tool_trust(now(&editor), trusts.get(&1)).expect("trusted again");
+    assert!(!again.revoked());
+    // Another directory's is not the open one's.
+    let other = tool_trust(now(&editor), Some(&s.of_main())).expect("the open one");
+    assert_eq!(other.path(), root.path);
+}
+
+#[test]
+fn with_no_open_buffer_a_tool_acts_under_what_its_session_started_under() {
+    let s = Scratch::new("none-open");
+    assert!(tool_trust(None, Some(&s.of_main())).is_some());
+    assert!(tool_trust(None, None).is_none());
+    assert!(tool_trust(Some(None), Some(&s.of_main())).is_none());
+}
+
+#[test]
+fn a_worktree_made_under_a_transcripts_trust_is_the_records_to_keep_or_take_back() {
+    let s = Scratch::new("made");
+    let (main, own) = (at(&s.main), at(&s.worktree));
+    let mut editor = editor(record(&[&main]));
+    let project = transcript(&mut editor, &own, Some((&main, true)));
+    // A resumed session: nothing is kept of its start.
+    let now =
+        |editor: &Editor| tool_trust(trust_at(editor, [project].into_iter(), &own.path), None);
+    let root = now(&editor).expect("trusted through its main repository");
+    let place = s.dir.join("made");
+    std::fs::create_dir_all(&place).unwrap();
+    let made = || root.for_worktree(place.clone(), &s.main);
+    let begins = |editor: &Editor| {
+        let record = editor
+            .trust_list()
+            .map_or(TrustRecord::Refused, TrustRecord::Read);
+        TrustNow::of(editor, record)
+            .judge_given(Some(made()))
+            .is_ok()
+    };
+    assert!(begins(&editor));
+    assert!(kept(&editor, &made().apart()));
+    // Untrusted, or the main repository another directory: no worktree, no start, taken back.
+    let stale = RootIdentity {
+        path: main.path.clone(),
+        identity: main.identity.map(|(dev, ino)| (dev, ino + 1)),
+    };
+    let lists = [Some(TrustList::default()), Some(record(&[&stale])), None];
+    for list in lists {
+        editor.set_trust_list(list);
+        // Windows has no identity to tell two directories by.
+        if main.identity.is_none() && editor.project_trusted(project) {
+            continue;
+        }
+        assert!(now(&editor).is_none());
+        assert!(!begins(&editor));
+        assert!(!kept(&editor, &made().apart()));
+    }
+}
+
+#[test]
+fn a_restricted_transcript_gives_a_worktree_no_trust() {
+    let s = Scratch::new("no-trust");
+    let (main, own) = (at(&s.main), at(&s.worktree));
+    let editor = &mut editor(record(&[&main]));
+    let project = transcript(editor, &own, Some((&main, false)));
+    let now = trust_at(editor, [project].into_iter(), &own.path);
+    assert!(tool_trust(now, None).is_none());
 }

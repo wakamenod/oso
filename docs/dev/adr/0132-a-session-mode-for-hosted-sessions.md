@@ -1,6 +1,6 @@
 # 0132. A session mode for hosted sessions
 
-- Status: Accepted, amended by 0136, 0142, 0143 and 0155
+- Status: Accepted, amended by 0136, 0142, 0143, 0155 and 0165
 - Date: 2026-11-14
 
 ## Context
@@ -374,6 +374,9 @@ the project's row (Q9). `[keys.session]` comes in step 2, for `C-c` sequences on
   `worktree_list` scope to its project, where they were refused; a session's tools take the
   project's trust as it is now, not as the session began; turn-end git looks run for a trusted
   project that only a session's buffer holds open; and `session-adopt` finds a project by it.
+  A native session's transcript counts too (ADR 0165, "Transcripts count as open"), but never
+  decides whether a native session may start where it runs, or resume; a worktree just made
+  starts under its repository's trust, which a transcript may give.
 - **e2e:** `sessions::mode`, with a fake `claude` that reads its terminal raw and keeps every
   byte, so the flow checks exactly what reached the program.
 

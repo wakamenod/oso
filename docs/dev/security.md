@@ -699,7 +699,7 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
 - A native session's `claude -p` runs only in a trusted project, or in an issue space's own
   directory as below, as Claude Code asks it no trust question of its own ([ADR 0165](adr/0165-native-claude-sessions-the-route.md), Q5): a
   new start at a trusted project's root, and a resume or a fork only at the root of a project
-  trusted now, never under the trust the session started with. An open buffer of the project decides; with none open, the record of trusted projects
+  trusted now, never under the trust the session started with. An open file or terminal of the project decides; with none open, the record of trusted projects
   does, by the root's path on the UI thread and by its path and identity on the start thread,
   as an issue space's member is (part 4a): a directory made again at the path and a link there
   are refused, and a linked worktree resumes only while git's files, read afresh, and the record
@@ -707,7 +707,8 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   again, with nothing run, where part 4a looks and once more just before the spawn. It so
   trusts the worktree's `.claude` settings, hooks and `.mcp.json` as they are then, also at
   `oso-restart`'s resume with no person there; a new start, a fork, an adoption and a move
-  into a space in a worktree need an open, trusted buffer of it. A record not
+  into a space in a worktree need an open, trusted file or terminal of it. No native session's
+  transcript decides one ("Transcripts count as open"). A record not
   read yet is waited for, at most 5 s with ADR 0173's held starts, then nothing is trusted.
   Until its start thread reports, the UI takes a resume's or fork's trust back once its
   project is no longer trusted, a worktree's once any root has left the record, and the look
@@ -979,6 +980,9 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   `?` shows the whole brief. No tool types into a terminal, answers a session's dialog, passes a
   permission flag or reads Claude Code's token files; a guard test keeps the tools' files from
   the terminal and the process module.
+  - A session's project is trusted as an open buffer of it has it now, its own terminal or
+    transcript among them (ADR 0132; ADR 0165, "Transcripts count as open"); with none, a job
+    runs under what the session started under while that holds, and nothing goes unasked.
   - A space's orchestrator's `session_resume` ([ADR 0153](adr/0153-agents-resume-sessions.md))
     takes only a stopped session of its space that is no orchestrator and not archived. It asks
     as a start does, or goes without asking under ADR 0135's rules, counted toward the limit

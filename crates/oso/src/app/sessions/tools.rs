@@ -36,7 +36,7 @@ use crate::sessions::identity::Origin;
 use crate::sessions::identity::SessionId;
 use crate::sessions::tools::{self as rules, Asks, Guard, Tool};
 use crate::sessions::worker::SessionKey;
-use crate::sessions::worktree::jobs::{Report, Trust};
+use crate::sessions::worktree::jobs::Report;
 
 mod add_repo;
 mod archive;
@@ -49,10 +49,13 @@ mod rename;
 mod resume;
 mod space;
 mod starting;
+mod trust;
 
 pub(in crate::app) use add_repo::AddLook;
 pub(in crate::app) use question::Question;
 use reads::Listing;
+#[cfg(test)]
+pub(in crate::app) use trust::tool_trust;
 
 /// What a call that would ask is told while another agent's question waits.
 const QUESTION_WAITS: &str = "a question an agent caused waits for the person; try again";
@@ -386,52 +389,6 @@ impl App {
             .guard
             .admit(&caller.id, tool.name, target, Instant::now())
             .map_err(|refusal| refusal.why())
-    }
-
-    /// The trust `caller`'s worktree jobs run under: that of an open project whose root is the
-    /// session's, as it is now, else the one the session started with.
-    fn caller_trust(&self, caller: &Caller) -> Result<Trust, String> {
-        let root = self.caller_root(caller).ok_or(
-            "your session's project is not trusted; the person trusts it with trust-project",
-        )?;
-        Ok(Trust {
-            root,
-            trusted: self.trusted_list(),
-        })
-    }
-
-    /// The trusted root of `caller`'s project: an open project's whose root is the session's,
-    /// looked up now so that the person's later trust or distrust counts, else the one the
-    /// session started with (a worktree just made, which no buffer opened), while it holds.
-    fn caller_root(&self, caller: &Caller) -> Option<crate::git::TrustedRoot> {
-        if let Some(at) = &caller.acting_at {
-            return Some(at.clone());
-        }
-        match self.open_caller_root(caller) {
-            Some(now) => now,
-            None => self.hosting.trusts.get(&caller.key).cloned(),
-        }
-    }
-
-    /// The trust of the caller's project as an open buffer of it has it now: `None` when no
-    /// buffer has it open, `Some(None)` when it is not trusted.
-    fn open_caller_root(&self, caller: &Caller) -> Option<Option<crate::git::TrustedRoot>> {
-        caller
-            .root
-            .as_deref()
-            .and_then(|root| self.open_root_trust(root))
-    }
-
-    /// Whether the caller's project is trusted now, by an open buffer of it, the session's own
-    /// among them: never by the trust the session began with, which the person may have taken
-    /// back since (ADR 0135).
-    fn caller_trusted_now(&self, caller: &Caller) -> bool {
-        if let Some(at) = &caller.acting_at {
-            return self.still_trusted(at);
-        }
-        self.open_caller_root(caller)
-            .flatten()
-            .is_some_and(|root| !root.revoked())
     }
 
     /// A report of a worktree job, taken if a tool's call waits for it, else given back.

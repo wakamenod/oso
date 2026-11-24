@@ -287,8 +287,7 @@ impl App {
 
     /// The project oso knows whose root is `root`, by a buffer in it or an open review.
     pub(super) fn project_with_root(&self, root: &std::path::Path) -> Option<ProjectId> {
-        (self.editor.buffers())
-            .filter_map(|(_, buffer)| buffer.project())
+        self.open_projects()
             .chain(self.reviews.open.iter().map(|running| running.project))
             .find(|project| {
                 (self.editor.project(*project)).is_some_and(|known| known.root() == root)

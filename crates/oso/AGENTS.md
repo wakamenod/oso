@@ -130,7 +130,8 @@ often, so it must rebuild within 2 s.
   part O-2), under the trust `sessions/start/trust.rs` judges, from what
   `app/sessions/hosting/trust.rs` gives it, and by the record, or for a
   worktree's resume its claim by `project::detect_root`, on the start thread (what sessions' tools
-  run under, once started, `app/sessions/hosting/session_trusts.rs` judges)
+  run under, once started, `app/sessions/hosting/session_trusts.rs` judges; what counts as an
+  open buffer of a project is `app/sessions/hosting/open_projects.rs`'s)
   (ADR 0165, step 2), or in an issue space's own directory under the space's gate
   `sessions/start/space_gate.rs`, from what `app/sessions/spaces/native.rs` judges (ADR 0176);
   its whole replies are highlighted as Markdown on the syntax threads, as

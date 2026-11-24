@@ -211,7 +211,7 @@ impl App {
             check_shared: false,
             // The caller's trust, for its baseline: never a native start's, which is judged
             // again where it runs (`native_start`).
-            trusted: self.caller_root(caller),
+            trusted: self.caller_start_root(caller),
             worktree: false,
             space: None,
             orchestrator_of: None,

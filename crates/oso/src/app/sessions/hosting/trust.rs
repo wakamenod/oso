@@ -1,12 +1,13 @@
-//! Whether a session's project is trusted now, as an open buffer of it has it (ADR 0114): the
-//! session tools ask it of their caller's project (ADR 0121), and a native session's start of
-//! theirs, which only a trusted project runs (ADR 0165, Q5). A native resume or fork with no
+//! Whether a native session's project is trusted now, as an open file or terminal of it has it
+//! (ADR 0114), as only a trusted project runs one (ADR 0165, Q5); the session tools' lookup,
+//! which counts the transcripts too, is `open_projects`'. A native resume or fork with no
 //! open buffer of its project asks the record of trusted projects instead, and its start
 //! thread its root's identity (part 4a, `sessions::start::trust`), or, for a resume in a linked
 //! worktree, its claim.
 //!
 //! Must not depend on: the disk; the editor's projects and trust list say it.
 //!
+//! - An open buffer is a file or a terminal here, never a transcript.
 //! - An open project that is not trusted is not trusted, whatever the session began with or
 //!   the record says.
 //! - A native start fails closed: with no open project at its root, a new one does not run
@@ -15,21 +16,34 @@
 
 use std::path::Path;
 
+use oso_core::editor::Editor;
+use oso_core::project::ProjectId;
+
+use super::open_projects::{of_files_and_terminals, trust_at};
 use crate::app::App;
 use crate::git::TrustedRoot;
 use crate::sessions::start::trust::{self, ByRecord, Claims, Judged, NotTrusted, TrustRecord};
 use crate::sessions::worker::SessionKey;
 
+/// As [`App::open_root_trust`], of `editor`'s files and terminals.
+fn open_root_trust(editor: &Editor, root: &Path) -> Option<Option<TrustedRoot>> {
+    trust_at(editor, of_files_and_terminals(editor), root)
+}
+
+/// Whether a person's new session in project `id`, as [`App::project_at_root`] found it, runs
+/// natively by its trust: only in the selected buffer's, or one a file or a terminal has open.
+pub(super) fn starts_natively_in(editor: &Editor, id: ProjectId) -> bool {
+    let selected = editor.current().1.project() == Some(id);
+    (selected || of_files_and_terminals(editor).any(|open| open == id))
+        && editor.project_trusted(id)
+}
+
 impl App {
-    /// The trust of the project at `root` as an open buffer of it has it now: `None` when no
-    /// buffer has it open, `Some(None)` when it is not trusted.
+    /// The trust of the project at `root` as an open file or terminal of it has it now, as
+    /// native starts and resumes are judged: `None` when none has it open, `Some(None)` when
+    /// it is not trusted. A transcript is none: its own must not decide its session's resume.
     pub(in crate::app) fn open_root_trust(&self, root: &Path) -> Option<Option<TrustedRoot>> {
-        let id = self
-            .editor
-            .buffers()
-            .filter_map(|(_, buffer)| buffer.project())
-            .find(|&id| self.editor.project(id).is_some_and(|p| p.root() == root))?;
-        Some(TrustedRoot::of(&self.editor, id))
+        open_root_trust(&self.editor, root)
     }
 
     /// The trust a new native session in `directory`, of the project at `root`, runs under
@@ -90,17 +104,15 @@ impl App {
         if !list.paths().any(|path| path == root) {
             return None;
         }
-        let restricted = (self.editor.buffers())
-            .filter_map(|(_, buffer)| buffer.project())
-            .any(|id| {
-                self.editor.project(id).is_some_and(|project| {
-                    project.identity().is_some()
-                        && list.trusts(&oso_core::project::RootIdentity {
-                            path: root.to_owned(),
-                            identity: project.identity(),
-                        })
-                }) && TrustedRoot::of(&self.editor, id).is_none()
-            });
+        let restricted = of_files_and_terminals(&self.editor).any(|id| {
+            self.editor.project(id).is_some_and(|project| {
+                project.identity().is_some()
+                    && list.trusts(&oso_core::project::RootIdentity {
+                        path: root.to_owned(),
+                        identity: project.identity(),
+                    })
+            }) && TrustedRoot::of(&self.editor, id).is_none()
+        });
         restricted.then_some(None)
     }
 
@@ -166,5 +178,47 @@ impl App {
             None if self.trust_file.is_some() && !self.starting.trust_read => TrustRecord::Unread,
             None => TrustRecord::Refused,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use oso_core::editor::Editor;
+    use oso_core::project::TrustList;
+
+    use super::super::open_projects::tests::{abs, file, record, transcript};
+    use super::{open_root_trust, starts_natively_in};
+
+    #[test]
+    fn a_transcript_is_no_open_buffer_of_the_judges_trusted_or_not() {
+        let mut editor = Editor::default();
+        transcript(&mut editor, "/w/own");
+        assert!(open_root_trust(&editor, &abs("/w/own")).is_none());
+        editor.set_trust_list(Some(record("/w/own")));
+        assert!(open_root_trust(&editor, &abs("/w/own")).is_none());
+        file(&mut editor, "/w/own");
+        let open = open_root_trust(&editor, &abs("/w/own"));
+        assert!(open.expect("a file's").is_some());
+    }
+
+    #[test]
+    fn a_transcript_not_selected_never_makes_a_persons_new_session_native() {
+        let mut editor = Editor::default();
+        editor.set_trust_list(Some(record("/w/own")));
+        let id = transcript(&mut editor, "/w/own");
+        let project = editor.buffer(id).unwrap().project().unwrap();
+        assert!(editor.project_trusted(project));
+        assert!(!starts_natively_in(&editor, project));
+        let scratch = editor.current().0.buffer();
+        editor.show(id);
+        assert!(
+            starts_natively_in(&editor, project),
+            "the selected buffer's"
+        );
+        editor.show(scratch);
+        assert_eq!(file(&mut editor, "/w/own"), project);
+        assert!(starts_natively_in(&editor, project), "a file's");
+        editor.set_trust_list(Some(TrustList::default()));
+        assert!(!starts_natively_in(&editor, project));
     }
 }

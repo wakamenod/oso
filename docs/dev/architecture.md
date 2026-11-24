@@ -1051,7 +1051,7 @@ read. See [ADR 0019](adr/0019-configuration.md).
   tool calls wait in `app/held_starts.rs`, in order, for at most five seconds, and language
   servers wait in `app/starts.rs`
   ([ADR 0173](adr/0173-starts-wait-for-the-configurations-first-look.md), ADR 0138). A
-  native resume, a fork or an adoption with no open buffer of its project waits there too,
+  native resume, a fork or an adoption with no open file or terminal of its project waits there too,
   for the record of trusted projects' first report, within the same bound (ADR 0165, parts 4a
   and 4e); a resume in a worktree is then judged by its claim on its start thread; one in an issue space's own directory waits for `[spaces] root`, its space's gate
   judged once the configuration is read (ADR 0176).
