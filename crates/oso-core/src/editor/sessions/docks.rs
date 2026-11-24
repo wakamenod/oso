@@ -15,6 +15,7 @@
 //!   lines, at most [`MAX_CARD`]: its host breaks its rows at its width, and it never wraps
 //!   (ADR 0180). The composer's rows are given first, the card's next. A request's line, in the
 //!   card's slot, gives up none of its rows, as its keys are all shown (ADR 0182).
+//! - A host no window of the tree shows, as a docked buffer is, hides what is docked under it.
 
 use super::super::Editor;
 use crate::buffer::{BufferId, Mode};

@@ -346,7 +346,7 @@ Each holds from the step that builds it.
   queue's rows.
 - **ADR 0170, "A docked window":** the slot `Card` is `Request`, under the strip; a plan's buffer also
   hosts one, its line. **"Heights":** the line as many rows as its keys need, the choices at most
-  10. **D2, a short host:** the strip gives up rows first, then the choices; the line none.
+  10. A request's line hosts its session's empty composer, hidden, while it has its place. **D2, a short host:** the strip gives up rows first, then the choices; the line none.
   "Rows": no dock draws a frame. "Agents and secrets": as "Point" 8.
   **"Telling it apart":** the line and the choices' title are on the title's band, and the rest of
   the choices and the answer input over the float's face.
@@ -372,7 +372,7 @@ Each holds from the step that builds it.
 - **A `y` typed on the line after the wait allows,** as on a card. Less often: not from the composer,
   not where point came by itself with a Japanese source, not after a letter typed as it came, and no letter approves a plan.
 - Text in the answer input is an answer once `C-c C-c` gives it; its title says so.
-- With a Japanese source each first request costs a `C-c C-j`.
+- With a Japanese source each request costs a `C-c C-j`.
 - Highlighting off, the bands go; the columns and the line's place still tell whose words are whose.
 - About 2500 lines go in R4. Measured with a throwaway example (release, one Mac, a wrapped window of
   62 by 100): a block put at the end takes 7 µs at 8 lines, 18 at 200, 70 at 2000 and 210 for one line
@@ -418,9 +418,9 @@ Each holds from the step that builds it.
 
 ## Open
 
-- What R1a says of the input source, of oso's own switch to ASCII for a prompt
-  ([ADR 0158](0158-japanese-in-prompts-and-review-drafts.md)) and of other platforms is from the code:
-  R1d runs it.
+- What R1a says of other platforms' input sources is from the code (R1d, as built).
+- R2 docks the answer input over a draft, whose window must keep its cursor and view: R1d's way to give
+  the composer's place makes a new window, as only an empty composer gives it.
 - Whether [ADR 0175](0175-dictation-through-typewhisper.md)'s dictation writes in the answer input: R2.
 
 ## R1b, as built (2026-11-24)
@@ -520,6 +520,59 @@ the line by itself in no case, and the line always stands above the composer:** 
   in place of another, as much; taken out, under 1.2 ms. A look, 25 to 130 µs, of the request in front
   alone, once an event and once a frame: the rows are laid out after each event, not only after one
   that moved the view. A block is 130 KB at most, held once as it waits and twice more as it shows.
+
+## R1d, as built (2026-11-24)
+
+"Point" 1 to 4 and 7, and the line in the empty composer's place. Questions and plans keep their cards'
+rules.
+
+- **The author on a request that comes right after one was answered (asked 2026-11-24): it is like any
+  other.** So in "Point" 4, "not after an answer" is of a line point was on as its call came; from the
+  composer, where an answer leaves point, the next move by itself is one like any. And in "Several
+  requests", a Japanese source leaves point on the line only for a next call that waited already, which
+  cannot happen today (R1c): the next one is gone to by `C-c C-j`. A second `y` too soon is a draft.
+- **By itself only with the source settled,** as far as oso was told: once its window has been in front
+  and in sight for 500 ms, and the source is what it is for 500 ms: since it
+  changed, and since oso wanted ASCII or secure input. While oso wants one, and 500 ms after, an `Other` does not take the place of a Japanese known before.
+  Told of a Japanese source after point went, as long as the person did nothing since (a wheel's
+  turn is something, a trackpad's going on too), point goes back; beneath a prompt, once that closed;
+  where the composer does not fit, to the transcript.
+- **"In the middle of nothing"** has more to it than ADR 0180's list: a dictation, the edit of a queued
+  message, a send or an image that waits, a command that waits for a list of branches, a region. A
+  composer that holds a secret, or is shown elsewhere than in its place, is as one with a draft.
+- **The wait, and the letters, count from the first frame presented with point on the line:** until one
+  is, as in a window covered or hidden, no key answers, and what types is still text. From then
+  on it is text until the line takes a key: both ask since when that is (`line_since`), so no key is
+  both, and one too soon after another that did nothing is neither. It is the first
+  thing the person does there, or is not text: any other key, a wheel's turn and a press of the mouse
+  end it. A text of several characters and an input method's are as a letter; `RET` does nothing, from
+  the transcript too. Where the composer does not fit with the line, the key is refused.
+- **A press on the line** before it takes a key, in the composer's place, is one on the composer where
+  it fits, and chooses it: also the click that brings oso's window in front, if the person did nothing since.
+- **A key held down as oso moves point,** to the line or from it, does nothing more until it is let go.
+- **Chosen** is the composer selected by anything but oso's own move while the call waits. Point that
+  was on the line, however it came, does not go there by itself again, but after text typed as it
+  came, or a Japanese source told of late.
+- **The place:** while the line has it, the composer's buffer is docked under the line's, which no
+  window of the tree shows: so it shows nowhere, and no list of buffers names it, as it would undocked. It has its place
+  again as the call goes, at `i`, before a text is put in it and after any event that left one there.
+  That window is a new one, with no more to keep than an empty text's. A window too short for both
+  shows the line alone once point goes to it; `i` then says that the composer is hidden, and point
+  stays.
+- **The head:** a window that shows the transcript is looked at once a call, with no region marked and
+  no search in it; following, with its top past the title's row, it shows that row at its top. As the
+  call goes, a window whose top is in the block is at the end, its last row at the bottom; another stays.
+- **"At the end"** of the transcript is point at its end with one cursor, or at the head oso put it at.
+- **The input source, run (macOS):** `Event::InputSource` is told as oso first comes in front, a
+  Japanese source as any; oso's own switch to ASCII for a prompt as `Other`, after oso asked for it, and
+  the person's source, given back as the prompt closes, as Japanese. From the code: Linux and Windows
+  tell of none. A Japanese source given up inside a prompt is told of with the next change only: until
+  then `C-c C-j` goes.
+- **No public item** of a library crate. Dev socket: `input-source`.
+- **Measured** (release, one Mac, 10,000 rows; 20, 62 and 100 columns, p98): a block put, its head shown
+  and its first rows wrapped, 60 to 150 µs at 8 lines, 120 to 440 at 200, 220 at 2000 and under 2.2 ms at
+  the limits; taken out, the end shown, under 0.3 ms; the composer's place given and taken back, each
+  with the frame's rows, under 100 µs.
 
 ## Alternatives considered
 

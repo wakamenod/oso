@@ -9,7 +9,21 @@ use oso_core::frame::FrameSize;
 use oso_core::window::{DockSlot, Screen};
 
 use super::composed::put_at_end;
-use super::{HIDDEN, new_docked_composer};
+use super::{Composing, HIDDEN, Run, Turn, new_docked_composer};
+
+impl Composing {
+    /// A message queued and taken to be edited.
+    pub(in crate::app::sessions::hosting::native) fn edits_a_queued(&mut self) {
+        let turn = Turn {
+            busy: true,
+            run: Run::Running,
+            leaving: false,
+        };
+        let _ = self.queue.send("queued".to_owned(), turn);
+        let id = self.queue.waiting().next().map(|queued| queued.id);
+        assert!(id.and_then(|id| self.queue.edit(id)).is_some());
+    }
+}
 
 /// An editor showing a transcript in a frame 40 columns wide, its composer selected.
 fn composing() -> (Editor, BufferId, BufferId) {

@@ -14,6 +14,7 @@
 //! - Nothing of a composition reaches a log but that one happened (ADR 0028).
 //! - The window system's reports arrive as [`ImeEvent`], from winit's adapter or the native
 //!   layer, and the calls go through its window (ADR 0070), so nothing here knows which.
+//! - The kind of input source the person types with is `source`'s (ADR 0182).
 
 use oso_core::buffer::{Buffer, BufferId};
 use oso_core::display_map::Preedit;
@@ -22,7 +23,12 @@ use oso_core::minibuffer::{Kind, Prompt, PromptId};
 use oso_core::window::WindowId;
 use oso_platform::window::{ImeEvent, InputSource};
 
+mod source;
+
+use std::time::Instant;
+
 use super::App;
+use super::sessions::Typing;
 use super::shell::{ANSWERS_INPUT_METHOD, COMMITS_WHEN_TURNED_OFF, Loop};
 
 /// Whether oso wants the IME on in `buffer`: unless the next letter is a key, which
@@ -105,6 +111,8 @@ pub(super) struct ImeState {
     japanese_prompt: Option<PromptId>,
     /// Whether the window was last asked for an ASCII input source (ADR 0106, ADR 0158).
     ascii: bool,
+    /// The kind of input source the person types with (ADR 0182).
+    source: source::Source,
     /// The tiled window selected after the last event, or the one beneath the prompts, so
     /// that a composition ends when another is selected, as keys go only there (ADR 0112).
     selected: Option<WindowId>,
@@ -120,6 +128,26 @@ impl App {
             ImeEvent::Commit(_) => "a commit",
             ImeEvent::Disabled => "the IME's end",
         });
+        // Typed as point came to a request's line, it goes to the composer (ADR 0182).
+        let types = match &event {
+            ImeEvent::Preedit(text, _) | ImeEvent::Commit(text) => !text.is_empty(),
+            ImeEvent::Disabled => false,
+        };
+        if types && !self.composing() {
+            let before = self.editor.tiled().0.id();
+            let dropped = self.typed_as_point_came(Typing::Text);
+            let now = self.editor.tiled().0.id();
+            // It goes on there.
+            if now != before {
+                self.ime.selected = Some(now);
+            }
+            if dropped {
+                if let Some(view) = &self.view {
+                    view.window.discard_composition();
+                }
+                return true;
+            }
+        }
         match event {
             ImeEvent::Preedit(text, range) if !text.is_empty() => {
                 if self.editor.preedit().is_none() {
@@ -206,11 +234,12 @@ impl App {
     /// password field has it (ADR 0073). Only the verdict crosses: no text, name or place of
     /// the buffer. The window holds it only while oso is in front with the keyboard, and does
     /// nothing when the answer is the same.
-    pub(super) fn sync_secure_input(&self) {
+    pub(super) fn sync_secure_input(&mut self) {
+        let secret = self.editor.current().1.is_secret();
         if let Some(view) = &self.view {
-            view.window
-                .set_secure_input(self.editor.current().1.is_secret());
+            view.window.set_secure_input(secret);
         }
+        self.ime.source.secure(secret, Instant::now());
     }
 
     /// Asks the window for an ASCII input source while a prompt that follows the input source
@@ -224,6 +253,7 @@ impl App {
         if let Some(view) = self.view.as_ref().filter(|_| wanted != self.ime.ascii) {
             view.window.set_ascii_input(wanted);
             self.ime.ascii = wanted;
+            self.ime.source.ascii(wanted, Instant::now());
         }
     }
 
@@ -260,6 +290,15 @@ impl App {
     /// not.
     pub(super) fn input_source_chosen(&mut self, source: InputSource) {
         self.ime.japanese_prompt = marked(source, self.editor.prompt().map(Prompt::id));
+        self.ime.source.told(source, Instant::now());
+        log::debug!("input source: {source:?}");
+        self.point_back_if_japanese();
+    }
+
+    /// Whether the person's input source is a Japanese input mode, as far as oso was told, and
+    /// since when that is settled (ADR 0182, "Point" 2).
+    pub(super) fn types_japanese(&self) -> (bool, Option<Instant>) {
+        self.ime.source.japanese()
     }
 
     /// Whether oso wants the IME on now ([`wants_ime`]).

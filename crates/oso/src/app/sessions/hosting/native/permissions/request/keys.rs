@@ -21,6 +21,9 @@ use crate::sessions::native::request::input::input;
 use crate::sessions::native::tail::Part;
 use crate::sessions::worker::SessionKey;
 
+/// What `C-c C-j` says where the request does not show.
+const HIDDEN: &str = "The request is hidden: the window is too short for it";
+
 /// Which place of a block is shown.
 #[derive(Clone, Copy)]
 enum At {
@@ -171,18 +174,12 @@ impl App {
         let Some((id, offset)) = self.place_in_block(key, at) else {
             return;
         };
-        let Some(window) = self.editor.window_by_id(id) else {
-            return;
-        };
-        let mut selections = window.selections.clone();
-        selections.keep_primary();
-        selections.move_primary(offset);
         let top = Scroll {
             start: offset,
             left: 0,
         };
         self.editor.refill_wraps();
-        self.editor.restore_positions_in(id, selections, top);
+        super::head::put(&mut self.editor, id, offset, top);
         // The rows below it may be fewer than the window's.
         let blank = self.editor.window_by_id(id).and_then(|window| {
             let display = self.editor.buffer(window.buffer())?.display();
@@ -201,7 +198,7 @@ impl App {
         let (id, _) = carrier(&self.editor, native.buffer, DockSlot::Card)?;
         let offset = match at {
             // Past the row between it and what is above.
-            At::Title | At::Body(0) => native.part_place(Part::Title).start + 1,
+            At::Title | At::Body(0) => super::head::first(native),
             At::Body(at) => native.part_place(Part::Body).start + at,
         };
         Some((id, offset))
@@ -215,12 +212,10 @@ impl App {
         let end = (self.hosting.natives.map.get(&key))
             .and_then(|native| self.editor.buffer(native.buffer))
             .map(|buffer| buffer.text().len());
-        if let (Some(end), Some(window)) = (end, self.editor.window_by_id(id)) {
-            let (mut selections, scroll) = (window.selections.clone(), window.scroll());
-            selections.keep_primary();
-            selections.move_primary(end);
+        let scroll = self.editor.window_by_id(id).map(|window| window.scroll());
+        if let (Some(end), Some(scroll)) = (end, scroll) {
             self.editor.refill_wraps();
-            self.editor.restore_positions_in(id, selections, scroll);
+            super::head::put(&mut self.editor, id, end, scroll);
         }
     }
 
@@ -243,6 +238,14 @@ impl App {
         if self.hosting.natives.permissions.asks.shown(key).is_none() {
             return self.editor.message("Nothing waits for you here");
         }
+        let shown = self.hosting.natives.permissions.asks.shown(key);
+        if shown.is_some_and(|ask| ask.request().is_some()) {
+            match self.select_line(key) {
+                true => self.note_current_card(),
+                false => self.editor.message(HIDDEN),
+            }
+            return;
+        }
         let dock = carrier(&self.editor, native.buffer, DockSlot::Card)
             .and(self.editor.dock_window(native.buffer, DockSlot::Card));
         match dock {
@@ -250,9 +253,7 @@ impl App {
                 self.editor.select_window(window);
                 self.note_current_card();
             }
-            None => self
-                .editor
-                .message("The request is hidden: the window is too short for it"),
+            None => self.editor.message(HIDDEN),
         }
     }
 

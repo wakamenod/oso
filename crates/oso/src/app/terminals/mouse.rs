@@ -18,6 +18,7 @@ use oso_platform::window::{Held, Mouse, MouseAction, MouseButton, Position};
 use oso_term::{Button, Pointer, PointerAction};
 
 use super::super::App;
+use super::super::sessions::Typing;
 use super::reads_a_password;
 
 /// A cell of a terminal's screen, and the pointer in pixels from the screen's top left:
@@ -128,6 +129,13 @@ impl App {
     pub(in crate::app) fn handle_mouse(&mut self, mouse: Mouse) -> bool {
         if !matches!(mouse.action, MouseAction::Moved) {
             self.person_typed("mouse");
+            if matches!(mouse.action, MouseAction::Press(_)) {
+                let under = self.window_under(mouse.at).filter(|(_, in_text)| *in_text);
+                if self.pressed_as_point_came(under.map(|(window, _)| window)) {
+                    return true;
+                }
+                self.typed_as_point_came(Typing::Act);
+            }
             // The completion popup takes no press: any closes it (ADR 0138, step 9).
             self.editor.close_completion_popup();
         }

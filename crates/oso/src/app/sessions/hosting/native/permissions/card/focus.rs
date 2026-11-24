@@ -80,7 +80,7 @@ impl App {
 
     /// What session `key`'s card shows is new to the person, or they come back to oso's window: if
     /// it is the one in front, its wait starts again.
-    pub(super) fn wait_on_card_again(&mut self, key: SessionKey) {
+    pub(in super::super) fn wait_on_card_again(&mut self, key: SessionKey) {
         if let Some(current) = &mut self.hosting.natives.permissions.current
             && current.key == key
         {
@@ -228,7 +228,7 @@ impl App {
 
     /// Whether the person is in the middle of what a move of point would break: the next key,
     /// or the button's release, is meant for where point is.
-    fn person_in_the_middle(&self) -> bool {
+    pub(in super::super) fn person_in_the_middle(&self) -> bool {
         let editor = &self.editor;
         editor.prompt().is_some()
             || self.dispatcher.reads_keys()

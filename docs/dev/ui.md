@@ -1398,11 +1398,15 @@ a switch made with its command stands until that setting changes in the file
   permission is asked in the conversation ([ADR 0182](adr/0182-a-native-sessions-requests-in-its-conversation.md)):
   a block at its end, oso's title on a band (`⚠ Bash asks to run`, and at the right
   `adds 60 lines, removes 40`) over all it asks for on a tint, a change as a diff, `$ `, `+ ` and `- `
-  oso's, white space marked. A line, `*request: NAME*`, is docked above the composer: while point is
+  oso's, white space marked. A line, `*request: NAME*`, is docked above the composer, or in its place: while point is
   elsewhere, ` Bash asks to run   C-c C-j  answers it`; on it, its keys on chips, dim while one would
   be refused, and what was read, `34 of 202 rows read`. Point goes there by `C-c C-j` (in the
-  transcript and the composer), `C-x o` or a click, never by itself, and a letter in the composer is
-  text. `y` allows once all of it was read, half a second each view; before that it shows what was
+  transcript and the composer), `C-x o` or a click, and by itself as the call comes, from the empty
+  composer and the transcript's end, but not with a Japanese input source, a draft or the composer
+  chosen (`i`) while the call waits. The line then has the empty composer's place, until `i` or a text.
+  What is typed as point goes out of the composer is a draft there, with point; from the transcript it is
+  refused. A block taller than its window shows its head
+  first. `y` allows once all of it was read, half a second each view; before that it shows what was
   not. `C-u y` asks `Allow Edit in proj unread: 168 of its 202 rows are not read? (y or n)`. `n` and
   `C-c C-k` deny, `N` with a note, `RET` shows the input as JSON in `*result: NAME*`; `SPC`, `DEL`,
   `C-v`, `M-v` and the wheel scroll the transcript, `M-<` and `M->` go to the block's ends, `i` to

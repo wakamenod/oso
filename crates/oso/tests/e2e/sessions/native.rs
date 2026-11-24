@@ -520,6 +520,7 @@ mod model;
 mod modes;
 mod past;
 mod plan;
+mod point;
 mod quit;
 mod request;
 mod restart;

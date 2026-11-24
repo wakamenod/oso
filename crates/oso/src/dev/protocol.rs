@@ -119,6 +119,9 @@ pub enum UiOp {
     /// Gain the focus as the window system's event says it, with all that follows it: files
     /// and the configuration looked at again, and the binary (ADR 0133, step 4).
     WindowFocus,
+    /// The person chose a Japanese input mode, or not, as the window system would say, as no flow
+    /// switches a real one (ADR 0182).
+    InputSource { japanese: bool },
 }
 
 /// Where `wheel` puts the pointer: a place on the surface, in physical pixels, or the middle
@@ -212,6 +215,12 @@ pub fn parse(line: &str) -> Result<Request, BadRequest> {
                 .ok_or_else(|| bad(&id, "focus needs a boolean \"focused\"".into()))?,
         ),
         "window-focus" => UiOp::WindowFocus,
+        "input-source" => UiOp::InputSource {
+            japanese: params
+                .get("japanese")
+                .and_then(Value::as_bool)
+                .ok_or_else(|| bad(&id, "input-source needs a boolean \"japanese\"".into()))?,
+        },
         "export-state" => UiOp::Restart(Op::ExportState {
             library: carry::terminals::library(params).map_err(|m| bad(&id, m))?,
         }),
@@ -747,6 +756,20 @@ mod tests {
             parse(r#"{"method": "window-focus"}"#).unwrap().method,
             Method::Ui(UiOp::WindowFocus)
         );
+    }
+
+    #[test]
+    fn input_source_takes_whether_it_is_japanese() {
+        let source = |params: &str| {
+            parse(&format!(
+                r#"{{"method": "input-source", "params": {params}}}"#
+            ))
+        };
+        assert_eq!(
+            source(r#"{"japanese": true}"#).unwrap().method,
+            Method::Ui(UiOp::InputSource { japanese: true })
+        );
+        assert!(source("{}").is_err());
     }
 
     #[test]

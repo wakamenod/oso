@@ -781,9 +781,13 @@ says why in its conversation and under its row in `*Spaces*`.
 
 When Claude asks to run something or to change a file, it asks at the end of the conversation: an
 amber title (`⚠ Bash asks to run`) over all of it, the whole command, or the change as a diff, with its
-tabs and full-width spaces marked. A line under the conversation says `Bash asks to run   C-c C-j  answers it`. `C-c C-j`,
-in the conversation or the composer, goes there (`C-x o` and a click do too); what you type in the
-composer stays text. There `y` allows it once, but only once all of it was on screen, half a second
+tabs and full-width spaces marked. A line under the conversation has its keys. If the composer is empty, or you are at the
+conversation's end, you are put on the line, which takes the empty composer's place. What you type in
+the composer just then stays a draft there, and you with it; typed at the conversation's end it does
+nothing. With a draft, with the
+composer chosen (`i`) or with a Japanese input source you stay where you are, and the line says
+`Bash asks to run   C-c C-j  answers it`: `C-c C-j` goes there (`C-x o` and a click do too). Clear the
+draft, and half a second later you are put on the line. A long one shows its first rows. There `y` allows it once, but only once all of it was on screen, half a second
 each page: `SPC` goes on, and `y` before that shows what is left. `C-u y` allows it unread, after a
 question that says how much that is. `n` denies it, `N` denies it with a note Claude is told, `RET`
 shows its input, and `C-c C-o` leaves it waiting. The line takes keys once you have typed none for half a

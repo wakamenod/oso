@@ -1,7 +1,6 @@
 //! A native session's call that waits for the person (ADR 0182), with the cards' fake asking about
 //! an edit taller than the window and a command: the block is the last text of the conversation,
-//! point stays where the person is and what they type in the composer is text; `C-c C-j` goes to the
-//! line, where `y` shows what was not read and allows only once all of it was, `C-u y` asks first, and
+//! what the person types in the composer is text; `C-c C-j` goes to the line, where `y` shows what was not read and allows only once all of it was, `C-u y` asks first, and
 //! its question closes as oso's window loses the front. While it waits the session does not switch
 //! to the TUI and a restart waits; and once its bridge goes, so does the block.
 //!
@@ -25,14 +24,21 @@ fn docked(state: &Value) -> bool {
 }
 
 /// Whether point is on the session's request's line.
-fn on_line(state: &Value) -> bool {
+pub(super) fn on_line(state: &Value) -> bool {
     state["buffer"]["name"] == "*request: proj*"
+}
+
+/// The person's input source is a Japanese one, or not, whatever the keyboard's is.
+pub(super) fn japanese(app: &mut App, japanese: bool) {
+    app.try_call("input-source", Some(json!({ "japanese": japanese })))
+        .unwrap();
 }
 
 /// Waits until a request's line is docked, as oso's window is in front.
 pub(super) fn request(app: &mut App, what: &str) {
     app.try_call("focus", Some(json!({ "focused": true })))
         .unwrap();
+    japanese(app, false);
     app.wait_for(what, |state| docked(state) && !state["request"].is_null());
 }
 
@@ -77,10 +83,13 @@ fn answer_question(app: &mut App, key: &str) {
 }
 
 /// Reads on, page by page, until all of it was read and its end is in view.
-fn read_on(app: &mut App) {
+pub(super) fn read_on(app: &mut App) {
     let started = Instant::now();
     loop {
-        // What is in view is read first.
+        // What is in view is read first, whatever the window system said meanwhile of a screen the
+        // person uses.
+        app.try_call("focus", Some(json!({ "focused": true })))
+            .unwrap();
         thread::sleep(Duration::from_millis(900));
         let state = app.state();
         if state["request"]["allows"] == true {
@@ -123,8 +132,8 @@ fn stream() -> String {
     format!("{}\n", lines.join("\n"))
 }
 
-/// A flow whose fake asks about the edit, and about the command once the flow writes `ask2`.
-fn asking(name: &str) -> (Flow, App) {
+/// A flow whose fake asks about the edit once the flow writes `ask`, and about the command once the flow writes `ask2`.
+pub(super) fn asking(name: &str) -> (Flow, App) {
     let flow = Flow::with(name, CARDS_FAKE, &stream());
     let asks = [
         ask(2, "Edit", "e1", &edit()),
@@ -136,12 +145,11 @@ fn asking(name: &str) -> (Flow, App) {
     app.wait_for("the calls", |state| {
         state["buffer"]["name"] == "*claude: proj*" && text(state).contains("Bash")
     });
-    flow.scratch.write("ask", b"");
     (flow, app)
 }
 
 /// What the bridge told the fake of each call.
-fn answers(flow: &Flow) -> Vec<Value> {
+pub(super) fn answers(flow: &Flow) -> Vec<Value> {
     (flow.wait_for_file("answers").lines())
         .map(|line| {
             let answer: Value = serde_json::from_str(line).unwrap();
@@ -171,12 +179,19 @@ fn held_while_it_waits(app: &mut App) {
 #[ignore = "opens windows; run with `just e2e`"]
 fn a_call_is_read_in_the_conversation_and_allowed_from_its_line() {
     let (flow, mut app) = asking("native-request");
+    flow.scratch.write("ask", b"");
     request(&mut app, "the edit's block");
-    // Point stays in the transcript, whose last text the block is.
-    thread::sleep(Duration::from_millis(1200));
-    let state = app.state();
-    assert_eq!(state["buffer"]["name"], "*claude: proj*", "{state}");
-    assert!(text(&state).contains("+ new line 79"), "{state}");
+    // Point goes to its line from the transcript's end, and back with `C-g`; the block is the
+    // transcript's last text.
+    app.wait_for("point on the line", on_line);
+    app.send_keys("C-g");
+    let state = app.wait_for("the transcript", |state| {
+        state["buffer"]["name"] == "*claude: proj*"
+    });
+    assert!(
+        text(&state).starts_with("⚠ Edit asks to change a file"),
+        "{state}"
+    );
     assert_eq!(
         state["request"]["line"], " Edit asks to change a file   C-c C-j  answers it",
         "{state}"
@@ -247,6 +262,7 @@ fn a_call_is_read_in_the_conversation_and_allowed_from_its_line() {
 #[ignore = "opens windows; run with `just e2e`"]
 fn a_call_not_read_is_allowed_after_a_question_and_one_that_goes_takes_its_block() {
     let (flow, mut app) = asking("native-request-unread");
+    flow.scratch.write("ask", b"");
     request(&mut app, "the edit's block");
     go(&mut app);
     app.wait_for("some of it in view", |state| {

@@ -21,7 +21,7 @@ orchestrator:
 
 - **The permission card** is docked between the transcript and the composer, and goes once
   answered; the tool row says what came of it (proposal 8, step 2). Since 2026-11-24 a call is asked in
-  the conversation instead, at its end, with its line docked (ADR 0182).
+  the conversation instead, at its end, with its line docked, in an empty composer's place (ADR 0182).
 - **The status** is the session window's modeline: model, mode, `ctx N%`, cost and the rate
   limit's window, each once (proposal 13, step 3).
 - **The to-do list** is a strip pinned above the composer, one line, opened to at most 6 rows

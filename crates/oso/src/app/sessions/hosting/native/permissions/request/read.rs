@@ -166,6 +166,10 @@ impl App {
             return;
         }
         requests.drawn_now = true;
+        if presented {
+            self.point_seen();
+        }
+        let requests = &mut self.hosting.natives.permissions.requests;
         let room = std::mem::take(&mut requests.room);
         for (key, view) in room.frame.iter().take(room.framed) {
             self.looked(*key, view, presented, Instant::now());
