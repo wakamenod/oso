@@ -379,6 +379,50 @@ Each holds from the step that builds it.
   whether other platforms can tell the source: R1.
 - Whether [ADR 0175](0175-dictation-through-typewhisper.md)'s dictation writes in the answer input: R2.
 
+## R1b, as built (2026-11-24)
+
+R1 is four PRs: R1a (agents and the tail), R1b (a call's pure parts, `sessions::native::request`,
+which nothing shows yet), R1c (the switch for calls) and R1d (point).
+
+- **Every field is shown once** (`wire::request`). One of a known name that does not hold what the
+  tool's does is shown as any other. A path is whole, as the request has it; the mock-ups' was not.
+- **Text is exact.** A command's, a change's and a file's are as they are, and what the display
+  escapes by itself stays so. Oso puts two things in, each told from what was there: the `◌`, and a
+  space after a carriage return at a line's end, which the display else takes as part of the line
+  break. A text as a field's value is as it is too, unless it could be read as another value, and a
+  field's name unless it is not of ASCII letters, digits, `_`, `-` and `.`: these are JSON. A value
+  that nests is indented, up to 400 lines, and 64 KiB for all of a call's; else it is on one line. A
+  value of more than 40 characters is under its name, further in, as one of several lines is.
+- **Oso's words in column 0.** `\ white space at its end` is under a command's, a path's, a field's
+  or a changed line that ends so. `\ no line break at its end` is under a last line that has none
+  where the other text has one or is empty. `Change 1 of 2` is over each of several. `Why`,
+  `The change`, `Its other fields` and `The call's other fields` are over a part only where the one
+  before it could be read on into it, as a command of several lines, or why it runs reads as a field
+  (`timeout 5`): the mock-ups' scenes have none.
+- **Claude Code's own tools** are named in the title alone. Any other's whole name, escaped as there,
+  is the block's first line, as a title cuts it.
+- **A row's mark** is in `Highlight::RequestBody`, `$ ` too, as a row has its tint by what it starts
+  with; `+ ` and `- ` are in their line's highlight, as a tool's row has them. What runs, its fields
+  and a path have no highlight; why, and a change's kept lines, are in the quiet one. The line break
+  is in its mark's.
+- **A title** says `writes 60 lines` of a `Write`, as what it replaces is not in its request, and
+  `1 of 2 · adds 60 lines, removes 40` where both fit, else `1 of 2`.
+- **The diff** has 50 ms for all of a call's changes. Two texts that both lack a last line break are
+  compared as if both had it. Measured (release, one Mac): a block is made in 2 µs at 8 lines, 11 at
+  200, 83 at 2000 and 21 for one line of 64 KiB, and 670 for the worst nesting (p98); a change of
+  64 KiB took 13 ms at most, with no deadline.
+- **Reading:** a row's cells are to where its text ends, past its window's edge too, against the text
+  area's columns, as a space may hang in the mark's; one that is clipped there is not read, and a row of a
+  provisional wrap is read only where all of it shows. A view's wait starts as a frame of it was
+  presented, and again as anything of it changes, its rows' place in the window too. `34 of 202 rows
+  read` counts the body's lines, the same at every width, those not shown among them.
+- **The line** where point is has as many rows at a width whatever it says, so that what it says
+  moves no row. All read and its last row out of view, `SPC  read on` is in `y`'s place. All chips
+  are dim while an answer would be refused, in the quiet face on the band; `y` is, too, until all was
+  read, and `C-u y` until some of the block was in view for 500 ms. Once what is shown was read or is
+  in view, a call not shown whole has `C-u y` first, and `5 lines not shown` or `not shown at all` at
+  the right. Its text takes 13 to 26 µs at 20 to 120 cells, 46 at 2000 lines (p98).
+
 ## Alternatives considered
 
 - **The block in the call's own row:** rows that stream in after it push it away from its keys.

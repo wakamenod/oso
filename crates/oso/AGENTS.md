@@ -98,6 +98,9 @@ often, so it must rebuild within 2 s.
   (`images`, ADR 0142) are written, converted by `sips` and removed on one `oso-images` thread,
   never the worker's. A native session's stream (ADR 0165) is read, folded into rows and
   rendered by pure functions (`native`); only `native/wire.rs` and its modules touch its JSON,
+  a request's parts among them (`wire/request.rs`, shown by `native/request.rs`: its block, its
+  line and what of it was read, ADR 0182, its changes compared by `review::diff`, which nothing
+  shows yet),
   the control layer's requests and answers included (`wire/control.rs`), the slash
   commands listed (`wire/slash.rs`) and what the status line reads of the answers
   (`wire/status_line.rs`, part 3a), what the stream says of Remote Control (`wire/remote.rs`,

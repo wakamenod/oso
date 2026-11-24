@@ -638,6 +638,7 @@ pub(crate) mod tests {
                 (Face::DiffAdded, LABEL),
                 (Face::DiffRemoved, LABEL),
                 (Face::Card, LABEL),
+                (Face::CardTitle, LABEL),
             ],
             Face::SessionWorking
             | Face::SessionFront
