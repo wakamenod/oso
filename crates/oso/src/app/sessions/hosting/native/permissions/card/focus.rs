@@ -90,7 +90,10 @@ impl App {
 
     /// When what came in front of the person `at` waits from, longer after a prompt an agent opened
     /// closed.
-    pub(in super::super) fn waits_after_agents(&self, at: Instant) -> Instant {
+    pub(in crate::app::sessions::hosting::native) fn waits_after_agents(
+        &self,
+        at: Instant,
+    ) -> Instant {
         waits_from(at, self.hosting.natives.permissions.agents_prompt_closed)
     }
 
@@ -118,6 +121,7 @@ impl App {
     /// closes.
     fn out_of_sight(&mut self) {
         self.close_unread_question();
+        self.close_remote_question();
         self.sync_requests();
     }
 
@@ -130,6 +134,7 @@ impl App {
     /// answer, waits again, as the person may see it only now.
     fn card_seen_again(&mut self) {
         self.unread_question_waits_again();
+        self.remote_question_waits_again();
         let plans = &mut self.hosting.natives.permissions.plans;
         plans.wait_again(Instant::now());
         if let Some(current) = self.hosting.natives.permissions.current {

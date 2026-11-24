@@ -161,7 +161,7 @@ pub enum UserEvent {
     /// The thread that keeps images kept the clipboard's image for this session, or could not
     /// (ADR 0142).
     ImageKept(
-        crate::sessions::worker::SessionKey,
+        SessionKey,
         Box<Result<crate::sessions::images::Kept, String>>,
     ),
     /// A hosted session's start thread found something (ADR 0121).
@@ -195,11 +195,10 @@ pub enum UserEvent {
     GitRun(vcs::RunEvent),
     /// A terminal's thread has a snapshot ready (ADR 0120).
     Terminal(oso_core::buffer::BufferId),
+    /// What connecting a session to claude.ai sends was read (ADR 0181).
+    RemoteLooked(sessions::RemoteLooked),
     /// A native session's stream read events, or its process ended (ADR 0165).
-    NativeSession(
-        crate::sessions::worker::SessionKey,
-        crate::sessions::stream::Out,
-    ),
+    NativeSession(SessionKey, crate::sessions::stream::Out),
     /// A terminal's start thread found the shell and started it, or could not.
     TerminalStarted(Box<crate::terminal::hosted::Started>),
     /// A thread of a restart of terminals found something (ADR 0120, step 11).

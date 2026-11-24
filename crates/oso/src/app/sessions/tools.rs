@@ -373,9 +373,7 @@ impl App {
         caller: &Caller,
         target: &str,
     ) -> Result<(), String> {
-        let may_go_unasked = asks == Asks::UnlessAllowed
-            && self.agent_starts_allowed()
-            && caller.origin.by_the_person();
+        let may_go_unasked = asks == Asks::UnlessAllowed && self.standing(caller).goes_unasked();
         if asks != Asks::No && !may_go_unasked && self.agent_question_waits() {
             return Err(QUESTION_WAITS.into());
         }

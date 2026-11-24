@@ -297,15 +297,33 @@ fn brief_said(lines: Option<usize>) -> String {
     }
 }
 
+/// Whether a caller's calls may go without asking at all, where they otherwise would ask: the one
+/// rule every such call is judged by first.
+#[derive(Clone, Copy, Debug)]
+pub struct Standing {
+    /// `[sessions] agents_start_without_asking` at oso's start, and no `agent-starts-ask` since.
+    pub allowed: bool,
+    /// How the calling session started.
+    pub caller: Origin,
+    /// It may be connected to claude.ai (ADR 0181): whoever holds the account may drive it, so each
+    /// call of its asks the person at oso.
+    pub connected: bool,
+}
+
+impl Standing {
+    /// Whether its calls may go without asking.
+    pub fn goes_unasked(self) -> bool {
+        self.allowed && self.caller.by_the_person() && !self.connected
+    }
+}
+
 /// What a start without asking needs (ADR 0135).
 #[derive(Clone, Copy, Debug)]
 pub struct Unasked {
     /// The tool is one the setting covers: [`Asks::UnlessAllowed`].
     pub tool: Asks,
-    /// `[sessions] agents_start_without_asking` at oso's start, and no `agent-starts-ask` since.
-    pub allowed: bool,
-    /// How the calling session started.
-    pub caller: Origin,
+    /// The caller's standing.
+    pub standing: Standing,
     /// The project the session would start in is trusted, its directory's repository the
     /// caller's.
     pub trusted: bool,
@@ -340,8 +358,7 @@ impl StartLimit {
 /// project, and below the caller's limit, if it has one; else it asks as before (ADR 0135).
 pub fn starts_without_asking(unasked: Unasked) -> bool {
     unasked.tool == Asks::UnlessAllowed
-        && unasked.allowed
-        && unasked.caller.by_the_person()
+        && unasked.standing.goes_unasked()
         && unasked.trusted
         && unasked.limit.allows(unasked.live_unasked)
 }

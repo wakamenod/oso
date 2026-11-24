@@ -132,6 +132,7 @@ fn order(gate: ByGate, space: Option<crate::sessions::start::SpaceStart>) -> sup
             trust: crate::sessions::start::trust::ByRecord::No,
             by_claim: false,
             gate,
+            remote: crate::sessions::start::connect::Remote::Blocked,
             settings: crate::terminal::shell::Settings::default(),
             env: Vec::new(),
             out: Box::new(|_| {}),

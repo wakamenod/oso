@@ -389,6 +389,13 @@ pub enum NativeAction {
     /// an approval (ADR 0165 part 3d), or a request's line before a call not all read runs (ADR
     /// 0182): the host answers the call it asked about, if that call still waits.
     Confirmed,
+    /// From the transcript or the composer: turn Remote Control on for the session, after a question,
+    /// or off (ADR 0181).
+    RemoteControl,
+    /// `y` to the question before it is turned on.
+    RemoteConfirmed,
+    /// Copy the session's address on claude.ai, once it has one.
+    RemoteAddress,
 }
 
 /// What an approved plan leaves the session's permission mode at (ADR 0165, part 3d), as the

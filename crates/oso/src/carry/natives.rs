@@ -38,7 +38,32 @@ pub struct NativeResume {
     /// The model and effort level the person chose (part 3c).
     pub model: Option<String>,
     pub effort: Option<String>,
+    /// How it is connected to claude.ai, if the person has it on (ADR 0181). One that does not read
+    /// is none: the session resumes off.
+    pub remote: Option<RemoteResume>,
 }
+
+/// How a session is connected to claude.ai (ADR 0181): what must be as it was for the new instance
+/// to connect it again.
+#[derive(Clone, PartialEq, Eq)]
+pub struct RemoteResume {
+    /// The session's id there.
+    pub id: String,
+    pub directory: String,
+    /// The directory's device and inode, and its repository's.
+    pub place: (u64, u64),
+    pub repository: Option<(u64, u64)>,
+}
+
+impl std::fmt::Debug for RemoteResume {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("RemoteResume(..)")
+    }
+}
+
+/// The longest id there and directory a state carries.
+const MAX_REMOTE_ID: usize = 128;
+const MAX_REMOTE_DIRECTORY: usize = 4096;
 
 /// The state's field for `resumes`, the first [`MAX_NATIVE_RESUMES`].
 fn state(resumes: &[NativeResume]) -> Value {
@@ -51,6 +76,12 @@ fn state(resumes: &[NativeResume]) -> Value {
                 "mode": resume.mode.map(PermissionMode::name),
                 "model": resume.model,
                 "effort": resume.effort,
+                "remote": resume.remote.as_ref().map(|remote| json!({
+                    "id": remote.id,
+                    "directory": remote.directory,
+                    "place": remote.place,
+                    "repository": remote.repository,
+                })),
             })
         })
         .collect()
@@ -89,6 +120,35 @@ pub(super) fn parse(state: &Map<String, Value>) -> Vec<NativeResume> {
     resumes
 }
 
+/// The most conversations an agent's are named in a state.
+const MAX_AGENTS: usize = 256;
+
+/// Adds to the exported `state` the conversations forked from an agent's session, which are never
+/// connected to claude.ai (ADR 0181): what they name only refuses.
+pub fn add_agents<'a>(state: &mut Value, agents: impl Iterator<Item = &'a str>) {
+    let agents: Vec<&str> = agents.take(MAX_AGENTS).collect();
+    if agents.is_empty() {
+        return;
+    }
+    state["native_agents"] = json!(agents);
+    if super::fits(state).is_err() {
+        log::info!("the agents' conversations are left out of the restart's state");
+        if let Some(state) = state.as_object_mut() {
+            state.remove("native_agents");
+        }
+    }
+}
+
+/// The conversations `state` names so.
+pub(super) fn parse_agents(state: &Map<String, Value>) -> Vec<String> {
+    let agents = state.get("native_agents").and_then(Value::as_array);
+    (agents.into_iter().flatten().take(MAX_AGENTS))
+        .filter_map(Value::as_str)
+        .filter(|id| id.len() == 36)
+        .map(str::to_owned)
+        .collect()
+}
+
 fn parse_entry(entry: &Map<String, Value>) -> Option<NativeResume> {
     // A session's id is 36 hexadecimal digits and dashes (ADR 0121); the app reads it as one.
     let id = entry.get("id")?.as_str()?;
@@ -112,6 +172,29 @@ fn parse_entry(entry: &Map<String, Value>) -> Option<NativeResume> {
         mode,
         model: text("model", MAX_MODEL)?,
         effort: text("effort", MAX_EFFORT)?,
+        remote: entry.get("remote").and_then(parse_remote),
+    })
+}
+
+/// How a session is connected, if `value` reads whole.
+fn parse_remote(value: &Value) -> Option<RemoteResume> {
+    let remote = value.as_object()?;
+    let text = |name: &str, longest: usize| {
+        let text = remote.get(name)?.as_str()?;
+        (!text.is_empty() && text.len() <= longest).then(|| text.to_owned())
+    };
+    let pair = |value: &Value| match value.as_array()?.as_slice() {
+        [device, inode] => Some((device.as_u64()?, inode.as_u64()?)),
+        _ => None,
+    };
+    Some(RemoteResume {
+        id: text("id", MAX_REMOTE_ID)?,
+        directory: text("directory", MAX_REMOTE_DIRECTORY)?,
+        place: pair(remote.get("place")?)?,
+        repository: match remote.get("repository")? {
+            Value::Null => None,
+            value => Some(pair(value)?),
+        },
     })
 }
 
@@ -137,7 +220,55 @@ mod tests {
             mode: None,
             model: None,
             effort: None,
+            remote: None,
         }
+    }
+
+    fn remote() -> RemoteResume {
+        RemoteResume {
+            id: "cse_abc".into(),
+            directory: "/w/oso".into(),
+            place: (1, u64::MAX),
+            repository: Some((3, 4)),
+        }
+    }
+
+    #[test]
+    fn a_connection_goes_and_comes_back_whole_or_not_at_all() {
+        for remote in [
+            remote(),
+            RemoteResume {
+                repository: None,
+                ..remote()
+            },
+        ] {
+            let resumes = vec![NativeResume {
+                remote: Some(remote),
+                ..resume(ID)
+            }];
+            assert_eq!(parsed(state(&resumes)), resumes);
+        }
+        let whole = json!({
+            "id": "cse_abc", "directory": "/w", "place": [1, 2], "repository": null,
+        });
+        let off = |change: &dyn Fn(&mut Map<String, Value>)| {
+            let mut remote = whole.clone();
+            change(remote.as_object_mut().unwrap());
+            let read = parsed(json!([{ "id": ID, "remote": remote }]));
+            assert_eq!(read, vec![resume(ID)], "off, and resumed: {remote}");
+        };
+        for field in ["id", "directory", "place", "repository"] {
+            off(&|remote| drop(remote.remove(field)));
+            off(&|remote| drop(remote.insert(field.into(), json!(7))));
+            off(&|remote| drop(remote.insert(field.into(), json!([1]))));
+            off(&|remote| drop(remote.insert(field.into(), json!([1, -2]))));
+        }
+        off(&|remote| drop(remote.insert("id".into(), json!(""))));
+        off(&|remote| drop(remote.insert("id".into(), json!("x".repeat(129)))));
+        off(&|remote| drop(remote.insert("directory".into(), json!("x".repeat(4097)))));
+        off(&|remote| drop(remote.insert("place".into(), json!(null))));
+        // Its id there is in no `Debug`, and so in no log.
+        assert!(!format!("{:?}", remote()).contains("cse_"));
     }
 
     #[test]
@@ -148,10 +279,23 @@ mod tests {
                 mode: Some(PermissionMode::AcceptEdits),
                 model: Some("sonnet".into()),
                 effort: Some("low".into()),
+                remote: None,
             },
             resume(OTHER),
         ];
         assert_eq!(parsed(state(&resumes)), resumes);
+    }
+
+    #[test]
+    fn the_agents_conversations_go_and_come_back() {
+        let mut state = json!({});
+        add_agents(&mut state, [ID, OTHER].into_iter());
+        let state = state.as_object().unwrap();
+        assert_eq!(parse_agents(state), [ID, OTHER]);
+        assert!(parse_agents(json!({}).as_object().unwrap()).is_empty());
+        let odd = json!({ "native_agents": [7, "x", ID] });
+        assert_eq!(parse_agents(odd.as_object().unwrap()), [ID]);
+        assert!(parse_agents(json!({ "native_agents": "x" }).as_object().unwrap()).is_empty());
     }
 
     #[test]
@@ -218,6 +362,7 @@ mod tests {
             mode: Some(PermissionMode::Plan),
             model: Some("opus".into()),
             effort: None,
+            remote: None,
         };
         add(&mut exported, std::slice::from_ref(&resume));
         assert_eq!(
@@ -230,6 +375,7 @@ mod tests {
             mode: None,
             model: Some("m".repeat(200)),
             effort: None,
+            remote: None,
         };
         let mut state = export_value(&editor, &[], None, None).unwrap();
         // Within the line by 100 bytes, which the entry is not.

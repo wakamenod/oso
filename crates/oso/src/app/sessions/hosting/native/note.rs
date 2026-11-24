@@ -68,11 +68,18 @@ impl App {
             NativeState::Running if interrupting => "interrupting",
             state => state.said(),
         };
-        let mut note = match (state, native.composing.queued()) {
-            (state, 0) => state.to_owned(),
-            ("", count) => format!("{count} queued"),
-            (state, count) => format!("{state}{SEPARATOR}{count} queued"),
+        // Remote Control's mark first, as a narrow modeline drops its parts from the right
+        // (ADR 0181).
+        let queued = match native.composing.queued() {
+            0 => String::new(),
+            count => format!("{count} queued"),
         };
+        let mark = native.remote.mark().unwrap_or_default();
+        let mut note = [mark, state, &queued]
+            .into_iter()
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join(SEPARATOR);
         let effort = native.choice.effort();
         native
             .status

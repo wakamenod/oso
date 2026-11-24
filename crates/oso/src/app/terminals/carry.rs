@@ -347,6 +347,7 @@ impl App {
         state["pid"] = json!(std::process::id());
         state["follows"] = json!(self.handover.follows);
         // Last, as they never refuse the restart (ADR 0165, part 4c).
+        crate::carry::natives::add_agents(&mut state, self.natives_of_agents());
         crate::carry::natives::add(&mut state, &self.native_resumes());
         if let Err(why) = crate::carry::fits(&state) {
             pieces::drop_later(texts);

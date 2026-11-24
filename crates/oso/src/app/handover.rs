@@ -72,6 +72,7 @@ impl App {
         }
         let (mut state, exported) = self.export_texts(None)?;
         // Last, as they never refuse the restart (ADR 0165, part 4c).
+        carry::natives::add_agents(&mut state, self.natives_of_agents());
         carry::natives::add(&mut state, &self.native_resumes());
         self.keep_export(exported);
         Ok(state)

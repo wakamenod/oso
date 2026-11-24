@@ -32,7 +32,7 @@ pub use composer::{
 pub use list::COMMANDS as LIST_COMMANDS;
 pub use list::{FOLDS, GUIDES, ROW_MARKS, SESSION_RENAME_TO, row_mark};
 pub use mode::{ARCHIVE_LABEL, COMMANDS as MODE_COMMANDS, PIN_LABEL, SESSION_HELP, agents_menu};
-pub use native::COMMANDS as NATIVE_COMMANDS;
+pub use native::{COMMANDS as NATIVE_COMMANDS, REMOTE_CONFIRMED};
 pub use request::COMMANDS as REQUEST_COMMANDS;
 pub use search::COMMANDS as SEARCH_COMMANDS;
 pub use send::{
@@ -63,6 +63,8 @@ pub const ANSWERS: &[&str] = &[
     "native-request-allow",
     "native-request-deny",
     "native-request-note",
+    // The yes that connects a session to claude.ai (ADR 0181).
+    REMOTE_CONFIRMED,
 ];
 
 /// The commands that take what was written for such an answer in its prompt.

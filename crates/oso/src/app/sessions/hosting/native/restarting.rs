@@ -14,6 +14,9 @@
 //!   resume, and the exit ends it as before.
 //!   Nothing resumes here while the restart goes on, and a session started meanwhile keeps
 //!   the restart here.
+//! - **Connected to claude.ai** (ADR 0181), a session is connected again, asking nothing, if all
+//!   of it is as the state says (`remote::again`); else it resumes off, and says so. It is told
+//!   that it is off before neither its end nor its start.
 //! - **Staying.** A restart that stays here, for any reason, resumes each session it ended
 //!   here, under the trust judged now (part 4a), unless it has not ended yet.
 //! - **Coming.** The state names each session by its id, with its mode, model and effort, and
@@ -29,7 +32,9 @@ use std::time::Instant;
 
 use super::resumed::ResumeFor;
 use crate::app::App;
+use crate::app::sessions::hosting::resume::How;
 use crate::carry::natives::NativeResume;
+use crate::channel::protocol::mode::PermissionMode;
 use crate::sessions::hosted::Run;
 use crate::sessions::native::choice::Choice;
 use crate::sessions::native::mode::ModeState;
@@ -65,6 +70,17 @@ impl App {
             })
     }
 
+    /// Stops native session `key`'s process for a restart that connects it again, telling
+    /// claude.ai's side nothing. Whether it ran.
+    pub(in crate::app) fn end_native_for_restart(&mut self, key: SessionKey) -> bool {
+        let Some(stream) = (self.hosting.natives.map.get(&key)).and_then(|n| n.stream.as_ref())
+        else {
+            return false;
+        };
+        stream.stop();
+        true
+    }
+
     /// The instance going: ends each native session that runs and was given a message, as
     /// the session list's stop does, and returns each, with what the new instance resumes
     /// it with.
@@ -75,7 +91,11 @@ impl App {
             let Some(resume) = self.native_resume_of(key) else {
                 continue;
             };
-            self.hang_up_session(key);
+            // Connected again by the new instance, it is not told that it is off (ADR 0181).
+            match resume.remote.is_some() {
+                true => self.stop_for_restart(key),
+                false => self.hang_up_session(key),
+            }
             ended.push((key, resume));
         }
         ended
@@ -91,7 +111,19 @@ impl App {
     /// which the exit ends: those `oso dev`'s restart carries, as its order ends none first.
     pub(in crate::app) fn running_native_resumes(&self) -> Vec<NativeResume> {
         (self.natives_to_resume())
-            .filter_map(|key| self.native_resume_of(key))
+            .filter_map(|key| {
+                let mut resume = self.native_resume_of(key)?;
+                let native = self.hosting.natives.map.get(&key)?;
+                // What its stream says from now on is not seen: no mode that asks less goes on
+                // from one that may be connected to claude.ai (ADR 0181).
+                if native.remote.watched() {
+                    resume.mode = Some(match resume.mode {
+                        Some(PermissionMode::Plan) => PermissionMode::Plan,
+                        _ => PermissionMode::Default,
+                    });
+                }
+                Some(resume)
+            })
             .collect()
     }
 
@@ -106,7 +138,24 @@ impl App {
             mode: native.mode.carried(),
             model,
             effort: effort.map(str::to_owned),
+            remote: self.remote_carried(key),
         })
+    }
+
+    /// What the state says of `ended`, which the restart ended: each with the mode its next
+    /// process starts in as it is now that its process ended, as the stream's last words may
+    /// have changed it.
+    pub(in crate::app) fn natives_ended(
+        &self,
+        ended: &[(SessionKey, NativeResume)],
+    ) -> Vec<NativeResume> {
+        (ended.iter())
+            .map(|(key, resume)| NativeResume {
+                mode: (self.hosting.natives.map.get(key))
+                    .map_or(resume.mode, |native| native.mode.carried()),
+                ..resume.clone()
+            })
+            .collect()
     }
 
     /// The restart stays here: each of `ended`, which it ended, resumes in its buffer, under
@@ -199,8 +248,17 @@ impl App {
             native.choice = Choice::restarted(resume.model.as_deref(), resume.effort.as_deref());
         }
         self.native_resumes_for(key, ResumeFor::Restarted(resume.mode));
-        if let Err(why) = self.resume_hosted(key, false) {
+        let connect = self.remote_again(key, resume.remote.as_ref());
+        let connects = connect.is_some();
+        let how = How {
+            connect,
+            ..How::BY_CLAIM
+        };
+        if let Err(why) = self.resume_hosted_with(key, false, how) {
             self.native_resume_failed(key, &why);
+            if connects {
+                self.remote_stays_off(key, "claude did not resume");
+            }
         }
     }
 }

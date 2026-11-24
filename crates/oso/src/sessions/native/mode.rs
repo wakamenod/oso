@@ -31,7 +31,8 @@
 //!   The next start is in `plan` if the mode held before was `plan`, else in `default`, and the
 //!   person's earlier choice of a mode that asks less is over, though the CLI says it again,
 //!   until the person makes it again here. Claude's own plan mode cannot be told from the
-//!   phone's, and is not carried then either.
+//!   phone's, and is not carried then either. From such a mode the person's switch goes to
+//!   `default` first, so that none set just before the key makes it choose one that asks less.
 //! - One switch at a time.
 
 use std::time::{Duration, Instant};
@@ -147,7 +148,14 @@ pub struct ModeState {
     /// What the next process is given, once the CLI said a mode that no switch here gave while
     /// Remote Control may connect (ADR 0181).
     strayed: Option<PermissionMode>,
+    /// A mode that no switch here gave was said since a row said so, and how many rows did.
+    stray_untold: bool,
+    stray_rows: usize,
 }
+
+/// The most rows a session's strayed modes give, so that no line floods them: the modeline says
+/// the mode.
+const MAX_STRAY_ROWS: usize = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Switch {
@@ -167,11 +175,17 @@ impl ModeState {
     /// Empty, it says nothing; not readable as itself, the mode is no more shown, rather than
     /// left saying what the CLI no more says.
     pub fn said(&mut self, text: &str, remote: bool) -> bool {
+        self.said_as(text, remote, true)
+    }
+
+    /// [`ModeState::said`]; `first` where its first word is the process's own, as `initialize`'s
+    /// and `system/init`'s are.
+    fn said_as(&mut self, text: &str, remote: bool, first: bool) -> bool {
         if text.is_empty() {
             return false;
         }
         if remote {
-            self.strays(text);
+            self.strays(text, first);
         }
         // The process said a mode: what oso put it in is settled.
         self.pending = None;
@@ -196,14 +210,14 @@ impl ModeState {
 
     /// The CLI says mode `text` while Remote Control may connect: one that no switch here gave
     /// and that is not the one it said last is never carried (ADR 0181).
-    fn strays(&mut self, text: &str) {
+    fn strays(&mut self, text: &str, first: bool) {
         // A switch that is not answered yet gave none: its answer, if it succeeds, makes it the
         // person's again.
         let same = match (self.pending, &self.said) {
             (Some(mode), _) | (None, &Some(Said::Mode(mode))) => mode.name() == text,
             (None, Some(Said::Other(other))) => other == text,
             // Its first word: no switch was made here, and nothing is carried for it.
-            (None, None) => true,
+            (None, None) => first,
         };
         if same {
             return;
@@ -214,6 +228,24 @@ impl ModeState {
         };
         self.strayed = Some(held);
         self.chosen = Some(held);
+        self.stray_untold = true;
+    }
+
+    /// The row that says the mode changed elsewhere, if it did since the last and rows are left.
+    pub fn take_stray_row(&mut self) -> Option<String> {
+        if !std::mem::take(&mut self.stray_untold) || self.stray_rows == MAX_STRAY_ROWS {
+            return None;
+        }
+        self.stray_rows += 1;
+        let mode = match &self.said {
+            Some(Said::Mode(mode)) => mode.name(),
+            Some(Said::Other(text)) => text,
+            None => "one that cannot be shown",
+        };
+        Some(format!(
+            "The permission mode changed, by no key here: {mode}. It holds until claude ends, and \
+             is not carried on."
+        ))
     }
 
     /// Notes the mode `event` says, if it says one: `system/init`'s or `system/status`'s, as
@@ -224,7 +256,7 @@ impl ModeState {
             Event::Init(init) => self.said(&init.permission_mode, remote),
             Event::Status {
                 mode: Some(mode), ..
-            } => self.said(mode, remote),
+            } => self.said_as(mode, remote, false),
             _ => false,
         }
     }
@@ -239,6 +271,10 @@ impl ModeState {
 
     /// The mode the person's switch goes to.
     fn next(&self) -> Option<PermissionMode> {
+        // What is shown may be what the phone chose, just before the key.
+        if self.strayed.is_some() {
+            return Some(PermissionMode::Default);
+        }
         let modes = PermissionMode::ALL;
         let from = match (self.pending, self.said.as_ref()?) {
             (Some(mode), _) | (None, &Said::Mode(mode)) => mode,
@@ -277,7 +313,7 @@ impl ModeState {
             switch: None,
             pending: self.carried(),
             chosen: self.chosen,
-            strayed: None,
+            ..Self::default()
         }
     }
 
@@ -302,6 +338,8 @@ impl ModeState {
             self.chosen = Some(chosen);
         }
         self.strayed = None;
+        self.stray_untold = false;
+        self.stray_rows = 0;
         self.pending = mode;
         mode
     }
@@ -456,5 +494,7 @@ impl ModeState {
     }
 }
 
+#[cfg(test)]
+mod stray_tests;
 #[cfg(test)]
 mod tests;

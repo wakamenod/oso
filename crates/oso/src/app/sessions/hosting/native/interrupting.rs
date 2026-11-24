@@ -96,7 +96,7 @@ impl App {
                     "Interrupted with a signal: claude ends, and resumes its conversation.",
                 );
             }
-            Then::Stop => stream.stop(),
+            Then::Stop => super::remote::stop(native),
             Then::GaveUp => {
                 self.editor
                     .message("The interrupt went unanswered: session-stop stops the session");

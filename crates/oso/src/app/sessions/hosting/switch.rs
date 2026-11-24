@@ -26,6 +26,7 @@ use oso_core::buffer::BufferId;
 use oso_core::editor::Editor;
 use oso_core::window::{Window, WindowId};
 
+use super::resume::How;
 use crate::app::App;
 use crate::sessions::native::switch::{Then, Way};
 
@@ -116,7 +117,11 @@ impl App {
         // A stopped terminal of its own, `*claude: NAME*`, which the resume starts over.
         self.bring_back_stopped(key);
         self.show_session_in(key, &windows);
-        if let Err(why) = self.resume_hosted_with(key, true, Some(chosen), true) {
+        let how = How {
+            chosen: Some(chosen),
+            ..How::BY_CLAIM
+        };
+        if let Err(why) = self.resume_hosted_with(key, true, how) {
             self.hosting.natives.switches.over(key);
             self.editor.message(format!("The TUI did not start: {why}"));
         }

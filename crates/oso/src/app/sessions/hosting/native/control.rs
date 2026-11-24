@@ -31,6 +31,8 @@ pub(super) enum Follow {
     Mode(crate::sessions::native::mode::Then),
     /// Remote Control's canary, said to the person (ADR 0181).
     Canary,
+    /// Its request was answered: whether with another session than the one it comes back to.
+    Remote(bool),
 }
 
 /// Notes what `event` of a native session says to its control layer and the requests it
@@ -100,7 +102,8 @@ pub(super) fn control_event(
                 error,
             } => {
                 let enabled = answer.remote.take().map(|enabled| *enabled);
-                (native.remote).answered(id, error.as_deref(), enabled);
+                let other = (native.remote).answered(id, error.as_deref(), enabled);
+                follows.push(Follow::Remote(other));
             }
             Answered::Request { .. } | Answered::Other => {}
         },
@@ -119,6 +122,11 @@ impl App {
             Follow::Canary => {
                 log::warn!("native session {key:?}: {CANARY}");
                 self.native_note_row(key, CANARY);
+            }
+            Follow::Remote(other) => {
+                if other || self.remote_is_anothers(key) {
+                    self.remote_elsewhere(key);
+                }
             }
         }
     }
@@ -154,7 +162,7 @@ impl App {
         let processes: Vec<_> = (self.hosting.natives.map.keys())
             .filter_map(|key| Some((*key, self.mode_process(*key)?)))
             .collect();
-        let mut due = Vec::new();
+        let (mut due, mut changed) = (Vec::new(), Vec::new());
         for (key, process) in processes {
             let Some(native) = self.hosting.natives.map.get_mut(&key) else {
                 continue;
@@ -169,12 +177,27 @@ impl App {
                 .collect();
             then.extend(native.interrupt.due(control, now));
             let modes = native.mode.due(control, process, now);
-            // What it comes to is shown from ADR 0181's part RC-2 on.
+            let was = native.remote.mark();
             native.remote.due(control, now);
+            if was != native.remote.mark() {
+                changed.push(key);
+            }
             if !then.is_empty() || !modes.is_empty() {
                 due.push((key, then, modes));
             }
         }
+        for key in changed {
+            self.remote_changed(key);
+        }
+        // One that `initialize` never answered is asked no more.
+        let unasked: Vec<_> = (self.hosting.natives.map.iter())
+            .filter(|(_, native)| native.remote.marked())
+            .map(|(key, _)| *key)
+            .collect();
+        for key in unasked {
+            self.remote_ready(key);
+        }
+        self.sweep_remote_off();
         for (key, then, modes) in due {
             for then in then {
                 self.interrupt_step(key, then);

@@ -92,8 +92,9 @@ pub struct Entry {
     pub archived: bool,
     /// An agent started it without asking (ADR 0135).
     pub unasked: bool,
-    /// Why its last resume was refused (ADR 0165, "Worktrees' resumes"), under it while it is
-    /// stopped.
+    /// It may be connected to claude.ai (ADR 0181).
+    pub remote: bool,
+    /// Why its last resume was refused (ADR 0165), under it while it is stopped.
     pub not_resumed: Option<String>,
     /// The session that started it.
     pub parent: Option<Key>,
@@ -592,11 +593,12 @@ mod lines;
 mod row;
 mod tree;
 
-use row::Row;
-
 use lines::Fold;
 pub use lines::{Group, Line};
+use row::Row;
 pub use tree::{ClosedSpace, Project, SpaceInput, SpaceRows, Tree, Worktree, space_rows};
 
+#[cfg(test)]
+mod remote_tests;
 #[cfg(test)]
 mod tests;

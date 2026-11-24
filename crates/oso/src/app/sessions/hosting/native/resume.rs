@@ -31,6 +31,7 @@ use crate::sessions::identity::SessionId;
 use crate::sessions::native::choice::Choice;
 use crate::sessions::native::mode::ModeState;
 use crate::sessions::start::NativeOrder;
+use crate::sessions::start::connect::Connect;
 use crate::sessions::start::trust::{Judged, NotTrusted, TrustRecord};
 use crate::sessions::worker::SessionKey;
 
@@ -79,6 +80,7 @@ impl App {
         key: SessionKey,
         buffer: BufferId,
         shown: bool,
+        connect: Option<Connect>,
     ) -> NativeOrder {
         // Its bridge asks the person's permission there (ADR 0165, step 2).
         self.start_sessions_socket();
@@ -115,7 +117,7 @@ impl App {
         }
         NativeOrder {
             past,
-            ..self.native_order(key, buffer)
+            ..self.native_order(key, buffer, connect)
         }
     }
 

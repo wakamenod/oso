@@ -23,6 +23,7 @@ fn entry(key: u64, state: State, archived: bool) -> Entry {
         pinned: false,
         archived,
         unasked: false,
+        remote: false,
         not_resumed: None,
         parent: None,
         dir: None,

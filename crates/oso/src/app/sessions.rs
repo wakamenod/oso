@@ -19,6 +19,7 @@ mod tools;
 mod watch;
 mod worktrees;
 pub(super) use conversations::conversations;
+pub(crate) use hosting::RemoteLooked;
 pub(super) use hosting::{Hosting, NativeSessions, Placeholder, RequestWaits};
 pub(super) use spaces::Orchestrator;
 pub(super) use watch::Watch;
