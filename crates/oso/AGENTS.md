@@ -99,8 +99,7 @@ often, so it must rebuild within 2 s.
   never the worker's. A native session's stream (ADR 0165) is read, folded into rows and
   rendered by pure functions (`native`); only `native/wire.rs` and its modules touch its JSON,
   a request's parts among them (`wire/request.rs`, shown by `native/request.rs`: its block, its
-  line and what of it was read, ADR 0182, its changes compared by `review::diff`, which nothing
-  shows yet),
+  line and what of it was read, ADR 0182, its changes compared by `review::diff`),
   the control layer's requests and answers included (`wire/control.rs`), the slash
   commands listed (`wire/slash.rs`) and what the status line reads of the answers
   (`wire/status_line.rs`, part 3a), what the stream says of Remote Control (`wire/remote.rs`,
@@ -257,11 +256,16 @@ often, so it must rebuild within 2 s.
   build. It has no dev method, and runs only commands whose reach is `Look`
   or `Change`. Its server also serves the sessions' socket (`Policy::Sessions`, ADR 0165,
   step 2), which answers only a native session's bridge's `permission`, asked of the person
-  by `src/app/sessions/hosting/native/permissions.rs` over `sessions::native::asks`, on the
+  by `src/app/sessions/hosting/native/permissions.rs` over `sessions::native::asks`: a call in the
+  session's conversation (`permissions/request.rs`, over `sessions::native::request`, whose block is
+  made on the socket's thread; what of it was read in `request/read.rs`, whether a key answers in
+  `request/gate.rs`, its keys in `request/keys.rs` and the question before one not read in
+  `request/ask.rs`, ADR 0182), questions and a plan on the
   session's card (`permissions/card.rs`, over `sessions::native::card`, step 2e-2; when point goes
   to it in `card/focus.rs`, its keys typed in the session's empty composer in `card/composer.rs` and
-  `dispatch/card.rs`, its pages in `card/pages.rs`, its size in `card/size.rs`, and what is drawn behind it in
-  `app/draw/card.rs`, ADR 0180), and a plan's
+  `dispatch/card.rs`, its pages in `card/pages.rs`, its size in `card/size.rs`, and what is drawn behind both in
+  `app/draw/card.rs` and `app/draw/transcript.rs`, ADR 0180), what answers running only as the person's
+  key is pressed (`dispatch/answers.rs`), and a plan's
   edit and its approvals with a mode in `permissions/card/plan.rs` (part 3d), the question before
   them in `card/plan/ask.rs`; `card/front.rs` says where a request waits, for
   `app/agent/requests.rs` and what is shown late (ADR 0182). `src/app/agent.rs` answers it on the UI thread, and

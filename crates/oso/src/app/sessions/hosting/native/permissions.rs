@@ -25,6 +25,7 @@ use std::time::Instant;
 
 mod card;
 mod request;
+mod sight;
 
 pub(in crate::app) use card::RequestWaits;
 pub(super) use card::Writing;
@@ -68,10 +69,8 @@ pub(in crate::app) struct Permissions {
     looked: Option<Instant>,
     /// Each shown card's width as drawn, and the rows it had if it grows.
     drawn: Vec<(SessionKey, (usize, usize))>,
-    /// Whether oso's window is in front, as the system said it came there, since when, and whether
-    /// it is hidden.
-    front: Option<Instant>,
-    hidden: bool,
+    /// Whether the person can see oso's window.
+    sight: sight::Sight,
     /// Where an answer to a card may come from now, and since when.
     current: Option<card::Current>,
     /// Whether a prompt an agent opened is open, and when the last one closed.
@@ -301,6 +300,9 @@ impl App {
         if ask.asked.is_some() {
             self.call_waits(ask.key, &ask.call.tool_use_id, false);
             self.tell_tracker(ask.key, Target::Working);
+        }
+        if ask.shown.is_some() {
+            self.show_asked();
         }
         let _ = (ask.reply).send(Ok(permission::deny(
             "Denied: oso could not ask the person.",

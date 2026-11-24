@@ -102,10 +102,12 @@ impl Dispatcher {
             return Effects::default();
         }
         self.as_input(editor, |this, editor| {
-            let ran = this
-                .run_or_read(editor, held.id, held.args, Invocation::default())
-                .0;
-            ran.union(this.after_prompts(editor))
+            this.as_held(editor, |this, editor| {
+                let ran = this
+                    .run_or_read(editor, held.id, held.args, Invocation::default())
+                    .0;
+                ran.union(this.after_prompts(editor))
+            })
         })
     }
 

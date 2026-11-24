@@ -12,14 +12,13 @@
 
 use std::time::Instant;
 
-use oso_core::buffer::BufferId;
 use oso_core::display_map::wrap_map::WrapSnapshot;
 use oso_core::editor::Editor;
-use oso_core::frame::WindowRegions;
-use oso_core::window::{DockSlot, Screen, WindowId};
+use oso_core::window::{DockSlot, Screen};
 
 use crate::app::App;
 use crate::app::sessions::hosting::native::NativeSessions;
+use crate::app::sessions::hosting::native::carrier::carrier;
 use crate::sessions::native::request::reading::View;
 use crate::sessions::native::request::reading::rows::rows;
 use crate::sessions::native::tail::Part;
@@ -30,8 +29,9 @@ use crate::sessions::worker::SessionKey;
 pub(super) struct Room {
     screen: Screen,
     view: View,
-    /// What each shown call's window shows as the frame under way was built.
+    /// What each shown call's window shows as the frame under way was built, the first `framed`.
     frame: Vec<(SessionKey, View)>,
+    framed: usize,
 }
 
 impl std::fmt::Debug for Room {
@@ -41,32 +41,9 @@ impl std::fmt::Debug for Room {
     }
 }
 
-/// The window that carries what is docked under `transcript`, as the dock in `slot` is laid out: the
-/// one of the frame that shows it and whose own rows hold the dock's. None while no row of the dock
-/// shows.
-pub(in super::super) fn carrier(
-    editor: &Editor,
-    transcript: BufferId,
-    slot: DockSlot,
-) -> Option<(WindowId, &WindowRegions)> {
-    let dock = editor.dock_window(transcript, slot)?;
-    let inside = editor.regions(dock)?.text;
-    if inside.rows == 0 || inside.columns == 0 {
-        return None;
-    }
-    (editor.frame().windows().iter()).find_map(|(id, regions)| {
-        let window = editor.window_by_id(*id)?;
-        let holds = (regions.text.row..regions.modeline.row).contains(&inside.row)
-            && (regions.gutter.column..regions.text.column + regions.text.columns)
-                .contains(&inside.column);
-        let its = window.docked().is_none() && window.buffer() == transcript && holds;
-        (its && regions.text.columns > 0).then_some((*id, regions))
-    })
-}
-
 /// Puts what the window that carries session `key`'s line shows of its block in `view`: attended
 /// only if `watched`, which says that nothing is open over it and the person is at it.
-fn view_of(
+pub(super) fn view_of(
     editor: &Editor,
     natives: &NativeSessions,
     (key, watched): (SessionKey, bool),
@@ -157,30 +134,44 @@ impl App {
 
     /// A frame is about to be drawn: what it shows of each shown call is kept.
     pub(in crate::app) fn note_frame_of_requests(&mut self) {
-        let mut room = std::mem::take(&mut self.hosting.natives.permissions.requests.room);
-        room.frame.clear();
+        let requests = &mut self.hosting.natives.permissions.requests;
+        requests.room.framed = 0;
+        if requests.drawn.is_empty() {
+            return;
+        }
+        let mut room = std::mem::take(&mut requests.room);
         let watched = self.rows_are_seen();
         for drawn in &self.hosting.natives.permissions.requests.drawn {
-            let mut view = View::default();
+            if room.framed == room.frame.len() {
+                room.frame.push((drawn.key, View::default()));
+            }
+            let (key, view) = &mut room.frame[room.framed];
+            *key = drawn.key;
+            let into = (&mut room.screen, view);
             view_of(
                 &self.editor,
                 &self.hosting.natives,
                 (drawn.key, watched),
-                (&mut room.screen, &mut view),
+                into,
             );
-            room.frame.push((drawn.key, view));
+            room.framed += 1;
         }
         self.hosting.natives.permissions.requests.room = room;
     }
 
     /// The frame was drawn, and `presented` or not: what it showed was seen from now on.
     pub(in crate::app) fn frame_of_requests_drawn(&mut self, presented: bool) {
-        let mut frame = std::mem::take(&mut self.hosting.natives.permissions.requests.room.frame);
-        for (key, view) in frame.drain(..) {
-            self.looked(key, &view, presented, Instant::now());
-            self.draw_line(key);
+        let requests = &mut self.hosting.natives.permissions.requests;
+        if requests.room.framed == 0 {
+            return;
         }
-        self.hosting.natives.permissions.requests.room.frame = frame;
+        requests.drawn_now = true;
+        let room = std::mem::take(&mut requests.room);
+        for (key, view) in room.frame.iter().take(room.framed) {
+            self.looked(*key, view, presented, Instant::now());
+            self.draw_line(*key);
+        }
+        self.hosting.natives.permissions.requests.room = room;
     }
 
     /// When what is in view of a call is read, if nothing changes first.

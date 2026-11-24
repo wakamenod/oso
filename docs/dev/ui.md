@@ -1114,7 +1114,9 @@ toggles menu on `C-c t` ([ADR 0097](adr/0097-visual-aids.md), [ADR 0117](adr/011
   - a full-width space shows as `□`, a tab as a dim `»` in its first cell, and the other
     non-ASCII spaces (such as U+00A0) as a dim `·`;
   - trailing spaces and tabs get a fill, except on a line with a cursor;
-  - half-width spaces are not marked.
+  - half-width spaces are not marked;
+  - the marks show in a session's conversation while a call's block is at its end, also with this off
+    ([ADR 0182](adr/0182-a-native-sessions-requests-in-its-conversation.md)).
 - **Current line** (`global-hl-line-mode`): a band across the text area on the primary
   cursor's row, behind the region and isearch's matches.
 - **Cursor flash** (`beacon-mode`): after the cursor moves 5 or more rows, a command
@@ -1393,14 +1395,26 @@ a switch made with its command stands until that setting changes in the file
   stopped TUI session resumes in its terminal, as it ran, and a TUI session carried over
   `oso-restart` stays one. An agent's start with no brief, and a restricted project, keep the
   terminal; a wrong `mode` is said, and native holds. A call that asks the person's
-  permission is asked on the session's card (step 2e-2), `*card: NAME*`, docked between the
+  permission is asked in the conversation ([ADR 0182](adr/0182-a-native-sessions-requests-in-its-conversation.md)):
+  a block at its end, oso's title on a band (`⚠ Bash asks to run`, and at the right
+  `adds 60 lines, removes 40`) over all it asks for on a tint, a change as a diff, `$ `, `+ ` and `- `
+  oso's, white space marked. A line, `*request: NAME*`, is docked above the composer: while point is
+  elsewhere, ` Bash asks to run   C-c C-j  answers it`; on it, its keys on chips, dim while one would
+  be refused, and what was read, `34 of 202 rows read`. Point goes there by `C-c C-j` (in the
+  transcript and the composer), `C-x o` or a click, never by itself, and a letter in the composer is
+  text. `y` allows once all of it was read, half a second each view; before that it shows what was
+  not. `C-u y` asks `Allow Edit in proj unread: 168 of its 202 rows are not read? (y or n)`. `n` and
+  `C-c C-k` deny, `N` with a note, `RET` shows the input as JSON in `*result: NAME*`; `SPC`, `DEL`,
+  `C-v`, `M-v` and the wheel scroll the transcript, `M-<` and `M->` go to the block's ends, `i` to
+  the composer, `C-c C-o` and `C-g` to the transcript. A key answers only after a quiet moment.
+  Questions and plans are asked on the session's card (step 2e-2), `*card: NAME*`, docked between the
   transcript and the composer and withheld from agents, on an amber background of its own
   (ADR 0180): oso's title on a band, the frame's top, and its keys, on chips, the bottom, around
   Claude's text, each row of it between `│ ` and ` │`. Point moves to it as it appears, while the
   person is in that session, its composer holds no draft and they are in the middle of nothing
   (else once that holds, after 500 ms with no key), and a key answers only after a quiet
-  moment since the last key and since the card came in front. `y` allows, `n` denies, `N`
-  denies with a note, `RET` shows the whole call in the card; an `AskUserQuestion` takes a
+  moment since the last key and since the card came in front. `n` declines, `N`
+  with a note, `RET` shows the whole plan in the card; an `AskUserQuestion` takes a
   digit, `RET` for several, or `o` for the person's words; an `ExitPlanMode` shows its plan.
   In the session's empty composer, `y`, `n`, `N` and a question's `o` and digits answer it too,
   under the same quiet wait; a key that would not is typed. A question's and a plan's card grow to
@@ -1433,7 +1447,7 @@ a switch made with its command stands until that setting changes in the file
   keep the mode, `acceptEdits` and `auto` only when the person chose them with `S-TAB`. `bypassPermissions` and `dontAsk` are never set, and no agent changes the
   mode.
   While the session's to-do list has an item (part 3e), `*todo: NAME*`, withheld from agents,
-  is docked above the card and the composer: one line, `☐ 2/5 ▶ ITEM` and `C-c C-t list`
+  is docked above the card or the request's line and the composer: one line, `☐ 2/5 ▶ ITEM` and `C-c C-t list`
   at its right edge, Claude's text in a face of its own after oso's mark, cut to the width;
   `C-c C-t` in the transcript or the composer opens it to a row an item (`☑`, `▶`, `☐`), at
   most 6, and folds it back. It goes at the end of a turn that left every item completed, and

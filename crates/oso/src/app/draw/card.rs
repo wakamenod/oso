@@ -137,4 +137,50 @@ mod tests {
         fills.fill(&editor, (tree, &screen), &mut Vec::new());
         assert!(fills.title.is_empty() && fills.keys.is_empty());
     }
+
+    #[test]
+    fn a_requests_line_is_a_band_on_every_row_with_a_chip_on_each_lit_key() {
+        use crate::sessions::native::request::line::{Says, line};
+        use crate::sessions::native::request::{Block, Request};
+        let mut editor = Editor::default();
+        editor.set_frame_size(FrameSize {
+            rows: 24,
+            columns: 40,
+        });
+        let host = editor.add_native_session_buffer("*claude: s*");
+        editor.show(host);
+        let id = editor.add_internal_buffer("*request: s*", Mode::Request);
+        let input = serde_json::json!({"command": "ls"});
+        let block = Block::call("Bash", Some(&input), std::time::Instant::now());
+        let request = Request::new(block);
+        let mut fill = |answers| {
+            let says = Says {
+                here: true,
+                answers,
+            };
+            let line = line(&request.block, &request.reading, says, 40);
+            editor.set_internal_text(id, &line.shown.text);
+            let mut highlights = Highlights::new(line.shown.text.len());
+            for (range, face) in &line.shown.faces {
+                highlights.replace(range.clone(), [(range.len(), Some(face.highlight()))]);
+            }
+            let _ = editor.set_internal_highlights(id, highlights);
+            editor.set_dock(host, DockSlot::Card, Some(id));
+            let window = editor.dock_window(host, DockSlot::Card).unwrap();
+            let text = editor.regions(window).unwrap().text;
+            let mut screen = Screen::default();
+            editor.screen_of(window, &mut screen);
+            let (mut fills, mut band) = (CardFills::default(), vec![text]);
+            fills.fill(&editor, (window, &screen), &mut band);
+            assert!(band.is_empty(), "no current line's band");
+            assert!(fills.title.iter().all(|row| row.columns == text.columns));
+            assert_eq!(dock_face(&editor, window), Some(Face::Card));
+            (line.rows, fills.title.len(), fills.keys.len())
+        };
+        let (rows, bands, keys) = fill(true);
+        assert!(rows > 1 && bands == rows, "{bands} of {rows}");
+        assert!(keys >= 3, "{keys}");
+        // Dim, no key has a chip.
+        assert_eq!(fill(false), (rows, rows, 0));
+    }
 }

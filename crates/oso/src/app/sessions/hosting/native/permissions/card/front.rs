@@ -130,9 +130,13 @@ mod tests {
         let composer = add("*compose: s*", Mode::Composer);
         let strip = add("*todo: s*", Mode::Fundamental);
         let plan = add("*plan: s*", Mode::Plan);
+        let line = add("*request: s*", Mode::Request);
+        let result = add("*result: s*", Mode::Fundamental);
         let mut natives = NativeSessions::default();
         let mut its = native(transcript);
         its.card = Some(card);
+        its.line = Some(line);
+        its.result = Some(result);
         its.composing.buffer = Some(composer);
         natives.map.insert(KEY, its);
         natives.map.insert(KEY + 1, native(other));
@@ -151,22 +155,26 @@ mod tests {
                 seen.push(waiting_at(natives, editor.tiled().0));
             }
             editor.select_window(host);
-            for shown in [transcript, composer, plan] {
+            for shown in [transcript, composer, plan, line, result] {
                 editor.show(shown);
                 seen.push(waiting_at(natives, editor.tiled().0));
             }
             seen
         };
-        assert_eq!(look(&natives, &mut editor), [None; 5], "nothing waits");
+        assert_eq!(look(&natives, &mut editor), [None; 7], "nothing waits");
         editor.show(transcript);
         wait(&mut natives, KEY, false);
-        assert_eq!(look(&natives, &mut editor), [None; 5], "not shown yet");
+        assert_eq!(look(&natives, &mut editor), [None; 7], "not shown yet");
         assert!(!natives.permissions.asks.any_shown());
         let _ = natives.permissions.asks.remove_where(|_| true);
         wait(&mut natives, KEY, true);
         assert!(natives.permissions.asks.any_shown());
         editor.show(transcript);
-        assert_eq!(look(&natives, &mut editor), [Some(KEY); 5]);
+        assert_eq!(look(&natives, &mut editor), [Some(KEY); 7]);
+        // Its line, docked in the card's place.
+        editor.show(transcript);
+        editor.set_dock(transcript, DockSlot::Card, Some(line));
+        assert_eq!(look(&natives, &mut editor)[0], Some(KEY));
         for elsewhere in [notes, other] {
             editor.show(elsewhere);
             assert_eq!(waiting_at(&natives, editor.tiled().0), None);

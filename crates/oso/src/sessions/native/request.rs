@@ -20,7 +20,7 @@ mod title;
 #[cfg(test)]
 pub(crate) mod fuzz_tests;
 #[cfg(test)]
-mod measure_tests;
+pub(crate) mod measure_tests;
 #[cfg(test)]
 mod tests;
 

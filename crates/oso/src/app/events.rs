@@ -69,10 +69,10 @@ impl App {
         // is taken back natively only now (ADR 0165, part 4d-2), before its native sync.
         self.take_back_due();
         self.sync_native_sessions();
-        // Last of what may change what its window shows.
-        self.sync_requests();
         self.sync_servers();
         self.sync_pane_directory();
+        // After what may change what its window shows.
+        self.sync_requests();
         // Once for all the changes the event made to the sessions (ADR 0121).
         self.save_sessions();
         // And to the recent files (ADR 0148).

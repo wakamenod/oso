@@ -352,7 +352,8 @@ Each holds from the step that builds it.
   the choices and the answer input over the float's face.
 - **[ADR 0117](0117-menus.md):** a menu's key's face is a line's keys', on its band.
 - **[ADR 0097](0097-visual-aids.md):** the line and the choices have no current line's band; the block
-  has it as a prompt's rows do.
+  has it as a prompt's rows do. A transcript's window with a block marks white space, its other rows'
+  too, with `global-whitespace-mode` off.
 - **[ADR 0151](0151-moving-a-session-into-a-space.md), [ADR 0155](0155-renaming-sessions.md):** as "R1a,
   as built" says of a session that moves and of a rename.
 - **Elsewhere,** as in ADR 0176, ADR 0181 and other parts of ADR 0165, a waiting call's "card" is read
@@ -465,6 +466,60 @@ which nothing shows yet), R1c (the switch for calls) and R1d (point).
   read, and `C-u y` until some of the block was in view for 500 ms. Once what is shown was read or is
   in view, a call not shown whole has `C-u y` first, and `5 lines not shown` or `not shown at all` at
   the right. Its text takes 13 to 26 µs at 20 to 120 cells, 46 at 2000 lines (p98).
+
+## R1c, as built (2026-11-24)
+
+Calls leave the card: block, band and tint, the line above the composer, reading, the gate, `C-u y`,
+`C-c C-j` and the diff on the socket's thread. Questions and plans keep their cards. **Point goes to
+the line by itself in no case, and the line always stands above the composer:** a call needs `C-c C-j`,
+`C-x o` or a click until R1d. A following window shows a tall block's end until then.
+
+- **A request is a call's** unless its tool is `AskUserQuestion` or `ExitPlanMode`. **A plan that cannot
+  be read is denied,** unasked, as such questions are, and said: its row
+  `denied: oso could not read its plan`, and the echo area, in oso's words.
+- **White space:** a window that shows a transcript with a block draws
+  [ADR 0097](0097-visual-aids.md)'s marks, of tabs and the spaces it names, whatever the person's
+  setting.
+- **The line** (`*request: NAME*`, `Mode::Request`, in the slot `Card`) gives up no row: where the docks
+  do not fit with it, none shows, nothing is read and nothing answers. A cell is free at each of its
+  ends, the cursor's among them.
+- **Presented:** a frame that drew every glyph (`Redraw::NotNeeded`), at the size it was laid out for,
+  before and after. **In front** is what the system said, never assumed: until it said so, nothing is
+  read or answered. "A float" is a description, a completion, a menu, a jump's labels and an input
+  method's composition too.
+- **Looked at** after each event, as each frame was presented, when what is in view is due to be
+  read, and before a key answers.
+- **The wait's start** is the latest of point coming to the line, of the call being shown and of the
+  person coming to see oso, worked out as a key comes: what was noted when is no part of it. A key acts
+  on the call its session shows; one pressed before that call was shown is too soon. A note and
+  `C-u y`'s question keep the call's id.
+- **Only a key pressed now answers,** of calls, questions and plans, by one check where the command
+  runs (`dispatch/answers.rs`): not a replayed macro, which stops there, nor what it writes for an
+  answer; not a key held back while oso waited for the clipboard, checked a paste, matched a
+  completion, or went on with a large undo, a replacement or a macro, which says to press it again; not
+  the repeat of a key held down, whatever it is bound to. Text an input method commits, and what is
+  typed by no key, is text.
+- **`C-u y`** is any argument. Its question names the tool and the session
+  (`Allow Edit in proj unread: 168 of its 202 rows are not read? (y or n)`) and runs
+  `native-plan-confirmed`; asking it drops a plan's question, and the reverse. It closes as oso's window
+  loses the front or is hidden, or its call goes.
+- **`y` with rows left to read** shows the first of them, or the title where that is the first; all read
+  and its end out of view, the end. **`SPC`, with nothing more below,** shows the first row not read.
+- **`RET`** shows the input in `*result: NAME*`, at most 256 KiB, and says what it left out. With that
+  buffer in front the request counts as in front ("Point" 8).
+- **After an answer** the session's next call shows at once, its line where it was. A session's bridge
+  holds one request at a time, so the next one comes a moment after and no title says `1 of 2`
+  today; point is then in the composer.
+- **Public items:** oso-core `Mode::Request` and `NativeAction::{Request, ReadOn(isize), Unread}`, whose
+  question's `y` is `Confirmed`. `Mode::Card`, `DockSlot::Card`, `Highlight::{CardTitle, CardKey}` and
+  `SessionRequest::CardText`, a call's note too, stand until R4, and so does the code both kinds answer
+  through in `permissions/card`. Commands: `native-request-{allow,deny,note,input,read-on,read-back,first,last,leave}`
+  and `native-session-request`.
+- **Measured** (release, one Mac, 10,000 rows; 20, 62 and 100 columns, p98): a block put and its first
+  rows wrapped, 60 to 110 µs at 8 lines, 160 to 370 at 200 and 170 at 2000; under 3 ms at the limits; one
+  in place of another, as much; taken out, under 1.2 ms. A look, 25 to 130 µs, of the request in front
+  alone, once an event and once a frame: the rows are laid out after each event, not only after one
+  that moved the view. A block is 130 KB at most, held once as it waits and twice more as it shows.
 
 ## Alternatives considered
 

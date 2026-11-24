@@ -13,8 +13,8 @@ use oso_core::editor::NativeAction;
 use oso_core::window::{DockSlot, Scroll, WindowId, screen_lines};
 
 use super::gate::Pressed;
-use super::read::carrier;
 use crate::app::App;
+use crate::app::sessions::hosting::native::carrier::carrier;
 use crate::app::sessions::hosting::native::permissions::DENIED;
 use crate::app::sessions::hosting::native::permissions::card::{Answer, BY_THE_PERSON, Writing};
 use crate::sessions::native::request::input::input;
@@ -186,7 +186,7 @@ impl App {
         // The rows below it may be fewer than the window's.
         let blank = self.editor.window_by_id(id).and_then(|window| {
             let display = self.editor.buffer(window.buffer())?.display();
-            let below = window.row_count(&display) - window.top_row(&display);
+            let below = (window.row_count(&display)).saturating_sub(window.top_row(&display));
             isize::try_from(window.size().rows.saturating_sub(below)).ok()
         });
         if let Some(rows) = blank.filter(|rows| *rows > 0) {

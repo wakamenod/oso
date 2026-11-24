@@ -351,11 +351,11 @@ pub enum NativeAction {
     DropQueued,
     /// On a queued message's row: move it this many places, up if negative.
     MoveQueued(isize),
-    /// From a permission card (step 2e-2): allow the call, or approve the plan.
+    /// From a request's line (ADR 0182): allow the call; from a plan's card (step 2e-2): approve it.
     Allow,
-    /// From a permission card: deny the call, decline the questions, or keep planning.
+    /// From a line or a card: deny the call, decline the questions, or keep planning.
     Deny,
-    /// From a permission card: deny, with a note the host reads in the minibuffer.
+    /// From a line or a card: deny, with a note the host reads in the minibuffer.
     Note,
     /// From a question's card: choose its option of this number, from 1, or in a question
     /// that takes several, choose or unchoose it.

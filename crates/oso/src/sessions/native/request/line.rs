@@ -135,7 +135,7 @@ const MARGIN: usize = 1;
 pub fn line(block: &Block, reading: &Reading, says: Says, width: usize) -> Line {
     let keys = Keys::of(says, reading, width);
     let margin = if keys == Keys::Narrow { 0 } else { MARGIN };
-    let width = width - 2 * margin;
+    let width = width.saturating_sub(2 * margin);
     let rows = match keys {
         Keys::Narrow => vec![vec![(said(block, "", width), Face::CardTitle)]],
         Keys::Go => go(block, width),
@@ -149,8 +149,7 @@ pub fn line(block: &Block, reading: &Reading, says: Says, width: usize) -> Line 
                         _ => true,
                     }
             };
-            let (_, of) = reading.lines();
-            let widest = widest(block, of, width);
+            let widest = widest(block, reading.count(), width);
             let mut rows = chips(keys, widest, lit, width);
             let most = HERE.map(|keys| chips(keys, widest, |_| true, width).len());
             let most = most.into_iter().max().unwrap_or(1);
@@ -262,7 +261,6 @@ fn rows_of(keys: &[Key], short: bool, lit: impl Fn(Key) -> bool, width: usize) -
 /// What the line says at its right: the tool, and what of its call was read.
 fn right(block: &Block, reading: &Reading, width: usize) -> String {
     let tool = cut(&block.tool, MAX_NAME);
-    let (read, of) = reading.lines();
     let words = match reading.hidden() {
         Hidden::All => "not shown at all".to_owned(),
         _ if reading.all_read() => format!("{tool} · all read"),
@@ -271,7 +269,10 @@ fn right(block: &Block, reading: &Reading, width: usize) -> String {
         }
         // What is in view is about to be read.
         Hidden::Nothing if reading.unread_in_view() => tool,
-        Hidden::Nothing | Hidden::Lines(_) => format!("{read} of {of} rows read"),
+        Hidden::Nothing | Hidden::Lines(_) => {
+            let (read, of) = reading.lines();
+            format!("{read} of {of} rows read")
+        }
     };
     cut(&words, width)
 }

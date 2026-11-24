@@ -48,6 +48,7 @@
 
 mod adding;
 mod buffer;
+mod carrier;
 mod composer;
 mod control;
 mod end;

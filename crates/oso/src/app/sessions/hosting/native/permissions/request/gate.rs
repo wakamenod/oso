@@ -11,9 +11,9 @@ use oso_core::buffer::BufferId;
 use oso_core::window::DockSlot;
 
 use super::super::card::Current;
-use super::read::carrier;
 use crate::app::App;
 use crate::app::agent::{QUIET, Typed};
+use crate::app::sessions::hosting::native::carrier::carrier;
 use crate::sessions::native::request::line::{NARROWEST, Says};
 use crate::sessions::worker::SessionKey;
 
@@ -22,8 +22,6 @@ use crate::sessions::worker::SessionKey;
 pub(super) enum Refusal {
     /// A macro replays.
     Macro,
-    /// The key is the repeat of one held.
-    Held,
     /// The line is not the selected buffer point came to, or oso's window is not in front.
     NotCurrent,
     /// Its quiet moment has not passed since point came to it, since its call came, or since the
@@ -38,7 +36,6 @@ impl Refusal {
     pub(super) fn message(self) -> &'static str {
         match self {
             Self::Macro => "A macro does not answer a request",
-            Self::Held => "A held key answers once: let it go",
             Self::NotCurrent | Self::Wait => "Wait a moment, then answer the request",
             Self::Cut => "The window is too small to answer the request in",
         }
@@ -52,8 +49,6 @@ pub(super) struct Pressed {
     pub(super) at: Instant,
     /// The one before that.
     pub(super) before: Option<Instant>,
-    /// It is the repeat of one held.
-    pub(super) repeats: bool,
 }
 
 impl Pressed {
@@ -62,7 +57,6 @@ impl Pressed {
         Self {
             at: typed.first.unwrap_or(now).min(now),
             before: typed.before_first,
-            repeats: typed.repeats,
         }
     }
 
@@ -71,7 +65,6 @@ impl Pressed {
         Self {
             at: now,
             before: typed.last,
-            repeats: false,
         }
     }
 }
@@ -81,6 +74,12 @@ impl Pressed {
 pub(super) fn waited(since: Instant, pressed: Pressed) -> bool {
     let quiet = |from: Instant| pressed.at >= from + QUIET;
     quiet(since) && pressed.before.is_none_or(quiet)
+}
+
+/// Since when a call may be answered: the latest of point coming to its line, of the call being shown,
+/// and of oso's window coming in front.
+fn since(point: Instant, shown: Instant, front: Instant) -> Instant {
+    point.max(shown).max(front)
 }
 
 /// When a line dim now for the quiet wait alone is lit: [`QUIET`] after what came in front at
@@ -99,9 +98,6 @@ impl App {
     ) -> Option<Refusal> {
         if self.editor.macro_replaying() {
             return Some(Refusal::Macro);
-        }
-        if pressed.repeats {
-            return Some(Refusal::Held);
         }
         let permissions = &self.hosting.natives.permissions;
         let current = (permissions.current).filter(|now| now.key == key && now.place == line);
@@ -125,9 +121,8 @@ impl App {
     fn request_since(&self, key: SessionKey, current: Current) -> Option<Instant> {
         let ask = self.hosting.natives.permissions.asks.shown(key)?;
         let shown = ask.shown.filter(|_| ask.request().is_some())?;
-        let since = current.since.max(shown).max(self.window_seen_since()?);
-        let closed = self.waits_after_agents(since);
-        Some(closed)
+        let since = since(current.since, shown, self.window_seen_since()?);
+        Some(self.waits_after_agents(since))
     }
 
     /// The key pressed last, if session `key`'s line takes an answer of it; else the echo area says
@@ -248,7 +243,7 @@ impl App {
 mod tests {
     use std::time::{Duration, Instant};
 
-    use super::{Pressed, QUIET, Typed, lit_at, waited};
+    use super::{Pressed, QUIET, Typed, lit_at, since, waited};
 
     #[test]
     fn an_answer_waits_since_what_came_in_front_and_since_the_key_before() {
@@ -257,14 +252,12 @@ mod tests {
         let pressed = |ms, before: Option<u64>| Pressed {
             at: at(ms),
             before: before.map(at),
-            repeats: false,
         };
         assert!(waited(
             since,
             Pressed {
                 at: since + QUIET,
                 before: None,
-                repeats: false
             }
         ));
         assert!(!waited(since, pressed(499, None)));
@@ -277,6 +270,23 @@ mod tests {
         assert_eq!(lit_at(at(300), Some(since)), at(300) + QUIET);
     }
 
+    /// A key pressed before the call it would answer was shown, as another was, or before oso's window
+    /// came in front, answers nothing, whatever was noted of point.
+    #[test]
+    fn a_call_is_answered_by_no_key_pressed_before_it_could_be() {
+        let start = Instant::now();
+        let at = |ms: u64| start + Duration::from_millis(ms);
+        let pressed = Pressed {
+            at: at(1000),
+            before: None,
+        };
+        assert!(waited(since(at(0), at(0), at(0)), pressed));
+        for late in [(1001, 0, 0), (0, 1001, 0), (0, 0, 1001), (0, 501, 0)] {
+            let since = since(at(late.0), at(late.1), at(late.2));
+            assert!(!waited(since, pressed), "{late:?}");
+        }
+    }
+
     #[test]
     fn a_chord_waits_to_its_first_key() {
         let since = Instant::now();
@@ -287,7 +297,6 @@ mod tests {
             before: Some(at(400)),
             first: Some(at(400)),
             before_first: None,
-            repeats: false,
         };
         assert!(!waited(since, Pressed::last(typed, at(901))));
         // Both after it, right after one another.

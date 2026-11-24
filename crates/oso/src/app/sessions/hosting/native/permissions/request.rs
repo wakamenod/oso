@@ -42,6 +42,8 @@ pub(super) struct Requests {
     asked: Option<ask::Asked>,
     /// Room for what a window shows.
     room: read::Room,
+    /// The event under way drew a frame, and what it showed was looked at.
+    drawn_now: bool,
 }
 
 /// What session `key`'s block and line are drawn as.
@@ -70,8 +72,8 @@ fn runs(rendered: &Rendered) -> Vec<Run> {
     runs
 }
 
-/// Puts `block`'s title in `native`'s tail, as `at` of `of` requests and `width` cells wide, under
-/// the row that stands between it and what is above.
+/// Puts `block`'s title in `native`'s tail, as its `place` among the session's requests and `width`
+/// cells wide, under the row that stands between it and what is above.
 fn put_title(
     editor: &mut Editor,
     native: &mut Native,
@@ -124,6 +126,20 @@ impl App {
         self.request_redraw();
     }
 
+    /// Before the loop waits at `now`: what is in view of a call is read, if that is due, and each line
+    /// is lit, if its wait is over.
+    pub(in crate::app::sessions::hosting::native) fn requests_due(&mut self, now: Instant) {
+        if self.request_read_deadline().is_some_and(|due| due <= now) {
+            return self.sync_requests();
+        }
+        for at in 0..self.hosting.natives.permissions.requests.drawn.len() {
+            let drawn = self.hosting.natives.permissions.requests.drawn.get(at);
+            if let Some(key) = drawn.map(|drawn| drawn.key) {
+                self.draw_line(key);
+            }
+        }
+    }
+
     /// After each event: each shown call's title as its place and its window's width are, what its
     /// window shows looked at, and its line as both leave it.
     pub(in crate::app) fn sync_requests(&mut self) {
@@ -131,6 +147,8 @@ impl App {
             return;
         }
         self.note_current_card();
+        // A frame just drawn was looked at as it was.
+        let drawn_now = std::mem::take(&mut self.hosting.natives.permissions.requests.drawn_now);
         for at in 0..self.hosting.natives.permissions.requests.drawn.len() {
             let Some(drawn) = self.hosting.natives.permissions.requests.drawn.get(at) else {
                 break;
@@ -151,7 +169,9 @@ impl App {
                     self.request_redraw();
                 }
             }
-            self.look_at_request(key, Instant::now());
+            if !drawn_now {
+                self.look_at_request(key, Instant::now());
+            }
             self.draw_line(key);
         }
     }
@@ -210,15 +230,16 @@ impl App {
         Some(id)
     }
 
-    /// Session `key`'s call was answered: its block and its line go, or the session's next call
-    /// shows in their place, at once, with point where it was.
+    /// Session `key`'s call was answered, or went: its block and its line go, unless the session's next
+    /// call is to show in their place, with point where it was.
     pub(super) fn close_request(&mut self, key: SessionKey) {
         self.forget_request(key);
         let next = (self.hosting.natives.permissions.asks.unshown())
             .find(|ask| ask.key == key)
             .is_some_and(|ask| ask.request().is_some());
+        // Its block and its line take their place as it shows, which the caller does next.
         if next {
-            return self.show_asked();
+            return;
         }
         let Some(native) = self.hosting.natives.map.get_mut(&key) else {
             return;
@@ -266,5 +287,7 @@ impl App {
     }
 }
 
+#[cfg(test)]
+mod measure_tests;
 #[cfg(test)]
 mod tail_tests;

@@ -130,7 +130,6 @@ fn the_strip_and_the_card_stack_above_the_composer() {
     assert!(strip.row < card.row && card.row < composer.row);
 }
 
-/// A card's rows are as wide as it is (ADR 0180): none counts as two.
 #[test]
 fn a_requests_line_shows_all_its_rows_or_hides_with_every_dock() {
     let (mut editor, host, _) = docked(20, "a\nb\nc\nd\ne\nf");
@@ -155,6 +154,7 @@ fn a_requests_line_shows_all_its_rows_or_hides_with_every_dock() {
     assert_eq!(rows(&editor, window), 0, "too short for it");
 }
 
+/// A card's rows are as wide as it is (ADR 0180): none counts as two.
 #[test]
 fn a_card_takes_a_row_a_line_however_wide() {
     let (mut editor, host, _) = docked(20, "");

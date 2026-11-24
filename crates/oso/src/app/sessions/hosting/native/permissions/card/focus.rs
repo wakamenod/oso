@@ -1,6 +1,7 @@
-//! When point moves to a native session's permission card, and since when the card, the
-//! session's empty composer or its plan's edit is where an answer may come from (ADR 0165, step
-//! 2e-2 and part 3d; ADR 0180).
+//! When point moves to a native session's card, and since when the card, the
+//! session's empty composer, its plan's edit or a call's line is where an answer may come from (ADR
+//! 0165, step 2e-2 and part 3d; ADR 0180, ADR 0182): since it came in front, and since the person could
+//! see oso's window, as the loop says.
 //!
 //! Must not depend on: key presses or how a frame is drawn; the loop says when an event ended
 //! and what is due.
@@ -93,31 +94,34 @@ impl App {
         waits_from(at, self.hosting.natives.permissions.agents_prompt_closed)
     }
 
-    /// oso's window came in front, or left it: as the system says, never assumed (ADR 0182).
+    /// oso's window came in front, or left it.
     pub(in crate::app) fn note_window_in_front(&mut self, front: bool) {
-        let permissions = &mut self.hosting.natives.permissions;
-        match (front, permissions.front) {
-            (true, None) => permissions.front = Some(Instant::now()),
-            (true, Some(_)) => {}
-            (false, _) => {
-                permissions.front = None;
-                self.close_unread_question();
-            }
+        let sight = &mut self.hosting.natives.permissions.sight;
+        sight.front(front, Instant::now());
+        if !front {
+            self.out_of_sight();
         }
     }
 
     /// oso's window was hidden, or is in sight again.
     pub(in crate::app) fn note_window_hidden(&mut self, hidden: bool) {
-        self.hosting.natives.permissions.hidden = hidden;
+        let sight = &mut self.hosting.natives.permissions.sight;
+        sight.hidden(hidden, Instant::now());
         if hidden {
-            self.close_unread_question();
+            self.out_of_sight();
         }
     }
 
-    /// Since when oso's window is in front, if it is, and in sight.
+    /// The person no longer sees oso's window: nothing of it is read, and a question before an answer
+    /// closes.
+    fn out_of_sight(&mut self) {
+        self.close_unread_question();
+        self.sync_requests();
+    }
+
+    /// Since when the person sees oso's window, if they do.
     pub(in super::super) fn window_seen_since(&self) -> Option<Instant> {
-        let permissions = &self.hosting.natives.permissions;
-        permissions.front.filter(|_| !permissions.hidden)
+        self.hosting.natives.permissions.sight.since()
     }
 
     /// oso's window came in front, or in sight, again: the card in front, or a question before an
@@ -148,7 +152,9 @@ impl App {
         let selected = window.buffer();
         match buffer.mode() {
             Mode::Card => Some((self.card_session(selected)?, selected)),
-            Mode::Request => Some((self.line_session(selected)?, selected)),
+            Mode::Request if window.docked().is_some() => {
+                Some((self.line_session(selected)?, selected))
+            }
             Mode::Plan => Some((self.waiting_edit(selected)?, selected)),
             Mode::Composer => {
                 let key = self.composer_session(selected)?;

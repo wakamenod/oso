@@ -90,7 +90,8 @@ impl App {
             } else {
                 self.answering = once.then_some(key);
             }
-            if self.note_key_for_agent(key, input.repeat) {
+            self.dispatcher.set_key_repeats(input.repeat);
+            if self.note_key_for_agent(key) {
                 return;
             }
             #[cfg(feature = "dev")]

@@ -17,6 +17,7 @@ use oso_core::minibuffer::PromptId;
 use super::gate::{Pressed, waited};
 use crate::app::App;
 use crate::commands::agent_sessions::PLAN_CONFIRMED;
+use crate::sessions::native::asks::Asks;
 use crate::sessions::native::request::Block;
 use crate::sessions::native::request::body::Hidden;
 use crate::sessions::native::request::reading::Reading;
@@ -29,6 +30,14 @@ pub(super) struct Asked {
     at: Instant,
     key: SessionKey,
     of: String,
+}
+
+impl Asked {
+    /// Whether the call it asked about is the one its session shows.
+    fn waits<R>(&self, asks: &Asks<R>) -> bool {
+        (asks.shown(self.key))
+            .is_some_and(|ask| ask.request().is_some() && ask.call.tool_use_id == self.of)
+    }
 }
 
 /// The question before `block`'s call, of session `name`, of which `reading` was read, runs.
@@ -59,7 +68,7 @@ impl App {
         );
         // One question at a time is what `y` answers.
         self.drop_plan_question();
-        self.hosting.natives.permissions.requests.asked = None;
+        self.close_unread_question();
         match self.editor.ask(question, PLAN_CONFIRMED) {
             Ok(prompt) => {
                 self.hosting.natives.permissions.requests.asked = Some(Asked {
@@ -83,16 +92,13 @@ impl App {
         };
         let pressed = Pressed::last(self.person_typed_at(), Instant::now());
         let since = self.waits_after_agents(asked.at);
-        if self.editor.macro_replaying() || pressed.repeats || !waited(since, pressed) {
+        if self.editor.macro_replaying() || !waited(since, pressed) {
             self.editor.message(
                 "Not allowed: wait a moment after the question, then answer it; C-u y asks again",
             );
             return true;
         }
-        let shown = self.hosting.natives.permissions.asks.shown(asked.key);
-        let waits =
-            shown.is_some_and(|ask| ask.request().is_some() && ask.call.tool_use_id == asked.of);
-        if waits {
+        if asked.waits(&self.hosting.natives.permissions.asks) {
             self.answer_card(asked.key, super::super::card::Answer::Allow);
         } else {
             self.editor
@@ -153,11 +159,57 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
     use std::time::Instant;
 
-    use super::question;
+    use serde_json::json;
+
+    use super::{Asked, question};
+    use crate::channel::Connection;
+    use crate::channel::protocol::permission::Call;
+    use crate::sessions::native::asks::{Ask, Asks, Look};
     use crate::sessions::native::request::{Block, Request};
+
+    #[test]
+    fn a_yes_allows_only_the_call_asked_about() {
+        let now = Instant::now();
+        let mut editor = oso_core::editor::Editor::default();
+        let asked = Asked {
+            prompt: editor.ask("Allow?", "keyboard-quit").unwrap(),
+            at: now,
+            key: 7,
+            of: "t1".to_owned(),
+        };
+        let mut asks = Asks::default();
+        assert!(!asked.waits(&asks));
+        // One call after another of the same session, and one of another.
+        for (key, id, waits) in [(8, "t1", false), (7, "t1", true), (7, "t2", false)] {
+            asks.push(Ask {
+                from: Connection {
+                    run: 1,
+                    number: key,
+                },
+                key,
+                call: Call {
+                    tool_name: "Bash".to_owned(),
+                    tool_use_id: id.to_owned(),
+                    input: None,
+                },
+                came: now,
+                made: Some(Box::new(Block::call("Bash", None, now))),
+                asked: None,
+                shown: None,
+                reply: (),
+            });
+            asks.look(now, |_| Look::Call);
+            for ask in asks.unshown() {
+                ask.shown = Some(now);
+            }
+            assert_eq!(asked.waits(&asks), waits, "{key} {id}");
+            if key == 7 {
+                asks.take_shown(key).unwrap();
+            }
+        }
+    }
 
     fn asked(tool: &str, input: Option<&serde_json::Value>) -> String {
         let request = Request::new(Block::call(tool, input, Instant::now()));

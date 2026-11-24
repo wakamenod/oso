@@ -537,7 +537,8 @@ fn text<'a>(
             .map_or(&[][..], |behind| &behind.fills[..]),
         labels: drawn.labels.get(labels).unwrap_or_default(),
         whitespace: editor.visual_aids().whitespace
-            || (drawn.natives).is_some_and(|natives| natives.shows_block(window.buffer())),
+            || (drawn.natives.filter(|_| buffer.is_native_session()))
+                .is_some_and(|natives| natives.shows_block(window.buffer())),
         flash,
         // None while font-lock is off, and in a buffer that may hold secrets (ADR 0111).
         highlights: buffer.highlights(),

@@ -102,8 +102,8 @@ pub enum Mode {
     /// A native agent session's conversation, `*claude: NAME*`, which oso writes from the
     /// session's stream (ADR 0165).
     NativeSession,
-    /// A native session's permission card, `*card: NAME*`, docked under its transcript: what a
-    /// call that waits for the person asks, which oso writes, with keys of its own to answer it
+    /// A native session's card, `*card: NAME*`, docked under its transcript: what questions or a
+    /// plan that wait for the person ask, which oso writes, with keys of its own to answer them
     /// (ADR 0165, step 2e-2; ADR 0170).
     Card,
     /// The line of a native session's request, `*request: NAME*`, docked under its transcript:

@@ -46,19 +46,15 @@ pub(in crate::app) struct Typed {
     /// one before it: what an answer's wait is measured to (ADR 0182).
     pub(in crate::app) first: Option<Instant>,
     pub(in crate::app) before_first: Option<Instant>,
-    /// The last key is the repeat of one held.
-    pub(in crate::app) repeats: bool,
 }
 
 impl Typed {
-    /// A key came at `now`: one that goes on with a sequence under way if `goes_on`, or the repeat
-    /// of one held if `repeats`.
-    fn key(&mut self, now: Instant, goes_on: bool, repeats: bool) {
+    /// A key came at `now`: one that goes on with a sequence under way if `goes_on`.
+    fn key(&mut self, now: Instant, goes_on: bool) {
         self.before = self.last.replace(now);
         if !goes_on || self.first.is_none() {
             (self.first, self.before_first) = (Some(now), self.before);
         }
-        self.repeats = repeats;
     }
 }
 
@@ -88,10 +84,10 @@ impl App {
     /// Whether `key` from the window must not reach a question the channel caused yet:
     /// it takes no answer until [`QUIET`] has passed with no key, and every key starts that
     /// wait again. `C-g` always goes through.
-    pub(in crate::app) fn note_key_for_agent(&mut self, key: KeyPress, repeats: bool) -> bool {
+    pub(in crate::app) fn note_key_for_agent(&mut self, key: KeyPress) -> bool {
         // A native session's request is answered only after a quiet moment (ADR 0165).
         let goes_on = self.dispatcher.keys_in_progress();
-        self.agent.typed.key(Instant::now(), goes_on, repeats);
+        self.agent.typed.key(Instant::now(), goes_on);
         if !self
             .editor
             .prompt()
@@ -135,7 +131,7 @@ impl App {
         }
         let held = keys
             .first()
-            .is_some_and(|&key| self.note_key_for_agent(key, false));
+            .is_some_and(|&key| self.note_key_for_agent(key));
         held.then_some("a question the agent caused takes no answer yet")
     }
 
@@ -267,18 +263,17 @@ mod tests {
         let start = Instant::now();
         let at = |ms| Some(start + Duration::from_millis(ms));
         let mut typed = Typed::default();
-        typed.key(at(0).unwrap(), false, false);
+        typed.key(at(0).unwrap(), false);
         assert_eq!((typed.first, typed.before_first), (at(0), None));
         // Text typed, then a chord, an argument's key before it.
         typed.last = at(100);
         for (ms, goes_on) in [(200, false), (300, true), (900, true)] {
-            typed.key(at(ms).unwrap(), goes_on, false);
+            typed.key(at(ms).unwrap(), goes_on);
             assert_eq!((typed.first, typed.before_first), (at(200), at(100)));
         }
         assert_eq!((typed.last, typed.before), (at(900), at(300)));
-        typed.key(at(950).unwrap(), false, true);
+        typed.key(at(950).unwrap(), false);
         assert_eq!((typed.first, typed.before_first), (at(950), at(900)));
-        assert!(typed.repeats);
     }
 
     #[test]

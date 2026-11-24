@@ -12,7 +12,8 @@ use oso_core::window::{DockSlot, Screen, WindowId};
 use serde_json::json;
 
 use super::super::{put_title, runs};
-use super::{View, carrier, view_of};
+use super::{View, view_of};
+use crate::app::sessions::hosting::native::carrier::carrier;
 use crate::app::sessions::hosting::native::markdown::tests::native;
 use crate::app::sessions::hosting::native::{NativeSessions, put_tail};
 use crate::sessions::native::request::reading::{READ_AFTER, Reading};
@@ -117,6 +118,19 @@ fn a_block_in_its_window_is_read_from_its_transcript_and_its_docks() {
         setup.seen();
         assert!(setup.reading.allows(), "{slot:?}");
     }
+}
+
+#[test]
+fn white_space_is_marked_where_a_block_is_and_only_there() {
+    let mut setup = Setup::new((30, 80), "ls");
+    let notes = setup.editor.add_buffer(Buffer::from_text("other", ""));
+    assert!(setup.natives.shows_block(setup.transcript));
+    assert!(!setup.natives.shows_block(notes));
+    let its = setup.natives.map.get_mut(&KEY).unwrap();
+    for part in [Part::Title, Part::Body] {
+        put_tail(&mut setup.editor, its, part, String::new(), Vec::new());
+    }
+    assert!(!setup.natives.shows_block(setup.transcript));
 }
 
 #[test]

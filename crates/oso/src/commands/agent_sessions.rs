@@ -48,8 +48,7 @@ use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
 use oso_core::editor::SessionRequest;
 
 /// The commands that answer a native session's request: its card's, its plan's edit's, its call's
-/// line's, and the question's before one of them. What is written for one is not among them, as its
-/// prompt takes its text whenever it comes.
+/// line's, and the question's before one of them.
 pub const ANSWERS: &[&str] = &[
     "native-card-allow",
     "native-card-deny",
@@ -65,6 +64,9 @@ pub const ANSWERS: &[&str] = &[
     "native-request-deny",
     "native-request-note",
 ];
+
+/// The commands that take what was written for such an answer in its prompt.
+pub const WRITTEN: &[&str] = &[CARD_NOTE, CARD_OWN];
 
 /// The list `session-switch` completes over: each session's buffer name.
 pub const SESSIONS_LIST: &str = "sessions";

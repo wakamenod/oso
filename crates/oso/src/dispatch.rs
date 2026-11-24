@@ -142,6 +142,8 @@ pub struct Dispatcher {
     key_answered_card: bool,
     /// What runs now was held until now, and answers no request (ADR 0182).
     runs_held: bool,
+    /// The key being handled is the repeat of one held down.
+    key_repeats: bool,
     /// A command ran for the agent channel since the host last asked: what it queued is the
     /// agent's, so the saves it queued are checked as the channel's (ADR 0108).
     ran_for_agent: bool,
@@ -213,6 +215,7 @@ impl Dispatcher {
             key_answers_card: false,
             key_answered_card: false,
             runs_held: false,
+            key_repeats: false,
             ran_for_agent: false,
             terminal_keys: std::collections::HashMap::new(),
             terminal_sends: Vec::new(),

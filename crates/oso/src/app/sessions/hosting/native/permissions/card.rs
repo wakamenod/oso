@@ -108,17 +108,20 @@ impl App {
     /// the new one.
     pub(in crate::app::sessions::hosting::native) fn show_asked(&mut self) {
         let now = Instant::now();
-        let shown: Vec<(SessionKey, bool)> = (self.hosting.natives.permissions.asks.unshown())
-            .map(|ask| {
-                ask.shown = Some(now);
-                log::debug!(
-                    "native sessions: shown {} ms after its request",
-                    now.saturating_duration_since(ask.came).as_millis()
-                );
-                (ask.key, ask.request().is_some())
-            })
-            .collect();
-        for &(key, call) in &shown {
+        let shown: Vec<(SessionKey, bool, Target)> =
+            (self.hosting.natives.permissions.asks.unshown())
+                .map(|ask| {
+                    ask.shown = Some(now);
+                    log::debug!(
+                        "native sessions: shown {} ms after its request",
+                        now.saturating_duration_since(ask.came).as_millis()
+                    );
+                    let target = super::waits_for(&ask.call.tool_name);
+                    (ask.key, ask.request().is_some(), target)
+                })
+                .collect();
+        for &(key, call, target) in &shown {
+            self.tell_tracker(key, target);
             if call {
                 self.show_request(key);
             } else {
@@ -147,7 +150,7 @@ impl App {
         if drawn_again == SETTLES {
             log::debug!("native sessions: a card's size had not settled");
         }
-        for &(key, _) in shown.iter().filter(|(_, call)| !call) {
+        for &(key, ..) in shown.iter().filter(|(_, call, _)| !call) {
             self.focus_card_at_once(key);
         }
         self.note_cards_on_screen();

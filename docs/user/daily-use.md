@@ -725,7 +725,7 @@ shows its conversation in `*claude: NAME*` as oso's own rows. In a restricted pr
 Code asks its own trust question. A start with no brief starts at once, with the composer
 under the conversation selected for your first message; a session you end before writing one
 leaves nothing behind. Your messages are on a green band after `〉`, what an agent started the session with on a violet one after `@  from`, Claude's replies two columns in, and
-each tool call one row: `▸` folded, `▾` open, `·` with nothing to open, `…` running (`waiting for you` while its card
+each tool call one row: `▸` folded, `▾` open, `·` with nothing to open, `…` running (`waiting for you` while it
 asks), `✗` failed or denied. A subagent's rows, and the calls of an opened row of several, have
 a `│` at the left. Only oso's marks stand in the first two columns, so nothing Claude writes passes
 for one. An edit shows open, its first 40 lines numbered, and an open result its first
@@ -779,20 +779,28 @@ and `.mcp.json`, as they are when a session resumes, also after `M-x oso-restart
 resume says why, and the fork runs in a terminal. One that `M-x oso-restart` could not resume
 says why in its conversation and under its row in `*Spaces*`.
 
-When Claude asks to run something, a framed card opens between the conversation and the composer,
-under the to-do line if there is one, and the cursor moves to it at once, unless you are writing
+When Claude asks to run something or to change a file, it asks at the end of the conversation: an
+amber title (`⚠ Bash asks to run`) over all of it, the whole command, or the change as a diff, with its
+tabs and full-width spaces marked. A line under the conversation says `Bash asks to run   C-c C-j  answers it`. `C-c C-j`,
+in the conversation or the composer, goes there (`C-x o` and a click do too); what you type in the
+composer stays text. There `y` allows it once, but only once all of it was on screen, half a second
+each page: `SPC` goes on, and `y` before that shows what is left. `C-u y` allows it unread, after a
+question that says how much that is. `n` denies it, `N` denies it with a note Claude is told, `RET`
+shows its input, and `C-c C-o` leaves it waiting. The line takes keys once you have typed none for half a
+second, so that what you were typing never answers it; its keys are dim until then.
+
+A question or a plan opens a framed card between the conversation and the composer, under the to-do
+line if there is one, and the cursor moves to it at once, unless you are writing
 in the composer (then `C-x o` from the conversation goes to it, past the to-do line): Claude's own words are inside the frame, on rows that
-start with `│`, and the keys on its last row. The card takes keys once you have typed none for half
-a second, so that what you were typing never answers it. `y` allows it once, `n` denies it,
-`N` denies it with a note Claude is told, and `RET` shows all of the call. A question from
+start with `│`, and the keys on its last row. The card takes the same half second. A question from
 Claude shows all it asks and its options numbered: type the number, or `o` to answer in your own
 words. A plan is approved with `y`. A question or a plan too long for the window shows a page and
 how many rows there are; `SPC` goes on and `DEL` back, and an option can be chosen once it was on
 screen. In the composer, while it is empty, `y`, `n`, `N` and a question's `o` and numbers answer
-the card too; once you have written something, every key is text. Elsewhere, the session shows
+the card too, but not a call; once you have written something, every key is text. Elsewhere, the session shows
 that it needs you, as a terminal session does.
 
-When Claude keeps a to-do list, it shows as one line above the composer and any card, `☐ 2/5 ▶` and the
+When Claude keeps a to-do list, it shows as one line above the composer and what asks you something, `☐ 2/5 ▶` and the
 item it works on; `C-c C-t`, in the conversation or the composer, opens it to a row an item
 and folds it back. It goes once every item is done and the turn ends. Claude Code gives a
 session its to-do tools only when you turn them on, in `~/.claude/settings.json`:

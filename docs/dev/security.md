@@ -831,13 +831,28 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     where it is a plan: a reason, an edit's strings, a question's text, an `ExitPlanMode`'s
     plan. So a process that passes the claim can show its own text for a waiting call, under
     that call's tool and target; an allow to it runs only that call (step 2e-2).
-  - It is asked on the session's permission card (step 2e-2), withheld from agents: oso's title
+  - **A call** is asked in the session's conversation (ADR 0182): a block, the transcript's last text, of
+    all it asks for, and a line of keys docked under the transcript, both withheld from agents, as the
+    transcript is. Columns 0 and 1 of the block are oso's, its title names of Claude's side the tool
+    alone, escaped, and the line is in oso's words; the band, the tint and the chips are drawn where
+    highlights say so that only oso's code gives. Its tabs and the spaces ADR 0097 names are marked, whatever the
+    setting. `y`
+    allows only once every row of it was read: shown whole, wrapped, in presented frames, for 500 ms
+    with the view unmoved, in the window that carries the line, while it or its docks are selected, oso's
+    window is in front and in sight, and nothing is open over it; with its last row in view at the key.
+    What is not shown, or was not read, is allowed by `C-u y` alone, after a question bound to the call,
+    which closes as oso loses the front. The wait is 500 ms since the line was selected, the call
+    shown, oso came in front and the key before, to a chord's or an argument's first key, longer after a
+    prompt an agent opened. No letter in the composer answers it, and point does not go to the line by
+    itself. An `ExitPlanMode` whose plan cannot be read is denied unasked, and said.
+  - **Only a key pressed now answers** a call, a question or a plan: no macro's, none held back while
+    something else went on, no repeat of a held key, and no text an input method commits.
+  - **Questions and plans** are asked on the session's card (step 2e-2), withheld from agents: oso's title
     and keys around Claude's text, fenced row by row after `│ ` in a face of its own, each of
     Claude's line feeds a row, a long row broken at the card's width as the display measures
     it, the rows it goes on to fenced `┊ `, so that no text of Claude's runs off the card,
     stands as a key row or passes for oso's words; no agent command runs with the request in
-    front, a look included (below); the title says
-    when it does not show all the call does, and `RET` shows the input that runs whole in the
+    front, a look included (below); `RET` shows a plan whole in the
     card. The frame, oso's words and the keys' chips are in faces that only oso's own spans take,
     and what is drawn behind them comes from those, never from what a text holds; an option's
     number and mark are oso's too (ADR 0180). Its keys are `Person`, and answer only from the
@@ -908,8 +923,8 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     minute and 2 are open at once (a hosted session's bridge apart, below), and a refusal holds off new connections for 60 s. One let
     in sends at most 30 requests a second. The modeline shows `Agent` while it is on, and
     `*Agent*` lists each request without its text.
-  - While a native session's request waits in front of the person (its card, composer, transcript
-    or plan's edit selected), `open` shows no file, one it is loading among them, which is
+  - While a native session's request waits in front of the person (its card or line, composer,
+    transcript, plan's edit, or a call's whole input or result selected), `open` shows no file, one it is loading among them, which is
     dropped, and no command runs, a look included. With one in a window of the frame, no
     command that changes the windows or how they are drawn (line numbers, the current line's
     band), goes through the buffers or explains a session runs; with the side window selected

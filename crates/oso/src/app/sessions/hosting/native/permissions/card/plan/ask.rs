@@ -174,7 +174,9 @@ impl App {
 
     /// The question before an approval, if one is open, is dropped: another is asked in its place.
     pub(in super::super::super) fn drop_plan_question(&mut self) {
-        self.hosting.natives.permissions.plans.asked = None;
+        if let Some(asked) = self.hosting.natives.permissions.plans.asked.take() {
+            self.close_question(asked.prompt);
+        }
     }
 
     /// `y` to the question asked last before an approval: the plan it asked about approved as
