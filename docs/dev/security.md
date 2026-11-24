@@ -706,8 +706,8 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   say its main repository is trusted ("Worktrees' resumes"): the start thread walks the root
   again, with nothing run, where part 4a looks and once more just before the spawn. It so
   trusts the worktree's `.claude` settings, hooks and `.mcp.json` as they are then, also at
-  `oso-restart`'s resume with no person there; a new start, a fork, an adoption and a moved
-  session in a worktree need an open, trusted buffer of it. A record not
+  `oso-restart`'s resume with no person there; a new start, a fork, an adoption and a move
+  into a space in a worktree need an open, trusted buffer of it. A record not
   read yet is waited for, at most 5 s with ADR 0173's held starts, then nothing is trusted.
   Until its start thread reports, the UI takes a resume's or fork's trust back once its
   project is no longer trusted, a worktree's once any root has left the record, and the look

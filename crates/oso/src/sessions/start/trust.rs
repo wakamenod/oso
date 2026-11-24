@@ -16,7 +16,7 @@
 //! - A record not read yet waits while starts may wait for it (ADR 0173); one refused, or not
 //!   read in time, trusts nothing.
 //! - The record holds the main repository of a linked worktree, not the worktree. A new start,
-//!   a fork, an adoption or a moved session there needs an open buffer of it. A resume whose
+//!   a fork, an adoption or a move into a space there needs an open buffer of it. A resume whose
 //!   root the record does not hold is judged by the worktree's claim (ADR 0114), walked afresh
 //!   on the start thread, whole and again just before the spawn ([`Claims`]).
 
@@ -83,7 +83,7 @@ pub struct Listed {
 /// Whether a start with no buffer of its project open may be judged by its worktree's claim.
 #[derive(Debug, Clone, Copy)]
 pub enum Claims<'a> {
-    /// Never: a new start, a fork, an adoption or a moved session.
+    /// Never: a new start, a fork, an adoption or a move into a space.
     Never,
     /// A resume of a session oso has. `home`, as it is spelled, is never a project.
     Asked { home: Option<&'a Path> },

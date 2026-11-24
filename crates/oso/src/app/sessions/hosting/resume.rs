@@ -26,7 +26,7 @@ impl App {
 
     /// Resumes the stopped session whose terminal is `buffer`, as the person's act, shown in
     /// the selected window if `shown`: `session-resume`, and a session moved into a space
-    /// (ADR 0151). A moved one is not judged by its worktree's claim (`by_claim`).
+    /// (ADR 0151). A move is not judged by its worktree's claim (`by_claim`).
     pub(in crate::app) fn resume_session_shown(
         &mut self,
         buffer: BufferId,
@@ -65,7 +65,7 @@ impl App {
     /// [`App::resume_hosted`], a TUI given `chosen`: what the native session handed to it
     /// held (ADR 0165, part 4d-1), which no other resume passes. A native resume of a session
     /// whose TUI's `claude` may still run waits for it to be gone on its start thread, whoever
-    /// resumes it (part 4d-2). With `by_claim`, as every resume but a moved session's, a native
+    /// resumes it (part 4d-2). With `by_claim`, as every resume but a move's into a space, a native
     /// one in a linked worktree with no buffer of it open is judged by its claim there.
     ///
     /// # Errors
@@ -172,7 +172,7 @@ impl App {
     /// copies) runs under in `directory`, of the project at `root`: its space's gate in a
     /// space's directory (ADR 0176), else its project's trust (ADR 0165, part 4a), each kept
     /// to be taken back until it starts. A resume of a session oso has may be judged by its
-    /// worktree's claim (`by_claim`); a fork, an adoption or a moved session never is.
+    /// worktree's claim (`by_claim`); a fork, an adoption or a move into a space never is.
     ///
     /// # Errors
     ///

@@ -1615,7 +1615,7 @@ The author's Q4-10 (a), part 2b's follow-up:
   directory at its project's root now". The usual look again before the spawn follows. The
   record holds no worktree claim; a resume of a native session oso has in a linked worktree is
   judged by ADR 0114's check, read afresh on its start thread ("Worktrees' resumes" below). A
-  new start, a fork, an adoption or a moved session in one still needs an open, trusted buffer
+  new start, a fork, an adoption or a move into a space in one still needs an open, trusted buffer
   of it. Only at the project's root, as before.
 - **Taken back until it starts** (the security review's finding): the start thread's checks
   before the spawn can take seconds (the registry, a worker's reads with git), so the UI keeps
@@ -1681,10 +1681,11 @@ and after `oso-restart` stayed stopped.
 - **A record not read yet** is waited for, as in part 4a, also before an open buffer of its
   project that is not trusted refuses such a resume, as no project is trusted until the record
   is read. **A known limit:** a file of the worktree carried over a restart is asked for its
-  project again only once the record is read, after the waiting resume is judged, so that the
-  resume finds its buffer not trusted and refuses, as before this section; it says that
-  `session-resume` resumes it once it is trusted, which it then soon is. A plain repository's
-  carried file does not refuse so, as the record alone trusts it.
+  project again only once the record is read. A resume that waited for the record is judged then,
+  before that answer, so it may find the buffer not trusted and refuse; it says that
+  `session-resume` resumes it once it is trusted, which it then soon is. Seen once end to end, the
+  record was read before the instance going had gone, and such a session resumed. A plain
+  repository's carried file does not refuse so, as the record alone trusts it.
 - **No baseline, no tool trust:** a resume takes no baseline, as before, and nothing is kept in
   `hosting.trusts`; an agent's `session_resume` asks as it did (ADR 0153).
 - **Accepted.** Trusting a repository trusts its worktrees' settings, hooks and `.mcp.json` at a

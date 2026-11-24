@@ -231,7 +231,7 @@ mod tests {
 
     #[test]
     fn a_resumes_row_says_how_it_went_and_why() {
-        let why = "its directory is not a worktree of a trusted repository now";
+        let why = NOT_ONE;
         assert_eq!(ResumeFor::Asked.resumed(), None);
         assert_eq!(
             ResumeFor::Restarted(None).resumed(),

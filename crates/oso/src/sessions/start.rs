@@ -170,7 +170,7 @@ pub struct NativeOrder {
     /// project (ADR 0165, part 4a).
     pub trust: trust::ByRecord,
     /// Whether it may be judged by its worktree's claim, if it waits and is judged again: a
-    /// resume of a session oso has, no adoption and no moved session ("Worktrees' resumes").
+    /// resume of a session oso has, no adoption and no move into a space ("Worktrees' resumes").
     pub by_claim: bool,
     /// Its gate in an issue space's own directory, which it runs in instead of a trusted
     /// project's root (ADR 0176): its line then reads the person's own settings alone.
