@@ -660,6 +660,22 @@ pub(crate) mod tests {
             Face::SessionBrief => &[(Face::SessionBrief, READ)],
             Face::SessionBriefMark => &[(Face::SessionBrief, LABEL)],
             Face::SessionCode => &[(Face::Text, READ), (Face::CurrentLine, READ)],
+            // A preview's too.
+            Face::SessionHeading
+            | Face::SessionStrong
+            | Face::SessionStrongCode
+            | Face::SessionEmphasis
+            | Face::SessionLink => &[
+                (Face::Text, READ),
+                (Face::CurrentLine, READ),
+                (Face::Float, READ),
+            ],
+            // What Claude thought is as quiet as before it was italic.
+            Face::SessionThinking => &[
+                (Face::Text, LABEL),
+                (Face::CurrentLine, LABEL),
+                (Face::Float, LABEL),
+            ],
             Face::SessionTool | Face::SessionBullet | Face::SessionRunning => {
                 &[(Face::Text, LABEL), (Face::CurrentLine, LABEL)]
             }
@@ -777,6 +793,29 @@ pub(crate) mod tests {
         for (i, &face) in FACES.iter().enumerate() {
             assert_eq!(index(face), i, "{face:?}");
         }
+    }
+
+    /// Of every face, only a session's own six have a font style or a line (ADR 0165).
+    #[test]
+    fn only_a_replys_classes_and_a_thoughts_have_a_look() {
+        use crate::pane::Look;
+        use oso_platform::text::FontStyle::{Bold, Italic, Regular};
+        let looks: Vec<_> = (FACES.iter())
+            .map(|face| (*face, Look::of_face(*face)))
+            .filter(|(_, look)| *look != Look::default())
+            .map(|(face, look)| (face, look.style, look.underlined))
+            .collect();
+        assert_eq!(
+            looks,
+            [
+                (Face::SessionHeading, Bold, false),
+                (Face::SessionStrong, Bold, false),
+                (Face::SessionStrongCode, Bold, false),
+                (Face::SessionEmphasis, Italic, false),
+                (Face::SessionLink, Regular, true),
+                (Face::SessionThinking, Italic, false),
+            ]
+        );
     }
 
     #[test]
@@ -1316,7 +1355,16 @@ pub(crate) mod tests {
         for theme in &themes() {
             let name = theme.name();
             let ink = |face| theme.foreground(face);
-            let replys = [Face::SessionCode, Face::SessionBullet, Face::SessionTable];
+            let replys = [
+                Face::SessionCode,
+                Face::SessionBullet,
+                Face::SessionTable,
+                Face::SessionHeading,
+                Face::SessionStrong,
+                Face::SessionStrongCode,
+                Face::SessionEmphasis,
+                Face::SessionLink,
+            ];
             for row in [
                 Face::SessionTool,
                 Face::SessionPromptMark,
@@ -1374,6 +1422,12 @@ pub(crate) mod tests {
                 Face::SessionBullet,
                 Face::SessionTool,
                 Face::SessionBriefMark,
+                Face::SessionHeading,
+                Face::SessionStrong,
+                Face::SessionStrongCode,
+                Face::SessionEmphasis,
+                Face::SessionLink,
+                Face::SessionThinking,
             ] {
                 for (other, floor) in [
                     (Face::Whitespace, 0.05),

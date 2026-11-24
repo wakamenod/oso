@@ -60,8 +60,14 @@ const MAX_INFO: usize = 16;
 pub enum Style {
     Heading,
     Strong,
+    Emphasis,
     Code,
+    /// Code in strong text or a heading.
+    StrongCode,
+    /// A link's words.
     Link,
+    /// A link's target where it shows, words that are it among them: no line is under it.
+    Target,
     /// What stands for a bullet, a number of a list, a quote or a rule.
     Mark,
     /// The rules of a table.

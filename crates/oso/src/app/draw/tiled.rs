@@ -542,6 +542,7 @@ fn text<'a>(
         flash,
         // None while font-lock is off, and in a buffer that may hold secrets (ADR 0111).
         highlights: buffer.highlights(),
+        styled: super::transcript::styled(buffer),
         marks: TextMarks {
             underlines: drawn
                 .behind

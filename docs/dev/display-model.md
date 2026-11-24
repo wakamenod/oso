@@ -131,6 +131,9 @@ The rules in detail ([ADR 0035](adr/0035-sumtree-rope-and-cell-grid.md)):
   character is shown as its mirrored form. oso has no right-to-left display
   ([ADR 0066](adr/0066-text-stays-in-logical-order.md)).
 
+A font style, bold or italic, changes no cell: columns come from the display model, whatever
+font draws them ([ADR 0165](adr/0165-native-claude-sessions-the-route.md), "The look: styles").
+
 A glyph paints only the cells of its cluster and only its row. When the shaper
 draws several clusters as one ligature, its glyph paints the cells of all of
 them. Above the row it also keeps the part of a row that lies below the

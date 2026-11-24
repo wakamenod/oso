@@ -640,6 +640,7 @@ mod tests {
             flash: None,
             highlights: None,
             marks: crate::pane::TextMarks::NONE,
+            styled: false,
         })
     }
 
@@ -748,6 +749,7 @@ mod tests {
                     flash: None,
                     highlights: None,
                     marks: crate::pane::TextMarks::NONE,
+                    styled: false,
                 })
             };
             let mut panes = [pane(0, region, 0, content)];
@@ -843,6 +845,7 @@ mod tests {
             flash: None,
             highlights: None,
             marks: crate::pane::TextMarks::NONE,
+            styled: false,
         });
         let panes = [pane(0, rect(0, 0, 2, 4), 0, content)];
         let (mut scene, mut atlas) = (Scene::new(LIMITS, theme()), FakeAtlas::default());
@@ -1161,6 +1164,7 @@ mod tests {
             flash: None,
             highlights: None,
             marks: crate::pane::TextMarks::NONE,
+            styled: false,
         });
         let panes = [pane(0, rect(0, 0, 1, 3), 0, content)];
         let mut scene = Scene::new(LIMITS, theme());
@@ -1200,6 +1204,7 @@ mod tests {
             flash: None,
             highlights: None,
             marks: crate::pane::TextMarks::NONE,
+            styled: false,
         });
         let panes = [pane(0, rect(0, 0, 1, 3), 0, content)];
         let mut scene = Scene::new(LIMITS, theme());
@@ -1240,6 +1245,7 @@ mod tests {
             flash: None,
             highlights: None,
             marks: crate::pane::TextMarks::NONE,
+            styled: false,
         });
         let panes = [pane(0, rect(0, 0, 1, 3), 0, content)];
         let mut scene = Scene::new(LIMITS, theme());
@@ -1325,6 +1331,7 @@ mod tests {
             flash: None,
             highlights: None,
             marks: crate::pane::TextMarks::NONE,
+            styled: false,
         });
         let panes = [pane(0, rect(0, 0, 1, 120), 0, content)];
         let limits = Limits {
@@ -1363,6 +1370,7 @@ mod tests {
             flash: None,
             highlights: None,
             marks: crate::pane::TextMarks::NONE,
+            styled: false,
         });
         let panes = [pane(0, rect(1, 1, 1, 3), 0, content)];
         let mut scene = Scene::new(LIMITS, theme());
@@ -1398,6 +1406,7 @@ mod tests {
             }),
             highlights: None,
             marks: crate::pane::TextMarks::NONE,
+            styled: false,
         });
         let panes = [pane(0, rect(0, 0, 2, 8), 0, content)];
         let mut scene = Scene::new(LIMITS, theme());
@@ -1436,6 +1445,7 @@ mod tests {
             }),
             highlights: None,
             marks: crate::pane::TextMarks::NONE,
+            styled: false,
         });
         let panes = [pane(0, rect(0, 0, 1, 12), 0, content)];
         let mut scene = Scene::new(LIMITS, theme());
@@ -1469,6 +1479,7 @@ mod tests {
             flash: None,
             highlights: None,
             marks: crate::pane::TextMarks::NONE,
+            styled: false,
         });
         let mut panes = [pane(0, rect(1, 1, 2, 8), 0, content)];
         panes[0].background = Some(Face::Text);
@@ -1520,6 +1531,7 @@ mod tests {
             flash: None,
             highlights: None,
             marks: crate::pane::TextMarks::NONE,
+            styled: false,
         });
         let panes = [pane(0, rect(0, 0, 1, 10), 0, content)];
         let mut scene = Scene::new(LIMITS, theme());
@@ -1564,6 +1576,7 @@ mod tests {
                 flash: None,
                 highlights: None,
                 marks: crate::pane::TextMarks::NONE,
+                styled: false,
             })
         };
         let mut scene = Scene::new(LIMITS, theme());
@@ -1618,6 +1631,7 @@ mod tests {
             flash: None,
             highlights: None,
             marks: crate::pane::TextMarks::NONE,
+            styled: false,
         });
         let mut scene = Scene::new(LIMITS, theme());
         let system = build(
@@ -1672,6 +1686,7 @@ mod tests {
             flash: None,
             highlights: None,
             marks: crate::pane::TextMarks::NONE,
+            styled: false,
         });
         let mut scene = Scene::new(LIMITS, theme());
         let panes = [pane(0, rect(0, 0, 3, 21), 0, content)];
@@ -1712,6 +1727,7 @@ mod tests {
             flash: None,
             highlights: None,
             marks: crate::pane::TextMarks::NONE,
+            styled: false,
         });
         let panes = [pane(0, rect(0, 0, rows, columns), 0, content)];
         build(scene, &panes, &mut FakeAtlas::default());
@@ -1777,6 +1793,7 @@ mod tests {
                 flash: None,
                 highlights: None,
                 marks: crate::pane::TextMarks::NONE,
+                styled: false,
             });
             let panes = [pane(0, rect(0, 0, 40, 20), 0, content)];
             let before = scene.shaped_count();
@@ -1823,6 +1840,7 @@ mod tests {
                 flash: None,
                 highlights: None,
                 marks: crate::pane::TextMarks::NONE,
+                styled: false,
             });
             let panes = [pane(0, rect(0, 0, 40, 20), 0, content)];
             let before = scene.shaped_count();
@@ -1860,6 +1878,7 @@ mod tests {
                 flash: None,
                 highlights: None,
                 marks: crate::pane::TextMarks::NONE,
+                styled: false,
             });
             let panes = [pane(0, rect(0, 0, 20, 40), 0, content)];
             let before = scene.shaped_count();
@@ -1896,6 +1915,7 @@ mod tests {
                 flash: None,
                 highlights: None,
                 marks: crate::pane::TextMarks::NONE,
+                styled: false,
             })
         };
         let mut scene = Scene::new(LIMITS, theme());
@@ -1940,6 +1960,7 @@ mod tests {
             flash: None,
             highlights: None,
             marks: crate::pane::TextMarks::NONE,
+            styled: false,
         });
         let mut scene = Scene::new(LIMITS, theme());
         build(
@@ -1977,6 +1998,7 @@ mod tests {
                 flash: None,
                 highlights: None,
                 marks: crate::pane::TextMarks::NONE,
+                styled: false,
             })
         };
         let panes = |first, second_id| {
@@ -2143,6 +2165,7 @@ mod tests {
             flash: None,
             highlights: None,
             marks: crate::pane::TextMarks::NONE,
+            styled: false,
         });
         let mut panes = [pane(0, rect(0, 0, 2, 200), 0, content)];
         panes[0].background = Some(Face::Modeline);

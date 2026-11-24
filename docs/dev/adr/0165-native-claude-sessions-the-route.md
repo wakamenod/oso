@@ -1067,7 +1067,7 @@ words. ECC is GPL: its look was read, and no code or colour of it is here. It am
   concealed by the display: the buffer holds what shows. An empty line stands for a fence's line
   where none was. Faces are existing ones, or the session's own since ("The rows' colours"): what
   hidden marks were around keeps a colour (a heading, emphasis, inline code, a link). Real bold and
-  italic are a later part; tables are "The look: tables".
+  italic are "The look: styles"; tables are "The look: tables".
 - **Faces:** `shown` gives a reply's faces at once, also while it streams. The parse (part 2g)
   still runs once the reply is whole: its runs lie on a fence's code, and on what has no face
   of `shown`'s; code whose language gave it none is in inline code's face.
@@ -1140,7 +1140,7 @@ Markdown", where a table was drawn as written.
   in a fence, where it is code, nor in a quote. A row's cells past the last column are part of its
   last, `\|` is a pipe, and a tab a space: no word of it goes.
 - **As drawn:** box rules (`┌─┬┐`, `│`, `├─┼┤`, `└─┴┘`) with a space beside each cell, in
-  `SessionTable`; a header's text in emphasis's face, and the inline marks of a cell hidden as a
+  `SessionTable`; a header's text in strong text's face, and the inline marks of a cell hidden as a
   line's. A rule between all body rows of a table in which a cell wraps, and none otherwise (the
   space's orchestrator). `M-w` copies what shows, `w` the Markdown, as before.
 - **Its width** is the narrowest window's that shows the session, as a turn's result's, and at most
@@ -1194,6 +1194,82 @@ Markdown", where a table was drawn as written.
   rules whatever its cells hold, that a reply that streamed is the reply whole at every width, and
   that a parse's runs lie where they should; the streams' fuzz target, with tables and width
   changes; a text-grid snapshot; and the e2e flow `sessions::native::markdown`.
+
+### The look: styles
+
+The plan's part F: bold, italic and underlines. The author's answers of 2026-11-24, through the
+space's orchestrator: the items, the mock-ups' colours, `*x*` in italic, and of thinking only
+Claude's words; the orchestrator's: transcripts alone, no synthesis, the system's own bold for
+Japanese, and nothing more on Windows and Linux. It amends ADR 0111's Q4 (colour only), and ADRs
+0036, 0040, 0051, 0061, 0068 and 0089, each in a line.
+
+- **What has one:** a heading (`SessionHeading`), `**strong**` and `***strong***` text and a table's
+  header (`SessionStrong`) in bold, in the text's colour; inline code in them (`SessionStrongCode`) in
+  bold, in code's; `*emphasis*` (`SessionEmphasis`) in italic, in Markdown's markup's colour; a link's
+  words (`SessionLink`) underlined, in a link's colour; and the words of unfolded thinking
+  (`SessionThinking`) in italic, as quiet as they were. What is drawn as written, such as `_x_`, has
+  none.
+- **No line is under a target that shows,** or under words that are it: a line could cover the marks
+  below a letter that tell an address from another (`ị`, `ạ`, `ç`), which is why it shows. Under a
+  link's words it is the cell's last line, below the letters.
+- **A style is a class's,** the same in each theme, and only these six have any; no parser gives one
+  of them. `TextView::styled` is set for a session's transcript, in a window and in a preview; every
+  other view (files, Markdown files too, listings, git, prompts, floats, a card) is shaped as before,
+  and looks for none. Terminals' stay regular (ADR 0120).
+- **What Claude writes cannot pass for oso's:** no row of oso's, a request's block, a card or a key has
+  a style, and the `Thinking` row itself stays regular, so nothing a reply can have is a row's: "No
+  class of a reply is a row's" holds, and a test that the faces with a style are a reply's and a
+  thought's words alone.
+- **Shaped by style:** a row's styles are read from its highlights with its text and compared as it is;
+  its pieces are cut where a style changes, each shaped in the primary family's bold or italic font.
+  While the buffer's revision holds, a styled row's runs are walked and compared each frame, a seek a
+  row, so highlights that come late, or go with font-lock, shape it again and nothing stale shows. A
+  test draws a row kept through any changes beside one drawn anew. Colours are still looked up after
+  shaping, and shape nothing. An escape, a box, a whitespace mark, `↩` and a row with a preedit are
+  regular.
+- **No cell moves:** a cluster's cells are the display model's, its style its first byte's, and a glyph
+  paints its own cells only, so a table's borders stay. The grid is the regular font's, whatever a
+  style's measure. Tests hold it in the real fonts, over Latin, Japanese, emoji, combining marks, box
+  rules and right-to-left letters. A table's rules, spaces and `↩` are in a class with no style.
+- **Where there is no such face** text is regular: no style is synthesized. A family without one, such
+  as Monaco, is regular whole. Japanese in bold is in the font the system's cascade gives (Hiragino
+  Sans W6 beside Menlo Bold), and in italic upright, told by its colour. oso's two fonts are fixed
+  for now, and Menlo has both.
+- **At most 8 styled stretches a row,** and 8 underlined: past them its text is regular, with no line.
+  A stretch is a piece to shape, and up to two with what follows it, 1.2 µs a short Latin one and 3 µs a
+  Japanese one, and an underline a rectangle, of which a frame has a bounded number. It is where a
+  page of crafted rows, a style every other cell and no two alike, stays under a frame's 8 ms: 6.4 ms
+  with 16 stretches and 3.9 ms with 8 in 60 rows, 7.1 ms with 8 in 109. A row of text has a few.
+- **An underline** is one thin line behind the glyphs, in a link's colour, or in the text's where a
+  fill gives the glyphs that. Nothing opens a link, as before.
+- **Windows and Linux** draw no text yet: the trait takes the style, `NullTextSystem` ignores it.
+- **Measured** (release, the author's Mac, throwaway tests run twice each way in turn; 10,000 lines, a
+  60 by 100 pane, building a frame's quads with Menlo at 2x and no GPU), p50 and p99, before and after:
+  - a file buffer: with nothing changed 53.0 and 53.2 µs, p99 58 and 57 µs; each row read again 133.6 and
+    133.6 µs, p99 147 and 146 µs; a key typed 137.1 and 136.3 µs, p99 151 and 146 µs; each row shaped again
+    335 and 334 to 339 µs: some nanoseconds a row, and no seek, allocation or read of its highlights;
+  - a reply, one line in two with a style: with nothing changed 42 and 45 µs; its last line grown, as
+    a streamed delta, 120 and 132 µs, p99 128 and 141 µs; scrolled by a row 48 and 51 µs, by a page 407 and
+    481 µs, p99 454 and 542 µs; highlights that come late in each row 41 and 117 µs, p99 49 and 262 µs;
+  - each row of twelve stretches, six styled: 61 and 66 µs; a delta 183 and 205 µs; by a page 0.72 and
+    1.41 ms, p99 0.78 and 1.50 ms; highlights that come late 0.06 and 0.35 ms, p99 0.07 and 0.74 ms;
+  - crafted rows as above, by a page: 60 by 100 1.3 and 3.9 ms, 109 by 376 2.3 and 7.1 ms, and three panes
+    of 109 by 125, all new at once, 7.1 and 21 ms; with nothing changed 41 and 54 µs. A row of both
+    directions in each stretch 10.8 and 8.8 ms, over a frame before too. A link every other cell 0.69 and
+    0.77 ms;
+  - a delta of 40 bytes of a 64 KiB reply of headings, strong text, emphasis and links, folded in, drawn
+    and wrapped in 10,000 rows: 29 and 30 µs, p99 40 and 42 µs; such a reply at once 0.39 and 0.41 ms.
+- **A style's first text** makes its font, once a process: Menlo's bold with Latin 0.4 ms, a Japanese
+  line 2.1 ms more (5.2 ms with nothing in the system's caches), italic 0.2 and 0.7 ms; regular text's
+  first Japanese line takes 1.1 ms. The first frame of a page of a reply, 60 rows, with the glyphs a
+  frame rasterizes, 3.2 to 3.5 ms where its regular text had been drawn. So nothing is warmed up: it
+  would cost every start, and a key waits less than a frame's 8 ms. A crafted page crosses it
+  once, as it did: rare ideographs 8 to 18 and 19 to 25 ms, fifteen scripts 14 to 22 and 35 to 38 ms.
+- **New public items** (the author's OK of 2026-11-24): `oso_platform::text::FontStyle` and
+  `TextSystem::shape`'s `style`; `oso_render::TextView::styled`; and `SessionHeading`,
+  `SessionStrong`, `SessionStrongCode`, `SessionEmphasis`, `SessionLink` and `SessionThinking` in
+  `oso_core::syntax::Highlight` and `oso_render::Face`. Built with `oso-render`'s `rows::looks` and
+  `pane::styles`; `rows::read` is `rows`' reading, moved.
 
 ## Step 3, as built
 

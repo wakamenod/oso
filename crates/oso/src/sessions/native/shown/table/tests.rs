@@ -81,7 +81,7 @@ fn a_table_s_rules_and_header_have_faces_of_their_own() {
             rule("┌─────┐"),
             rule("│ "),
             ("a ".to_owned(), Some(Style::Strong)),
-            ("b".to_owned(), Some(Style::Code)),
+            ("b".to_owned(), Some(Style::StrongCode)),
             rule(" │"),
             rule("├─────┤"),
             rule("│ "),

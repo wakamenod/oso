@@ -1,6 +1,6 @@
 # 0061. Panes: drawing a frame as a list with clipping and layers
 
-- Status: Accepted, amended by 0111 and 0170
+- Status: Accepted, amended by 0111, 0165 and 0170
 - Date: 2026-11-05
 
 ## Context
@@ -53,7 +53,8 @@ pub enum PaneContent<'a> {
   escape in the modeline too, and never reaches the shaper. A row of its own has no tab
   stops and no next line, so tabs and line breaks are escapes as well, and neither ends
   the row early. The face of an escape's label wins over the span's.
-- **Each span, and each face within it, is shaped on its own,** on a buffer's rows too.
+- **Each span, and each face within it, is shaped on its own,** on a buffer's rows too, and
+  so is each stretch of a font style in a view that has any (ADR 0165, "The look: styles").
   A shaper joins what it is given, so one string would let text change how a label or
   another span reads. Each span also has its own budget of characters. The row's cache
   compares where it was cut, since the same text cut otherwise shapes otherwise. A row of

@@ -110,7 +110,7 @@ pub enum Highlight {
     /// A repository's name in `*Spaces*` (ADR 0140).
     SessionRepository,
     /// What the person said in a native session (ADR 0165, "The rows' colours"). Only the
-    /// host's transcripts give these and the 15 below; no parser does.
+    /// host's transcripts give these and the 22 below; no parser does.
     SessionPrompt,
     /// What a line of the person's starts with, such as `〉`, which its band is drawn by.
     SessionPromptMark,
@@ -126,6 +126,18 @@ pub enum Highlight {
     SessionBullet,
     /// The box rules of a table in a reply.
     SessionTable,
+    /// A heading in a reply, drawn in bold (ADR 0165, "The look: styles").
+    SessionHeading,
+    /// Strong text in a reply, and a table's header.
+    SessionStrong,
+    /// Inline code in strong text or a heading.
+    SessionStrongCode,
+    /// Emphasis in a reply, drawn in italic.
+    SessionEmphasis,
+    /// A link in a reply, drawn underlined.
+    SessionLink,
+    /// What Claude thought, drawn in italic.
+    SessionThinking,
     /// The mark of a call or of thinking under way.
     SessionRunning,
     /// The badge of a tool that reads, drawn on a chip as the 7 below are.

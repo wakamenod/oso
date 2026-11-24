@@ -233,13 +233,13 @@ fn a_reply_is_opened_once_whole_and_its_runs_go_past_its_marks() {
 
     assert_eq!(setup.text(), "  Hi\n  some x\n");
     // What was hidden left its faces at once; the report's lie on the rest.
-    assert_eq!(setup.at(2), Some(Highlight::Heading));
+    assert_eq!(setup.at(2), Some(Highlight::SessionHeading));
     assert_eq!(setup.at(7), None);
     assert!(setup.report(key, reported_on(REPLY, 5..9), true));
     // Its indent is two bytes, and keeps its face, as does the heading.
     assert_eq!(setup.at(0), Some(Highlight::SessionQuiet));
-    assert_eq!(setup.at(2), Some(Highlight::Heading));
-    assert_eq!(setup.at(3), Some(Highlight::Heading));
+    assert_eq!(setup.at(2), Some(Highlight::SessionHeading));
+    assert_eq!(setup.at(3), Some(Highlight::SessionHeading));
     assert_eq!(setup.at(4), None, "a break has none");
     assert_eq!(
         setup.at(5),
@@ -332,7 +332,7 @@ fn font_lock_off_closes_what_is_open_and_on_lays_faces_and_highlights_again() {
     // reply is asked for, the newest first, once a handle is back.
     assert!(setup.sync(true), "a frame is due");
     assert_eq!(setup.at(0), Some(Highlight::SessionQuiet), "its mark");
-    assert_eq!(setup.at(2), Some(Highlight::Heading), "its heading");
+    assert_eq!(setup.at(2), Some(Highlight::SessionHeading), "its heading");
     assert_eq!(setup.at(7), None, "the parse's once reported");
     assert_eq!(setup.natives.replies.waiting.len(), 2);
     setup.natives.replies.opener = Some(Box::new(setup.stand.clone()));

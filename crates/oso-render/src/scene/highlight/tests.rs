@@ -11,7 +11,7 @@ use oso_core::frame::CellRect;
 use oso_core::syntax::{Highlight, Highlights};
 use oso_core::window::ViewTop;
 use oso_platform::text::{
-    CellMetrics, FontId, GlyphBitmap, GlyphId, GlyphKey, ShapedGlyph, TextSystem,
+    CellMetrics, FontId, FontStyle, GlyphBitmap, GlyphId, GlyphKey, ShapedGlyph, TextSystem,
 };
 
 use crate::pane::{CursorStyle, Face, FlashFill, PaneContent, TextView};
@@ -36,6 +36,7 @@ struct Look<'a> {
     flash: Option<FlashFill>,
     whitespace: bool,
     cursor: Option<DisplayPoint>,
+    styled: bool,
 }
 
 fn view<'a>(buffer: &Buffer, revision: u64, look: Look<'a>) -> PaneContent<'a> {
@@ -54,6 +55,7 @@ fn view<'a>(buffer: &Buffer, revision: u64, look: Look<'a>) -> PaneContent<'a> {
         flash: look.flash,
         highlights: look.highlights,
         marks: crate::pane::TextMarks::NONE,
+        styled: look.styled,
     })
 }
 
@@ -348,8 +350,8 @@ impl TextSystem for Ligatures {
         self.0.metrics()
     }
 
-    fn shape(&mut self, text: &str, out: &mut Vec<ShapedGlyph>) {
-        self.0.shape(text, out);
+    fn shape(&mut self, text: &str, style: FontStyle, out: &mut Vec<ShapedGlyph>) {
+        self.0.shape(text, style, out);
         if let Some(at) = text.find("fi") {
             out.remove(at + 1);
             out[at].advance = 20.0;
@@ -442,6 +444,7 @@ fn a_box_and_the_wrap_mark_keep_their_faces_inside_a_highlight() {
         flash: None,
         highlights: Some(&runs),
         marks: crate::pane::TextMarks::NONE,
+        styled: false,
     });
     let mut scene = Scene::new(LIMITS, theme());
     build(
@@ -461,4 +464,108 @@ fn a_box_and_the_wrap_mark_keep_their_faces_inside_a_highlight() {
     assert_eq!(count(Face::Boxed), "U+202E".len());
     assert_eq!(count(Face::WrapMark), 1);
     assert_eq!(count(Face::SyntaxComment) + 6 + 1, colours.len());
+}
+
+/// The rectangles of `scene` in `face`'s foreground: each its left, top, width and height.
+fn lines(scene: &Scene, face: Face) -> Vec<[f32; 4]> {
+    (scene.rects().iter())
+        .filter(|rect| rect.color == theme().foreground(face))
+        .map(|rect| {
+            let ([x, y], [width, height]) = (rect.position, rect.size);
+            [x, y, width, height]
+        })
+        .collect()
+}
+
+#[test]
+fn a_links_line_is_under_its_cells_and_takes_the_texts_colour_on_a_fill() {
+    let text = "see a link b";
+    let buffer = Buffer::from_text("t", text);
+    let runs = highlights(text, &[(4..10, Highlight::SessionLink)]);
+    let mut scene = Scene::new(LIMITS, theme());
+    let mut atlas = FakeAtlas::default();
+    let region = rect(1, 0, 1, 20);
+    let mut draw = |look: Look<'_>| {
+        let panes = [pane(0, region, 0, view(&buffer, 1, look))];
+        build(&mut scene, &panes, &mut atlas);
+        let faces = [Face::SessionLink, Face::Text];
+        faces.map(|face| lines(&scene, face))
+    };
+    let look = |fills| Look {
+        highlights: Some(&runs),
+        styled: true,
+        fills,
+        ..Look::default()
+    };
+    let [link, plain] = draw(look(&[]));
+    // 6 cells of 10 px from column 4, in row 1 of 20 px, the margin 8 px: the row's last line.
+    assert_eq!(link, [[48.0, 47.0, 60.0, 1.0]]);
+    assert_eq!(plain, [[0.0; 4]; 0]);
+    let cells = [rect(1, 5, 1, 2)];
+    let fills: [(Face, &[CellRect]); 1] = [(Face::Region, &cells)];
+    let [link, plain] = draw(look(&fills));
+    // Split at the fill's edges, as the glyphs' colours are.
+    assert_eq!(link, [[48.0, 47.0, 10.0, 1.0], [78.0, 47.0, 30.0, 1.0]]);
+    assert_eq!(plain, [[58.0, 47.0, 20.0, 1.0]]);
+    // In a view of no styles, or of the class a parser gives, there is none.
+    let [link, plain] = draw(Look {
+        styled: false,
+        ..look(&[])
+    });
+    assert_eq!((link, plain), (Vec::new(), Vec::new()));
+}
+
+#[test]
+fn a_links_line_is_cut_to_its_pane_and_not_drawn_out_of_view() {
+    let text = "see a link b\nsee a link b";
+    let buffer = Buffer::from_text("t", text);
+    let runs = highlights(
+        text,
+        &[
+            (4..10, Highlight::SessionLink),
+            (17..23, Highlight::SessionLink),
+        ],
+    );
+    let mut scene = Scene::new(LIMITS, theme());
+    let mut atlas = FakeAtlas::default();
+    let look = Look {
+        highlights: Some(&runs),
+        styled: true,
+        ..Look::default()
+    };
+    let panes = [pane(0, rect(0, 0, 1, 6), 0, view(&buffer, 1, look))];
+    build(&mut scene, &panes, &mut atlas);
+    let drawn = lines(&scene, Face::SessionLink);
+    assert_eq!(drawn.len(), 1);
+    assert_eq!((drawn[0][0], drawn[0][2]), (48.0, 20.0));
+}
+
+#[test]
+fn a_style_that_comes_late_keeps_its_colour_and_its_cells() {
+    let text = "a strong word";
+    let buffer = Buffer::from_text("t", text);
+    let runs = highlights(text, &[(2..8, Highlight::SessionEmphasis)]);
+    let mut scene = Scene::new(LIMITS, theme());
+    let mut atlas = FakeAtlas::default();
+    let region = rect(0, 0, 1, 20);
+    let mut draw = |highlights| {
+        let look = Look {
+            highlights,
+            styled: true,
+            ..Look::default()
+        };
+        let panes = [pane(0, region, 0, view(&buffer, 1, look))];
+        build(&mut scene, &panes, &mut atlas);
+        let quads = scene.quads().iter();
+        quads
+            .map(|quad| (quad.position(), quad.color()))
+            .collect::<Vec<_>>()
+    };
+    let before = draw(None);
+    let after = draw(Some(&runs));
+    let at = |quads: &[([f32; 2], [f32; 4])]| quads.iter().map(|q| q.0).collect::<Vec<_>>();
+    assert_eq!(at(&before), at(&after), "no cell moved");
+    let ink = theme().foreground(Face::SessionEmphasis);
+    let inked = after.iter().filter(|quad| quad.1 == ink).count();
+    assert_eq!(inked, "strong".len());
 }

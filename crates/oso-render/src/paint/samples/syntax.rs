@@ -136,6 +136,7 @@ fn frame(theme: Theme) -> Option<(u32, u32, Vec<u8>)> {
             flash: None,
             highlights: Some(&highlights),
             marks: crate::pane::TextMarks::NONE,
+            styled: false,
         }),
     };
     draw(&[pane], theme)

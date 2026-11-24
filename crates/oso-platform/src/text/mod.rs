@@ -169,6 +169,16 @@ impl fmt::Display for TextError {
 
 impl std::error::Error for TextError {}
 
+/// The style text is shaped in: the regular, bold or italic font of the primary font's family.
+/// A style's glyphs may have other advances; the cells of the grid are the regular font's.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum FontStyle {
+    #[default]
+    Regular,
+    Bold,
+    Italic,
+}
+
 /// Shapes and rasterizes text in one primary font, with OS font fallback.
 ///
 /// Used on the UI thread. Shaping a row and rasterizing a glyph are short
@@ -188,7 +198,11 @@ pub trait TextSystem {
     /// joining work (ADR 0066). Characters the primary font lacks come from
     /// fallback fonts. Line breaks and tabs are not handled: the caller passes
     /// one row of text.
-    fn shape(&mut self, text: &str, out: &mut Vec<ShapedGlyph>);
+    ///
+    /// The whole text is shaped in `style`. A family without it is shaped regular, and so is
+    /// what a fallback font has no such style for: no style is synthesized. A style's font is
+    /// made when it is first asked for.
+    fn shape(&mut self, text: &str, style: FontStyle, out: &mut Vec<ShapedGlyph>);
 
     /// Rasterizes a glyph from [`Self::shape`]. `None` for glyphs that draw
     /// nothing, such as a space, and for keys this system did not return.
@@ -235,7 +249,7 @@ impl TextSystem for NullTextSystem {
         self.metrics
     }
 
-    fn shape(&mut self, _text: &str, out: &mut Vec<ShapedGlyph>) {
+    fn shape(&mut self, _text: &str, _style: FontStyle, out: &mut Vec<ShapedGlyph>) {
         out.clear();
     }
 
@@ -295,8 +309,10 @@ mod tests {
             y: 0.0,
             advance: 8.0,
         }];
-        system.shape("abc", &mut out);
-        assert!(out.is_empty());
+        for style in [FontStyle::Regular, FontStyle::Bold, FontStyle::Italic] {
+            system.shape("abc", style, &mut out);
+            assert!(out.is_empty());
+        }
         assert_eq!(
             system.rasterize(GlyphKey {
                 font: FontId(0),

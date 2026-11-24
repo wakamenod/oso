@@ -567,6 +567,7 @@ fn answer<'a>(
         flash: None,
         highlights: None,
         marks: TextMarks::NONE,
+        styled: false,
     })
 }
 

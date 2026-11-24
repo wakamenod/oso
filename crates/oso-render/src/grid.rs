@@ -8,7 +8,7 @@
 //! lists the display clusters of the text it shaped; the text system only
 //! says which cluster each glyph draws and where the font puts it.
 
-use oso_platform::text::{GlyphKey, ShapedGlyph};
+use oso_platform::text::{FontStyle, GlyphKey, ShapedGlyph};
 
 use crate::pane::Face;
 
@@ -71,8 +71,9 @@ pub(crate) struct Placer {
 impl Placer {
     /// Places the glyphs of shaped text on a grid of cells `cell_width`
     /// pixels wide, replacing the contents of `out`. `graphemes` are the
-    /// text's display clusters in order, starting at byte 0. The placed
-    /// glyphs are sorted by column.
+    /// text's display clusters in order, starting at byte 0, and `styles`
+    /// where the text's font style changes. The placed glyphs are sorted by
+    /// column.
     ///
     /// A glyph's cluster is snapped to the display cluster that contains
     /// it, so a combining mark the shaper drew separately stays in its
@@ -80,7 +81,7 @@ impl Placer {
     /// (a ligature) spans all their cells.
     pub(crate) fn place(
         &mut self,
-        graphemes: &[Grapheme],
+        (graphemes, styles): (&[Grapheme], &[(u32, FontStyle)]),
         glyphs: &[ShapedGlyph],
         cell_width: f32,
         out: &mut Vec<PlacedGlyph>,
@@ -100,6 +101,12 @@ impl Placer {
         self.starts.resize(graphemes.len(), false);
         for glyph in glyphs {
             if let Some(start) = self.starts.get_mut(grapheme_of(glyph.cluster)) {
+                *start = true;
+            }
+        }
+        // A style's text is shaped apart, so it is in no run of what is before it.
+        for (byte, _) in styles {
+            if let Some(start) = self.starts.get_mut(grapheme_of(*byte)) {
                 *start = true;
             }
         }
@@ -226,7 +233,7 @@ mod tests {
 
     fn place(text: &str, glyphs: &[ShapedGlyph]) -> Vec<PlacedGlyph> {
         let mut out = Vec::new();
-        Placer::default().place(&graphemes(text), glyphs, CELL, &mut out);
+        Placer::default().place((&graphemes(text), &[]), glyphs, CELL, &mut out);
         out
     }
 
@@ -337,12 +344,12 @@ mod tests {
         // A letter, its marks, a character with a mirrored form, a letter, and a
         // letter of the other direction with a mark from outside its block.
         let text = "\u{5d1}\u{5b0}\u{5bc}<\u{5e8}a\u{301}\u{5d0}\u{301}";
-        system.shape(text, &mut shaped);
-        placer.place(&graphemes(text), &shaped, cell, &mut placed);
+        system.shape(text, FontStyle::Regular, &mut shaped);
+        placer.place((&graphemes(text), &[]), &shaped, cell, &mut placed);
         let mut columns: Vec<_> = placed.iter().map(|g| g.column).collect();
         columns.dedup();
         assert_eq!(columns, [0, 1, 2, 3, 4], "{placed:?}");
-        system.shape("<", &mut shaped);
+        system.shape("<", FontStyle::Regular, &mut shaped);
         let bracket = placed.iter().find(|g| g.column == 1).unwrap();
         assert_eq!(bracket.key, shaped[0].key);
         // Each one's pen is in its cell, or just past it for a mark.
@@ -365,7 +372,7 @@ mod tests {
             face: Face::Text,
         };
         let mut placed = Vec::new();
-        Placer::default().place(&[cluster], &shape_naively(&text), CELL, &mut placed);
+        Placer::default().place((&[cluster], &[]), &shape_naively(&text), CELL, &mut placed);
         assert_eq!(placed.len(), MAX_GLYPHS_PER_RUN as usize);
         assert!(placed.iter().all(|g| g.column == 0));
     }
@@ -377,7 +384,7 @@ mod tests {
         graphemes[1].face = Face::Escape;
         graphemes[2].face = Face::Escape;
         let mut out = Vec::new();
-        Placer::default().place(&graphemes, &shape_naively(text), CELL, &mut out);
+        Placer::default().place((&graphemes, &[]), &shape_naively(text), CELL, &mut out);
         let faces: Vec<_> = out.iter().map(|g| g.face).collect();
         assert_eq!(faces, [Face::Text, Face::Escape, Face::Escape]);
     }
@@ -391,10 +398,25 @@ mod tests {
         let mut glyphs = shape_naively(text);
         glyphs.pop();
         let mut out = Vec::new();
-        Placer::default().place(&graphemes, &glyphs, CELL, &mut out);
+        Placer::default().place((&graphemes, &[]), &glyphs, CELL, &mut out);
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].cells, 1);
         assert_eq!(out[0].offset, [0.0, 0.0]);
+    }
+
+    #[test]
+    fn a_run_ends_where_the_style_changes() {
+        // Text of a style with no glyph of its own is in no run of the text before it.
+        let text = "ab";
+        let mut glyphs = shape_naively(text);
+        glyphs.pop();
+        let place = |styles: &[(u32, FontStyle)]| {
+            let mut out = Vec::new();
+            Placer::default().place((&graphemes(text), styles), &glyphs, CELL, &mut out);
+            out.iter().map(|g| (g.column, g.cells)).collect::<Vec<_>>()
+        };
+        assert_eq!(place(&[]), [(0, 2)]);
+        assert_eq!(place(&[(1, FontStyle::Bold)]), [(0, 1)]);
     }
 
     #[test]
@@ -405,7 +427,7 @@ mod tests {
             g.column += 1_000_000;
         }
         let mut out = Vec::new();
-        Placer::default().place(&graphemes, &shape_naively(text), CELL, &mut out);
+        Placer::default().place((&graphemes, &[]), &shape_naively(text), CELL, &mut out);
         assert_eq!(out[1].column, 1_000_001);
     }
 
