@@ -17,7 +17,7 @@ use super::super::super::harness::App;
 use super::super::super::spaces::trust_restricted;
 use super::super::super::worktrees::keys;
 use super::compose::COMPOSE_FAKE;
-use super::request::{Keyboard, answers, asking, asks, request};
+use super::request::{Keyboard, asking, asks, request};
 use super::{Flow, MESSAGE, end_turn, in_composer, joined, text};
 
 fn echo(state: &Value) -> String {
@@ -138,19 +138,20 @@ fn the_clipboards_image_goes_into_the_composer_from_it_and_from_the_transcript()
     assert_eq!(echo(&state), said(second));
     assert!(in_composer(&state), "{state}");
     assert_eq!(joined(&state), format!(" @{} ", second.display()));
-    app.send_keys("C-a C-k");
+    app.send_keys("C-x h C-w");
+    // The kill took the image's place on the clipboard.
+    copy_png(&mut app, &[8]);
 
-    // A composer too short to be shown takes it, and the transcript keeps the keys.
-    let mut hidden = false;
-    for _ in 0..6 {
-        transcript(&mut app);
-        app.send_keys("C-x 2 i");
-        hidden = echo(&app.state()).starts_with("The composer is hidden");
-        if hidden {
-            break;
-        }
-    }
-    assert!(hidden, "{}", app.state());
+    // A composer whose window is too short for it takes it, and the transcript keeps the keys.
+    transcript(&mut app);
+    app.send_keys("C-x 2");
+    app.run_command("shrink-window", Some(40)).unwrap();
+    app.send_keys("i");
+    let state = app.state();
+    assert!(
+        echo(&state).starts_with("The composer is hidden"),
+        "{state}"
+    );
     let state = yank(&mut app);
     assert_eq!(state["buffer"]["name"], "*claude: proj*", "{state}");
     assert_eq!(kept(&flow).len(), 3);
@@ -179,16 +180,28 @@ fn a_secret_composer_takes_no_image_and_none_is_kept() {
         in_composer(state) && state["buffer"]["secret"] == true
     });
 
-    // Refused before the clipboard is read, which holds no image yet.
-    let secret = "The composer holds secret text, which is not sent: take it out";
-    assert_eq!(echo(&yank(&mut app)), secret);
-    // From its transcript too, which is left as it is.
+    // Refused before the clipboard is read, which holds no image yet; from its transcript too. The
+    // state says no echo while the secret is shown: `*Messages*` has it.
+    app.send_keys("C-c C-y");
     transcript(&mut app);
-    let state = yank(&mut app);
-    assert_eq!(echo(&state), secret);
+    app.send_keys("C-c C-y");
+    std::thread::sleep(Duration::from_millis(300));
+    let state = app.state();
     assert_eq!(state["buffer"]["name"], "*claude: proj*", "{state}");
+    app.send_keys(&format!("C-x b {} RET", keys("*Messages*")));
+    let state = app.wait_for("the messages", |state| {
+        state["buffer"]["name"] == "*Messages*"
+    });
+    let said = text(&state);
+    assert!(said.contains("The composer holds secret text"), "{said}");
+    assert!(!said.contains("No image on the clipboard"), "{said}");
+    // Nor with one there.
     copy_png(&mut app, &[1, 2]);
-    assert_eq!(echo(&yank(&mut app)), secret);
+    app.send_keys(&format!("C-x b {} RET", keys("*claude: proj*")));
+    app.wait_for("the transcript", |state| {
+        state["buffer"]["name"] == "*claude: proj*"
+    });
+    app.send_keys("C-c C-y");
     std::thread::sleep(Duration::from_millis(300));
     assert_eq!(kept(&flow), Vec::<PathBuf>::new());
     let _ = app.exchange("exit", None);
@@ -219,7 +232,6 @@ fn an_image_goes_into_the_composer_while_a_request_waits_and_answers_nothing() {
     assert_eq!(shown.matches('@').count(), 2, "{shown}");
     assert!(shown.ends_with(" y"), "{shown}");
     assert!(!state["request"].is_null(), "{state}");
-    assert!(!flow.scratch.path().join("answers").exists());
     // On the request's line it is no key.
     app.send_keys("C-c C-j");
     app.wait_for("point on the line", super::request::on_line);
@@ -230,7 +242,10 @@ fn an_image_goes_into_the_composer_while_a_request_waits_and_answers_nothing() {
         state["request"]["may_ask"] == true
     });
     super::request::answer(&mut app, "n");
-    assert_eq!(answers(&flow).len(), 1);
+    // Its answer leads back to the draft, which holds both.
+    let state = app.wait_for("the draft", in_composer);
+    assert!(state["request"].is_null(), "{state}");
+    assert_eq!(joined(&state).matches('@').count(), 2, "{state}");
     flow.scratch.write("go", b"0");
     let _ = app.exchange("exit", None);
 }

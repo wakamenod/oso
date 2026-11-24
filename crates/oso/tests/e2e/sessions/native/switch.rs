@@ -217,7 +217,7 @@ fn a_native_session_is_handed_to_the_tui_which_resumes_its_conversation() {
         refused(&mut app, key);
     }
     // Nor does its composer, and no image is kept.
-    app.send_keys(&format!("C-x b {} RET", keys("*compose: proj*")));
+    app.send_keys("C-x o");
     app.wait_for("its composer", in_composer);
     refused(&mut app, "C-c C-y");
     std::thread::sleep(Duration::from_millis(300));
