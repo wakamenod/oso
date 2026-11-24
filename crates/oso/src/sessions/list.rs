@@ -3,8 +3,8 @@
 //! them; archived ones in a last group, folded. Rendered to the window's width, so wrapping
 //! never applies, with a map from each line to what it shows. A session takes one line at
 //! any width (ADR 0131): its mark, its name cut in the middle, its place where there is room,
-//! and its age at the right edge. Only a session that needs input or failed, or has nested
-//! sessions that need input, takes a second line, its reason.
+//! and its age at the right edge. Only a session that needs input or failed, or did not resume,
+//! or has nested sessions that need input, takes a second line, its reason.
 //!
 //! Must not depend on: `app`, `dispatch` or `config`; plain data in, text out, so
 //! that the board ADR 0126 plans is a second renderer of the same model.
@@ -92,6 +92,9 @@ pub struct Entry {
     pub archived: bool,
     /// An agent started it without asking (ADR 0135).
     pub unasked: bool,
+    /// Why its last resume was refused (ADR 0165, "Worktrees' resumes"), under it while it is
+    /// stopped.
+    pub not_resumed: Option<String>,
     /// The session that started it.
     pub parent: Option<Key>,
     /// The directory it runs in, as the tree places it (ADR 0131): a hosted session's own, an
@@ -100,6 +103,16 @@ pub struct Entry {
     /// The repository root nearest above an external session's directory, for `Other
     /// projects`.
     pub repo: Option<PathBuf>,
+}
+
+impl Entry {
+    /// What it says of itself: why it did not resume, while it is stopped, else its recap.
+    pub fn said(&self) -> &str {
+        match (&self.not_resumed, self.state) {
+            (Some(why), State::Stopped) => why,
+            _ => &self.recap,
+        }
+    }
 }
 
 /// How the list groups sessions; `s` switches (ADR 0131).

@@ -15,7 +15,8 @@
 //! - A missing directory refuses before anything starts.
 //! - A native resume, fork or adoption judged by the record of trusted projects (ADR 0165,
 //!   parts 4a and 4e) is judged here by its root's path and identity, before the root's other
-//!   checks. One in an issue space's own directory runs under the space's gate instead, taken
+//!   checks; a resume in a linked worktree by its claim, read afresh, and again before the
+//!   spawn. One in an issue space's own directory runs under the space's gate instead, taken
 //!   once the space's checks passed (`space_gate`, ADR 0176), with the person's own settings
 //!   alone. What an orchestrator's or a worker's line takes beyond that is `extra`'s.
 //! - For a new or adopted session in a trusted project, the baseline is taken first (ADR 0122), waiting at most
@@ -74,6 +75,9 @@ pub const SPAWN_WAIT: Duration = Duration::from_secs(5);
 
 /// How long after a resume the registry is read again (ADR 0121).
 pub const RECHECK_AFTER: Duration = Duration::from_secs(5);
+
+/// What a refused start says before its reason.
+pub const NOT_STARTED: &str = "The session did not start: ";
 
 /// What a session starts as.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -165,6 +169,9 @@ pub struct NativeOrder {
     /// The record of trusted projects it is judged by here, with no open buffer of its
     /// project (ADR 0165, part 4a).
     pub trust: trust::ByRecord,
+    /// Whether it may be judged by its worktree's claim, if it waits and is judged again: a
+    /// resume of a session oso has, no adoption and no moved session ("Worktrees' resumes").
+    pub by_claim: bool,
     /// Its gate in an issue space's own directory, which it runs in instead of a trusted
     /// project's root (ADR 0176): its line then reads the person's own settings alone.
     pub gate: space_gate::ByGate,
@@ -326,9 +333,10 @@ fn prepare(mut order: Order, send: &(dyn Fn(Report) + Sync)) {
         Ok(launch) => launch,
         Err(why) => return refuse(why),
     };
-    if let Err(why) = trust::settle(&mut order).and_then(|()| root_kept(&order)) {
-        return refuse(why);
-    }
+    let claim = match trusted_root(&mut order) {
+        Ok(claim) => claim,
+        Err(why) => return refuse(why),
+    };
     // The baseline before `claude` runs, so that the review shows what the session changed.
     let baseline = (order.trusted.clone())
         .filter(|_| order.baseline)
@@ -343,7 +351,7 @@ fn prepare(mut order: Order, send: &(dyn Fn(Report) + Sync)) {
         brief,
         ..
     } = order;
-    if let Err(why) = still_gated(runs.native(), gate.as_ref(), trusted.as_ref()) {
+    if let Err(why) = still_gated(&runs, gate.as_ref(), claim, trusted.as_ref()) {
         return refuse(why);
     }
     let set = set(&found.path, &id);
@@ -380,20 +388,24 @@ fn prepare(mut order: Order, send: &(dyn Fn(Report) + Sync)) {
 
 /// A native session has no trust question of Claude Code's: oso's trust is its gate, looked at
 /// again just before the spawn, after the baseline's wait (ADR 0165, Q5), or its space's
-/// (ADR 0176).
+/// (ADR 0176); one admitted by its worktree's claim is judged whole again first.
 ///
 /// # Errors
 ///
 /// Why it does not start.
 fn still_gated(
-    native: bool,
+    runs: &Runs,
     gate: Option<&space_gate::SpaceGate>,
+    claim: Option<trust::Admitted>,
     trusted: Option<&TrustedRoot>,
 ) -> Result<(), String> {
+    claim.map_or(Ok(()), |claim| claim.again())?;
     match gate {
         Some(gate) if gate.revoked() => Err(space_gate::TAKEN_BACK.to_owned()),
         Some(_) => Ok(()),
-        None if native && !trusted.is_some_and(|root| !root.revoked() && !root.replaced()) => {
+        None if runs.native()
+            && !trusted.is_some_and(|root| !root.revoked() && !root.replaced()) =>
+        {
             Err("The session did not start: its project is no longer trusted".to_owned())
         }
         None => Ok(()),
@@ -418,15 +430,24 @@ fn set(shell_path: &Path, id: &SessionId) -> Vec<(String, OsString)> {
     set
 }
 
+/// Judges `order`'s trust by what it carries, its root still the one found; what is looked at
+/// again before the spawn, for a worktree's claim.
+fn trusted_root(order: &mut Order) -> Result<Option<trust::Admitted>, String> {
+    let claim = trust::settle(order)?;
+    root_kept(order)?;
+    Ok(claim)
+}
+
+/// What a session whose root is another directory than the one trusted says.
+pub const ROOT_REPLACED: &str = "The session did not start: its project's root is another directory \
+                                 than the one trusted; trust-project trusts the one there now, \
+                                 if it is yours";
+
 /// Refuses a session whose trusted root was put in another's place since it was found: none
 /// starts there.
 fn root_kept(order: &Order) -> Result<(), String> {
     if order.trusted.as_ref().is_some_and(TrustedRoot::replaced) {
-        return Err(
-            "The session did not start: its project's root is another directory than the one \
-             trusted; trust-project trusts the one there now, if it is yours"
-                .to_owned(),
-        );
+        return Err(ROOT_REPLACED.to_owned());
     }
     Ok(())
 }

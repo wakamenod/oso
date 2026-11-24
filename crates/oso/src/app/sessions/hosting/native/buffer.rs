@@ -123,6 +123,7 @@ impl App {
         NativeOrder {
             buffer,
             trust: crate::sessions::start::trust::ByRecord::No,
+            by_claim: false,
             gate: crate::sessions::start::space_gate::ByGate::No,
             settings: self.terminal_settings(),
             env: self.configuration.session_env().to_vec(),
@@ -197,6 +198,8 @@ impl App {
             remote: Remote::default(),
             todo: todo::TodoStrip::default(),
             notes_after_past: None,
+            resuming_for: super::resumed::ResumeFor::default(),
+            not_resumed: None,
             may_have_gone_on: false,
         };
         self.hosting.natives.map.insert(key, native);

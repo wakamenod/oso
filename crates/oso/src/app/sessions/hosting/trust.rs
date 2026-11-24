@@ -2,20 +2,22 @@
 //! session tools ask it of their caller's project (ADR 0121), and a native session's start of
 //! theirs, which only a trusted project runs (ADR 0165, Q5). A native resume or fork with no
 //! open buffer of its project asks the record of trusted projects instead, and its start
-//! thread its root's identity (part 4a, `sessions::start::trust`).
+//! thread its root's identity (part 4a, `sessions::start::trust`), or, for a resume in a linked
+//! worktree, its claim.
 //!
 //! Must not depend on: the disk; the editor's projects and trust list say it.
 //!
 //! - An open project that is not trusted is not trusted, whatever the session began with or
 //!   the record says.
 //! - A native start fails closed: with no open project at its root, a new one does not run
-//!   natively, and a resume or fork only as the record has it, once read.
+//!   natively, a fork or an adoption only as the record has it, once read, and a resume as the
+//!   record or its worktree's claim has it.
 
 use std::path::Path;
 
 use crate::app::App;
 use crate::git::TrustedRoot;
-use crate::sessions::start::trust::{self, ByRecord, Judged, NotTrusted, TrustRecord};
+use crate::sessions::start::trust::{self, ByRecord, Claims, Judged, NotTrusted, TrustRecord};
 use crate::sessions::worker::SessionKey;
 
 impl App {
@@ -37,21 +39,23 @@ impl App {
         directory: &Path,
         root: Option<&Path>,
     ) -> Result<TrustedRoot, NotTrusted> {
-        match self.native_trust(directory, root, false)? {
+        match self.native_trust(directory, root, false, false)? {
             Judged::Open(trusted) => Ok(trusted),
-            Judged::Listed(_) | Judged::Waits => Err(NotTrusted::NotOpen),
+            Judged::Listed(_) | Judged::Claimed(_) | Judged::Waits => Err(NotTrusted::NotOpen),
         }
     }
 
     /// Where the trust a native session in `directory`, of the project at `root`, resumes or
     /// forks under comes from: an open buffer of its project, else the record of trusted
-    /// projects, which it waits for while starts may wait (ADR 0173).
+    /// projects, which it waits for while starts may wait (ADR 0173), or, only for a resume of
+    /// a session oso has (`by_claim`), its worktree's claim.
     pub(in crate::app::sessions::hosting) fn native_trust_listed(
         &self,
         directory: &Path,
         root: Option<&Path>,
+        by_claim: bool,
     ) -> Result<Judged, NotTrusted> {
-        self.native_trust(directory, root, true)
+        self.native_trust(directory, root, true, by_claim)
     }
 
     fn native_trust(
@@ -59,12 +63,19 @@ impl App {
         directory: &Path,
         root: Option<&Path>,
         by_record: bool,
+        by_claim: bool,
     ) -> Result<Judged, NotTrusted> {
         let root = root.unwrap_or(directory);
         let record = by_record.then(|| self.trust_record());
         let may_wait = !self.starting.held.waited_out();
         let open = (self.open_root_trust(root)).or_else(|| self.open_same_root(root, record?));
-        trust::judge(root == directory, root, open, record, may_wait)
+        let claims = match by_claim {
+            true => Claims::Asked {
+                home: self.editor.home(),
+            },
+            false => Claims::Never,
+        };
+        trust::judge(root == directory, root, open, record, may_wait, claims)
     }
 
     /// `Some(None)` when an open project at `root` under another spelling, as a case-folding
@@ -72,9 +83,13 @@ impl App {
     /// not trusted: it refuses as the one spelled so would. A trusted one decides nothing, so
     /// the record judges the root, and the start thread its identity where the session runs.
     fn open_same_root(&self, root: &Path, record: TrustRecord<'_>) -> Option<Option<TrustedRoot>> {
+        // A root the record does not hold pairs with none, as a worktree's.
         let TrustRecord::Read(list) = record else {
             return None;
         };
+        if !list.paths().any(|path| path == root) {
+            return None;
+        }
         let restricted = (self.editor.buffers())
             .filter_map(|(_, buffer)| buffer.project())
             .any(|id| {
@@ -132,7 +147,7 @@ impl App {
                 let record = self.trust_record();
                 let open =
                     (self.open_root_trust(root)).or_else(|| self.open_same_root(root, record));
-                !trust::still_trusted(root, open, record)
+                !kept.still_trusted(open, record)
             })
             .map(|(key, _)| *key)
             .collect();

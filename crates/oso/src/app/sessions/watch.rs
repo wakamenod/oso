@@ -185,12 +185,8 @@ impl App {
 
     /// The worker found that session `key` changed state.
     pub(in crate::app) fn session_changed(&mut self, key: SessionKey, change: Change) {
-        let recap = self
-            .watch
-            .known
-            .remove(&key)
-            .map(|known| known.recap)
-            .unwrap_or_default();
+        let known = self.watch.known.remove(&key);
+        let recap = known.map(|known| known.recap).unwrap_or_default();
         self.watch.known.insert(
             key,
             Known {
@@ -389,6 +385,7 @@ impl App {
                 pinned: false,
                 archived: false,
                 unasked: false,
+                not_resumed: None,
                 parent: None,
                 dir: external.place.clone(),
                 repo: external.repo.clone(),
@@ -452,6 +449,8 @@ impl App {
                     pinned: session.pinned,
                     archived: session.archived,
                     unasked: session.origin == crate::sessions::identity::Origin::Unasked,
+                    not_resumed: (self.hosting.natives.left_stopped_why(session.key))
+                        .map(str::to_owned),
                     parent,
                     dir: Some(session.directory.clone()),
                     repo: None,
@@ -507,9 +506,9 @@ impl App {
                     annotation.push_str(" · ");
                     annotation.push_str(branch);
                 }
-                if !entry.recap.is_empty() {
+                if !entry.said().is_empty() {
                     annotation.push_str(" · ");
-                    annotation.push_str(&entry.recap);
+                    annotation.push_str(entry.said());
                 }
                 Some(Candidate::new(name, "", annotation))
             })

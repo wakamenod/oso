@@ -1,6 +1,6 @@
 //! A native session's resume, fork and adoption (ADR 0165, step 2, R1 and the author's Q2 (a);
 //! part 4e): a stopped native session resumes natively, in its own buffer, keeping its rows
-//! with one "Resumed" row; a fork of a session, or a conversation adopted, at a trusted
+//! with one row that says how it resumed; a fork of a session, or a conversation adopted, at a trusted
 //! project's root under `[sessions] mode`'s native is native, in a new buffer. Each starts at
 //! once, and the person writes in its composer. `resume_hosted`, `fork_from` and `adopt_into`
 //! order them.
@@ -9,7 +9,8 @@
 //!
 //! - Only at a project's root trusted now (`trust`): by an open buffer of it, else by the
 //!   record of trusted projects, which the start thread judges by the root's identity too
-//!   (part 4a), and which looks at it again before the spawn; or, in an issue space's own
+//!   (part 4a), or for a resume by its worktree's claim ("Worktrees' resumes"), and which looks
+//!   at it again before the spawn; or, in an issue space's own
 //!   directory, under its space's gate (ADR 0176, `spaces::native`); else a resume refuses,
 //!   saying why, and a fork runs in a terminal.
 //! - A resume takes no baseline: the session keeps the one it had.
@@ -52,7 +53,7 @@ impl Forked {
 impl App {
     /// Where the trust native session `name`, in `directory` of the project at `root`,
     /// resumes under comes from: an open buffer of its project, else the record of trusted
-    /// projects, read or waited for (part 4a).
+    /// projects, read or waited for (part 4a), or with `by_claim` its worktree's claim.
     ///
     /// # Errors
     ///
@@ -62,25 +63,9 @@ impl App {
         name: &str,
         directory: &Path,
         root: Option<&Path>,
+        by_claim: bool,
     ) -> Result<Judged, String> {
-        let fork = "session-fork continues it in a terminal";
-        self.native_trust_listed(directory, root)
-            .map_err(|why| match why {
-                NotTrusted::NotOpen => format!(
-                    "Session {name}'s project is not open, and the record of trusted projects \
-                     does not hold it: open a file of it to resume it natively, or {fork}"
-                ),
-                NotTrusted::Untrusted => {
-                    format!("Session {name}'s project is not trusted now: {fork}")
-                }
-                NotTrusted::NotAtRoot => {
-                    format!("Session {name} runs below its project's root: {fork}")
-                }
-                NotTrusted::NoRecord => format!(
-                    "Session {name}'s project's trust is not known, as the record of trusted \
-                     projects is not read: {fork}"
-                ),
-            })
+        (self.native_trust_listed(directory, root, by_claim)).map_err(|why| not_trusted(name, why))
     }
 
     /// Native session `key`'s `buffer` made ready to run again: a "Resumed" row, no turn under
@@ -111,8 +96,9 @@ impl App {
             native.composing.busy = false;
             native.composing.resumed();
         }
-        // One resumed with a repository added says so once its start thread reports.
-        if !self.resume_takes_dirs(key) {
+        // One resumed with a repository added, or by a restart, says so once its start thread
+        // reports.
+        if !self.resume_takes_dirs(key) && !self.resume_says_on_start(key) {
             self.native_note_row(key, "Resumed.");
         }
         self.draw_queue(key);
@@ -132,15 +118,19 @@ impl App {
     }
 
     /// A refused start of native session `key`, which shows `buffer`: a resume's buffer, which
-    /// the table holds the session in, stays, stopped again, and says so. Whether it was one.
-    pub(super) fn native_resume_refused(&mut self, key: SessionKey, buffer: BufferId) -> bool {
+    /// the table holds the session in, stays, stopped again, and says `why`. Whether it was one.
+    pub(super) fn native_resume_refused(
+        &mut self,
+        key: SessionKey,
+        buffer: BufferId,
+        why: &str,
+    ) -> bool {
         let kept =
             (self.hosting.table.get(key)).is_some_and(|session| session.buffer == Some(buffer));
-        let Some(native) = self.hosting.natives.map.get_mut(&key).filter(|_| kept) else {
+        if !kept || !self.hosting.natives.map.contains_key(&key) {
             return false;
-        };
-        let change = native.rows.note("It did not resume.");
-        super::draw(&mut self.editor, native, [change]);
+        }
+        self.native_resume_failed(key, why);
         self.adding_over(key);
         self.editor.set_running(buffer, false);
         self.set_native_state(key, NativeState::Stopped);
@@ -224,7 +214,7 @@ impl App {
         }
         // A record not read yet: `native_waits_for_trust` held the start until it was, or the
         // wait ran out, so this runs in a terminal.
-        let (trusted, trust) = match self.native_trust_listed(directory, root).ok()? {
+        let (trusted, trust) = match self.native_trust_listed(directory, root, false).ok()? {
             Judged::Waits => return None,
             judged => self.native_judged(key, judged),
         };
@@ -245,6 +235,29 @@ impl App {
         self.configuration.native_sessions()
             && matches!(self.trust_record(), TrustRecord::Unread)
             && !self.is_space_directory(directory)
-            && matches!(self.native_trust_listed(directory, root), Ok(Judged::Waits))
+            && matches!(
+                self.native_trust_listed(directory, root, false),
+                Ok(Judged::Waits)
+            )
+    }
+}
+
+/// Why native session `name` does not resume natively, and what does.
+pub(super) fn not_trusted(name: &str, why: NotTrusted) -> String {
+    let fork = "session-fork continues it in a terminal";
+    match why {
+        NotTrusted::NotOpen => format!(
+            "Session {name}'s project is not open, and the record of trusted projects does not \
+             hold it: open a file of it to resume it natively, or {fork}"
+        ),
+        NotTrusted::Untrusted => format!(
+            "Session {name}'s project is not trusted now: session-resume resumes it once it is, \
+             or {fork}"
+        ),
+        NotTrusted::NotAtRoot => format!("Session {name} runs below its project's root: {fork}"),
+        NotTrusted::NoRecord => format!(
+            "Session {name}'s project's trust is not known, as the record of trusted projects is \
+             not read: {fork}"
+        ),
     }
 }

@@ -22,9 +22,10 @@
 //!   with `session-resume`'s checks: its directory and root are the record's, never the
 //!   state's, its trust is judged (part 4a), its start may wait for the configuration's first
 //!   look (ADR 0173), and the start thread refuses a conversation live elsewhere. A refusal
-//!   leaves it stopped, saying why, in the mode it had. A session the state does not name
+//!   leaves it stopped, saying why, in the mode it had (`resumed`). A session the state does not name
 //!   stays as it came back: stopped; so does one resumed meanwhile by anyone else.
 
+use super::resumed::ResumeFor;
 use crate::app::App;
 use crate::carry::natives::NativeResume;
 use crate::sessions::hosted::Run;
@@ -39,10 +40,9 @@ pub(in crate::app) struct Resuming {
     resumes: Vec<NativeResume>,
     /// The instance before has gone.
     gone: bool,
+    /// Those resumed, until each has reported (`resumed`).
+    pub(super) asked: Vec<SessionKey>,
 }
-
-/// The row a session the new instance resumes says.
-const RESUMED: &str = "Resumed after oso-restart.";
 
 impl App {
     /// The native sessions whose `claude -p` runs and that were given a message: those a
@@ -119,14 +119,10 @@ impl App {
             // oso ended it for the restart, so nothing went on elsewhere: no read (part 5b),
             // unless it stays stopped.
             self.native_may_have_gone_on(key, false);
-            let said = match self.resume_hosted(key, false) {
-                Ok(()) => "oso-restart stayed here: resumed.".to_owned(),
-                Err(why) => {
-                    self.native_may_have_gone_on(key, true);
-                    format!("oso-restart stayed here; it did not resume: {why}")
-                }
-            };
-            self.native_note_row(key, &said);
+            self.native_resumes_for(key, ResumeFor::Stayed);
+            if let Err(why) = self.resume_hosted(key, false) {
+                self.native_resume_failed(key, &why);
+            }
         }
     }
 
@@ -144,7 +140,7 @@ impl App {
     pub(in crate::app) fn natives_carried(&mut self, resumes: Vec<NativeResume>) {
         self.hosting.natives.resuming = Resuming {
             resumes,
-            gone: false,
+            ..Resuming::default()
         };
     }
 
@@ -185,11 +181,12 @@ impl App {
                 log::debug!("oso-restart: no stopped native session named so to resume");
                 continue;
             };
+            self.hosting.natives.resuming.asked.push(key);
             self.resume_native_carried(key, &resume);
         }
     }
 
-    /// Resumes native session `key` as `resume` says, saying so in its transcript. The mode,
+    /// Resumes native session `key` as `resume` says; its transcript says so once it runs. The mode,
     /// model and effort carried are the session's whether it resumes or not, as they were
     /// before the restart, and its next resume starts with them: a refusal names the mode.
     fn resume_native_carried(&mut self, key: SessionKey, resume: &NativeResume) {
@@ -197,16 +194,9 @@ impl App {
             native.mode = ModeState::restarted(resume.mode);
             native.choice = Choice::restarted(resume.model.as_deref(), resume.effort.as_deref());
         }
-        let said = match self.resume_hosted(key, false) {
-            Ok(()) => RESUMED.to_owned(),
-            Err(why) => match resume.mode {
-                Some(mode) => format!(
-                    "It did not resume after oso-restart: {why}. Its next resume starts in {}.",
-                    mode.name()
-                ),
-                None => format!("It did not resume after oso-restart: {why}"),
-            },
-        };
-        self.native_note_row(key, &said);
+        self.native_resumes_for(key, ResumeFor::Restarted(resume.mode));
+        if let Err(why) = self.resume_hosted(key, false) {
+            self.native_resume_failed(key, &why);
+        }
     }
 }

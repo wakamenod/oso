@@ -141,16 +141,14 @@ impl App {
         };
         self.composer_ended(key);
         self.adding_over(key);
-        // Stopped now, it may be resumed elsewhere (part 5b).
-        self.native_may_have_gone_on(key, true);
-        if let Some(native) = self.hosting.natives.map.get_mut(&key) {
-            let mut changes = vec![native.rows.note(&format!("It did not resume: {why}"))];
-            // A switch it was stopped for is over (part 3b).
-            if native.mode.respawns() {
-                native.mode.gave_up();
-                changes.push(native.rows.note("The mode did not change."));
-            }
-            draw(&mut self.editor, native, changes);
+        self.native_resume_failed(key, &why);
+        // A switch it was stopped for is over (part 3b).
+        if let Some(native) = self.hosting.natives.map.get_mut(&key)
+            && native.mode.respawns()
+        {
+            native.mode.gave_up();
+            let change = native.rows.note("The mode did not change.");
+            draw(&mut self.editor, native, [change]);
         }
     }
 
@@ -186,7 +184,8 @@ impl App {
 
     /// After each event: a native session whose buffer was killed is stopped and archived, or
     /// forgotten given no message, a queue that may go does, the replies whole since are
-    /// highlighted (part 2g), results in view are laid out again, and a turn that ended out of sight is recapped (part 3f).
+    /// highlighted (part 2g), results in view are laid out again, a turn that ended out of
+    /// sight is recapped (part 3f), and what a restart left stopped is said.
     pub(in crate::app) fn sync_native_sessions(&mut self) {
         self.sync_sessions_socket();
         self.sweep_killed_natives();
@@ -201,6 +200,7 @@ impl App {
         self.sync_todo_strips();
         self.sync_native_results();
         self.sync_recaps();
+        self.sync_restart_resumes();
     }
 
     /// Stops and archives each native session whose buffer was killed; one given no message is

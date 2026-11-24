@@ -29,6 +29,7 @@ impl App {
                     "space": entry.space,
                     "state": entry.state.to_string(),
                     "recap": entry.recap,
+                    "not_resumed": entry.not_resumed,
                     "pinned": entry.pinned,
                     "archived": entry.archived,
                 })

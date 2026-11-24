@@ -102,6 +102,8 @@ pub(in crate::app::sessions::hosting::native) fn native(buffer: BufferId) -> Nat
         choice: Default::default(),
         remote: Default::default(),
         notes_after_past: None,
+        resuming_for: Default::default(),
+        not_resumed: None,
         may_have_gone_on: false,
     }
 }

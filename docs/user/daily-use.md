@@ -213,7 +213,7 @@ folded unless one of its sessions works or needs you; closed spaces wait in a fo
 a minute). A worktree's mark is its most urgent session's. Worktrees made with git outside oso
 show too, and those untouched for a week wait in a folded `quiet` row. `s` groups the
 sessions by state instead. A session that needs you takes a second line with the question it
-asks. Marks are coloured by what they ask of you:
+asks, and a stopped one that could not resume one with the reason. Marks are coloured by what they ask of you:
 red needs you, amber works (its mark turns while it is in view), green is done, grey is idle.
 Sessions run outside oso are listed too, all in grey: under their worktree, or in a folded
 `Other projects` group. The worktree you are in has its name in an accent colour and a faint
@@ -769,8 +769,11 @@ meanwhile, and the restart begins once all of it has been idle for 2 seconds. `C
 `C-x C-c` cancels the wait. `M-x session-resume` takes
 a stopped session up again in its own buffer, and `M-x session-fork` copies it into a new one;
 both start at once, with the composer ready. They need a project you trust, though no file of
-it needs to be open (one in a git worktree still does). Otherwise the resume says why, and the
-fork runs in a terminal.
+it needs to be open; in a git worktree of a repository you trust, a resume needs none open
+either, and a fork does. Trusting a repository so trusts its worktrees' Claude settings, hooks
+and `.mcp.json`, as they are when a session resumes, also after `M-x oso-restart`. Otherwise the
+resume says why, and the fork runs in a terminal. One that `M-x oso-restart` could not resume
+says why in its conversation and under its row in `*Spaces*`.
 
 When Claude asks to run something, a framed card opens between the conversation and the composer,
 and the cursor moves to it at once, unless you are writing

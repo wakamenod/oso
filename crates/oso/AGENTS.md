@@ -27,7 +27,8 @@ often, so it must rebuild within 2 s.
   and answers its threads, and says when a new binary is in place (ADR 0133); `restart/wait.rs`
   holds it while native sessions are busy, as `sessions/hosting/native/holds.rs` judges them
   (ADR 0165, part 4b); `sessions/hosting/native/restarting.rs` stops them before the restart
-  and resumes them in the new instance, or here if it stays (part 4c).
+  and resumes them in the new instance, or here if it stays (part 4c), and
+  `sessions/hosting/native/resumed.rs` says how each resume went.
 - `src/carry.rs` and `src/carry/` are the state a restart carries and both its transports'
   shared parts: the state's format, its texts in pieces, the terminals' entries, the
   descriptors (`fds`), the requests (`op`) and the native sessions it resumes (`natives`,
@@ -124,8 +125,9 @@ often, so it must rebuild within 2 s.
   native fork and a native adoption `native/resume.rs`, an orchestrator's resume with a
   repository added `native/adding.rs`, offered by `app/sessions/spaces/offers.rs` (ADR 0176,
   part O-2), under the trust `sessions/start/trust.rs` judges, from what
-  `app/sessions/hosting/trust.rs` gives it, and by the record on the start thread (what
-  sessions' tools run under, once started, `app/sessions/hosting/session_trusts.rs` judges)
+  `app/sessions/hosting/trust.rs` gives it, and by the record, or for a
+  worktree's resume its claim by `project::detect_root`, on the start thread (what sessions' tools
+  run under, once started, `app/sessions/hosting/session_trusts.rs` judges)
   (ADR 0165, step 2), or in an issue space's own directory under the space's gate
   `sessions/start/space_gate.rs`, from what `app/sessions/spaces/native.rs` judges (ADR 0176);
   its whole replies are highlighted as Markdown on the syntax threads, as

@@ -701,11 +701,17 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   new start at a trusted project's root, and a resume or a fork only at the root of a project
   trusted now, never under the trust the session started with. An open buffer of the project decides; with none open, the record of trusted projects
   does, by the root's path on the UI thread and by its path and identity on the start thread,
-  as an issue space's member is (part 4a): a directory made again at the path, a link there
-  and a linked worktree (whose main repository the record holds) are refused. A record not
+  as an issue space's member is (part 4a): a directory made again at the path and a link there
+  are refused, and a linked worktree resumes only while git's files, read afresh, and the record
+  say its main repository is trusted ("Worktrees' resumes"): the start thread walks the root
+  again, with nothing run, where part 4a looks and once more just before the spawn. It so
+  trusts the worktree's `.claude` settings, hooks and `.mcp.json` as they are then, also at
+  `oso-restart`'s resume with no person there; a new start, a fork, an adoption and a moved
+  session in a worktree need an open, trusted buffer of it. A record not
   read yet is waited for, at most 5 s with ADR 0173's held starts, then nothing is trusted.
   Until its start thread reports, the UI takes a resume's or fork's trust back once its
-  project is no longer trusted, and the look before the spawn refuses it.
+  project is no longer trusted, a worktree's once any root has left the record, and the look
+  before the spawn refuses it.
   The start thread looks at the root again before the spawn.
   The resume that follows an interrupt by signal is such a resume, judged again then, and none
   starts while the person is asked whether to stop the session, or oso waits to quit or

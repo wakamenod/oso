@@ -1,7 +1,7 @@
 //! A session's row of `*Spaces*` (ADR 0131, ADR 0140): its indent and guides, its mark, its
 //! label cut in the middle, its place where there is room, and its age at the right edge; and
-//! a second line, its reason, for a session that needs input or failed, or has nested sessions
-//! that need input.
+//! a second line, its reason, for a session that needs input or failed, or did not resume, or
+//! has nested sessions that need input.
 //!
 //! Must not depend on: `app`, `dispatch` or `config`; plain data in, text out, as the list.
 
@@ -133,9 +133,12 @@ impl<'e> Row<'e> {
     /// Its reason, on the line under it, only where the person has something to do.
     fn reason(&self, out: &mut Rendered, width: usize, line: Line) {
         let entry = self.entry;
-        let own = matches!(entry.state, State::NeedsInput(_) | State::Failed)
-            .then_some(entry.recap.as_str())
-            .filter(|recap| !recap.is_empty());
+        let own = match entry.state {
+            State::NeedsInput(_) | State::Failed => Some(entry.recap.as_str()),
+            State::Stopped => entry.not_resumed.as_deref(),
+            _ => None,
+        };
+        let own = own.filter(|own| !own.is_empty());
         let reason = match (self.waiting, own) {
             (0, None) => return,
             (0, Some(own)) => own.to_owned(),
@@ -176,4 +179,33 @@ impl<'e> Row<'e> {
 /// `first`, then ` · ` and `then` if there is one.
 fn joined(first: &str, then: Option<&str>) -> String {
     then.map_or_else(|| first.to_owned(), |then| format!("{first} · {then}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Instant;
+
+    use super::super::List;
+    use super::super::tests::entry;
+    use super::{Entry, State};
+
+    #[test]
+    fn a_session_that_did_not_resume_says_why_under_its_row_while_it_is_stopped() {
+        let now = Instant::now();
+        let mut left = entry(1, "left", State::Stopped, now);
+        let rows = |entry: &Entry, width| {
+            List::by_state()
+                .render(std::slice::from_ref(entry), width, now)
+                .text
+        };
+        assert!(!rows(&left, 60).contains("recap"), "a stopped one's recap");
+        let why = "not resumed: repository not trusted; trust-project, then session-resume";
+        left.not_resumed = Some(why.into());
+        assert!(rows(&left, 90).contains(why));
+        // A narrow list says what, and is cut before how.
+        assert!(rows(&left, 44).contains("not resumed: repository not trusted"));
+        assert!(rows(&left, 24).contains("not resumed: "));
+        left.state = State::Working;
+        assert!(!rows(&left, 90).contains("not resumed"), "it runs");
+    }
 }

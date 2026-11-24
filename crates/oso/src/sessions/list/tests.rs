@@ -14,7 +14,7 @@ use oso_core::syntax::Highlight;
 
 const ASK: State = State::NeedsInput(Reason::Permission);
 
-fn entry(key: u64, name: &str, state: State, since: Instant) -> Entry {
+pub(super) fn entry(key: u64, name: &str, state: State, since: Instant) -> Entry {
     Entry {
         key: Key::Hosted(key),
         name: name.to_owned(),
@@ -28,6 +28,7 @@ fn entry(key: u64, name: &str, state: State, since: Instant) -> Entry {
         pinned: false,
         archived: false,
         unasked: false,
+        not_resumed: None,
         parent: None,
         dir: Some(PathBuf::from("/w/oso")),
         repo: None,

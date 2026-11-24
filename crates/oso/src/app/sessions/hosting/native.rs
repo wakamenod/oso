@@ -27,7 +27,7 @@
 //! - Its prompt suggestion is `suggesting`'s, and the recap of a turn that ended out of sight
 //!   `recap`'s (part 3f).
 //! - Its process ended before `oso-restart`, and resumed by the new instance, is
-//!   `restarting`'s (part 4c).
+//!   `restarting`'s (part 4c); what a resume says of how it went is `resumed`'s.
 //! - An orchestrator's resume with a repository added to its space is `adding`'s
 //!   (ADR 0176, part O-2).
 //! - Its side of a switch to the TUI, and its transcript set aside meanwhile, are
@@ -60,11 +60,14 @@ mod recap;
 mod restarting;
 mod results;
 mod resume;
+mod resumed;
 mod slash;
 mod status;
 mod suggesting;
 mod switching;
 mod todo;
+
+pub(super) use resumed::runs_elsewhere;
 
 use std::collections::HashMap;
 use std::ops::Range;
@@ -181,6 +184,10 @@ struct Native {
     remote: Remote,
     /// Its start reads its earlier turns (step 5): the notes said meanwhile, drawn after them.
     notes_after_past: Option<Vec<String>>,
+    /// What its resume under way says once its start thread reports.
+    resuming_for: resumed::ResumeFor,
+    /// Why it did not resume, for its row of `*Spaces*`, until it runs.
+    not_resumed: Option<String>,
     /// Its conversation may have gone on elsewhere since its rows: its process ended other
     /// than to resume at once, or the TUI ran it (part 5b).
     may_have_gone_on: bool,
@@ -291,6 +298,7 @@ impl App {
         let name = session.name.clone();
         self.set_native_state(key, NativeState::Running);
         self.dirs_added_row(key, &added);
+        self.native_resumed(key);
         self.editor.note_unlogged(format!(
             "Started native session {name} in {}",
             directory.display()
@@ -317,8 +325,9 @@ impl App {
         true
     }
 
-    /// Native session `key` did not start: its buffer goes.
-    pub(super) fn session_native_not_started(&mut self, key: SessionKey) {
+    /// Native session `key` did not start, as `why` says: its buffer goes, unless it is a
+    /// resume's.
+    pub(super) fn session_native_not_started(&mut self, key: SessionKey, why: &str) {
         self.hosting.starting.remove(&key);
         // No earlier turns come: what waited for them is said now (step 5).
         self.native_past_given_up(key);
@@ -333,7 +342,7 @@ impl App {
             .map
             .get(&key)
             .map(|native| native.buffer);
-        if buffer.is_some_and(|buffer| self.native_resume_refused(key, buffer)) {
+        if buffer.is_some_and(|buffer| self.native_resume_refused(key, buffer, why)) {
             return;
         }
         if let Some(native) = self.hosting.natives.map.remove(&key) {

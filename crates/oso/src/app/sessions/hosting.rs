@@ -399,11 +399,14 @@ impl App {
             }
             Report::Refused { token, why } => {
                 self.take_adoption(token);
-                self.session_not_started(token);
+                self.session_not_started(token, &why);
                 self.hosting.parents.remove(&token);
                 self.hosting.origins.remove(&token);
                 self.session_tool_started(token, Err(why.clone()));
-                self.editor.message(why);
+                // Said once for all of a restart's resumes (ADR 0165).
+                if !self.restart_resumes(token) {
+                    self.editor.message(why);
+                }
             }
             Report::Live {
                 token,
@@ -411,7 +414,7 @@ impl App {
                 directory,
             } => {
                 let adopted = self.take_adoption(token);
-                self.session_not_started(token);
+                self.session_not_started(token, native::runs_elsewhere(pid).as_str());
                 // An agent's resume is refused: only the person's word forks a conversation.
                 if !self.session_tool_live(token, pid, directory.as_deref()) {
                     self.offer_fork(token, adopted, pid, directory.as_deref());
@@ -426,7 +429,7 @@ impl App {
             }
             Report::Shared { token } => {
                 self.session_tool_started(token, Err("another session runs there".into()));
-                self.session_not_started(token);
+                self.session_not_started(token, "another session runs there");
                 self.hosting.parents.remove(&token);
                 self.hosting.origins.remove(&token);
                 if let Some(begin) = self.hosting.shared.take_under_way(token) {
@@ -483,11 +486,12 @@ impl App {
 
     /// A start that did not happen: a held name goes, and a resumed session is stopped again.
     /// The agent channel goes off again if this start turned it on and nothing else needs it.
-    fn session_not_started(&mut self, token: SessionKey) {
+    /// `why` is for a native resume's transcript.
+    fn session_not_started(&mut self, token: SessionKey, why: &str) {
         self.forget_agent_resume(token);
         self.hosting.shared.take_under_way(token);
         if self.hosting.natives.has(token) {
-            self.session_native_not_started(token);
+            self.session_native_not_started(token, why);
         } else {
             self.session_terminal_not_started(token);
         }

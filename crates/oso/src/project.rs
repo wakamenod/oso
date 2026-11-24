@@ -21,7 +21,8 @@
 //! own `.git` back. Neither the worktree's place nor its `.git` may be a link.
 //!
 //! [`linked_worktree`] checks a worktree's claim the same way for worktree sessions (ADR 0121),
-//! against the main repository they run git in.
+//! against the main repository they run git in, and a native session's start thread reads a
+//! root afresh with [`detect_root`], never on the `oso-project` thread (ADR 0165).
 //!
 //! One thread answers every request in turn, so a slow or hung file system delays other
 //! projects, never a file's text or the UI.
@@ -193,8 +194,9 @@ fn real_place(location: &Path) -> Option<PathBuf> {
 }
 
 /// The project whose root is `root`, where it leads: `None` if the walk from it finds another
-/// root, or none.
-fn detect_root(root: &Path, home: Option<&Path>, trusted: &[PathBuf]) -> Option<Found> {
+/// root, or none. `home` is compared with what `root` resolves to, so it comes resolved. It
+/// touches the disk, so it belongs off the UI thread.
+pub(crate) fn detect_root(root: &Path, home: Option<&Path>, trusted: &[PathBuf]) -> Option<Found> {
     let real = fs::canonicalize(root).ok()?;
     let found = detect(&real.join(DIRECTORY_STANDIN), home, trusted)?;
     (found.root.path == real).then_some(found)
@@ -227,7 +229,7 @@ pub fn detect(location: &Path, home: Option<&Path>, trusted: &[PathBuf]) -> Opti
                 let claim = worktree_claim(dir, git_file);
                 let checked = claim
                     .as_deref()
-                    .and_then(|claim| check_main(dir, git_file, claim, trusted))
+                    .and_then(|claim| check_main((dir, &metadata), git_file, claim, trusted))
                     .map(|(main, _)| main);
                 let mut found = found(dir, &metadata, claim);
                 found.checked_main = checked;
@@ -318,14 +320,14 @@ fn markers_in(dir: &Path) -> Marker {
     Marker::None
 }
 
-/// The main repository the worktree at `root`, whose `.git` file holds `git_file` and claims
-/// `claim`, belongs with: the claim names a root of `trusted`, and that repository records this
+/// The main repository the worktree at `root`, `place` as it was before its `.git` file was
+/// read, which holds `git_file` and claims `claim`, belongs with: the claim names a root of `trusted`, and that repository records this
 /// worktree back, with neither `root` nor its `.git` a link. Nothing is looked up before the
 /// words match, so a path a repository wrote is looked up only under a root the person trusted,
 /// and then by the record's spelling of it, never the claim's. Gives the main repository and the
 /// worktree's own directory in it, `<main>/.git/worktrees/<name>`.
 fn check_main(
-    root: &Path,
+    (root, place): (&Path, &Metadata),
     git_file: &[u8],
     claim: &Path,
     trusted: &[PathBuf],
@@ -343,10 +345,10 @@ fn check_main(
         return None;
     }
     // Looked at again after the reads, which follow links: the place and its `.git` must still
-    // be what the walk found, a directory and a file, neither a link.
-    let place = fs::symlink_metadata(root).ok()?;
+    // be what the walk found, the same directory and a file, neither a link.
+    let now = fs::symlink_metadata(root).ok()?;
     let git = fs::symlink_metadata(&own).ok()?;
-    if !place.is_dir() || !git.is_file() {
+    if !now.is_dir() || !same_node(place, &now) || !git.is_file() {
         return None;
     }
     let after = fs::symlink_metadata(main).ok()?;
@@ -362,6 +364,7 @@ fn check_main(
 /// worktree back. `main` is a trusted root, so only paths under it are looked up (ADR 0121,
 /// `worktree-list`). It touches the disk, so it belongs off the UI thread.
 pub(crate) fn linked_worktree(main: &Path, root: &Path) -> Option<PathBuf> {
+    let place = fs::symlink_metadata(root).ok()?;
     let git = fs::symlink_metadata(root.join(".git")).ok()?;
     if !git.is_file() || !ours(&git) {
         return None;
@@ -371,7 +374,7 @@ pub(crate) fn linked_worktree(main: &Path, root: &Path) -> Option<PathBuf> {
     if !same_place(main, &claim) {
         return None;
     }
-    check_main(root, &git_file, &claim, &[main.to_owned()]).map(|(_, entry)| entry)
+    check_main((root, &place), &git_file, &claim, &[main.to_owned()]).map(|(_, entry)| entry)
 }
 
 /// At most one byte more than [`MAX_GIT_FILE`] of a short file git writes, so that a longer one

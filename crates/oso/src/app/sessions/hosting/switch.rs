@@ -116,7 +116,7 @@ impl App {
         // A stopped terminal of its own, `*claude: NAME*`, which the resume starts over.
         self.bring_back_stopped(key);
         self.show_session_in(key, &windows);
-        if let Err(why) = self.resume_hosted_with(key, true, Some(chosen)) {
+        if let Err(why) = self.resume_hosted_with(key, true, Some(chosen), true) {
             self.hosting.natives.switches.over(key);
             self.editor.message(format!("The TUI did not start: {why}"));
         }
