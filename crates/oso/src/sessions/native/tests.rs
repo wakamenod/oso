@@ -271,7 +271,7 @@ fn a_reply_that_grows_is_drawn_from_its_last_line() {
                 panic!("{change:?}")
             };
             let kept: String = drawn.split_inclusive('\n').take(at.lines).collect();
-            drawn = kept + &tail(&rows.rows()[row], at).text;
+            drawn = kept + &tail(&rows.rows()[row], at, 80).text;
         }
         assert_eq!(
             drawn,
@@ -288,7 +288,7 @@ fn a_reply_that_grows_is_drawn_from_its_last_line() {
         ref changes => panic!("{changes:?}"),
     };
     let kept: String = drawn.split_inclusive('\n').take(at.lines).collect();
-    assert_eq!(kept + &tail(&rows.rows()[0], at).text, drawn);
+    assert_eq!(kept + &tail(&rows.rows()[0], at, 80).text, drawn);
 }
 
 #[test]

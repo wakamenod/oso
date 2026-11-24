@@ -1,7 +1,7 @@
 //! A native session's reply drawn as its Markdown says (ADR 0165, part 2g and "The look:
 //! Markdown"), with a fake `claude -p` that streams the start of a reply, then, once the flow
 //! says so, its whole message: a line that has not ended as written, every other without its
-//! marks, its Rust fence highlighted once whole, and on macOS, the one OS that draws text so
+//! marks, its table in a box for the window's width, its Rust fence highlighted once whole, and on macOS, the one OS that draws text so
 //! far, drawn in colour that `global-font-lock-mode` takes away. `w` copies the Markdown, `M-w`
 //! what shows.
 //!
@@ -28,8 +28,8 @@ while [ ! -f "$dir/go" ]; do sleep 0.1; done
 exit "$(cat "$dir/go")"
 "#;
 
-/// The reply: inline code and a Rust fence.
-const REPLY: &str = "Notes:\n\nSome `code` here.\n\n```rust\nfn main() {}\n```";
+/// The reply: inline code, a Rust fence and a table that a half of the window is too narrow for.
+const REPLY: &str = "Notes:\n\nSome `code` here.\n\n```rust\nfn main() {}\n```\n\n| Key | 説明 |\n|---|---|\n| w | copies the reply as Claude wrote it |";
 
 fn lines(lines: &[Value]) -> String {
     let lines: Vec<String> = lines.iter().map(Value::to_string).collect();
@@ -100,6 +100,17 @@ fn a_reply_is_drawn_without_its_marks_and_highlighted_once_whole() {
     let shown = text(&state);
     let drawn = "  Notes:\n\n  Some code here.\n\n  fn main() {}\n";
     assert!(shown.contains(drawn), "{shown}");
+    // Its table is in a box, laid out again for the narrower window and back; the code's
+    // highlights stay.
+    const ROW: &str = "│ w   │ copies the reply as Claude wrote it │";
+    assert!(shown.contains(ROW), "{shown}");
+    app.send_keys("C-x 3");
+    let state = app.wait_for("the table narrower", |state| {
+        text(state).contains("│ w   │ copies") && !text(state).contains(ROW)
+    });
+    assert!(parsed(&state), "its code keeps its highlights: {state}");
+    app.send_keys("C-x 1");
+    app.wait_for("the table as it was", |state| text(state).contains(ROW));
     // Only macOS draws text so far (ADR 0036): elsewhere the state alone is checked.
     let shot = cfg!(target_os = "macos").then(|| app.screenshot());
 
@@ -127,7 +138,12 @@ fn a_reply_is_drawn_without_its_marks_and_highlighted_once_whole() {
         app.wait_for("the composer", in_composer);
         app.send_keys("C-y");
         app.wait_for(what, |state| {
-            in_composer(state) && text(state).trim_end() == copied
+            // The composer shows its last lines.
+            let shown = text(state);
+            let shown = shown.trim_end();
+            in_composer(state)
+                && copied.ends_with(shown)
+                && shown.lines().count() >= copied.lines().count().min(5)
         });
         app.send_keys("C-x h C-w C-c C-o");
         app.wait_for("the transcript", |state| {

@@ -30,6 +30,7 @@ impl Face {
             Self::Reply(Style::Heading) => Highlight::Heading,
             Self::Reply(Style::Strong) => Highlight::Markup,
             Self::Reply(Style::Mark) => Highlight::SessionBullet,
+            Self::Reply(Style::Rule) => Highlight::SessionTable,
             Self::Reply(Style::Code) => Highlight::SessionCode,
             Self::Reply(Style::Link) => Highlight::Link,
             Self::CardTitle => Highlight::CardTitle,

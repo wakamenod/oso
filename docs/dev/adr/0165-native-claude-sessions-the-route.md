@@ -1059,7 +1059,7 @@ words. ECC is GPL: its look was read, and no code or colour of it is here. It am
   concealed by the display: the buffer holds what shows. An empty line stands for a fence's line
   where none was. Faces are existing ones, or the session's own since ("The rows' colours"): what
   hidden marks were around keeps a colour (a heading, emphasis, inline code, a link). Real bold and
-  italic, and tables, are later parts: a table is drawn as written.
+  italic are a later part; tables are "The look: tables".
 - **Faces:** `shown` gives a reply's faces at once, also while it streams. The parse (part 2g)
   still runs once the reply is whole: its runs lie on a fence's code, and on what has no face
   of `shown`'s; code whose language gave it none is in inline code's face.
@@ -1068,7 +1068,7 @@ words. ECC is GPL: its look was read, and no code or colour of it is here. It am
   at with the lines drawn before it and what the lines before say of it (an open fence, a
   list), so that only what follows is drawn again and drawing from any of them gives the
   lines drawing whole does.
-- **As written:** tables, HTML, indented code, `+ ` items, `_` and `~` emphasis, images, reference links,
+- **As written:** HTML, indented code, `+ ` items, `_` and `~` emphasis, images, reference links,
   backslash escapes, a setext heading's underline, a fence in a quote or right after a bullet, and
   a fence whose info string is not one word of at most 16 bytes, as it would hide words. A `*` that
   could be a wildcard, a pointer or arithmetic stays: one opens only after a space, a bracket,
@@ -1121,6 +1121,71 @@ words. ECC is GPL: its look was read, and no code or colour of it is here. It am
   `NativeAction::CopyMarkdown`. Unit tests, a property that a reply drawn as it streams, cut
   anywhere, is the one drawn whole, the streams' fuzz target, and the e2e flow
   `sessions::native::markdown`.
+
+### The look: tables
+
+The plan's part D2, whose mock-ups the author approved on 2026-11-24. It amends "The look:
+Markdown", where a table was drawn as written.
+
+- **What is a table:** lines that start with `|`, at most as far in as text may be: a header, a line
+  of dashes for as many columns (`:` aligns), then rows, until a line that does not start with one. Not
+  in a fence, where it is code, nor in a quote. A row's cells past the last column are part of its
+  last, `\|` is a pipe, and a tab a space: no word of it goes.
+- **As drawn:** box rules (`┌─┬┐`, `│`, `├─┼┤`, `└─┴┘`) with a space beside each cell, in
+  `SessionTable`; a header's text in emphasis's face, and the inline marks of a cell hidden as a
+  line's. A rule between all body rows of a table in which a cell wraps, and none otherwise (the
+  space's orchestrator). `M-w` copies what shows, `w` the Markdown, as before.
+- **Its width** is the narrowest window's that shows the session, as a turn's result's, and at most
+  100 columns, a reply's indent among them; 80 while no window shows it. Two windows of different
+  widths show the one text, so it fits both.
+- **Its columns** are measured in cells, as the display draws clusters: Japanese and other wide
+  characters two, a control, bidi or invisible character as its escape. When they do not fit, the
+  widest give way first, each keeping its longest word up to 16 cells where that fits, then 4 cells. A
+  cell wraps as a wrapped line's rows do (ADR 0100: after a space or beside CJK, kinsoku kept; the
+  rules are copied, as oso-core's are its own), and inside a word longer than its column, whose row
+  then ends in `↩` in the rules' face, as does one broken beside a wide character where the cell holds
+  an address: so no address reads as two.
+- **While it streams** it is as written until its end: the next line that is none of its, or the
+  reply's end. Then it is drawn again from its header (`RowChange::Grew`, whose `LineStart` knows an
+  open table's start; `shown::again`). A delta inside it draws its last line only.
+- **As written,** whole: a table whose columns cannot have 4 cells each (the space's orchestrator);
+  one of more than 24 columns, with a line of more than 16 KiB, or of more lines than 64 and one more
+  for each 4 of its bytes; what would take its reply past 64 KiB of tables, 16,384 cells of them or
+  2048 lines, each taken before it is drawn, whether or not it then is; and one with a cell that would not show between rules as it
+  measures: a character that joins the space beside it, such as a combining mark at a cell's start,
+  or what the display cuts at a cluster's limits. Past 512 of a reply none is read as a table.
+- **What Claude writes cannot pass for oso's:** a box's lines are past a reply's indent, so its `│` is not a
+  nested row's guide; its rules' class and colour are a reply's alone, at least 0.05 in OKLab from a
+  quiet word, an alert, a waiting call, a card's title and a change's lines, and a card's frame has
+  other corners (no text: 4.5:1 on the background, 3:1 on the line at point); a cell's text has a reply's classes. A link in a cell hides its target only when no
+  other cell of its row holds a link or anything but words.
+- **A width change** lays out again, only for a session that a window shows: at once the rows in
+  view, and what a reply that streams drew; then the newest 256 tables, or as many as take 131,072
+  cells to draw, in slices of 64 KiB read and drawn an event, each asking for a frame; an older one as
+  it comes into view. Only a reply's tables' lines are replaced, in one change, so the rest of it keeps
+  its code's highlights; a table's own lines take none from the parse. `Rows` keeps the width, as an open reply's `LineStart` counts its tables' lines.
+- **Earlier turns** are put in at once, so past 131,072 cells a reply's tables are as written until
+  they are drawn as for a width change.
+- **Measured** (release, this Mac, a throwaway test run twice each way in turn; 10,000 rows, 500 of
+  them replies with a table of 13 rows, a 60 by 100 window that wraps), before and after:
+  - a delta of 40 bytes of a 64 KiB reply of such tables, folded in, drawn and wrapped: p50 21.6 to
+    21.8 and 22.8 µs, p99 29 to 30 and 179 µs, as 1 in 33 ends a table of 1.3 KB; at most 93 and 209 µs;
+  - such a reply drawn at once, whole: 0.17 and 1.85 ms;
+  - a frame's rows laid out: p50 21 and 22 µs, p99 26 and 26 µs;
+  - a new width: 23 to 33 events of at most 1.6 ms each, the first with what is in view; with
+    none, 1 µs an event;
+  - crafted replies of 256 KiB (cells of one letter, of Hebrew, tables that fail once laid out, 30,000
+    tables): 0.4 to 6.1 ms as they come, a new width at most 5.7 ms an event;
+  - a resume's 2000 replies, at once: of four such tables each, 10 MB: 16 and 27 ms; crafted ones, 14
+    to 90 and 15 to 99 ms.
+- **Built with** `sessions::native::shown::table`, `shown::again` and `LineStart`'s open table,
+  `render::tables`, `Rows::set_width` and the host's `native/widths.rs`
+  (`native/results.rs` before). Two new public items, the author's OK of 2026-11-24:
+  `oso_core::syntax::Highlight::SessionTable` and `oso_render::Face::SessionTable`, in the line
+  numbers' colour of each theme. Unit tests; properties that every line of a box is as wide as its
+  rules whatever its cells hold, that a reply that streamed is the reply whole at every width, and
+  that a parse's runs lie where they should; the streams' fuzz target, with tables and width
+  changes; a text-grid snapshot; and the e2e flow `sessions::native::markdown`.
 
 ## Step 3, as built
 

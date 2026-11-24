@@ -11,9 +11,8 @@ use oso_core::buffer::BufferId;
 use oso_core::editor::Editor;
 
 use super::note::NativeState;
-use super::{
-    Native, UNSHOWN_WIDTH, composer, draw, has_brief, interrupting, markdown, status, todo,
-};
+use super::widths::Widths;
+use super::{Native, composer, draw, has_brief, interrupting, markdown, status, todo};
 use crate::app::{App, UserEvent};
 use crate::sessions::hosted::Run;
 use crate::sessions::native::choice::Choice;
@@ -171,8 +170,7 @@ impl App {
             buffer,
             rows,
             placed: Placed::default(),
-            width: UNSHOWN_WIDTH,
-            results: HashMap::new(),
+            widths: Widths::default(),
             stream: None,
             state: NativeState::Starting,
             card: None,

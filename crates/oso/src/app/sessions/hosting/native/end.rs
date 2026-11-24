@@ -198,7 +198,7 @@ impl App {
         // After the sweep: nothing is opened for a session that is gone.
         self.sync_reply_markdown();
         self.sync_todo_strips();
-        self.sync_native_results();
+        self.sync_native_widths();
         self.sync_recaps();
         self.sync_restart_resumes();
     }

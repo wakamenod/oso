@@ -187,6 +187,8 @@ pub enum Face {
     SessionCode,
     /// What stands for a bullet, a list's number, a quote or a rule in a reply.
     SessionBullet,
+    /// The box rules of a table in a reply.
+    SessionTable,
     /// The mark of a call or of thinking under way.
     SessionRunning,
     /// The badge of a tool that reads, and the chip behind it, as the 7 below.

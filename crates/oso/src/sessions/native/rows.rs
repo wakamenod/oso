@@ -24,7 +24,8 @@
 //!   when rows came after, is marked so that its row says so. Each call in a row folds on its
 //!   own.
 //! - Where a streamed reply is drawn again from is `shown`'s to say: its lines are read once as
-//!   they end.
+//!   they end, and a table's once more as it ends. It is drawn for the width the rows keep
+//!   ([`Rows::set_width`]), which the lines before that place depend on.
 //! - A message is the person's only when oso sent its text ([`Rows::sent`]) and the CLI
 //!   replayed it as one that came through oso (ADR 0181), or as a listed slash command, never
 //!   replayed (step 2d). Any other replay is a note, or nothing when a command or hook wrapped
@@ -60,6 +61,9 @@ pub use changes::{Changes, RowChange};
 const GROUPED: [&str; 3] = ["Read", "Grep", "Glob"];
 /// The tools whose results carry a file's change to show as a diff.
 const EDITS: [&str; 4] = ["Edit", "MultiEdit", "Write", "NotebookEdit"];
+
+/// The width a session's rows are drawn for before a window shows it, in cells.
+pub const UNSHOWN_WIDTH: usize = 80;
 
 /// The most calls one row holds.
 pub const MAX_GROUP: usize = 50;
@@ -169,6 +173,8 @@ pub struct Rows {
     /// The ids of the session's own newest messages, the newest last: where its transcript's
     /// later turns follow on (step 5).
     kept: VecDeque<String>,
+    /// The width the rows are drawn for, which an open reply's place depends on.
+    width: usize,
 }
 
 /// A block that started: its message's id, its index, its row and its place in the row; for
@@ -194,7 +200,35 @@ impl Rows {
             started_by: None,
             turn: Vec::new(),
             kept: VecDeque::new(),
+            width: UNSHOWN_WIDTH,
         }
+    }
+
+    /// The width its rows are drawn for, in cells.
+    pub fn width(&self) -> usize {
+        self.width
+    }
+
+    /// Its rows are drawn for `width` from now on. Returns the open replies that drew a table:
+    /// each is drawn for it before it grows again, as its place counts its tables' lines. O(those
+    /// replies' text).
+    #[must_use]
+    pub fn set_width(&mut self, width: usize) -> Vec<usize> {
+        let mut moved = Vec::new();
+        if self.width == width {
+            return moved;
+        }
+        self.width = width;
+        for open in self.open.iter_mut().filter(|open| open.mark.after_table()) {
+            let row = &self.rows[open.row];
+            if let Kind::Reply { text, .. } = &row.kind {
+                let start = LineStart::after(usize::from(row.gap));
+                let width = shown::table_width(row.depth, width);
+                open.mark = shown::mark(text, start, true, width);
+                moved.push(open.row);
+            }
+        }
+        moved
     }
 
     pub fn rows(&self) -> &[Row] {
@@ -340,17 +374,16 @@ impl Rows {
             Kind::Reply {
                 text: shown, cut, ..
             } => {
-                let change = RowChange::Grew {
-                    row: open.row,
-                    at: open.mark,
-                };
                 let start = shown.len();
                 let fit = grow(shown, text);
                 let newly_cut = !fit && !*cut;
                 *cut |= !fit;
+                let at = shown::again(shown, open.mark, !*cut);
                 if shown[start..].contains('\n') {
-                    open.mark = shown::walk(shown, open.mark, true, |_| {});
+                    let width = shown::table_width(row.depth, self.width);
+                    open.mark = shown::mark(shown, at, true, width);
                 }
+                let change = RowChange::Grew { row: open.row, at };
                 (shown.len() > start || newly_cut).then_some(change)
             }
             Kind::Thinking { text: shown, .. } => {
@@ -441,7 +474,7 @@ impl Rows {
         Some(if grew {
             RowChange::Grew {
                 row: open.row,
-                at: open.mark,
+                at: shown::again(shown, open.mark, false),
             }
         } else {
             RowChange::Changed(open.row)
@@ -541,12 +574,10 @@ impl Rows {
 }
 
 /// The reply of block `open`, now whole, whose text is `text`: its last line, drawn as written
-/// until it ended, changes.
+/// until it ended, changes, or its table.
 fn ends(open: &Open, text: &str) -> Option<RowChange> {
-    (open.mark.from < text.len()).then_some(RowChange::Grew {
-        row: open.row,
-        at: open.mark,
-    })
+    let at = shown::again(text, open.mark, false);
+    (at.from < text.len()).then_some(RowChange::Grew { row: open.row, at })
 }
 
 /// Ends a row of thinking that streamed; whether it shows otherwise now.

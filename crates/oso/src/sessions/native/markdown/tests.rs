@@ -9,7 +9,10 @@ use proptest::prelude::*;
 use super::{MAX_REPLY, MAX_RUNS, highlightable, plain, project};
 use crate::sessions::native::render::tail;
 use crate::sessions::native::rows::{Kind, Row};
-use crate::sessions::native::shown::{LineStart, walk};
+use crate::sessions::native::shown::{LineStart, table_width, walk};
+
+/// Narrow enough that a table's cells wrap.
+const WIDTH: usize = 24;
 
 fn reply(text: &str, depth: u8) -> Row {
     Row {
@@ -47,14 +50,15 @@ fn check(row: &Row, highlights: &Highlights, runs: &[(usize, Option<Highlight>)]
     let Kind::Reply { text, .. } = &row.kind else {
         unreachable!()
     };
-    let drawn = tail(row, LineStart::default());
+    let drawn = tail(row, LineStart::default(), WIDTH);
     let total: usize = runs.iter().map(|(len, _)| len).sum();
     assert_eq!(total, drawn.text.len(), "the runs cover the row");
     let on_row = laid(total, runs);
     let drawn_runs = laid(total, &drawn.runs());
     let mut at = 0;
     let mut lines = drawn.text.split_inclusive('\n');
-    walk(text, LineStart::default(), false, |pieces| {
+    let width = table_width(row.depth, WIDTH);
+    walk(text, LineStart::default(), false, width, |pieces, _| {
         let line = lines.next().expect("a line drawn");
         let shown: usize = pieces.iter().map(|piece| piece.text.len()).sum();
         let mark = line.len() - 1 - shown;
@@ -85,14 +89,14 @@ fn each_line_s_runs_go_past_its_mark() {
     let text = "# Title\nSome `code` here\r\n\n```rust\nfn a() {}\n```";
     let row = reply(text, 0);
     let highlights = marked(text, &[0..7, 13..19, 27..44]);
-    let runs = project(&row, &highlights).expect("projected");
+    let runs = project(&row, &highlights, WIDTH).expect("projected");
     check(&row, &highlights, &runs);
     // A subagent's reply is indented, and so are its marks.
     let row = reply(text, 1);
     check(
         &row,
         &highlights,
-        &project(&row, &highlights).expect("projected"),
+        &project(&row, &highlights, WIDTH).expect("projected"),
     );
 }
 
@@ -101,8 +105,9 @@ fn a_fence_s_code_is_its_language_s_or_in_code_s_face() {
     let text = "```rust\nfn a\n```\n```zz\nb c\n```";
     let row = reply(text, 0);
     // `fn` is a keyword; the second fence's language gives nothing.
-    let runs = project(&row, &marked(text, std::slice::from_ref(&(8..10)))).expect("projected");
-    let drawn = tail(&row, LineStart::default()).text;
+    let runs =
+        project(&row, &marked(text, std::slice::from_ref(&(8..10))), WIDTH).expect("projected");
+    let drawn = tail(&row, LineStart::default(), WIDTH).text;
     assert_eq!(drawn, "  fn a\n\n  b c\n");
     let on_row = laid(drawn.len(), &runs);
     let at = |shown: &str| on_row.at(drawn.find(shown).expect("drawn"));
@@ -110,14 +115,14 @@ fn a_fence_s_code_is_its_language_s_or_in_code_s_face() {
     assert_eq!(at("a\n"), None, "its language's plain text");
     assert_eq!(at("b c"), Some(Highlight::SessionCode), "code's face");
     // Not parsed yet, all of it is.
-    let plain = laid(drawn.len(), &plain(&row).expect("a reply"));
+    let plain = laid(drawn.len(), &plain(&row, WIDTH).expect("a reply"));
     assert_eq!(plain.at(2), Some(Highlight::SessionCode));
 }
 
 #[test]
 fn an_empty_reply_draws_nothing() {
     let row = reply("", 0);
-    let runs = project(&row, &Highlights::new(0)).expect("projected");
+    let runs = project(&row, &Highlights::new(0), WIDTH).expect("projected");
     check(&row, &Highlights::new(0), &runs);
 }
 
@@ -126,18 +131,18 @@ fn a_blank_line_has_no_mark_and_no_row_ends_in_a_space() {
     let text = "# A\n\n\r\nb";
     for depth in [0, 1] {
         let row = reply(text, depth);
-        let drawn = tail(&row, LineStart::default()).text;
+        let drawn = tail(&row, LineStart::default(), WIDTH).text;
         assert!(drawn.lines().all(|line| !line.ends_with(' ')), "{drawn:?}");
         let highlights = marked(text, &[0..1, 1..3]);
-        let runs = project(&row, &highlights).expect("projected");
+        let runs = project(&row, &highlights, WIDTH).expect("projected");
         check(&row, &highlights, &runs);
         assert!(runs.iter().all(|(len, _)| *len > 0), "no empty run");
     }
     assert_eq!(
-        tail(&reply(text, 1), LineStart::default()).text,
+        tail(&reply(text, 1), LineStart::default(), WIDTH).text,
         "│   A\n│\n│\n│   b\n"
     );
-    assert_eq!(tail(&reply("", 1), LineStart::default()).text, "");
+    assert_eq!(tail(&reply("", 1), LineStart::default(), WIDTH).text, "");
 }
 
 #[test]
@@ -172,7 +177,7 @@ fn only_a_whole_reply_within_the_limit_is_highlighted() {
     let past = "a".repeat(MAX_REPLY + 1);
     assert_eq!(highlightable(&reply(&past, 0)), None);
     assert_eq!(
-        project(&reply(&past, 0), &Highlights::new(past.len())),
+        project(&reply(&past, 0), &Highlights::new(past.len()), WIDTH),
         None
     );
 }
@@ -180,19 +185,23 @@ fn only_a_whole_reply_within_the_limit_is_highlighted() {
 #[test]
 fn highlights_of_another_text_or_too_many_runs_leave_it_plain() {
     let row = reply("abc", 0);
-    assert_eq!(project(&row, &Highlights::new(2)), None, "another length");
+    assert_eq!(
+        project(&row, &Highlights::new(2), WIDTH),
+        None,
+        "another length"
+    );
     // Every other byte highlighted, on one line within the byte limit: past the runs' limit.
     let text = "ab".repeat(MAX_REPLY / 2);
     let ranges: Vec<_> = (0..MAX_REPLY / 2).map(|at| 2 * at..2 * at + 1).collect();
     let highlights = marked(&text, &ranges);
     assert!(highlightable(&reply(&text, 0)).is_some());
     assert!(2 * ranges.len() >= MAX_RUNS);
-    assert_eq!(project(&reply(&text, 0), &highlights), None);
+    assert_eq!(project(&reply(&text, 0), &highlights, WIDTH), None);
     // A quarter as many fit.
     let text = "ab".repeat(MAX_REPLY / 8);
     let ranges: Vec<_> = (0..MAX_REPLY / 8).map(|at| 2 * at..2 * at + 1).collect();
     let highlights = marked(&text, &ranges);
-    assert!(project(&reply(&text, 0), &highlights).is_some());
+    assert!(project(&reply(&text, 0), &highlights, WIDTH).is_some());
 }
 
 #[test]
@@ -204,14 +213,15 @@ fn plain_is_what_the_row_draws() {
         "x\r",
         "# a `b`\n- c\n```\nd\n```",
         "```\n```",
+        "| a | `b` **c** [d](e) |\n|--:|---|\n| 日本語の説明文 | f g h i j k l |\n\nm",
     ] {
         for depth in 0..2 {
             let row = Row {
                 gap: depth == 1,
                 ..reply(text, depth)
             };
-            let drawn = tail(&row, LineStart::default());
-            let runs = plain(&row).expect("a reply");
+            let drawn = tail(&row, LineStart::default(), WIDTH);
+            let runs = plain(&row, WIDTH).expect("a reply");
             let total: usize = runs.iter().map(|(len, _)| len).sum();
             assert_eq!(total, drawn.text.len(), "{text:?}");
             let (plain, faces) = (laid(total, &runs), laid(total, &drawn.runs()));
@@ -227,7 +237,7 @@ fn plain_is_what_the_row_draws() {
         folded: false,
         gap: false,
     };
-    assert_eq!(plain(&note), None);
+    assert_eq!(plain(&note, WIDTH), None);
 }
 
 proptest! {
@@ -235,7 +245,7 @@ proptest! {
     /// each byte.
     #[test]
     fn the_runs_lie_where_render_puts_each_byte(
-        text in "(\r|\n|\r\n|a|é|●|`|```|```rust\n| |# |- |\\*|> |---){0,40}",
+        text in "(\r|\n|\r\n|a|é|●|`|```|```rust\n| |# |- |\\*|> |---|[|] é [|] `b` [|]\n[|]-[|]-[|]\n|[|] a 日本語 b c d){0,40}",
         depth in 0u8..2,
         cuts in prop::collection::vec(any::<prop::sample::Index>(), 0..8),
     ) {
@@ -247,7 +257,7 @@ proptest! {
         let ranges: Vec<_> = at.chunks(2).filter(|pair| pair.len() == 2).map(|pair| pair[0]..pair[1]).collect();
         let highlights = marked(&text, &ranges);
         let row = reply(&text, depth);
-        let runs = project(&row, &highlights).expect("projected");
+        let runs = project(&row, &highlights, WIDTH).expect("projected");
         check(&row, &highlights, &runs);
     }
 }
@@ -258,9 +268,9 @@ fn many_short_lines_count_their_marks_and_breaks_as_runs() {
     let text = "a\n".repeat(MAX_RUNS / 3 + 1);
     assert!(text.len() <= MAX_REPLY);
     assert_eq!(
-        project(&reply(&text, 0), &Highlights::new(text.len())),
+        project(&reply(&text, 0), &Highlights::new(text.len()), WIDTH),
         None
     );
     let text = "a\n".repeat(MAX_RUNS / 4);
-    assert!(project(&reply(&text, 0), &Highlights::new(text.len())).is_some());
+    assert!(project(&reply(&text, 0), &Highlights::new(text.len()), WIDTH).is_some());
 }

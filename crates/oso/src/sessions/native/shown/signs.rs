@@ -112,7 +112,7 @@ pub(super) fn around_link(before: &str, after: &str) -> bool {
 }
 
 /// Whether `text` holds no address, nor what could read as one: words, and stops that end one.
-fn calm(text: &str, mut opens: bool) -> bool {
+pub(super) fn calm(text: &str, mut opens: bool) -> bool {
     let mut last = None;
     let mut chars = text.chars().peekable();
     while let Some(c) = chars.next() {

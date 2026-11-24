@@ -442,7 +442,9 @@ fn reported(
     };
     native.markdown.keys.remove(&row);
     let runs = match (&report.outcome, native.rows.rows().get(row)) {
-        (Outcome::Highlights(highlights), Some(at)) => project(at, highlights),
+        (Outcome::Highlights(highlights), Some(at)) => {
+            project(at, highlights, native.row_width(row))
+        }
         // Too slow, a long line or lost: it stays as drawn.
         _ => None,
     };

@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use super::past::Index;
 use super::placed::Placed;
 use super::remote::Remote;
-use super::render::{Face, GUIDE, Rendered, render, tail};
+use super::render::{Face, GUIDE, Rendered, render, tables, tail};
 use super::rows::{Changes, Kind, Row, RowChange, Rows};
 use super::turns::target;
 use super::wire::{parse, transcript};
@@ -74,6 +74,9 @@ fn shaped() -> impl Strategy<Value = String> {
         Just("[]".to_owned()),
         Just("{}".to_owned()),
         Just("\"\\u0000é\\n\\t\\u001b[31m\"".to_owned()),
+        Just("\"| a | b |\\n|---|--:|\\n| 字 ▸ $ Bash | some words that wrap |\\n\"".to_owned()),
+        Just("\"| \\u202e │ 〉 me |\\n\"".to_owned()),
+        Just("\"\\n\"".to_owned()),
         "\"[a-z\\n]{0,40}\"",
     ];
     (0..14usize, id.clone(), id, value, 0..3u64).prop_map(|(kind, a, b, v, index)| match kind {
@@ -180,6 +183,7 @@ proptest! {
             (any::<prop::sample::Index>(), prop::option::of(0..4usize)),
             0..8,
         ),
+        widths in prop::collection::vec(4usize..120, 0..10),
     ) {
         let directory = Path::new("/work/probe");
         let mut rows = Rows::new(PathBuf::from(directory));
@@ -190,6 +194,8 @@ proptest! {
         // `Placed` says.
         let mut buffer = String::new();
         let mut placed = Placed::default();
+        let mut width = rows.width();
+        let mut widths = widths.into_iter();
         for chunk in lines.chunks(batch) {
             let mut changes = Changes::default();
             for line in chunk {
@@ -209,15 +215,47 @@ proptest! {
                 prop_assert!(range.is_some(), "{:?} not drawn", change);
                 let range = range.unwrap_or_default();
                 let text = match change {
-                    RowChange::Grew { at, .. } => tail(row, at).text,
-                    RowChange::Added(_) | RowChange::Changed(_) => render(row, directory, 80).text,
+                    RowChange::Grew { at, .. } => tail(row, at, width).text,
+                    RowChange::Added(_) | RowChange::Changed(_) => {
+                        render(row, directory, width).text
+                    }
                 };
                 buffer.replace_range(range.clone(), &text);
                 placed.put(at, range, text.len());
                 prop_assert_eq!(placed.end(), buffer.len());
             }
+            // Its window's width changes: a result is drawn again, and of a reply, its tables.
+            let Some(next) = widths.next() else {
+                continue;
+            };
+            // Its changes are below, as of every row.
+            let _ = rows.set_width(next);
+            for (at, row) in rows.rows().iter().enumerate().rev() {
+                let after = tables(row, next);
+                let mut starts = vec![0];
+                for lines in &after.tables {
+                    let start = starts.last().copied().unwrap_or(0);
+                    starts.push(line_start(&after.text, start, lines.len()));
+                }
+                let before = tables(row, width).tables;
+                prop_assert_eq!(before.len(), after.tables.len());
+                for (table, lines) in before.iter().enumerate().rev() {
+                    let line = |line| line_start(&buffer, placed.start(at), line);
+                    let range = line(lines.start)..line(lines.end);
+                    let text = &after.text[starts[table]..starts[table + 1]];
+                    buffer.replace_range(range.clone(), text);
+                    placed.put(at, range, text.len());
+                }
+                if matches!(row.kind, Kind::Result(_)) {
+                    let range = placed.start(at)..placed.start(at + 1);
+                    let text = render(row, directory, next).text;
+                    buffer.replace_range(range.clone(), &text);
+                    placed.put(at, range, text.len());
+                }
+            }
+            width = next;
         }
-        let whole: String = rows.rows().iter().map(|row| render(row, directory, 80).text).collect();
+        let whole: String = rows.rows().iter().map(|row| render(row, directory, width).text).collect();
         prop_assert_eq!(&buffer, &whole);
         let count = rows.rows().len();
         if count > 0 {

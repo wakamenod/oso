@@ -166,6 +166,7 @@ pub oso_render::Face::SessionQuiet
 pub oso_render::Face::SessionRepository
 pub oso_render::Face::SessionRunning
 pub oso_render::Face::SessionSpace
+pub oso_render::Face::SessionTable
 pub oso_render::Face::SessionTool
 pub oso_render::Face::SessionWorking
 pub oso_render::Face::SyntaxComment

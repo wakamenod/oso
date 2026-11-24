@@ -7,13 +7,16 @@ use oso_core::syntax::Highlight;
 use proptest::prelude::*;
 
 use super::signs::could_be_mark;
-use super::{LineStart, MAX_MARKED, MAX_QUOTES, MAX_RULES, Style, walk};
+use super::{LineStart, MAX_MARKED, MAX_QUOTES, MAX_RULES, Style, again, walk};
 use crate::sessions::native::render::{Face, Icon};
+
+/// A width no line of these tests needs.
+const WIDE: usize = 98;
 
 /// `text` as drawn, whole: each line's text, its breaks kept.
 fn shown(text: &str) -> String {
     let mut out = String::new();
-    walk(text, LineStart::default(), false, |pieces| {
+    walk(text, LineStart::default(), false, WIDE, |pieces, _| {
         out.extend(pieces.iter().map(|piece| piece.text));
         out.push('\n');
     });
@@ -23,7 +26,7 @@ fn shown(text: &str) -> String {
 /// The pieces of `text` with a face, whole.
 fn faces(text: &str) -> Vec<(String, Style)> {
     let mut out = Vec::new();
-    walk(text, LineStart::default(), false, |pieces| {
+    walk(text, LineStart::default(), false, WIDE, |pieces, _| {
         for piece in pieces {
             out.extend(piece.style.map(|style| (piece.text.to_owned(), style)));
         }
@@ -129,7 +132,6 @@ fn what_could_be_something_else_stays() {
         "[a]: https://b.c",
         "<details><summary>**a**</summary>",
         "<!-- **a** -->",
-        "| `a` | **b** |\n|---|---|\n| *c* | d |",
         "> ```\n> **a** `b`\n> ```",
         "- ```\n  **a**\n  ```",
         "[]() [](https://a.b) [ ](https://a.b)",
@@ -360,7 +362,8 @@ fn of_a_reply(highlight: Highlight) -> bool {
         | Highlight::Link
         | Highlight::Markup
         | Highlight::SessionCode
-        | Highlight::SessionBullet => true,
+        | Highlight::SessionBullet
+        | Highlight::SessionTable => true,
         Highlight::DiffAdded
         | Highlight::DiffRemoved
         | Highlight::DiffFileHeader
@@ -455,7 +458,8 @@ fn next(face: Face) -> (Option<Face>, bool) {
         Face::Reply(Style::Strong) => (Face::Reply(Style::Code), true),
         Face::Reply(Style::Code) => (Face::Reply(Style::Link), true),
         Face::Reply(Style::Link) => (Face::Reply(Style::Mark), true),
-        Face::Reply(Style::Mark) => return (None, true),
+        Face::Reply(Style::Mark) => (Face::Reply(Style::Rule), true),
+        Face::Reply(Style::Rule) => return (None, true),
     };
     (Some(next), reply)
 }
@@ -472,7 +476,7 @@ fn no_text_of_a_reply_has_a_class_of_a_row_s_own() {
         face = after;
         seen += 1;
     }
-    assert_eq!(seen, 28);
+    assert_eq!(seen, 29);
 }
 
 #[test]
@@ -520,10 +524,10 @@ fn a_crafted_reply_draws_little_more_than_it_holds() {
     );
 }
 
-/// The lines drawn of `text` from `at`, and where the next starts.
-fn from(text: &str, at: LineStart, streams: bool) -> (Vec<String>, LineStart) {
+/// The lines drawn of `text` from `at`, `width` cells wide, and where the next starts.
+fn from(text: &str, at: LineStart, streams: bool, width: usize) -> (Vec<String>, LineStart) {
     let mut lines = Vec::new();
-    let mark = walk(text, at, streams, |pieces| {
+    let mark = walk(text, at, streams, width, |pieces, _| {
         lines.push(pieces.iter().map(|piece| piece.text).collect());
     });
     (lines, mark)
@@ -537,28 +541,32 @@ proptest! {
         parts in prop::collection::vec(prop::sample::select(vec![
             "\n", "\n\n", "\r\n", " ", "  ", "    ", "a", "é", "字", "*", "**", "***", "`", "```", "```rust\n",
             "```\n", "~~~\n", "# ", "- ", "1. ", "> ", "---", "[", "](", "](https://a.b)", ")", "|", "\\", "▸ ",
-            "<b>", "_", "\t", "\u{202e}", "\u{200b}", "\r", "\u{2028}", "\u{301}", "(", "\"", ",", ".", "x",
+            "<b>", "_", "\t", "| a | b |\n", "|---|:-:|\n", "|-|-|", "| é | 字", "\u{202e}", "\u{200b}", "\r", "\u{2028}", "\u{301}", "(", "\"", ",", ".", "x",
         ]), 0..60),
+        width in 0usize..40,
     ) {
         let text: String = parts.concat();
-        let (whole, _) = from(&text, LineStart::default(), false);
+        let (whole, _) = from(&text, LineStart::default(), false, width);
         let mut streamed = String::new();
         let mut mark = LineStart::default();
         let mut kept: Vec<String> = Vec::new();
         for part in &parts {
             streamed.push_str(part);
+            mark = again(&streamed, mark, true);
             kept.truncate(mark.lines);
-            let (lines, next) = from(&streamed, mark, true);
+            let (lines, next) = from(&streamed, mark, true, width);
             kept.extend(lines);
             prop_assert!(next.from >= mark.from && next.lines <= kept.len());
             mark = next;
+            prop_assert_eq!(&kept, &from(&streamed, LineStart::default(), true, width).0);
         }
+        mark = again(&text, mark, false);
         kept.truncate(mark.lines);
-        kept.extend(from(&text, mark, false).0);
+        kept.extend(from(&text, mark, false, width).0);
         prop_assert_eq!(&kept, &whole);
 
         let mut at = 0;
-        walk(&text, LineStart::default(), false, |pieces| {
+        walk(&text, LineStart::default(), false, width, |pieces, _| {
             for piece in pieces {
                 assert!(!piece.text.is_empty() && !piece.text.contains('\n'));
                 if let Some(from) = piece.from {

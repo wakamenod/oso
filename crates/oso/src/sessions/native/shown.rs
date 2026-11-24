@@ -3,13 +3,13 @@
 //! ends.
 //!
 //! Must not depend on: the syntax threads, the editor or the theme; a pure walk over a reply's
-//! text, whose pieces say where in it they come from.
+//! text, for a width, whose pieces say where in the text they come from, but a table's.
 //!
 //! - Hidden: a heading's `#`s, `*` around emphasis, the backticks of inline code, a fence's two
 //!   lines, a link's brackets, and its target when [`inline`] says so. `- ` and `* ` are drawn
 //!   `• `, a quote's `> ` as `│ `, a rule as a line. What is hidden leaves a style on what it
-//!   was around.
-//! - Drawn as written: tables, HTML, a block's indented code, `+ ` items, `_` and `~` emphasis,
+//!   was around. A table is drawn between box rules, at most `width` cells wide ([`table`]).
+//! - Drawn as written: HTML, a block's indented code, `+ ` items, `_` and `~` emphasis,
 //!   images, reference links, backslash escapes, a setext heading's underline, a fence in a
 //!   quote or after a bullet, and a fence whose info string is not one short word. A mark that
 //!   could be something else (a wildcard, arithmetic) stays.
@@ -17,16 +17,23 @@
 //! - What Claude writes cannot pass for a row of oso's: a line that starts with a character
 //!   that could be a row's mark ([`signs`]) is drawn as written, or in a fence behind a bar; and
 //!   no [`Style`] has a highlight oso's own quiet, alert, prompt and diff rows have.
-//! - A line that has not ended is drawn as written. Drawing a reply from any [`LineStart`]
-//!   gives the same lines as drawing it whole.
+//! - A line that has not ended is drawn as written, as is a table more lines of may come.
+//!   Drawing a reply from any [`LineStart`] gives the same lines as drawing it whole, if from
+//!   where [`again`] says once its text grew.
 //! - O(text): a line's marks are matched with no search that repeats. Past [`MAX_MARKED`] bytes
-//!   of a line, [`MAX_TEXT`] of a reply, [`MAX_RULES`] rules or [`MAX_QUOTES`] quote marks,
-//!   text is drawn as written, so that a crafted reply draws little more than it holds.
+//!   of a line, [`MAX_TEXT`] of a reply, [`MAX_RULES`] rules, [`MAX_QUOTES`] quote marks,
+//!   [`place::MAX_TABLES`] tables or what [`table::Budget`] gives them, text is drawn as written, so that a crafted reply draws little more than it holds.
 
 mod inline;
+mod place;
 mod signs;
+mod table;
 
+use place::{Fence, Open, State};
+pub use place::{LineStart, again};
 use signs::{could_be_mark, past_spaces, stands};
+pub use table::table_width;
+use table::{Found, Whole};
 
 /// What a rule draws.
 const RULE: &str = "────────────────────────────────";
@@ -48,58 +55,6 @@ const BLANK: [char; 2] = [' ', '\t'];
 /// The longest info string hidden with its fence.
 const MAX_INFO: usize = 16;
 
-/// A place in a reply where a line of its text starts: how many lines are drawn before it, and
-/// what the lines before it say of those after.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct LineStart {
-    /// The byte the line starts at.
-    pub from: usize,
-    /// The lines drawn before it.
-    pub lines: usize,
-    state: State,
-}
-
-impl LineStart {
-    /// A reply's start, `lines` lines drawn before its first.
-    pub fn after(lines: usize) -> Self {
-        Self {
-            lines,
-            ..Self::default()
-        }
-    }
-}
-
-/// What the lines so far say of the next.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct State {
-    /// The fence that is open.
-    fence: Option<Fence>,
-    /// The line before has text.
-    text: bool,
-    /// A list's item came, and nothing at the margin since.
-    list: bool,
-    /// The lines before are a block's indented code.
-    code: bool,
-    /// A hidden fence ended just before.
-    ended: bool,
-    /// The rules drawn so far.
-    rules: u8,
-}
-
-/// An open fence.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Fence {
-    tilde: bool,
-    len: usize,
-    indent: usize,
-    /// Its two lines are drawn.
-    drawn: bool,
-    /// Its lines are a quote's.
-    quoted: bool,
-    /// The byte its first line starts at.
-    start: usize,
-}
-
 /// What a stretch of a reply is, by the marks hidden around it or drawn for it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Style {
@@ -109,60 +64,124 @@ pub enum Style {
     Link,
     /// What stands for a bullet, a number of a list, a quote or a rule.
     Mark,
+    /// The rules of a table.
+    Rule,
 }
 
 /// A stretch of a drawn line.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Piece<'a> {
     pub text: &'a str,
-    /// Where in the reply's text it is; `None` for what oso puts.
+    /// Where in the reply's text it is; `None` for what oso puts, and in a table's lines, which
+    /// are the same whatever a parse says.
     pub from: Option<usize>,
     pub style: Option<Style>,
     /// A fence's code, which takes its language's highlights: the byte its fence starts at.
     pub code: Option<usize>,
 }
 
-/// Draws `text` from `at` on: gives `line` each line drawn, in order, as its pieces, with
-/// nothing at its end. `streams` if more text may come, so that a last line with no break is
-/// drawn as written. Returns the mark the line that has not ended starts at, or the text's
-/// end.
-pub fn walk<'a>(
-    text: &'a str,
+/// Draws `text` from `at` on, its tables at most `width` cells wide: gives `line` each line drawn,
+/// in order, as its pieces, with nothing at its end, and for a table's, where the table starts
+/// in the text. `streams` if more text may come, so that a last line with no break is drawn as
+/// written. Returns the mark the line that has not ended starts at, or the text's end.
+pub fn walk(
+    text: &str,
     at: LineStart,
     streams: bool,
-    mut line: impl FnMut(&[Piece<'a>]),
+    width: usize,
+    mut line: impl FnMut(&[Piece<'_>], Option<usize>),
+) -> LineStart {
+    read(text, at, streams, width, usize::MAX, Some(&mut line))
+}
+
+/// The mark [`walk`] returns, with nothing drawn.
+pub fn mark(text: &str, at: LineStart, streams: bool, width: usize) -> LineStart {
+    read(text, at, streams, width, usize::MAX, None)
+}
+
+/// [`walk`] from the start, as far as tables are drawn.
+pub fn walk_tables(
+    text: &str,
+    at: LineStart,
+    streams: bool,
+    width: usize,
+    mut line: impl FnMut(&[Piece<'_>], Option<usize>),
+) -> LineStart {
+    read(text, at, streams, width, MAX_TEXT, Some(&mut line))
+}
+
+/// Takes each line drawn.
+type Give<'g> = Option<&'g mut dyn FnMut(&[Piece<'_>], Option<usize>)>;
+
+/// [`walk`] up to the line that starts at byte `end` or past it.
+fn read(
+    text: &str,
+    at: LineStart,
+    streams: bool,
+    width: usize,
+    end: usize,
+    mut line: Give<'_>,
 ) -> LineStart {
     let mut mark = at;
     mark.from = text.floor_char_boundary(mark.from.min(text.len()));
     let mut out = Line::default();
-    for whole in text[mark.from..].split_inclusive('\n') {
+    while mark.from < end
+        && let Some(whole) = text[mark.from..].split_inclusive('\n').next()
+    {
         // As `str::lines`: a line's break, and a `\r` just before it, are not its text.
-        let ended = whole.strip_suffix('\n');
-        let shown = ended.map_or(whole, |shown| shown.strip_suffix('\r').unwrap_or(shown));
-        let from = mark.from;
+        let ended = whole.ends_with('\n');
+        let shown = trimmed(whole);
         // A line that may go on changes nothing for what is drawn after it.
-        let goes_on = streams && ended.is_none();
+        let goes_on = streams && !ended;
+        if !goes_on && mark.heads_table(shown) {
+            match table::find(text, mark.from, streams) {
+                Found::Whole(whole) => {
+                    mark = out.table(text, mark, whole, width, &mut line);
+                    continue;
+                }
+                Found::Open => {
+                    mark.table = Some(Open {
+                        from: mark.from,
+                        lines: mark.lines,
+                        state: mark.state,
+                        sized: false,
+                    });
+                }
+                Found::No => {}
+            }
+        } else if let Some(open) = mark.table.filter(|_| !goes_on) {
+            // Its end is drawn from its start: `again` says so.
+            mark.table = table::piped(shown).map(|_| Open {
+                sized: true,
+                ..open
+            });
+        }
         let mut state = mark.state;
-        let draws = out.read(shown, from, &mut state, goes_on);
-        let mut lines = 0;
-        if draws.gap {
-            line(&[]);
-            lines += 1;
-        }
-        if draws.line {
-            line(&out.pieces);
-            lines += 1;
-        }
+        let draws = out.read(shown, mark.from, &mut state, goes_on);
+        let lines = draws.give(&out.pieces, None, &mut line);
         if goes_on {
             return mark;
         }
         mark = LineStart {
-            from: from + whole.len(),
+            from: mark.from + whole.len(),
             lines: mark.lines + lines,
             state,
+            table: mark.table,
         };
     }
     mark
+}
+
+/// A line without its break.
+fn trimmed(whole: &str) -> &str {
+    whole
+        .strip_suffix('\n')
+        .map_or(whole, |line| line.strip_suffix('\r').unwrap_or(line))
+}
+
+/// Whether `c`, next to a mark that is hidden, could join what is past it.
+fn joins(c: Option<char>) -> bool {
+    c.is_some_and(|c| !stands(c))
 }
 
 /// What a line of the text draws: an empty line, then itself.
@@ -170,6 +189,21 @@ pub fn walk<'a>(
 struct Draws {
     gap: bool,
     line: bool,
+}
+
+impl Draws {
+    /// Gives `line` what it draws, `pieces` in `table` if any; returns how many lines.
+    fn give(self, pieces: &[Piece<'_>], table: Option<usize>, line: &mut Give<'_>) -> usize {
+        if let Some(line) = line {
+            if self.gap {
+                line(&[], None);
+            }
+            if self.line {
+                line(pieces, table);
+            }
+        }
+        usize::from(self.gap) + usize::from(self.line)
+    }
 }
 
 /// The pieces of the line being read, kept from line to line.
@@ -203,12 +237,62 @@ impl<'a> Line<'a> {
         self.put(line, Some(from), None, None);
     }
 
+    /// Draws the table `whole` of `text`, which starts at `mark`, in its box or as written;
+    /// returns the mark past it.
+    fn table(
+        &mut self,
+        text: &'a str,
+        mark: LineStart,
+        whole: Whole,
+        width: usize,
+        line: &mut Give<'_>,
+    ) -> LineStart {
+        let LineStart {
+            mut from,
+            mut lines,
+            mut state,
+            ..
+        } = mark;
+        let written = &text[from..whole.end];
+        let boxed = table::lay(written, whole, width, &mut state.budget);
+        for whole in written.split_inclusive('\n') {
+            let mut draws = self.read(trimmed(whole), from, &mut state, false);
+            draws.line &= boxed.is_none();
+            lines += draws.give(&self.pieces, Some(mark.from), line);
+            from += whole.len();
+        }
+        if let Some(boxed) = boxed {
+            lines += boxed.lines;
+            if let Some(line) = line {
+                let mut pieces = Vec::new();
+                boxed.draw().each(|stretches| {
+                    pieces.clear();
+                    pieces.extend(stretches.iter().map(|(text, style)| Piece {
+                        text,
+                        from: None,
+                        style: *style,
+                        code: None,
+                    }));
+                    line(&pieces, Some(mark.from));
+                });
+            }
+        }
+        state.tables += 1;
+        LineStart {
+            from,
+            lines,
+            state,
+            table: None,
+        }
+    }
+
     /// Reads a line of the text into its pieces.
     fn read(&mut self, line: &'a str, from: usize, state: &mut State, goes_on: bool) -> Draws {
         self.pieces.clear();
         let blank = is_blank(line);
         // A hidden fence ended: an empty line sets the code apart from what follows.
         let gap = std::mem::take(&mut state.ended) && !blank;
+        state.piped = table::piped(line).is_some();
         let quoted = line.trim_start().starts_with('>');
         if state.fence.is_some_and(|fence| fence.quoted && !quoted) {
             state.fence = None;
@@ -323,7 +407,8 @@ impl<'a> Line<'a> {
         }
         let quoted = at > indent;
         if let Some(level) = heading(&line[at..]) {
-            self.inline.read(line, at + level, Some(Style::Heading));
+            self.inline
+                .read(line, at + level, Some(Style::Heading), true);
             return self.inline_pieces(line, from);
         }
         let text = self.item(line, at, from);
@@ -341,7 +426,7 @@ impl<'a> Line<'a> {
         if body.starts_with('|') || html(body) {
             return self.put(&line[text..], Some(from + text), None, None);
         }
-        self.inline.read(line, text, None);
+        self.inline.read(line, text, None, true);
         self.inline_pieces(line, from);
     }
 
@@ -404,7 +489,6 @@ impl<'a> Line<'a> {
             .find(|piece| piece.from.is_none() || !past_spaces(piece.text).is_empty());
         let passes = start.is_none_or(|piece| piece.from.is_some() && could_be_mark(piece.text));
         // As is one whose hidden marks would join what they were between.
-        let joins = |text: Option<char>| text.is_some_and(|c| !stands(c));
         let joined = (self.pieces.windows(2)).any(|pair| {
             joins(pair[0].text.chars().next_back()) || joins(pair[1].text.chars().next())
         });

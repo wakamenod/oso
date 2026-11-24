@@ -1317,7 +1317,7 @@ a switch made with its command stands until that setting changes in the file
 
   Unless `mode = "tui"` (ADR 0165, step 1; the default since part 4e), a new session in a
   trusted project runs `claude -p` and shows its conversation in `*claude: NAME*` as oso's own rows instead of a terminal: the
-  person's messages after `〉` on a green band, replies two columns in with their Markdown's marks hidden, thinking as `▸ Thinking · N s`, each tool
+  person's messages after `〉` on a green band, replies two columns in with their Markdown's marks hidden and their tables in boxes for the window's width, thinking as `▸ Thinking · N s`, each tool
   call as one line (`▸ ≡ Read · a.rs  48 lines`) with its badge on a chip, a change as a numbered diff, open, and each turn's time and cost at the
   right, with a blank line between them (ADR 0165, "The rows' look, as built"). A call the person is
   asked about says `waiting for you`. A result shows its first 12 lines, a change 40. Its

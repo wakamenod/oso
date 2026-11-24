@@ -12,7 +12,7 @@
 //!   walks the same lines. What Markdown's hidden marks are around keeps
 //!   the face `shown` gives it. A fence's code takes its language's highlights, or code's face
 //!   when its language gave it none; what is drawn as written takes the parse's, a `_` emphasis
-//!   or a table's code among it. A line's break has no run. O(runs + lines).
+//!   or the code of a table that stays so among it. A line's break has no run. O(runs + lines).
 //! - Past [`MAX_RUNS`] runs the reply stays as drawn, which bounds what the UI thread puts in.
 
 use oso_core::syntax::{Highlight, Highlights};
@@ -44,29 +44,29 @@ pub fn highlightable(row: &Row) -> Option<&str> {
 /// A run: a length in bytes and what those bytes are.
 type Run = (usize, Option<Highlight>);
 
-/// The runs over `row` as `render` draws it, with `highlights` over its text for its code and
+/// The runs over `row` as `render` draws it for a window `width` cells wide, with `highlights` over its text for its code and
 /// for what is drawn as written: each line's mark in its own face, then the line's runs. `None`
 /// when `row` is not one [`highlightable`] gives, when `highlights` do not cover its text, or
 /// past [`MAX_RUNS`].
-pub fn project(row: &Row, highlights: &Highlights) -> Option<Vec<Run>> {
+pub fn project(row: &Row, highlights: &Highlights, width: usize) -> Option<Vec<Run>> {
     let text = highlightable(row)?;
     if highlights.len() != text.len() {
         return None;
     }
-    let runs = lay(row, text, false, Some(highlights), MAX_RUNS);
+    let runs = lay(row, text, false, width, Some(highlights), MAX_RUNS);
     (runs.len() <= MAX_RUNS).then_some(runs)
 }
 
-/// The runs of a reply's row with no language's highlights, as `render` draws it, with no text
-/// rendered: what a reply's faces are laid again with once highlighting is back on; `None` for
+/// The runs of a reply's row with no language's highlights, as `render` draws it for a window
+/// `width` cells wide, with no text rendered: what a reply's faces are laid again with once highlighting is back on; `None` for
 /// a row that is no reply, or one cut as it came.
-pub fn plain(row: &Row) -> Option<Vec<Run>> {
+pub fn plain(row: &Row, width: usize) -> Option<Vec<Run>> {
     match &row.kind {
         Kind::Reply {
             text,
             streaming,
             cut: false,
-        } => Some(lay(row, text, *streaming, None, usize::MAX)),
+        } => Some(lay(row, text, *streaming, width, None, usize::MAX)),
         _ => None,
     }
 }
@@ -77,6 +77,7 @@ fn lay(
     row: &Row,
     text: &str,
     streams: bool,
+    width: usize,
     highlights: Option<&Highlights>,
     most: usize,
 ) -> Vec<Run> {
@@ -86,7 +87,8 @@ fn lay(
         runs.push((1, None));
     }
     let mut code = None;
-    reply_lines(row, text, LineStart::default(), streams, |mark, pieces| {
+    let at = LineStart::default();
+    reply_lines(row, text, at, streams, width, |mark, pieces, _| {
         // Marks and breaks count too: many short lines are as many runs.
         if runs.len() > most {
             return;

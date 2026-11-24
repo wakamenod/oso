@@ -82,3 +82,26 @@ fn faces_are_laid_again_for_what_shows_at_once_and_the_rest_in_slices() {
     assert!((0..=replies).all(|row| heading(&setup, row) == marked));
     assert!(!setup.sync(true), "done");
 }
+
+#[test]
+fn a_row_drawn_for_another_width_takes_its_faces_and_its_report_as_drawn() {
+    const TABLE: &str =
+        "| a | b |\n|---|---|\n| c | some words that wrap in a narrow window |\n\n`d` e";
+    let mut setup = setup();
+    setup.feed(&[whole("m", TABLE)]);
+    setup.sync(true);
+    let key = setup.opened()[0].0;
+    let drawn = setup.text();
+    // A window's new width, for which the row is not drawn yet.
+    let native = setup.natives.map.get_mut(&super::SESSION).expect("session");
+    assert!(native.rows.set_width(30).is_empty());
+    let word = TABLE.find(" e").unwrap() + 1;
+    assert!(setup.report(key, reported_on(TABLE, word..word + 1), true));
+    let at = |setup: &Setup, shown: &str| setup.at(drawn.rfind(shown).expect("drawn"));
+    assert_eq!(at(&setup, "e\n"), Some(Highlight::Keyword));
+    setup.sync(false);
+    setup.sync(true);
+    assert_eq!(setup.text(), drawn);
+    assert_eq!(at(&setup, "└"), Some(Highlight::SessionTable));
+    assert_eq!(at(&setup, "d e"), Some(Highlight::SessionCode));
+}
