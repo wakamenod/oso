@@ -5,28 +5,36 @@
 //!
 //! Must not depend on: key presses or how a frame is drawn; the composer's keys ask.
 
+use std::ops::Range;
+
 use oso_core::buffer::{Buffer, BufferId, Replacement};
 use oso_core::editor::{Editor, NativeAction};
 use oso_core::window::WindowId;
 
 use crate::app::App;
+use crate::app::sessions::hosting::native::put_tail;
 use crate::sessions::native::queue::Move;
 use crate::sessions::native::render::{Face, queue_rows};
+use crate::sessions::native::tail::Part;
 use crate::sessions::worker::SessionKey;
 
-/// The windows whose point is on a row of the queue's, from `start` in `buffer`, with the row's number: below the heading and before the end, which stays the
-/// end.
-fn windows_on_rows(editor: &Editor, buffer: BufferId, start: usize) -> Vec<(WindowId, usize)> {
+/// The windows whose point is on a row of the queue's, which are at `place` in `buffer`, with the
+/// row's number: below the heading and before its end.
+fn windows_on_rows(
+    editor: &Editor,
+    buffer: BufferId,
+    place: Range<usize>,
+) -> Vec<(WindowId, usize)> {
     let Some(text) = editor.buffer(buffer).map(Buffer::text) else {
         return Vec::new();
     };
-    let first = text.offset_to_point(start).row;
+    let first = text.offset_to_point(place.start).row;
     (editor.windows())
         .filter(|window| window.buffer() == buffer)
         .filter_map(|window| {
             let cursor = window.selections.primary().cursor;
             let row = text.offset_to_point(cursor).row.checked_sub(first)?;
-            (row > 0 && cursor < text.len()).then(|| (window.id(), row))
+            (row > 0 && cursor < place.end).then(|| (window.id(), row))
         })
         .collect()
 }
@@ -63,18 +71,19 @@ impl App {
             return;
         };
         let rows = queue_rows(&native.composing.queue);
-        if rows != native.composing.rows {
-            let start = native.placed.end();
-            let range = start..start + native.composing.rows.len();
-            let runs = [(rows.len(), Some(Face::Dim.highlight()))];
+        if rows == native.tail.text(Part::Queue).0 {
+            self.write_native_note(key);
+            return;
+        }
+        let place = native.part_place(Part::Queue);
+        let start = place.start;
+        let on = windows_on_rows(&self.editor, native.buffer, place);
+        let runs = vec![(rows.len(), Some(Face::Dim.highlight()))];
+        if put_tail(&mut self.editor, native, Part::Queue, rows, runs) {
             let now: Vec<u64> = (native.composing.queue.waiting())
                 .map(|queued| queued.id)
                 .collect();
             let drawn = std::mem::replace(&mut native.composing.drawn, now);
-            let on = windows_on_rows(&self.editor, native.buffer, start);
-            self.editor
-                .replace_native_rows(native.buffer, range, &rows, &runs);
-            native.composing.rows = rows;
             for (window, row) in on {
                 let id = row.checked_sub(1).and_then(|at| drawn.get(at));
                 let at = native
@@ -92,10 +101,11 @@ impl App {
     /// queue's heading names the first.
     pub(super) fn queued_at(&self, key: SessionKey, offset: usize) -> Option<u64> {
         let native = self.hosting.natives.map.get(&key)?;
-        let start = native.placed.end();
-        if offset < start || native.composing.queue.is_empty() {
+        let place = native.part_place(Part::Queue);
+        if !place.contains(&offset) {
             return None;
         }
+        let start = place.start;
         let text = self.editor.buffer(native.buffer)?.text();
         let line = text.offset_to_point(offset).row - text.offset_to_point(start).row;
         let at = line.saturating_sub(1);
@@ -112,7 +122,7 @@ impl App {
         if native.composing.queue.is_empty() {
             return self.editor.message("Nothing is queued");
         }
-        let (transcript, start) = (native.buffer, native.placed.end());
+        let (transcript, start) = (native.buffer, native.part_place(Part::Queue).start);
         if self.editor.current().0.buffer() != transcript {
             self.composer_go(key, false);
         }

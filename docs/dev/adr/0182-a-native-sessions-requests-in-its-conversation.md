@@ -275,7 +275,8 @@ Expected, each **approved at its PR; none is approved here:**
   `DockSlot::Card` becomes `DockSlot::Request`, after `Strip`; `SessionRequest::CardText` becomes
   `RequestText`. `NativeAction` loses `Choose(u8)`, `Other`, `Page(isize)` and `EditPlan`, and gets
   `Request`, `ReadOn(isize)`, `Choice(isize)`, `Mark`, `Take`, `Edit` and `Unread`.
-- **Maybe one argument of `Editor::replace_native_rows`,** for a place kept in the tail; R1 says.
+- **Maybe one argument of `Editor::replace_native_rows`,** for a place kept in the tail: none, R1a
+  found.
 - **oso-render:** `Face::{Card, CardTitle}` become `{Request, RequestTitle}`.
 - **oso-platform:** nothing, if `Event::InputSource` is told as oso starts and comes in front, the app
   keeping the last; else the current input source. R1 checks.
@@ -292,7 +293,11 @@ Expected, each **approved at its PR; none is approved here:**
 One PR a step, in one train:
 
 - **R0:** this ADR.
-- **R1, calls:** the block, the tail, reading, the line, point's rules, the gate, agents, `C-c C-j`.
+- **R1, calls,** in four PRs (the author, 2026-11-24): **R1a,** the agents ("Point" 8), the tail's
+  type and the line's place under the strip; **R1b,** the block's text, its diff and what is read, as
+  pure functions; **R1c,** calls leave the card, the line above the composer and point not going to
+  it by itself; **R1d,** "Point" 1 to 4 and 7, and the line in the composer's place, in one train with
+  R1c. In all: the block, the tail, reading, the line, point's rules, the gate, agents, `C-c C-j`.
   Questions and plans keep their cards. A fuzz target holds that only oso stands in columns 0 and 1
   and in its faces, and that the tail's parts stay apart whatever is put in above.
 - **R2, questions:** the choices, the answer input, the answered row.
@@ -348,6 +353,8 @@ Each holds from the step that builds it.
 - **[ADR 0117](0117-menus.md):** a menu's key's face is a line's keys', on its band.
 - **[ADR 0097](0097-visual-aids.md):** the line and the choices have no current line's band; the block
   has it as a prompt's rows do.
+- **[ADR 0151](0151-moving-a-session-into-a-space.md), [ADR 0155](0155-renaming-sessions.md):** as "R1a,
+  as built" says of a session that moves and of a rename.
 - **Elsewhere,** as in ADR 0176, ADR 0181 and other parts of ADR 0165, a waiting call's "card" is read
   "request". ADR 0100's "off by default" stands as native transcripts made of it, and ADR 0085's
   `open` and `Look` commands as part 2e-2 did.
@@ -372,12 +379,92 @@ Each holds from the step that builds it.
   out, 20 to 31 µs, only after an event that moved the view of a window in front while its request
   waits. Not measured: the diff of 64 KiB, the first wrap of 2000 long rows.
 
+## R1a, as built (2026-11-24)
+
+- **"Point" 8** holds for cards as they are (`app/agent/requests.rs`). In front, none of an agent's
+  commands runs and `open` shows nothing. With a request in a window of the frame, an agent runs no
+  command of the windows (`commands::WINDOW_COMMANDS`: a split, a deletion, a size, another window
+  selected), nor `global-display-line-numbers-mode`, `global-hl-line-mode`, `next-buffer`,
+  `previous-buffer`, `view-echo-area-messages`, `review-files`, `review-quit`, `review-toggle-panes`,
+  `session-explain`, `sessions-wider` and `sessions-narrower`;
+  and while the side window is selected, from which a buffer goes to a window of the tree, nothing
+  runs and `open` shows nothing. While one waits anywhere, not `global-font-lock-mode`,
+  `toggle-truncate-lines` or `session-switch`. A test walks every command an agent may run, in
+  an ordinary file, and holds that the transcript's window and its docks stay as they are, and that
+  what asks the host for something, which it does not see, is held or named there; a command of
+  another kind of buffer is judged by its name alone.
+- **An explanation** (`session-explain`, `session-explain-file`) that comes while a request waits
+  where it would be shown is not put there, unless it was asked for there, which only the person
+  can; its job carries which. The person is told.
+- **A session that moves into a space** ([ADR 0151](0151-moving-a-session-into-a-space.md)) starts
+  behind while a request waits where it would be shown, as one whose space is not in front,
+  whatever ended its process: what is shown there then is the person's to choose. An
+  agent does not rename a session while that session's request waits
+  ([ADR 0155](0155-renaming-sessions.md)).
+- **The tail** (`sessions/native/tail.rs`) has three parts: the queue's rows, the block's title and
+  its body. The title is a part of its own, as it alone is drawn again, and starts with the row
+  between the block and what is above. Until R1c only the queue has text.
+- **The order of docks** is the strip, the card, the composer, and so is that of `C-x o` and of
+  `windmove`. Public: `DockSlot::Card` is declared
+  after `DockSlot::Strip`.
+- **"Open", read in the code and not run:** `Event::InputSource` is told as oso first comes in
+  front, and each change after, so the app keeps the last and oso-platform needs nothing. oso's own
+  switch to ASCII is told too, as `Other`: while oso wants ASCII, and 500 ms after, an `Other` does not
+  take the place of a Japanese known before. Linux and Windows tell of no source. No row's width need
+  become public, and `Editor::replace_native_rows` no argument: a place under the block's title keeps
+  its byte, which the tail's property test holds. For that, a text that goes on from all its range
+  held puts its last character in again, so that a place right after the range goes along.
+
 ## Open
 
-- Whether `Event::InputSource` comes at oso's start, that oso's own switch to ASCII for a prompt
-  ([ADR 0158](0158-japanese-in-prompts-and-review-drafts.md)) is not taken for the person's choice, and
-  whether other platforms can tell the source: R1.
+- What R1a says of the input source, of oso's own switch to ASCII for a prompt
+  ([ADR 0158](0158-japanese-in-prompts-and-review-drafts.md)) and of other platforms is from the code:
+  R1d runs it.
 - Whether [ADR 0175](0175-dictation-through-typewhisper.md)'s dictation writes in the answer input: R2.
+
+## R1b, as built (2026-11-24)
+
+R1 is four PRs: R1a (agents and the tail), R1b (a call's pure parts, `sessions::native::request`,
+which nothing shows yet), R1c (the switch for calls) and R1d (point).
+
+- **Every field is shown once** (`wire::request`). One of a known name that does not hold what the
+  tool's does is shown as any other. A path is whole, as the request has it; the mock-ups' was not.
+- **Text is exact.** A command's, a change's and a file's are as they are, and what the display
+  escapes by itself stays so. Oso puts two things in, each told from what was there: the `◌`, and a
+  space after a carriage return at a line's end, which the display else takes as part of the line
+  break. A text as a field's value is as it is too, unless it could be read as another value, and a
+  field's name unless it is not of ASCII letters, digits, `_`, `-` and `.`: these are JSON. A value
+  that nests is indented, up to 400 lines, and 64 KiB for all of a call's; else it is on one line. A
+  value of more than 40 characters is under its name, further in, as one of several lines is.
+- **Oso's words in column 0.** `\ white space at its end` is under a command's, a path's, a field's
+  or a changed line that ends so. `\ no line break at its end` is under a last line that has none
+  where the other text has one or is empty. `Change 1 of 2` is over each of several. `Why`,
+  `The change`, `Its other fields` and `The call's other fields` are over a part only where the one
+  before it could be read on into it, as a command of several lines, or why it runs reads as a field
+  (`timeout 5`): the mock-ups' scenes have none.
+- **Claude Code's own tools** are named in the title alone. Any other's whole name, escaped as there,
+  is the block's first line, as a title cuts it.
+- **A row's mark** is in `Highlight::RequestBody`, `$ ` too, as a row has its tint by what it starts
+  with; `+ ` and `- ` are in their line's highlight, as a tool's row has them. What runs, its fields
+  and a path have no highlight; why, and a change's kept lines, are in the quiet one. The line break
+  is in its mark's.
+- **A title** says `writes 60 lines` of a `Write`, as what it replaces is not in its request, and
+  `1 of 2 · adds 60 lines, removes 40` where both fit, else `1 of 2`.
+- **The diff** has 50 ms for all of a call's changes. Two texts that both lack a last line break are
+  compared as if both had it. Measured (release, one Mac): a block is made in 2 µs at 8 lines, 11 at
+  200, 83 at 2000 and 21 for one line of 64 KiB, and 670 for the worst nesting (p98); a change of
+  64 KiB took 13 ms at most, with no deadline.
+- **Reading:** a row's cells are to where its text ends, past its window's edge too, against the text
+  area's columns, as a space may hang in the mark's; one that is clipped there is not read, and a row of a
+  provisional wrap is read only where all of it shows. A view's wait starts as a frame of it was
+  presented, and again as anything of it changes, its rows' place in the window too. `34 of 202 rows
+  read` counts the body's lines, the same at every width, those not shown among them.
+- **The line** where point is has as many rows at a width whatever it says, so that what it says
+  moves no row. All read and its last row out of view, `SPC  read on` is in `y`'s place. All chips
+  are dim while an answer would be refused, in the quiet face on the band; `y` is, too, until all was
+  read, and `C-u y` until some of the block was in view for 500 ms. Once what is shown was read or is
+  in view, a call not shown whole has `C-u y` first, and `5 lines not shown` or `not shown at all` at
+  the right. Its text takes 13 to 26 µs at 20 to 120 cells, 46 at 2000 lines (p98).
 
 ## Alternatives considered
 

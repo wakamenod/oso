@@ -21,12 +21,14 @@ pub struct Renamable {
     pub of_callers_space: bool,
     /// The caller started it, as the record's parent says.
     pub callers_child: bool,
+    /// Its request waits for the person, who reads its name there (ADR 0182).
+    pub asks: bool,
 }
 
 /// Whether a session may be renamed, or why not (ADR 0155): never a space's current
 /// orchestrator, whose name the space's sessions message; for an agent, only itself, the
 /// sessions it started, and a current orchestrator's own space's sessions, never an earlier
-/// orchestrator.
+/// orchestrator, nor one whose request waits for the person (ADR 0182).
 ///
 /// # Errors
 ///
@@ -44,7 +46,12 @@ pub fn renamable(session: Renamable) -> Result<(), &'static str> {
         return Err("that is an earlier orchestrator of its space; only the person renames it");
     }
     if session.caller || session.of_callers_space || session.callers_child {
-        return Ok(());
+        return match session.asks {
+            true => {
+                Err("that session's request waits for the person; try again once it is answered")
+            }
+            false => Ok(()),
+        };
     }
     Err(
         "a session renames itself and the sessions it started, and a space's orchestrator its space's sessions",

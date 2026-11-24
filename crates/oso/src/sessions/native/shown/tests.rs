@@ -423,6 +423,7 @@ fn of_a_reply(highlight: Highlight) -> bool {
         | Highlight::SessionAlertLit
         | Highlight::CardTitle
         | Highlight::CardKey
+        | Highlight::RequestBody
         | Highlight::SessionWorking
         | Highlight::SessionDone
         | Highlight::SessionQuiet
@@ -489,7 +490,8 @@ fn next(face: Face) -> (Option<Face>, bool) {
         Face::Error => (Face::Waiting, false),
         Face::Waiting => (Face::CardTitle, false),
         Face::CardTitle => (Face::CardKey, false),
-        Face::CardKey => (Face::Icon(Icon::Read), false),
+        Face::CardKey => (Face::RequestBody, false),
+        Face::RequestBody => (Face::Icon(Icon::Read), false),
         Face::Icon(Icon::Read) => (Face::Icon(Icon::Write), false),
         Face::Icon(Icon::Write) => (Face::Icon(Icon::Shell), false),
         Face::Icon(Icon::Shell) => (Face::Icon(Icon::Search), false),
@@ -525,7 +527,7 @@ fn no_text_of_a_reply_has_a_class_of_a_row_s_own() {
         face = after;
         seen += 1;
     }
-    assert_eq!(seen, 33);
+    assert_eq!(seen, 34);
 }
 
 /// What is drawn in bold, in italic or over a line is a reply's, or what Claude thought: nothing

@@ -228,7 +228,8 @@ impl App {
             return (self.editor)
                 .message_unlogged(moving::space_gone(&moving.name, &moving.space_name));
         };
-        let shown = spaces.current() == Some(at);
+        // Behind while a native session's request waits where it would be shown (ADR 0182).
+        let shown = spaces.current() == Some(at) && !self.request_waits().holds_shown();
         if let Some(key) = moving.reuse {
             return self.resume_moved_record(key, &moving, at, shown);
         }

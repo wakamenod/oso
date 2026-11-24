@@ -42,6 +42,8 @@ impl Face {
             Highlight::CardTitle => Self::CardTitle,
             // As a menu's key, on its chip (ADR 0117).
             Highlight::CardKey => Self::MenuKey,
+            // A request is on the card's background (ADR 0182).
+            Highlight::RequestBody => Self::Card,
             Highlight::SessionWorking => Self::SessionWorking,
             Highlight::SessionDone => Self::SessionDone,
             Highlight::SessionQuiet => Self::SessionQuiet,

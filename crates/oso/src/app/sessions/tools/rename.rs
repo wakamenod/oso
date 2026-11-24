@@ -132,6 +132,7 @@ impl App {
             former: reach.role == Some(super::space::Role::Former),
             of_callers_space: reach.of_callers_space,
             callers_child: reach.callers_child,
+            asks: self.native_asks_person(key),
         })
     }
 

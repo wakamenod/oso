@@ -354,8 +354,8 @@ impl Core {
                 self.sessions.remove(&key);
                 return Vec::new();
             }
-            Job::ExplainFile(path) => return vec![self.explain_file(&path)],
-            Job::Explain(key) => return vec![self.explain(key)],
+            Job::ExplainFile(path, there) => return vec![self.explain_file(&path, there)],
+            Job::Explain(key, there) => return vec![self.explain(key, there)],
             Job::Externals(on) => {
                 self.poll.set(on.then(registry_directory).flatten(), now);
                 return Vec::new();
@@ -495,7 +495,7 @@ impl Core {
 
     /// Reads the saved screen at `path` and explains it with the rules in force.
     /// The explanation of session `key`'s last look, judged again with the rules in force.
-    fn explain(&self, key: SessionKey) -> Out {
+    fn explain(&self, key: SessionKey, there: bool) -> Out {
         match self.sessions.get(&key).and_then(|s| s.evidence.as_ref()) {
             Some(evidence) => {
                 let verdict = evaluate(&self.rules, evidence);
@@ -503,16 +503,18 @@ impl Core {
                 Out::Explained(
                     Some(key),
                     explain::text(what, &self.rules, evidence, &verdict),
+                    there,
                 )
             }
             None => Out::Unexplained(
                 Some(key),
                 "Nothing of that session's screen was looked at yet".into(),
+                there,
             ),
         }
     }
 
-    fn explain_file(&self, path: &Path) -> Out {
+    fn explain_file(&self, path: &Path, there: bool) -> Out {
         match read_screen(path) {
             Ok(text) => {
                 let shown = path.display().to_string();
@@ -521,9 +523,14 @@ impl Core {
                 Out::Explained(
                     None,
                     explain::text(&shown, &self.rules, &evidence, &verdict),
+                    there,
                 )
             }
-            Err(why) => Out::Unexplained(None, format!("Cannot explain that screen file: {why}")),
+            Err(why) => Out::Unexplained(
+                None,
+                format!("Cannot explain that screen file: {why}"),
+                there,
+            ),
         }
     }
 }

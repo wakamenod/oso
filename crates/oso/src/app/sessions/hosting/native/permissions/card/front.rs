@@ -1,43 +1,79 @@
-//! Whether a native session's request waits in front of the person (ADR 0165), or on
-//! any card.
+//! Where a native session's request waits (ADR 0182, "Point" 8): in front of the person, in
+//! sight, or anywhere.
 //!
 //! Must not depend on: key presses, or who asks.
 //!
 //! - In front: the selected window, or the one beneath the prompts, shows the session's
 //!   transcript, its composer or its plan's edit, or is docked under its transcript, as its card
-//!   is, while its request waits on a card.
-//! - On any card: one a window shows, and one of a session no window shows.
+//!   is, while its request waits.
+//! - In sight: a window of the frame shows one of those.
+//! - Anywhere: one a window shows, and one of a session no window shows.
+//! - With the side window selected, a buffer shown goes to a window of the tree, which may be a
+//!   request's in sight.
 
 use oso_core::editor::Editor;
+use oso_core::window::Window;
 
 use crate::app::App;
 use crate::app::sessions::hosting::native::NativeSessions;
 use crate::sessions::worker::SessionKey;
 
-/// The session whose request waits in front of the person, if one's does.
-fn waiting_in_front(editor: &Editor, natives: &NativeSessions) -> Option<SessionKey> {
-    let window = editor.tiled().0;
-    let selected = window.buffer();
-    let host = window.docked().map_or(selected, |(host, _)| host);
+/// Where a request waits, and what is selected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::app) struct RequestWaits {
+    /// In front of the person.
+    pub(in crate::app) in_front: bool,
+    /// In a window of the frame.
+    pub(in crate::app) in_sight: bool,
+    /// Somewhere.
+    pub(in crate::app) any: bool,
+    /// The side window is selected: what is shown from it goes to a window of the tree.
+    pub(in crate::app) side_selected: bool,
+}
+
+impl RequestWaits {
+    /// Whether a buffer shown now might come in the window of a request, which holds it back.
+    pub(in crate::app) fn holds_shown(self) -> bool {
+        self.in_front || (self.in_sight && self.side_selected)
+    }
+}
+
+/// Where a request of `natives` waits.
+fn request_waits(editor: &Editor, natives: &NativeSessions) -> RequestWaits {
+    let any = natives.permissions.asks.any_shown();
+    let in_front = any && waiting_at(natives, editor.tiled().0).is_some();
+    let in_a_window = || {
+        (editor.frame().windows().iter())
+            .filter(|(_, regions)| regions.text.columns > 0)
+            .filter_map(|(id, _)| editor.window_by_id(*id))
+            .any(|window| waiting_at(natives, window).is_some())
+    };
+    RequestWaits {
+        in_front,
+        in_sight: in_front || (any && in_a_window()),
+        any,
+        side_selected: editor.side_window() == Some(editor.tiled().0.id()),
+    }
+}
+
+/// The session whose request waits and that `window` shows, if one's does.
+fn waiting_at(natives: &NativeSessions, window: &Window) -> Option<SessionKey> {
+    let shown = window.buffer();
+    let host = window.docked().map_or(shown, |(host, _)| host);
     let its = (natives.map.iter()).find_map(|(key, native)| {
         let here = native.buffer == host
-            || native.composing.buffer == Some(selected)
-            || native.card == Some(selected);
+            || native.composing.buffer == Some(shown)
+            || native.card == Some(shown);
         here.then_some(*key)
     });
-    let key = its.or_else(|| natives.permissions.plans.session(selected))?;
+    let key = its.or_else(|| natives.permissions.plans.session(shown))?;
     (natives.permissions.asks.shown(key).is_some()).then_some(key)
 }
 
 impl App {
-    /// Whether a native session's request waits in front of the person.
-    pub(in crate::app) fn request_in_front(&self) -> bool {
-        waiting_in_front(&self.editor, &self.hosting.natives).is_some()
-    }
-
-    /// Whether a native session's request waits on a card, in front of the person or not.
-    pub(in crate::app) fn request_shown(&self) -> bool {
-        self.hosting.natives.permissions.asks.any_shown()
+    /// Where a native session's request waits.
+    pub(in crate::app) fn request_waits(&self) -> RequestWaits {
+        request_waits(&self.editor, &self.hosting.natives)
     }
 }
 
@@ -51,7 +87,7 @@ mod tests {
     use oso_core::window::DockSlot;
 
     use super::super::plan::tests::editing;
-    use super::{NativeSessions, waiting_in_front};
+    use super::{NativeSessions, request_waits, waiting_at};
     use crate::app::sessions::hosting::native::markdown::tests::native;
     use crate::channel::Connection;
     use crate::channel::protocol::permission::Call;
@@ -108,12 +144,12 @@ mod tests {
             let mut seen = Vec::new();
             for window in docked {
                 editor.select_window(window);
-                seen.push(waiting_in_front(editor, natives));
+                seen.push(waiting_at(natives, editor.tiled().0));
             }
             editor.select_window(host);
             for shown in [transcript, composer, plan] {
                 editor.show(shown);
-                seen.push(waiting_in_front(editor, natives));
+                seen.push(waiting_at(natives, editor.tiled().0));
             }
             seen
         };
@@ -129,7 +165,46 @@ mod tests {
         assert_eq!(look(&natives, &mut editor), [Some(KEY); 5]);
         for elsewhere in [notes, other] {
             editor.show(elsewhere);
-            assert_eq!(waiting_in_front(&editor, &natives), None);
+            assert_eq!(waiting_at(&natives, editor.tiled().0), None);
         }
+    }
+
+    #[test]
+    fn a_request_is_in_sight_in_any_window_of_the_frame() {
+        let mut editor = Editor::with_buffer(Buffer::from_text("notes.md", ""));
+        editor.set_frame_size(oso_core::frame::FrameSize {
+            rows: 40,
+            columns: 120,
+        });
+        let transcript = editor.add_native_session_buffer("*claude: s*");
+        let plan = editor.add_internal_buffer("*plan: s*".to_owned(), Mode::Plan);
+        let mut natives = NativeSessions::default();
+        natives.map.insert(KEY, native(transcript));
+        natives.permissions.plans = editing(KEY, plan);
+        let at = |natives: &NativeSessions, editor: &Editor| {
+            let waits = request_waits(editor, natives);
+            (
+                waits.in_front,
+                waits.in_sight,
+                waits.any,
+                waits.side_selected,
+            )
+        };
+        assert_eq!(at(&natives, &editor), (false, false, false, false));
+        wait(&mut natives, KEY, true);
+        assert_eq!(at(&natives, &editor), (false, false, true, false));
+        let notes = editor.window().id();
+        let beside = editor
+            .split_window(oso_core::frame::Way::Across, true)
+            .unwrap();
+        for shown in [transcript, plan] {
+            editor.select_window(beside);
+            editor.show(shown);
+            assert_eq!(at(&natives, &editor), (true, true, true, false));
+            editor.select_window(notes);
+            assert_eq!(at(&natives, &editor), (false, true, true, false));
+        }
+        let _ = natives.permissions.asks.remove_where(|_| true);
+        assert_eq!(at(&natives, &editor), (false, false, false, false));
     }
 }

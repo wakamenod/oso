@@ -9,17 +9,17 @@ use crate::buffer::BufferId;
 /// Where a docked window goes under its host buffer's window (ADR 0170), top to bottom.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum DockSlot {
-    /// A permission card.
-    Card,
     /// The to-do strip.
     Strip,
+    /// A permission card.
+    Card,
     /// The composer.
     Composer,
 }
 
 impl DockSlot {
     /// Every slot, top to bottom.
-    pub(crate) const ALL: [Self; 3] = [Self::Card, Self::Strip, Self::Composer];
+    pub(crate) const ALL: [Self; 3] = [Self::Strip, Self::Card, Self::Composer];
 }
 
 impl Window {

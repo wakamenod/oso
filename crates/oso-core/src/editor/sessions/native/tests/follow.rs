@@ -71,6 +71,40 @@ fn composer(editor: &mut Editor, id: BufferId) -> WindowId {
     editor.dock_window(id, DockSlot::Composer).unwrap()
 }
 
+/// What follows a range goes with it, though its new text only goes on from the old: a place at the
+/// first byte after it stays on that byte, the cursor's and the view's top.
+#[test]
+fn what_follows_a_row_that_goes_on_keeps_its_place() {
+    for (old, new) in [
+        ("é\n", "é\n\n"),
+        ("a", "ab"),
+        ("a\n", "a\nb\n"),
+        ("", "a\n"),
+    ] {
+        let (mut editor, id) = following(0);
+        let window = editor.window().id();
+        add(&mut editor, id, old);
+        for row in 0..60 {
+            add(&mut editor, id, &format!("row {row}\n"));
+        }
+        let mut selections = editor.window().selections.clone();
+        selections.move_primary(old.len());
+        let scroll = crate::window::Scroll {
+            start: old.len(),
+            left: 0,
+        };
+        editor.restore_positions_in(window, selections, scroll);
+        editor.replace_native_rows(id, 0..old.len(), new, &[]);
+        let after = editor.window_by_id(window).unwrap();
+        let wanted = if old.is_empty() { 0 } else { new.len() };
+        let at = after.selections.primary().cursor;
+        assert_eq!(at, wanted, "{old:?} to {new:?}");
+        if old.ends_with('\n') {
+            assert_eq!(after.scroll().start, wanted, "{old:?} to {new:?}");
+        }
+    }
+}
+
 #[test]
 fn a_transcript_follows_while_its_composer_is_selected() {
     let (mut editor, id) = following(0);

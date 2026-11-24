@@ -539,7 +539,8 @@ OS and architecture. Nothing is built or installed there.
 `cargo-fuzz` targets cover file loading and decoding, the display model under
 random edits, highlighting and terminal escape-sequence handling. Agents can
 run them for long periods. Crates without a cargo-fuzz harness fuzz through proptest: the
-agent sessions' rules engine (`sessions::fuzz_tests`) and each module of `oso-lsp`
+agent sessions' rules engine (`sessions::fuzz_tests`), a native session's requests
+(`sessions::native::request::fuzz_tests`, ADR 0182) and each module of `oso-lsp`
 (`<module>::tests::fuzz`, ADR 0138). Each runs in `just ci` with proptest's default cases;
 `PROPTEST_CASES=200000 cargo test -p <crate> --release <path>` runs one for long.
 

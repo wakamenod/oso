@@ -19,6 +19,7 @@ use serde_json::json;
 use super::super::composer::Composing;
 use super::super::interrupting::SIGNALS;
 use super::super::note::NativeState;
+use super::super::put_tail;
 use super::super::{Native, NativeSessions, draw};
 use super::{MAX_OPEN, MAX_WAITING, Marks, Opener, reported, sync};
 use crate::app::freer::Freer;
@@ -74,6 +75,7 @@ const SESSION: u64 = 7;
 /// placeholder's tests take it too.
 pub(in crate::app::sessions::hosting::native) fn native(buffer: BufferId) -> Native {
     Native {
+        tail: crate::sessions::native::tail::Tail::default(),
         buffer,
         rows: Rows::new(PathBuf::from("/w")),
         placed: Placed::default(),
@@ -356,10 +358,15 @@ fn laid_faces_are_those_the_rows_were_drawn_with() {
     ]);
     // A queued message's grey row at the end, as `draw_queue` puts it.
     let native = setup.natives.map.get_mut(&SESSION).expect("session");
-    let (end, queued) = (native.placed.end(), "  queued\n".to_string());
-    let runs = [(queued.len(), Some(Face::Dim.highlight()))];
-    (setup.editor).replace_native_rows(setup.buffer, end..end, &queued, &runs);
-    native.composing.rows = queued;
+    let queued = "  queued\n".to_string();
+    let runs = vec![(queued.len(), Some(Face::Dim.highlight()))];
+    assert!(put_tail(
+        &mut setup.editor,
+        native,
+        crate::sessions::native::tail::Part::Queue,
+        queued,
+        runs
+    ));
     // Its replies plain: none is reported.
     setup.natives.replies.opener = None;
     setup.sync(true);

@@ -23,6 +23,7 @@ use crate::sessions::native::placed::Placed;
 use crate::sessions::native::remote::Remote;
 use crate::sessions::native::rows::Rows;
 use crate::sessions::native::slash::SlashCommands;
+use crate::sessions::native::tail::Tail;
 use crate::sessions::start::NativeOrder;
 use crate::sessions::worker::SessionKey;
 
@@ -170,6 +171,7 @@ impl App {
             buffer,
             rows,
             placed: Placed::default(),
+            tail: Tail::default(),
             widths: Widths::default(),
             stream: None,
             state: NativeState::Starting,

@@ -20,6 +20,8 @@ pub(crate) mod dired;
 mod edit;
 pub use edit::MAX_CROSSINGS;
 pub use modes::FONT_LOCK;
+pub use view::TRUNCATE_LINES;
+pub use windows::COMMANDS as WINDOW_COMMANDS;
 mod files;
 pub(crate) mod help;
 mod indent;

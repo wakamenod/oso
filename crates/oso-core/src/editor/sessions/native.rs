@@ -42,7 +42,8 @@ impl Editor {
 
     /// Puts `text` in place of the bytes `range` of the native session buffer `id`, with
     /// `runs` laid over the new text as lengths and highlights; the rest keeps its highlights.
-    /// The range is clamped to the text and to character starts. O(log n) and the text's
+    /// The range is clamped to the text and to character starts. A place after the range stays on
+    /// what it is on, the first byte after it too, if the range is not empty. O(log n) and the text's
     /// length, with no undo record. Nothing happens to a buffer that is not a native
     /// session's.
     pub fn replace_native_rows(
@@ -57,12 +58,15 @@ impl Editor {
         };
         let (start, end) = buffer.text().clip_range(range);
         // What stays the same at its start is no edit, so that a window reading there stays.
-        // One drawn the same is put in again, for its runs.
+        // One drawn the same is put in again, for its runs. One that goes on from all it held puts
+        // its last character in again, so that a place right after it goes along with what it is on.
         let same = common_start(buffer.text(), start..end, text);
-        let same = if same == text.len() && same == end - start {
+        let same = if same < end - start {
+            same
+        } else if same == text.len() {
             0
         } else {
-            same
+            text.floor_char_boundary(same.saturating_sub(1))
         };
         let edits = [Replacement {
             range: start + same..end,

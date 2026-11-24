@@ -76,10 +76,11 @@ pub enum Job {
     WorkMerged(SessionKey, std::time::Instant),
     /// A session is gone from oso: a native one given no message (ADR 0165, step 2).
     Forget(SessionKey),
-    /// Explain the saved screen in this file.
-    ExplainFile(PathBuf),
-    /// Explain the last look at a hosted session's screen (`session-explain`).
-    Explain(SessionKey),
+    /// Explain the saved screen in this file, asked for [there](Out::Explained) or not.
+    ExplainFile(PathBuf, bool),
+    /// Explain the last look at a hosted session's screen (`session-explain`), asked for there or
+    /// not.
+    Explain(SessionKey, bool),
     /// Look at Claude Code's registry once a second for other programs' sessions, or stop.
     Externals(bool),
     /// With each look, `stat` these projects' `worktrees` directories, by `(root, directory)`
@@ -196,12 +197,13 @@ pub enum Out {
     /// did not (ADR 0121, step 5): cleaned and cut, the screen's text.
     Message(SessionKey, String),
     /// The explanation of a saved screen, for `*Session explain*`: of session `key`'s last
-    /// look, or of a file for `None`.
-    Explained(Option<SessionKey>, String),
+    /// look, or of a file for `None`; and whether it was asked for with a native session's request
+    /// where it would be shown, as its job said (ADR 0182).
+    Explained(Option<SessionKey>, String, bool),
     /// A saved screen could not be read, and why, for the echo area, of session `key`'s or a
     /// file's. It names no path: what the person typed stays theirs, and the agent channel reads
-    /// the echo area.
-    Unexplained(Option<SessionKey>, String),
+    /// the echo area. Asked for there or not, as [`Out::Explained`].
+    Unexplained(Option<SessionKey>, String, bool),
     /// The rules took longer than their budget on [`SLOW_AFTER`] looks in a row at a screen,
     /// this rule the longest: said once for each set of rules.
     Slow(String),

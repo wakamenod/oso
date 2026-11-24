@@ -6,9 +6,12 @@
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
 use oso_core::editor::Editor;
 
+/// The command that truncates a buffer's long lines, or wraps them.
+pub const TRUNCATE_LINES: &str = "toggle-truncate-lines";
+
 /// The commands that change how text is shown.
 pub const COMMANDS: &[Command] = &[Command {
-    name: "toggle-truncate-lines",
+    name: TRUNCATE_LINES,
     doc: "Toggle whether long lines of the current buffer are truncated at the window's edge or wrap onto more rows.\n\nWith a positive argument, truncate them; with zero or a negative one, wrap them. Each window wraps at its own width, and motion stays on whole lines.",
     args: ArgSpec::Count,
     // It changes how text is shown, never the text, a file or the clipboard (ADR 0100).

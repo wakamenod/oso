@@ -1,5 +1,6 @@
 //! Commands that split, delete, select and resize the tiled windows (ADR 0112). They change
-//! no text or file, and each refuses inside a prompt, whose window is not in the tree.
+//! no text or file, and each refuses inside a prompt, whose window is not in the tree. An agent runs none of them while a native session's request is in
+//! sight (ADR 0182).
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the
 //! host-owned state and does not know its keys.

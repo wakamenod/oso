@@ -77,7 +77,9 @@ and the move at once; then that questions and plans grow and page, and the publi
   composer was last empty and the selected buffer, and since the key before; longer after a
   prompt an agent opened closed; never from a macro; never while the card's window shows
   less than all of it. An agent's look may run while the composer is selected, as the gate looks at
-  the card's window at the answer, and waits again once it shows all of it.
+  the card's window at the answer, and waits again once it shows all of it. (Not since
+  [ADR 0182](0182-a-native-sessions-requests-in-its-conversation.md)'s R1a: no agent command runs
+  there.)
 - **Where a key would not answer, it is typed.** It is neither an answer nor lost. With text
   in the composer, every key is typed.
 - **Only a key the person types there:** one that would be typed. Not one a keymap binds, nor one

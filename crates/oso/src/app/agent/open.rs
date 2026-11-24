@@ -173,7 +173,7 @@ impl App {
 
     /// Shows `open`, a buffer that already holds the file the agent asked for, at `line`, if
     /// it may be shown: judged ordinary, read, and the person not in the middle of something,
-    /// with no native session's request in front.
+    /// with no native session's request where it would be shown.
     /// Its mark stays as it is: a buffer the person visited stays theirs (ADR 0094).
     fn show_open_for_agent(&mut self, open: BufferId, line: Option<usize>, jump: bool) -> Reply {
         let refused = match self.editor.buffer(open) {
@@ -189,7 +189,7 @@ impl App {
 
     /// Shows a file the channel opened, which is judged ordinary and read, and goes to its
     /// line, unless the person is in the middle of something, or a native session's request
-    /// waits in front: then it is dropped.
+    /// waits where it would be shown: then it is dropped.
     fn show_agents_file(&mut self, opening: &Opening) -> Reply {
         if let Some(why) = self.open_waits() {
             self.drop_agents_file(opening.buffer);

@@ -15,7 +15,7 @@
 //!   (tier 2, step 2c). A line of Claude Code's transcript of a conversation, read for a
 //!   session's earlier turns, is `transcript`'s (step 5).
 //! - `messages` reads the messages' bodies, `tools` a tool call's input, `card` what a
-//!   permission card shows, `control` the control protocol's lines, `slash` the slash commands
+//!   permission card shows, `request` what a request's block does (ADR 0182), `control` the control protocol's lines, `slash` the slash commands
 //!   listed, `status_line` what the status line reads of the answers (part 3a), `todo` the
 //!   to-do tools' input and results (part 3e) and `remote` what the stream says of Remote
 //!   Control (ADR 0181): with this file and `transcript`, the only places
@@ -25,6 +25,7 @@ pub mod card;
 pub mod control;
 mod messages;
 pub mod remote;
+pub mod request;
 pub mod slash;
 pub mod status_line;
 pub mod todo;

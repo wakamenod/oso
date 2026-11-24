@@ -214,9 +214,9 @@ impl App {
         self.adopt_into(pick, None);
     }
 
-    /// Whether conversation `id` is oso's already, which is shown, or being adopted, its start
-    /// waiting or under way, which the echo area says.
-    fn adopted_already(&mut self, id: &crate::sessions::identity::SessionId) -> bool {
+    /// Whether conversation `id` is oso's already, which is shown unless not `shown`, or being
+    /// adopted, its start waiting or under way, which the echo area says.
+    fn adopted_already(&mut self, id: &crate::sessions::identity::SessionId, shown: bool) -> bool {
         if (self.hosting.adopting.pending.values()).any(|adoption| &adoption.from.id == id) {
             self.editor
                 .message_unlogged("That conversation is being adopted".to_owned());
@@ -226,7 +226,7 @@ impl App {
             return false;
         };
         let (name, buffer) = (session.name.clone(), session.buffer);
-        if let Some(buffer) = buffer {
+        if let Some(buffer) = buffer.filter(|_| shown) {
             self.editor.show(buffer);
         }
         self.editor
@@ -240,7 +240,11 @@ impl App {
         if let Some((_, busy)) = self.hosting.adopting.names.get(&pick.id) {
             pick.busy |= busy;
         }
-        if self.adopted_already(&pick.id) {
+        // One that moves stays behind while a native session's request waits where it would be
+        // shown (ADR 0182).
+        let shown = (landing.as_ref())
+            .is_none_or(|landing| landing.shown && !self.request_waits().holds_shown());
+        if self.adopted_already(&pick.id, shown) {
             return;
         }
         let Some(directory) = pick.directory.clone().filter(|dir| is_plain_directory(dir)) else {
@@ -288,7 +292,6 @@ impl App {
         };
         self.hosting.adopting.pending.insert(key, adoption);
         self.turn_agent_channel_on_for_a_session();
-        let shown = landing.as_ref().is_none_or(|landing| landing.shown);
         let native = self.start_native_adopt(key, &pick.id, &name, &directory, &root, shown);
         let (runs, buffer, gate) = self.native_or_terminal(key, &name, shown, native);
         let native = matches!(runs, Runs::Native(_));
@@ -301,9 +304,7 @@ impl App {
             self.hosting.origins.insert(key, (Origin::Answered, None));
             // Its space shows it once entered.
             let spaces = self.watch.spaces_mut();
-            if !landing.shown
-                && let Some(at) = spaces.find(&landing.space)
-            {
+            if !shown && let Some(at) = spaces.find(&landing.space) {
                 spaces.showed(at, Some(buffer), None);
             }
         }

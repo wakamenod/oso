@@ -81,10 +81,13 @@ pub enum Face {
     Waiting,
     /// Of a reply, by its Markdown.
     Reply(Style),
-    /// A permission card's frame and title: oso's words alone, never Claude's (ADR 0180).
+    /// A permission card's frame and title, and a request's title and line: oso's words alone,
+    /// never Claude's (ADR 0180, ADR 0182).
     CardTitle,
     /// A key of a permission card, on its chip: oso's alone too.
     CardKey,
+    /// What a line of a request's block starts with, and oso's words there (ADR 0182): oso's alone.
+    RequestBody,
 }
 
 /// What a tool does, which its badge's colours tell.
@@ -114,7 +117,7 @@ pub struct Rendered {
 }
 
 impl Rendered {
-    fn put(&mut self, text: &str, face: Option<Face>) {
+    pub(super) fn put(&mut self, text: &str, face: Option<Face>) {
         let start = self.text.len();
         self.text.push_str(text);
         if let Some(face) = face
