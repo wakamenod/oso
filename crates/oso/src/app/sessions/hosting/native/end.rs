@@ -173,8 +173,8 @@ impl App {
             self.editor.kill_buffer(composer);
         }
         // An internal buffer no kill takes away.
-        if let Some(card) = native.card {
-            self.editor.remove_internal_buffer(card);
+        for id in [native.card, native.line].into_iter().flatten() {
+            self.editor.remove_internal_buffer(id);
         }
         if let Some(strip) = native.todo.buffer {
             self.editor.remove_internal_buffer(strip);

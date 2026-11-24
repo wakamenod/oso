@@ -45,7 +45,7 @@ impl App {
             self.hosting.natives.permissions.current = None;
             return;
         };
-        let whole = self.card_shows_all(key);
+        let whole = self.place_shows_all(key);
         let permissions = &mut self.hosting.natives.permissions;
         let since = waits_from(Instant::now(), permissions.agents_prompt_closed);
         match &mut permissions.current {
@@ -87,9 +87,43 @@ impl App {
         }
     }
 
-    /// oso's window came in front, or in sight, again: the card in front, or a plan's question,
-    /// waits again, as the person may see it only now.
+    /// When what came in front of the person `at` waits from, longer after a prompt an agent opened
+    /// closed.
+    pub(in super::super) fn waits_after_agents(&self, at: Instant) -> Instant {
+        waits_from(at, self.hosting.natives.permissions.agents_prompt_closed)
+    }
+
+    /// oso's window came in front, or left it: as the system says, never assumed (ADR 0182).
+    pub(in crate::app) fn note_window_in_front(&mut self, front: bool) {
+        let permissions = &mut self.hosting.natives.permissions;
+        match (front, permissions.front) {
+            (true, None) => permissions.front = Some(Instant::now()),
+            (true, Some(_)) => {}
+            (false, _) => {
+                permissions.front = None;
+                self.close_unread_question();
+            }
+        }
+    }
+
+    /// oso's window was hidden, or is in sight again.
+    pub(in crate::app) fn note_window_hidden(&mut self, hidden: bool) {
+        self.hosting.natives.permissions.hidden = hidden;
+        if hidden {
+            self.close_unread_question();
+        }
+    }
+
+    /// Since when oso's window is in front, if it is, and in sight.
+    pub(in super::super) fn window_seen_since(&self) -> Option<Instant> {
+        let permissions = &self.hosting.natives.permissions;
+        permissions.front.filter(|_| !permissions.hidden)
+    }
+
+    /// oso's window came in front, or in sight, again: the card in front, or a question before an
+    /// answer, waits again, as the person may see it only now.
     pub(in crate::app) fn card_seen_again(&mut self) {
+        self.unread_question_waits_again();
         let plans = &mut self.hosting.natives.permissions.plans;
         plans.wait_again(Instant::now());
         if let Some(current) = self.hosting.natives.permissions.current {
@@ -97,18 +131,29 @@ impl App {
         }
     }
 
-    /// The selected tiled buffer, or the one beneath the prompts, if a card may be answered from
-    /// it, and its session: a card, the empty composer of a session whose card shows, or the
-    /// edit of a plan that waits.
+    /// Whether what session `key`'s request is answered from, its line or its card, shows all of it.
+    pub(super) fn place_shows_all(&self, key: SessionKey) -> bool {
+        let shown = self.hosting.natives.permissions.asks.shown(key);
+        match shown.and_then(|ask| ask.request()) {
+            Some(_) => self.line_shows_all(key),
+            None => self.card_shows_all(key),
+        }
+    }
+
+    /// The selected tiled buffer, or the one beneath the prompts, if a request may be answered from
+    /// it, and its session: a card, the empty composer of a session whose card shows, the
+    /// edit of a plan that waits, or a call's line.
     fn answering_place(&self) -> Option<(SessionKey, BufferId)> {
         let (window, buffer) = self.editor.tiled();
         let selected = window.buffer();
         match buffer.mode() {
             Mode::Card => Some((self.card_session(selected)?, selected)),
+            Mode::Request => Some((self.line_session(selected)?, selected)),
             Mode::Plan => Some((self.waiting_edit(selected)?, selected)),
             Mode::Composer => {
                 let key = self.composer_session(selected)?;
-                let shown = self.hosting.natives.permissions.asks.shown(key).is_some();
+                let shown = (self.hosting.natives.permissions.asks.shown(key))
+                    .is_some_and(|ask| ask.question().is_some());
                 let empty = self.composer_empty(key) && window.selections.len() == 1;
                 (shown && empty && !self.composing()).then_some((key, selected))
             }

@@ -345,10 +345,10 @@ impl Dispatcher {
         if !editor.macro_replaying() {
             for event in std::mem::take(&mut self.macros.held) {
                 // A key of the window's, held as `<held>`, is kept again as it runs (ADR 0150).
-                let ran = match event {
-                    MacroEvent::Key(key) => self.handle_key(editor, key),
-                    event => self.feed(editor, &event),
-                };
+                let ran = self.as_held(editor, |this, editor| match event {
+                    MacroEvent::Key(key) => this.handle_key(editor, key),
+                    event => this.feed(editor, &event),
+                });
                 effects = effects.union(ran);
             }
         }

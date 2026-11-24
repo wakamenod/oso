@@ -405,25 +405,21 @@ fn a_native_sessions_calls_are_asked_of_the_person_with_the_agent_channel_off() 
     });
     flow.scratch.write("ask", b"");
 
-    // Each call the stream has is asked in turn, on the session's card, from what the stream
-    // says of it; point goes there as it appears.
-    let first = card(&mut app, "the first card");
-    assert!(
-        first.starts_with("╭─ Bash wants to run, in session proj "),
-        "{first}"
-    );
-    assert!(first.contains("│ $ rm -rf build"), "{first}");
-    assert!(first.contains("╰─  y  allow"), "{first}");
-    answer_after_quiet(&mut app, "y");
-    // Answered, the card goes, and the call that waits behind it has its own, with point there as
-    // it appears (ADR 0180).
-    card_saying(&mut app, "the second card", "│ $ make");
-    // `RET` shows the whole call in the card, and goes back.
-    answer_after_quiet(&mut app, "RET");
-    app.wait_for("the whole call", |state| {
-        text(state).contains(r#""command": "make""#)
+    // Each call the stream has is asked in turn, in the conversation, from what the stream says of
+    // it; point stays where it is.
+    request::request(&mut app, "the first block");
+    let state = app.state();
+    assert_eq!(state["buffer"]["name"], "*claude: proj*", "{state}");
+    let shown = text(&state);
+    assert!(shown.contains("\n⚠ Bash asks to run"), "{shown}");
+    assert!(shown.ends_with("\n$ rm -rf build\n"), "{shown}");
+    request::go(&mut app);
+    request::allow(&mut app);
+    // Answered, the call that waits behind it has its own block, with point on its line.
+    app.wait_for("the second block", |state| {
+        state["buffer"]["name"] == "*request: proj*" && state["request"]["of"] == 1
     });
-    answer_after_quiet(&mut app, "n");
+    request::answer(&mut app, "n");
 
     // `y` gives the CLI its own input back; `n` and a call the stream lacks deny.
     check_answers(&flow);
@@ -431,7 +427,7 @@ fn a_native_sessions_calls_are_asked_of_the_person_with_the_agent_channel_off() 
         !app.state()["windows"]
             .as_array()
             .is_some_and(|windows| windows.iter().any(|w| w["docked"]["slot"] == "card")),
-        "no card is docked once answered"
+        "no line is docked once answered"
     );
 
     flow.scratch.write("go", b"0");
@@ -444,11 +440,11 @@ fn a_native_sessions_calls_are_asked_of_the_person_with_the_agent_channel_off() 
                 .is_some_and(|modeline| modeline.contains("stopped"))
     });
     assert!(!text(&state).contains("waiting for you"), "{state}");
-    // How soon each card showed after its request, for the PR (ADR 0165, step 2e-2).
+    // How soon each call showed after its request, for the PR (ADR 0165, step 2e-2).
     let log = app.stop_and_read_log();
     for row in log
         .lines()
-        .filter(|row| row.contains("permission card shown"))
+        .filter(|row| row.contains("native sessions: shown"))
     {
         println!("{row}");
     }
@@ -526,6 +522,7 @@ mod modes;
 mod past;
 mod plan;
 mod quit;
+mod request;
 mod restart;
 mod restart_wait;
 mod resume;

@@ -5,7 +5,7 @@
 //!
 //! - In front: the selected window, or the one beneath the prompts, shows the session's
 //!   transcript, its composer or its plan's edit, or is docked under its transcript, as its card
-//!   is, while its request waits.
+//!   or its line is, or a call's whole input or result, while its request waits.
 //! - In sight: a window of the frame shows one of those.
 //! - Anywhere: one a window shows, and one of a session no window shows.
 //! - With the side window selected, a buffer shown goes to a window of the tree, which may be a
@@ -63,7 +63,10 @@ fn waiting_at(natives: &NativeSessions, window: &Window) -> Option<SessionKey> {
     let its = (natives.map.iter()).find_map(|(key, native)| {
         let here = native.buffer == host
             || native.composing.buffer == Some(shown)
-            || native.card == Some(shown);
+            || native.card == Some(shown)
+            || native.line == Some(shown)
+            // A call's whole input, as its line shows it, in the transcript's place.
+            || native.result == Some(shown);
         here.then_some(*key)
     });
     let key = its.or_else(|| natives.permissions.plans.session(shown))?;
@@ -109,7 +112,8 @@ mod tests {
                 input: None,
             },
             came: Instant::now(),
-            question: None,
+            made: None,
+            asked: None,
             shown: shown.then(Instant::now),
             reply: mpsc::channel().0,
         });

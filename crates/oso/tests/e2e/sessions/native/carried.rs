@@ -12,7 +12,7 @@ use super::super::super::harness::{App, sockets};
 use super::super::super::spaces::trust_restricted;
 use super::super::super::worktrees::keys;
 use super::switch::{IDLE, switch_back, tui_idle};
-use super::{Flow, answer_after_quiet, card, composer_docked};
+use super::{Flow, composer_docked, request};
 
 /// The fake: run `N` from 1 logs its arguments to `run.N`. With `-p`, it prints `stream.jsonl`
 /// and asks its bridge, `oso mcp --pid PID --permission` as its `--mcp-config` names it, about
@@ -106,9 +106,12 @@ fn a_tui_carried_over_a_restart_and_switched_to_native_asks_the_person() {
     switch_back(&mut app);
     let native = flow.wait_for_file("run.2");
     assert!(native.lines().any(|line| line == "arg -p"), "{native}");
-    let asked = card(&mut app, "the card");
-    assert!(asked.contains("│ $ make"), "{asked}");
-    answer_after_quiet(&mut app, "y");
+    request::request(&mut app, "the block");
+    let state = app.state();
+    let shown = state["text"].to_string();
+    assert!(shown.contains("$ make"), "{shown}");
+    request::go(&mut app);
+    request::allow(&mut app);
     let answer: Value = serde_json::from_str(&flow.wait_for_file("answer")).unwrap();
     let text = answer["result"]["content"][0]["text"].as_str().unwrap();
     let said: Value = serde_json::from_str(text).unwrap();

@@ -7,7 +7,7 @@ use oso_core::minibuffer::cells_of;
 use serde_json::json;
 
 use super::tests::{asked, said};
-use super::{Card, MAX_ROWS, Question, Questions};
+use super::{Card, Question, Questions};
 use crate::sessions::native::render::Face;
 use crate::sessions::native::wire::card;
 
@@ -154,7 +154,7 @@ fn a_description_cannot_pass_for_an_option() {
 }
 
 #[test]
-fn a_plan_grows_and_pages_and_a_call_stays_as_it_was() {
+fn a_plan_grows_and_pages() {
     let plan = Card::Plan {
         plan: (0..30).map(|n| format!("step {n}\n")).collect(),
         cut: true,
@@ -167,12 +167,6 @@ fn a_plan_grows_and_pages_and_a_call_stays_as_it_was() {
     );
     assert_eq!(plan.shown(80, 20).rows, 20);
     assert!(plan.turn(1));
-    let mut call = Question::new(Card::Call {
-        title: "t".into(),
-        lines: vec![("x\n".repeat(50), Face::Target)],
-    });
-    assert_eq!(call.shown(80, 40).rows, MAX_ROWS);
-    assert!(!call.turn(1));
 }
 
 #[test]

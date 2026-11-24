@@ -11,7 +11,7 @@ impl App {
     /// Turns session `key`'s card `pages` pages on, back if negative.
     pub(super) fn turn_card(&mut self, key: SessionKey, pages: isize) {
         let asks = &mut self.hosting.natives.permissions.asks;
-        let Some(question) = asks.shown_mut(key).and_then(|ask| ask.question.as_mut()) else {
+        let Some(question) = asks.shown_mut(key).and_then(|ask| ask.question_mut()) else {
             return;
         };
         let grows = question.grows();
@@ -31,7 +31,7 @@ impl App {
     pub(super) fn turned_to(&mut self, key: SessionKey, number: u8) -> bool {
         let number = usize::from(number);
         let asks = &mut self.hosting.natives.permissions.asks;
-        let Some(question) = asks.shown_mut(key).and_then(|ask| ask.question.as_mut()) else {
+        let Some(question) = asks.shown_mut(key).and_then(|ask| ask.question_mut()) else {
             return false;
         };
         if question.has_shown(number) || !question.offers(number) {
@@ -54,7 +54,7 @@ impl App {
                 continue;
             }
             let asks = &mut self.hosting.natives.permissions.asks;
-            if let Some(question) = asks.shown_mut(key).and_then(|ask| ask.question.as_mut()) {
+            if let Some(question) = asks.shown_mut(key).and_then(|ask| ask.question_mut()) {
                 question.on_screen();
             }
         }

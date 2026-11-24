@@ -21,6 +21,7 @@ use crate::emergency::Publisher;
 use crate::{bindings, commands};
 
 mod agent;
+mod answers;
 mod args;
 mod branches;
 mod buffers;
@@ -139,6 +140,8 @@ pub struct Dispatcher {
     /// The key being handled answers a native session's card from its composer (ADR 0180).
     key_answers_card: bool,
     key_answered_card: bool,
+    /// What runs now was held until now, and answers no request (ADR 0182).
+    runs_held: bool,
     /// A command ran for the agent channel since the host last asked: what it queued is the
     /// agent's, so the saves it queued are checked as the channel's (ADR 0108).
     ran_for_agent: bool,
@@ -209,6 +212,7 @@ impl Dispatcher {
             rename_waits: false,
             key_answers_card: false,
             key_answered_card: false,
+            runs_held: false,
             ran_for_agent: false,
             terminal_keys: std::collections::HashMap::new(),
             terminal_sends: Vec::new(),
@@ -363,9 +367,13 @@ impl Dispatcher {
             repeats,
             ..invocation
         };
+        let refused = self.answer_refused(editor, id);
         let mut ctx = Ctx::invoked(editor, invocation);
         let boundary = self.publisher.as_ref().map(Publisher::enter_command);
-        let result = self.registry.execute(id, &mut ctx, args);
+        let result = match refused {
+            Some(refused) => Err(refused),
+            None => self.registry.execute(id, &mut ctx, args),
+        };
         drop(boundary);
         let mut effects = ctx.effects();
         editor.note_command_ended(effects.prefix.is_some());

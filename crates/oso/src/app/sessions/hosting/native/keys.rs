@@ -76,6 +76,13 @@ impl App {
         if let Some(key) = self.plan_session(buffer) {
             return self.plan_key(key, action);
         }
+        // To what waits, from the transcript or the composer, and from a request's line (ADR 0182).
+        if let Some(key) = self.line_session(buffer) {
+            if !self.request_key(key, buffer, action) {
+                self.composer_key(key, None, action);
+            }
+            return;
+        }
         // From a permission card, the session it asks for (step 2e-2).
         if let Some(key) = self.card_session(buffer) {
             if !self.card_key(key, buffer, action) {
@@ -163,6 +170,15 @@ impl App {
         let id = tool.id.clone();
         let shown = show_result(&mut self.editor, &mut native.result, &name, &text);
         native.result_of = shown.then_some(id);
+    }
+
+    /// Shows `text`, what a request's line shows of its call, in session `key`'s `*result: NAME*`:
+    /// no call's result from then on (ADR 0182).
+    pub(super) fn show_request_input(&mut self, key: SessionKey, name: &str, text: &str) {
+        if let Some(native) = self.hosting.natives.map.get_mut(&key) {
+            native.result_of = None;
+            show_result(&mut self.editor, &mut native.result, name, text);
+        }
     }
 
     /// Copies the Markdown of the reply at `offset`, as it came, to the kill ring and the

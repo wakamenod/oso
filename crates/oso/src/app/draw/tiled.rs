@@ -29,6 +29,7 @@ use oso_render::{
 use super::card::CardFills;
 use super::spaces::SpacesFills;
 use super::transcript::{ICONS, TranscriptFills};
+use crate::app::sessions::NativeSessions;
 use crate::sessions::list::SpaceBands;
 use crate::terminal::hosted::Terminals;
 
@@ -194,6 +195,9 @@ fn fills_of(cells: &WindowCells) -> [(Face, &[CellRect]); FILLS] {
         (Face::SessionBrief, &cells.transcript.briefs[..]),
         (Face::DiffAdded, &cells.transcript.added[..]),
         (Face::DiffRemoved, &cells.transcript.removed[..]),
+        // A request's block (ADR 0182).
+        (Face::CardTitle, &cells.transcript.titles[..]),
+        (Face::Card, &cells.transcript.bodies[..]),
         (ICONS[0], &cells.transcript.icons[0][..]),
         (ICONS[1], &cells.transcript.icons[1][..]),
         (ICONS[2], &cells.transcript.icons[2][..]),
@@ -202,7 +206,7 @@ fn fills_of(cells: &WindowCells) -> [(Face, &[CellRect]); FILLS] {
         (ICONS[5], &cells.transcript.icons[5][..]),
         (ICONS[6], &cells.transcript.icons[6][..]),
         (ICONS[7], &cells.transcript.icons[7][..]),
-        // A permission card's title and keys (ADR 0180).
+        // A card's title, a request's line, and the keys of both (ADR 0180, ADR 0182).
         (Face::CardTitle, &cells.card.title[..]),
         (Face::MenuKey, &cells.card.keys[..]),
         (Face::DiffAdded, &cells.review.added[..]),
@@ -222,7 +226,7 @@ fn fills_of(cells: &WindowCells) -> [(Face, &[CellRect]); FILLS] {
 }
 
 /// How many lists of cells a window fills behind its text.
-const FILLS: usize = 33;
+const FILLS: usize = 35;
 
 /// Room for what a frame lists of the tiled windows, empty between frames, which each frame
 /// takes at its own lifetime ([`super::reuse`]), so that a frame allocates nothing once warm.
@@ -366,6 +370,8 @@ pub(super) struct Drawn<'a> {
     pub(super) statuses: &'a [(WindowId, Status)],
     /// The empty composers' placeholders, and the line of each (ADR 0170).
     pub(super) placeholders: (&'a [placeholder::Row<'a>], &'a [placeholder::Line<'a>]),
+    /// The native sessions, whose requests' blocks mark white space (ADR 0182).
+    pub(super) natives: Option<&'a NativeSessions>,
     /// The cursor flash's strength in this frame, from the app's clock (ADR 0097).
     pub(super) flash: Option<f32>,
 }
@@ -530,7 +536,8 @@ fn text<'a>(
             .get(index)
             .map_or(&[][..], |behind| &behind.fills[..]),
         labels: drawn.labels.get(labels).unwrap_or_default(),
-        whitespace: editor.visual_aids().whitespace,
+        whitespace: editor.visual_aids().whitespace
+            || (drawn.natives).is_some_and(|natives| natives.shows_block(window.buffer())),
         flash,
         // None while font-lock is off, and in a buffer that may hold secrets (ADR 0111).
         highlights: buffer.highlights(),

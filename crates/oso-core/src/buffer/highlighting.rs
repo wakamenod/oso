@@ -281,6 +281,7 @@ impl Buffer {
             | Mode::SessionMove
             | Mode::NativeSession
             | Mode::Card
+            | Mode::Request
             | Mode::GitDiscarded
             | Mode::Sessions => false,
         };
@@ -450,6 +451,7 @@ impl Buffer {
                 Mode::Sessions
                     | Mode::NativeSession
                     | Mode::Card
+                    | Mode::Request
                     | Mode::Directory
                     | Mode::GitStatus
                     | Mode::GitGraph

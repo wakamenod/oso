@@ -161,6 +161,7 @@ impl App {
             NativeAction::History(count) => self.composer_history(key, count),
             NativeAction::Transcript => self.composer_go(key, false),
             NativeAction::Compose => self.composer_go(key, true),
+            NativeAction::Request => self.go_to_request(key),
             NativeAction::Queue => self.queue_go(key, 0),
             NativeAction::Suggestion => self.suggestion_to_composer(key),
             // The transcript's and the composer's `S-TAB` (part 3b).
@@ -185,6 +186,8 @@ impl App {
             | NativeAction::Choose(_)
             | NativeAction::Other
             | NativeAction::Page(_)
+            | NativeAction::ReadOn(_)
+            | NativeAction::Unread
             | NativeAction::Todo
             | NativeAction::EditPlan
             | NativeAction::Approve(_)

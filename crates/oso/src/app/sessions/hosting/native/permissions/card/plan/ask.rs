@@ -155,6 +155,7 @@ impl App {
         let lines = edit.and_then(|edit| edit.lines);
         let question = question(&self.plan_name(key), lines, approval);
         self.hosting.natives.permissions.plans.asked = None;
+        self.close_unread_question();
         match self.editor.ask(question, PLAN_CONFIRMED) {
             Ok(prompt) => {
                 self.hosting.natives.permissions.plans.asked = Some(Asked {
@@ -171,12 +172,21 @@ impl App {
         self.request_redraw();
     }
 
+    /// The question before an approval, if one is open, is dropped: another is asked in its place.
+    pub(in super::super::super) fn drop_plan_question(&mut self) {
+        self.hosting.natives.permissions.plans.asked = None;
+    }
+
     /// `y` to the question asked last before an approval: the plan it asked about approved as
     /// it asked, if its call still waits on its card, from the edit it was asked in, which is
     /// checked again.
     pub(in crate::app::sessions::hosting::native) fn plan_confirmed(&mut self) {
+        // Or the one before a call not all read runs (ADR 0182).
+        if self.unread_confirmed() {
+            return;
+        }
         let Some(asked) = self.hosting.natives.permissions.plans.asked.take() else {
-            return self.editor.message("Nothing was asked about a plan");
+            return self.editor.message("Nothing was asked");
         };
         if self.editor.macro_replaying() {
             return self.editor.message("A macro does not approve a plan");
@@ -207,6 +217,7 @@ impl App {
     /// another prompt or not, and was not answered `y` in it, is dropped, so that no later `y`
     /// approves.
     pub(in crate::app) fn drop_unanswered_plan_question(&mut self) {
+        self.drop_unanswered_unread_question();
         let Some(asked) = self.hosting.natives.permissions.plans.asked.as_ref() else {
             return;
         };

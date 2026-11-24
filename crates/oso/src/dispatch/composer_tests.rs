@@ -99,6 +99,67 @@ fn a_cards_keys_answer_its_call_and_a_digit_chooses() {
     assert_eq!(editor.current().1.text().to_string(), "");
 }
 
+#[test]
+fn a_requests_line_answers_its_call_pages_the_transcript_and_types_nothing() {
+    let (mut d, mut editor) = (Dispatcher::new(), Editor::default());
+    let line = editor.add_internal_buffer("*request: s*", Mode::Request);
+    editor.show(line);
+    send(
+        &mut d,
+        &mut editor,
+        "y n N C-c C-k RET SPC C-v DEL M-v M-< M-> i C-c C-o C-g C-c C-s",
+    );
+    assert_eq!(
+        actions(&mut editor),
+        [
+            NativeAction::Allow,
+            NativeAction::Deny,
+            NativeAction::Note,
+            NativeAction::Deny,
+            NativeAction::Open,
+            NativeAction::ReadOn(1),
+            NativeAction::ReadOn(1),
+            NativeAction::ReadOn(-1),
+            NativeAction::ReadOn(-1),
+            NativeAction::ReadOn(isize::MIN),
+            NativeAction::ReadOn(isize::MAX),
+            NativeAction::Compose,
+            NativeAction::Transcript,
+            NativeAction::Transcript,
+        ]
+    );
+    // Any argument asks to allow it unread, and pages by its count.
+    send(&mut d, &mut editor, "C-u y M-1 y C-u 3 SPC");
+    assert_eq!(
+        actions(&mut editor),
+        [
+            NativeAction::Unread,
+            NativeAction::Unread,
+            NativeAction::ReadOn(3)
+        ]
+    );
+    // Nothing is typed, an option's number or a letter.
+    send(&mut d, &mut editor, "a A o e 3 j");
+    assert_eq!(actions(&mut editor), []);
+    assert_eq!(text(&editor), "");
+}
+
+#[test]
+fn c_c_c_j_goes_to_the_request_from_the_transcript_and_the_composer() {
+    let (mut d, mut editor) = (Dispatcher::new(), Editor::default());
+    let transcript = editor.add_native_session_buffer("*claude: s*");
+    editor.show(transcript);
+    send(&mut d, &mut editor, "C-c C-j");
+    composer(&mut editor, "a draft");
+    send(&mut d, &mut editor, "C-c C-j y");
+    assert_eq!(
+        actions(&mut editor),
+        [NativeAction::Request, NativeAction::Request]
+    );
+    // A letter there is text.
+    assert_eq!(text(&editor), "ya draft");
+}
+
 /// A composer, selected, holding `text`.
 fn composer(editor: &mut Editor, text: &str) {
     let composer = editor.add_buffer(Buffer::from_text("*compose: s*", text));

@@ -23,7 +23,8 @@
 //!   `markdown`'s (part 2g); its status line, `status`'s (part 3a); its permission mode,
 //!   `mode`'s (part 3b); its `/model` and `/effort` completion, `slash`'s (part 3c); its
 //!   to-do strip, `todo`'s (part 3e).
-//! - What stands after its rows, the queue's, is one tail (`put_tail`, ADR 0182).
+//! - What stands after its rows, the queue's and the block of the call that waits, is one tail
+//!   (`put_tail`, ADR 0182).
 //! - Its turns' results stand at its window's right edge, and its replies' tables are drawn for
 //!   its width, by `widths`.
 //! - Its prompt suggestion is `suggesting`'s, and the recap of a turn that ended out of sight
@@ -134,7 +135,7 @@ struct Native {
     buffer: BufferId,
     rows: Rows,
     placed: Placed,
-    /// What stands after its rows: the queue's.
+    /// What stands after its rows: the queue's, and the block of the call that waits (ADR 0182).
     tail: Tail,
     /// Its rows that a window's width changes, and the width each was drawn for last.
     widths: widths::Widths,
@@ -157,8 +158,10 @@ struct Native {
     spoke: bool,
     /// Where its process is, as its modeline says it.
     state: NativeState,
-    /// Its permission card, `*card: NAME*`, once a call asked (step 2e-2).
+    /// Its card, `*card: NAME*`, once questions or a plan asked (step 2e-2), and its request's
+    /// line, `*request: NAME*`, once a call did (ADR 0182).
     card: Option<BufferId>,
+    line: Option<BufferId>,
     /// Its process's control layer, while it runs, and its interrupt (step 2c).
     control: Option<Control>,
     interrupt: Interrupt,
@@ -210,6 +213,13 @@ impl Native {
 }
 
 impl NativeSessions {
+    /// Whether `buffer` is a transcript with a call's block at its end: what it holds is drawn so that
+    /// white space that looks like another is told apart, whatever the person's setting (ADR 0182).
+    pub(in crate::app) fn shows_block(&self, buffer: BufferId) -> bool {
+        (self.map.values())
+            .any(|native| native.buffer == buffer && !native.tail.text(Part::Body).0.is_empty())
+    }
+
     /// Whether session `key` is a native one.
     pub(in crate::app) fn has(&self, key: SessionKey) -> bool {
         self.map.contains_key(&key)

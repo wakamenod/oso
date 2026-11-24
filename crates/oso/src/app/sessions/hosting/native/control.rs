@@ -139,6 +139,8 @@ impl App {
                     .chain(native.remote.deadline())
             })
             .chain(card)
+            .chain(self.request_read_deadline())
+            .chain(self.line_lit_deadline())
             .chain(self.usage_deadline())
             .min()
     }
@@ -147,6 +149,7 @@ impl App {
     /// Remote Control request, card focus and `get_usage` at `now`.
     pub(in crate::app) fn natives_due(&mut self, now: Instant) {
         self.card_focus_due(now);
+        self.sync_requests();
         self.usage_due(now);
         let processes: Vec<_> = (self.hosting.natives.map.keys())
             .filter_map(|key| Some((*key, self.mode_process(*key)?)))

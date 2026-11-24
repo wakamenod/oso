@@ -1,7 +1,7 @@
-//! A native session's permission card, as keys (ADR 0165, step 2e-2; ADR 0170's card dock): `y`
-//! allows the call or approves the plan, `n` denies it, declines the questions or keeps
-//! planning, `N` denies with a note, a digit chooses a question's option, `o` answers it in the
-//! person's own words, and `RET` shows the whole call or plan. A question or a plan longer than
+//! A native session's card, as keys (ADR 0165, step 2e-2; ADR 0170's card dock): `y`
+//! approves the plan, `n` declines the questions or keeps
+//! planning, `N` with a note, a digit chooses a question's option, `o` answers it in the
+//! person's own words, and `RET` shows the whole plan. A question or a plan longer than
 //! its card pages with `SPC` and `DEL` (ADR 0180). A plan's card (part 3d) also
 //! approves with accept edits (`a`) or auto (`A`, after `y` to a question) after it, or edits
 //! it (`e`) in `*plan: NAME*`, where `C-c C-c` approves the edit, `C-c C-a` and `C-c C-A` with
@@ -27,11 +27,11 @@ pub const CARD_NOTE: &str = "native-card-note-text";
 /// The command whose prompt reads a question's answer in the person's own words.
 pub const CARD_OWN: &str = "native-card-own-text";
 
-/// The commands of a native session's permission card.
+/// The commands of a native session's card.
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "native-card-allow",
-        doc: "Allow the call a native session's permission card asks about, once, or approve the plan it shows.",
+        doc: "Approve the plan a native session's card shows.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: allow,
@@ -39,7 +39,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "native-card-deny",
-        doc: "Deny the call a native session's permission card asks about, decline its questions, or keep planning.",
+        doc: "Decline the questions of a native session's card, or keep planning.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: deny,
@@ -47,7 +47,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "native-card-note",
-        doc: "Deny the call a native session's permission card asks about with a note, read in the minibuffer, which the session's claude is told.",
+        doc: "Decline the questions of a native session's card, or keep planning, with a note, read in the minibuffer, which the session's claude is told.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: note,
@@ -71,7 +71,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "native-card-whole",
-        doc: "Show the whole call or plan in a native session's permission card, or go back to the card; in a question that takes several options, answer with those chosen.",
+        doc: "Show the whole plan in a native session's card, or go back to the card; in a question that takes several options, answer with those chosen.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: whole,
@@ -95,7 +95,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "native-card-leave",
-        doc: "Leave a native session's permission card for its transcript: the call still waits on the card.",
+        doc: "Leave a native session's card for its transcript: it waits on.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: leave,
@@ -143,7 +143,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: PLAN_CONFIRMED,
-        doc: "Approve the plan a native session's card or *plan: NAME* asked about, as it asked, after `y` to its question.",
+        doc: "Answer as a native session's card, *plan: NAME* or request's line asked about, after `y` to its question: approve the plan, or allow the call unread.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: confirmed,
@@ -151,7 +151,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: CARD_NOTE,
-        doc: "Give the permission card the host asked about the note read in its prompt, and deny its call with it.",
+        doc: "Give the request the host asked about the note read in its prompt, and deny its call with it.",
         args: ArgSpec::Text {
             prompt: "Deny with a note: ",
             history: "native-card-note",

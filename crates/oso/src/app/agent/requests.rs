@@ -197,11 +197,14 @@ mod tests {
                 ArgSpec::Buffer { .. } => &[Given::Text("other.md"), Given::Text("*claude: s*")],
                 _ => &[Given::Nothing, Given::Count(3), Given::Text("x")],
             };
-            for &given in given {
-                let (mut editor, its) = beside_a_request();
+            for (&given, form) in given
+                .iter()
+                .flat_map(|given| FORMS.map(|form| (given, form)))
+            {
+                let (mut editor, its) = beside_a_request(form);
                 let mut dispatcher = Dispatcher::new();
                 let before = seen(&editor, &its);
-                assert_eq!(before.len(), 3, "the transcript, its card and its composer");
+                assert_eq!(before.len(), 3, "the transcript, its dock and its composer");
                 let outcome =
                     dispatcher.run_for_agent(&mut editor, command.name, given, command.reach);
                 assert_eq!(seen(&editor, &its), before, "{} {given:?}", command.name);
@@ -213,11 +216,15 @@ mod tests {
                 ran += usize::from(matches!(outcome, Ok((_, Ok(())))));
             }
         }
-        assert!(ran > 100, "{ran} ran");
+        assert!(ran > 200, "{ran} ran");
     }
 
-    /// A file in the selected window, and beside it a transcript with a card and a composer.
-    fn beside_a_request() -> (Editor, Vec<oso_core::buffer::BufferId>) {
+    /// A card, and a call's line.
+    const FORMS: [Mode; 2] = [Mode::Card, Mode::Request];
+
+    /// A file in the selected window, and beside it a transcript with a card or a line, of mode
+    /// `form`, and a composer.
+    fn beside_a_request(form: Mode) -> (Editor, Vec<oso_core::buffer::BufferId>) {
         let lines: String = (0..60).map(|n| format!("line {n}\n")).collect();
         let mut editor = Editor::with_buffer(Buffer::from_text("notes.md", &lines));
         editor.set_frame_size(FrameSize {
@@ -227,7 +234,7 @@ mod tests {
         let _ = editor.add_buffer(Buffer::from_text("other.md", &lines));
         let host = editor.add_native_session_buffer("*claude: s*");
         editor.replace_native_rows(host, 0..0, &lines, &[]);
-        let card = editor.add_internal_buffer("*card: s*", Mode::Card);
+        let card = editor.add_internal_buffer("*card: s*", form);
         editor.set_internal_text(card, "Bash wants to run\n│ $ ls\n[y] allow once");
         let composer = editor.add_internal_buffer("*compose: s*", Mode::Composer);
         let notes = editor.window().buffer();

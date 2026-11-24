@@ -61,6 +61,8 @@ pub const NATIVE: &[(&str, &str)] = &[
     ("S-TAB", "native-session-cycle-mode"),
     // The to-do strip, opened or folded (step 3, part 3e).
     ("C-c C-t", "native-session-todo"),
+    // To what waits for the person (ADR 0182).
+    ("C-c C-j", "native-session-request"),
 ];
 
 /// The keys of a native session's composer (ADR 0165, step 2), above the global ones in it.
@@ -80,9 +82,28 @@ pub const COMPOSER: &[(&str, &str)] = &[
     // The permission mode's next (part 3b), as in the transcript.
     ("S-TAB", "native-session-cycle-mode"),
     ("C-c C-t", "native-session-todo"),
+    ("C-c C-j", "native-session-request"),
 ];
 
-/// The keys of a native session's permission card (ADR 0165, step 2e-2), above the global
+/// The keys of a native session's request's line (ADR 0182), above the global ones in it.
+pub const REQUEST: &[(&str, &str)] = &[
+    ("y", "native-request-allow"),
+    ("n", "native-request-deny"),
+    ("C-c C-k", "native-request-deny"),
+    ("N", "native-request-note"),
+    ("RET", "native-request-input"),
+    ("SPC", "native-request-read-on"),
+    ("C-v", "native-request-read-on"),
+    ("DEL", "native-request-read-back"),
+    ("M-v", "native-request-read-back"),
+    ("M-<", "native-request-first"),
+    ("M->", "native-request-last"),
+    ("i", "native-session-compose"),
+    ("C-c C-o", "native-request-leave"),
+    ("C-g", "native-request-leave"),
+];
+
+/// The keys of a native session's card (ADR 0165, step 2e-2), above the global
 /// ones in it: a digit chooses a question's option.
 pub const CARD: &[(&str, &str)] = &[
     ("y", "native-card-allow"),
@@ -101,7 +122,7 @@ pub const CARD: &[(&str, &str)] = &[
     // A question's or a plan's pages (ADR 0180).
     ("SPC", "native-card-page-down"),
     ("DEL", "native-card-page-up"),
-    // The whole call or plan, or a question's chosen options given.
+    // The whole plan, or a question's chosen options given.
     ("RET", "native-card-whole"),
     ("i", "native-session-compose"),
     ("C-c C-o", "native-card-leave"),

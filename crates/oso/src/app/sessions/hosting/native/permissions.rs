@@ -10,10 +10,11 @@
 //!   only if the request's input says the same of it: nothing a request says is drawn unless
 //!   the stream says it too, but what only the request carries: an `ExitPlanMode`'s plan, and
 //!   the fields the stream's reading of a call leaves out (a description, an edit's strings, a
-//!   question's text). It is asked on the session's card (step 2e-2, `card`), withheld from
-//!   agents, answered only from the window after a quiet moment; `RET` shows in the card the
-//!   input that runs, whole.
-//! - Each session's call has its card, as each session holds one connection; while one waits,
+//!   question's text). A call is asked in its session's conversation, by its block and its line
+//!   (ADR 0182, `request`), questions and a plan on the session's card (step 2e-2, `card`); both
+//!   are withheld from agents, and answered only from the window after a quiet moment.
+//! - A call's block is made on the socket's thread, as a change is compared for it.
+//! - Each session shows one request at a time; while one waits,
 //!   its session is `needs input` with reason `permission`, `question` or `plan`.
 //! - The bridge going, the session ending or the socket stopping denies: nothing runs unless
 //!   the person said `y`, or answered the questions. A second process that claims a session's slot,
@@ -23,6 +24,7 @@ use std::sync::mpsc::Sender;
 use std::time::Instant;
 
 mod card;
+mod request;
 
 pub(in crate::app) use card::RequestWaits;
 pub(super) use card::Writing;
@@ -35,8 +37,9 @@ use crate::channel::protocol::permission::{self, Call};
 use crate::channel::{self, Connection, Event, Reply};
 use crate::sessions::hosted::PermissionClaim;
 use crate::sessions::identity::SessionId;
-use crate::sessions::native::asks::{Ask, Asks, Denied, Look, Outcome, Refused};
+use crate::sessions::native::asks::{Ask, Asks, Denied, Look, Made, Outcome, Refused};
 use crate::sessions::native::card::question;
+use crate::sessions::native::request::{Block, COMPARE_WITHIN, is_call};
 use crate::sessions::native::rows::Tool;
 use crate::sessions::native::wire::tools::decode;
 use crate::sessions::state::{Reason, Target};
@@ -56,6 +59,8 @@ pub(in crate::app) struct Permissions {
     asks: Asks<Sender<Reply>>,
     /// When the loop is woken next to deny a request whose call has not shown.
     wake_at: Option<Instant>,
+    /// What each session's call that waits shows, as drawn.
+    requests: request::Requests,
     /// The sessions whose card point has not gone to since it was shown, and when that was
     /// (step 2e-2, ADR 0180).
     focus_pending: Vec<(SessionKey, Instant)>,
@@ -63,19 +68,24 @@ pub(in crate::app) struct Permissions {
     looked: Option<Instant>,
     /// Each shown card's width as drawn, and the rows it had if it grows.
     drawn: Vec<(SessionKey, (usize, usize))>,
+    /// Whether oso's window is in front, as the system said it came there, since when, and whether
+    /// it is hidden.
+    front: Option<Instant>,
+    hidden: bool,
     /// Where an answer to a card may come from now, and since when.
     current: Option<card::Current>,
     /// Whether a prompt an agent opened is open, and when the last one closed.
     agents_prompt: bool,
     agents_prompt_closed: Option<Instant>,
-    /// What the person writes in the minibuffer for a card, once `N` or `o` asked.
-    writing: Option<Writing>,
+    /// What the person writes in the minibuffer for a request, once `N` or `o` asked, and the
+    /// call it is of.
+    writing: Option<(Writing, String)>,
     /// The plans being edited before they are approved (part 3d).
     plans: card::Plans,
 }
 
 impl App {
-    /// Whether native session `key` asks the person now: a card shown, a plan's edit among
+    /// Whether native session `key` asks the person now: a request shown, a plan's edit among
     /// them (part 3d).
     pub(in crate::app) fn native_asks_person(&self, key: SessionKey) -> bool {
         self.hosting.natives.permissions.asks.shown(key).is_some()
@@ -96,7 +106,8 @@ impl App {
             .spawn(move || {
                 let send = waker.clone();
                 let started = channel::start_sessions(run, move |request| {
-                    send.send(UserEvent::SessionSocket(request))
+                    let made = made_of(&request);
+                    send.send(UserEvent::SessionSocket(request, made))
                 });
                 waker.send(UserEvent::SessionSocketStarted(started));
             });
@@ -147,8 +158,9 @@ impl App {
         }
     }
 
-    /// A connection of the sessions' socket brought something.
-    pub(in crate::app) fn handle_session_socket(&mut self, request: channel::Request) {
+    /// A connection of the sessions' socket brought something, and the block `made` of it if it is
+    /// a call to ask about.
+    pub(in crate::app) fn handle_session_socket(&mut self, request: channel::Request, made: Made) {
         let channel::Request {
             connection,
             event,
@@ -171,7 +183,7 @@ impl App {
                 Some(reply),
             ) => self.permission_claim(connection, &peer, (&session, parent_started), reply),
             (Event::Op(Op::Permission(call)), Some(reply)) => {
-                self.permission_asked(connection, call, reply);
+                self.permission_asked(connection, (call, made), reply);
             }
             (Event::Gone, _) => self.permission_bridge_gone(connection),
             (_, Some(reply)) => {
@@ -225,7 +237,12 @@ impl App {
 
     /// The bridge of `connection` asks about `call`: kept until it is found, asked and
     /// answered.
-    fn permission_asked(&mut self, connection: Connection, call: Call, reply: Sender<Reply>) {
+    fn permission_asked(
+        &mut self,
+        connection: Connection,
+        (call, made): (Call, Made),
+        reply: Sender<Reply>,
+    ) {
         let Some(key) =
             (self.hosting.table.by_permission_bridge(connection)).map(|session| session.key)
         else {
@@ -246,7 +263,8 @@ impl App {
             key,
             call,
             came: Instant::now(),
-            question: None,
+            made,
+            asked: None,
             shown: None,
             reply,
         });
@@ -272,13 +290,15 @@ impl App {
         }
     }
 
-    /// Denies `ask`, whose session, bridge or socket went: its card goes, and its
+    /// Denies `ask`, whose session, bridge or socket went: what it shows goes, and its
     /// session no longer waits on it.
     fn drop_ask(&mut self, ask: Ask<Sender<Reply>>) {
-        if ask.shown.is_some() {
-            self.close_card(ask.key);
+        match (ask.shown, ask.request()) {
+            (Some(_), Some(request)) => self.request_gone(ask.key, request.block.tool()),
+            (Some(_), None) => self.close_card(ask.key),
+            (None, _) => {}
         }
-        if ask.question.is_some() {
+        if ask.asked.is_some() {
             self.call_waits(ask.key, &ask.call.tool_use_id, false);
             self.tell_tracker(ask.key, Target::Working);
         }
@@ -289,14 +309,14 @@ impl App {
 
     /// After each event, before the agent channel's questions, and after each batch of a
     /// native session's stream: finds the waiting requests' calls, denies those that cannot be
-    /// asked, and shows each found one's card.
+    /// asked, and shows each found one.
     pub(in crate::app) fn sync_permissions(&mut self) {
         self.note_agents_prompt();
         if self.hosting.natives.permissions.asks.is_empty() {
             return;
         }
         self.look_for_calls();
-        self.show_cards();
+        self.show_asked();
         self.wake_for_permissions();
     }
 
@@ -315,17 +335,19 @@ impl App {
             if tool.name != ask.call.tool_name {
                 return Look::NotWaiting;
             }
-            if ask.question.is_some() {
+            if ask.asked.is_some() {
                 return Look::Waits;
             }
             if !says_the_same(tool, ask.call.input.as_ref()) {
                 return Look::Differs;
             }
-            let Some(session) = table.get(ask.key) else {
+            if table.get(ask.key).is_none() {
                 return Look::Gone;
-            };
-            let directory = native.rows.directory();
-            match question(&session.name, tool, directory, ask.call.input.as_ref()) {
+            }
+            if ask.made.is_some() {
+                return Look::Call;
+            }
+            match question(&ask.call.tool_name, ask.call.input.as_ref()) {
                 Some(question) => Look::Found(question),
                 None => Look::Unreadable,
             }
@@ -336,7 +358,7 @@ impl App {
         }
         for outcome in outcomes {
             match outcome {
-                // A session showing a card already waits for it: a later call waits behind it.
+                // A session showing one already waits for it: a later call waits behind it.
                 Outcome::Found(key)
                     if self.hosting.natives.permissions.asks.shown(key).is_some() => {}
                 Outcome::Found(key) => {
@@ -351,10 +373,34 @@ impl App {
                         self.call_waits(ask.key, &ask.call.tool_use_id, false);
                         self.tell_tracker(ask.key, Target::Working);
                     }
+                    self.say_unreadable(&ask, why);
                     let _ = ask.reply.send(Ok(permission::deny(denial(why))));
                 }
             }
         }
+    }
+
+    /// Says that `ask` was denied unasked, as oso could not read what it asks: on its call's row and
+    /// in the echo area, in oso's words.
+    fn say_unreadable(&mut self, ask: &Ask<Sender<Reply>>, why: Denied) {
+        if why != Denied::Unreadable {
+            return;
+        }
+        let what = match ask.call.tool_name.as_str() {
+            "ExitPlanMode" => "its plan",
+            "AskUserQuestion" => "its questions",
+            _ => "what it asks",
+        };
+        let name = (self.hosting.table.get(ask.key)).map_or_else(String::new, |s| s.name.clone());
+        self.editor.message(format!(
+            "A request of session {name} was denied: oso could not read {what}"
+        ));
+        if let Some(native) = self.hosting.natives.map.get_mut(&ask.key) {
+            let row = format!("oso could not read {what}");
+            let change = native.rows.denied(&ask.call.tool_use_id, &row);
+            super::draw(&mut self.editor, native, change);
+        }
+        self.request_redraw();
     }
 
     /// Each call found to wait for the person says so on its row.
@@ -397,7 +443,18 @@ impl App {
     }
 }
 
-/// The state a session waits in while its call's card is shown.
+/// The block of the call `request` asks about, if it asks about one that has a block. It runs on the
+/// socket's thread, as a change is compared for it.
+fn made_of(request: &channel::Request) -> Made {
+    let Event::Op(Op::Permission(call)) = &request.event else {
+        return None;
+    };
+    let (tool, input) = (&call.tool_name, call.input.as_ref());
+    let block = || Block::call(tool, input, Instant::now() + COMPARE_WITHIN);
+    is_call(tool).then(block).map(Box::new)
+}
+
+/// The state a session waits in while its call is asked about.
 fn waits_for(tool: &str) -> Target {
     Target::NeedsInput(match tool {
         "AskUserQuestion" => Reason::Question,

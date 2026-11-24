@@ -153,7 +153,7 @@ pub enum UserEvent {
     /// The agent channel started, or could not, off the UI thread.
     AgentStarted(std::io::Result<crate::channel::Channel>),
     /// Something from a connection of the sessions' socket (ADR 0165, step 2).
-    SessionSocket(crate::channel::Request),
+    SessionSocket(crate::channel::Request, crate::sessions::native::asks::Made),
     /// The sessions' socket started, or could not, off the UI thread.
     SessionSocketStarted(std::io::Result<crate::channel::Channel>),
     /// The sessions worker found something (ADR 0121).

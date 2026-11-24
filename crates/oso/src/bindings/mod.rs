@@ -371,6 +371,12 @@ pub fn composer_keymap(registry: &Registry) -> Keymap {
     Keymap::from_table(registry, agent_sessions::COMPOSER).unwrap_or_default()
 }
 
+/// The keymap of a native session's request's line (ADR 0182). Empty for a registry without its
+/// commands, as in tests that bring their own.
+pub fn request_keymap(registry: &Registry) -> Keymap {
+    Keymap::from_table(registry, agent_sessions::REQUEST).unwrap_or_default()
+}
+
 /// The keymap of a native session's permission card (ADR 0165, step 2e-2). Empty for a
 /// registry without its commands, as in tests that bring their own.
 pub fn card_keymap(registry: &Registry) -> Keymap {

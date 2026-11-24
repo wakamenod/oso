@@ -1,5 +1,6 @@
 //! The fills behind a native session's rows (ADR 0165, "The rows' look"): the bands of the
-//! person's messages, of an agent's brief and of the lines a change adds and removes, each to the window's edges,
+//! person's messages, of an agent's brief and of the lines a change adds and removes, the band of a
+//! request's title and the tint of its block (ADR 0182), each to the window's edges,
 //! and the chip of a tool's badge. A row has its band by the highlight its line starts with,
 //! and its chip by a badge's near its line's start, which only `sessions::native::render`
 //! gives, and only there: what Claude's text holds is never looked at.
@@ -40,6 +41,9 @@ pub(super) struct TranscriptFills {
     pub(super) briefs: Vec<CellRect>,
     pub(super) added: Vec<CellRect>,
     pub(super) removed: Vec<CellRect>,
+    /// Behind a request's title, and behind its body's lines that no change's band is behind.
+    pub(super) titles: Vec<CellRect>,
+    pub(super) bodies: Vec<CellRect>,
     /// The badges' chips, of each face of [`ICONS`].
     pub(super) icons: [Vec<CellRect>; ICONS.len()],
 }
@@ -52,6 +56,8 @@ impl TranscriptFills {
         self.briefs.clear();
         self.added.clear();
         self.removed.clear();
+        self.titles.clear();
+        self.bodies.clear();
         for rects in &mut self.icons {
             rects.clear();
         }
@@ -76,6 +82,8 @@ impl TranscriptFills {
                 Some(Highlight::SessionBriefMark) => &mut self.briefs,
                 Some(Highlight::DiffAdded) => &mut self.added,
                 Some(Highlight::DiffRemoved) => &mut self.removed,
+                Some(Highlight::CardTitle) => &mut self.titles,
+                Some(Highlight::RequestBody) => &mut self.bodies,
                 // A tool's row starts with a mark or a guide, which has one, as other rows do.
                 Some(_) if row.starts_line() => {
                     let badge = badge(runs).filter(|(_, at)| *at < row.end);
@@ -209,6 +217,35 @@ mod tests {
         setup.put("@  from a\n   b\n〉 c\n", &runs);
         assert_eq!(setup.bands(&setup.fills.briefs), [(0, 2, 0)]);
         assert_eq!(setup.bands(&setup.fills.prompts), [(2, 1, 0)]);
+    }
+
+    #[test]
+    fn a_requests_title_has_a_band_and_its_body_a_tint_to_where_it_ends() {
+        use crate::sessions::native::request::Block;
+        let input = serde_json::json!({"file_path": "a\n⚠ Bash asks to run", "old_string": "b", "new_string": "c"});
+        let block = Block::call("Edit", Some(&input), std::time::Instant::now());
+        let title = block.title((1, 1), 40);
+        let reply = "  ⚠ Bash asks to run\n";
+        let mut runs = vec![(reply.len() + 1, None)];
+        runs.extend(title.runs());
+        runs.extend(block.body().runs());
+        let mut setup = Setup::new();
+        let text = format!("{reply}\n{}{}", title.text, block.body().text);
+        setup.put(&text, &runs);
+        let body = block.body().text.lines().count();
+        assert_eq!(setup.bands(&setup.fills.titles), [(2, 1, 0)]);
+        let tint: usize = setup.fills.bodies.iter().map(|rect| rect.rows).sum();
+        assert_eq!((tint, setup.bands(&setup.fills.bodies)[0].0), (body - 2, 3));
+        assert_eq!(setup.fills.removed.len(), 1);
+        assert_eq!(setup.fills.added.len(), 1);
+        // Wrapped, each row of a line has it.
+        setup.editor.set_wraps(setup.id, true);
+        let input = serde_json::json!({"command": "x".repeat(100)});
+        let block = Block::call("Bash", Some(&input), std::time::Instant::now());
+        setup.put(&block.body().text, &block.body().runs());
+        // The mark's row and three of the word, and not the empty line after them.
+        assert_eq!(setup.screen.rows().len(), 5);
+        assert_eq!(setup.bands(&setup.fills.bodies), [(0, 4, 0)]);
     }
 
     #[test]

@@ -1,6 +1,7 @@
 //! A native session's card answered from the session's empty composer (ADR 0180): `y`, `n` and
-//! `N` of a call's or a plan's card, and `n`, `N`, `o` and the digit of an option of a
-//! question's, typed there with nothing written, answer the card in place of going in.
+//! `N` of a plan's card, and `n`, `N`, `o` and the digit of an option of a
+//! question's, typed there with nothing written, answer the card in place of going in. No letter
+//! typed there answers a call (ADR 0182).
 //!
 //! Must not depend on: how a key is dispatched, or how a frame is drawn; the app asks before it
 //! hands a key to the dispatcher, which runs the card's command in place of typing.
@@ -27,7 +28,7 @@ use crate::sessions::native::card::Question;
 /// Whether `question`'s card takes the character `c` typed in its session's empty composer.
 fn takes(question: &Question, c: char) -> bool {
     match &question.card {
-        Card::Call { .. } | Card::Plan { .. } => matches!(c, 'y' | 'n' | 'N'),
+        Card::Plan { .. } => matches!(c, 'y' | 'n' | 'N'),
         Card::Questions(_) if matches!(c, 'n' | 'N' | 'o') => true,
         Card::Questions(questions) => {
             let number = c.to_digit(10).and_then(|digit| usize::try_from(digit).ok());
@@ -63,7 +64,7 @@ impl App {
             return false;
         };
         (self.hosting.natives.permissions.asks.shown(session))
-            .and_then(|ask| ask.question.as_ref())
+            .and_then(|ask| ask.question())
             .is_some_and(|question| takes(question, c))
             && self.composer_empty(session)
             && {
@@ -92,11 +93,6 @@ mod tests {
 
     #[test]
     fn only_the_keys_that_answer_the_card_asked_are_taken_from_the_composer() {
-        let call = question(Card::Call {
-            title: String::new(),
-            lines: Vec::new(),
-        });
-        assert_eq!(taken(&call), "ynN");
         // Never what grants a mode after a plan, or edits it.
         let plan = question(Card::Plan {
             plan: String::new(),

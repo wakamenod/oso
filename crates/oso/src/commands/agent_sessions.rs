@@ -20,6 +20,7 @@ mod composer;
 mod list;
 mod mode;
 mod native;
+mod request;
 mod search;
 mod send;
 mod spaces;
@@ -32,6 +33,7 @@ pub use list::COMMANDS as LIST_COMMANDS;
 pub use list::{FOLDS, GUIDES, ROW_MARKS, SESSION_RENAME_TO, row_mark};
 pub use mode::{ARCHIVE_LABEL, COMMANDS as MODE_COMMANDS, PIN_LABEL, SESSION_HELP, agents_menu};
 pub use native::COMMANDS as NATIVE_COMMANDS;
+pub use request::COMMANDS as REQUEST_COMMANDS;
 pub use search::COMMANDS as SEARCH_COMMANDS;
 pub use send::{
     COMMANDS as SEND_COMMANDS, MAX_SEND_BYTES, MENTION_LIST, SEND_LIST, YANK_IMAGE, too_large,
@@ -44,6 +46,25 @@ use std::path::PathBuf;
 
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
 use oso_core::editor::SessionRequest;
+
+/// The commands that answer a native session's request: its card's, its plan's edit's, its call's
+/// line's, and the question's before one of them. What is written for one is not among them, as its
+/// prompt takes its text whenever it comes.
+pub const ANSWERS: &[&str] = &[
+    "native-card-allow",
+    "native-card-deny",
+    "native-card-note",
+    "native-card-choose",
+    "native-card-other",
+    "native-card-whole",
+    "native-card-approve-accept-edits",
+    "native-card-approve-auto",
+    "native-plan-approve",
+    PLAN_CONFIRMED,
+    "native-request-allow",
+    "native-request-deny",
+    "native-request-note",
+];
 
 /// The list `session-switch` completes over: each session's buffer name.
 pub const SESSIONS_LIST: &str = "sessions";

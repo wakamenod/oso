@@ -311,7 +311,8 @@ pub enum RowAction {
 }
 
 /// What a key of a native session's transcript does at the row it is on (ADR 0165, step 1),
-/// or a key of its composer (step 2), its card (step 2e-2) or its plan's edit (part 3d) does.
+/// or a key of its composer (step 2), its card (step 2e-2), its request's line (ADR 0182) or its
+/// plan's edit (part 3d) does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NativeAction {
     /// Fold or unfold the row, or in a row of several calls shown open, the call.
@@ -361,6 +362,15 @@ pub enum NativeAction {
     Choose(u8),
     /// From a question's card: answer it in the person's own words, read in the minibuffer.
     Other,
+    /// From the transcript or the composer: to the request that waits, its line or its card
+    /// (ADR 0182).
+    Request,
+    /// From a request's line: show the transcript this many pages on, back if negative;
+    /// `isize::MIN` goes to the start of the request's block and `isize::MAX` to its end.
+    ReadOn(isize),
+    /// From a request's line: allow the call though not all of it was read, after `y` to a
+    /// question, whose answer is [`NativeAction::Confirmed`].
+    Unread,
     /// Turns this many pages of the permission card at point on, back if negative (ADR 0180).
     Page(isize),
     /// From the transcript or the composer (ADR 0165, part 3b): switch the session to its
@@ -376,8 +386,8 @@ pub enum NativeAction {
     /// person edited it. The session's permission mode then is the approval's.
     Approve(Approval),
     /// `y` to the question a native session's plan card or `*plan: NAME*` asked before
-    /// approving with auto (ADR 0165 part 3d): the host approves the call it asked about,
-    /// if that call still waits.
+    /// an approval (ADR 0165 part 3d), or a request's line before a call not all read runs (ADR
+    /// 0182): the host answers the call it asked about, if that call still waits.
     Confirmed,
 }
 

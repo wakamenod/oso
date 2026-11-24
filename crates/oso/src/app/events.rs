@@ -69,6 +69,8 @@ impl App {
         // is taken back natively only now (ADR 0165, part 4d-2), before its native sync.
         self.take_back_due();
         self.sync_native_sessions();
+        // Last of what may change what its window shows.
+        self.sync_requests();
         self.sync_servers();
         self.sync_pane_directory();
         // Once for all the changes the event made to the sessions (ADR 0121).
@@ -132,7 +134,7 @@ impl App {
                 self.handle_agent(event_loop, request);
             }
             UserEvent::AgentStarted(started) => self.agent_started(started),
-            UserEvent::SessionSocket(request) => self.handle_session_socket(request),
+            UserEvent::SessionSocket(request, made) => self.handle_session_socket(request, made),
             UserEvent::SessionSocketStarted(started) => self.sessions_socket_started(started),
             UserEvent::Sessions(out) => self.sessions_reported(out),
             UserEvent::SessionStart(report) => self.session_start_reported(report),
@@ -221,6 +223,10 @@ impl App {
         self.begin_logging();
         if let Some(focused) = focus_after(&event) {
             self.terminals.focused = focused;
+            self.note_window_in_front(focused);
+        }
+        if let Event::Occluded(hidden) = event {
+            self.note_window_hidden(hidden);
         }
         // An exit only sets a flag, and the loop still delivers what is queued. Input
         // handled now, by any path, would be lost with the process. But a leave can be

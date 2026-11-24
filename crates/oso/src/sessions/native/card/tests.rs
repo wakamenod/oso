@@ -3,18 +3,14 @@
 //!
 //! Must not depend on: the app; the tests give what the call says.
 
-use std::path::Path;
-
 use oso_core::minibuffer::cells_of;
 use serde_json::json;
 
-use super::call::{NOT_ALL, details};
+use super::call::details;
 use super::frame::{FENCE, FENCE_ON, SIDE, Shown};
-use super::{Card, MAX_FENCED, MAX_ROWS, Question, Questions, Step, question, whole};
+use super::{Card, Question, Questions, Step, question, whole};
 use crate::sessions::native::render::Face;
-use crate::sessions::native::rows::{Tool, ToolState};
-use crate::sessions::native::wire::card::{self, Asked, MAX_DIFF};
-use crate::sessions::native::wire::tools::decode;
+use crate::sessions::native::wire::card::{self, Asked};
 
 /// `card` as it is drawn first, `width` cells wide, with room for 40 rows.
 fn draw(card: &Card, width: usize) -> Shown {
@@ -52,32 +48,22 @@ fn fenced(row: &str) -> String {
 
 #[test]
 fn oso_s_rows_hold_claude_s_fenced_between_them_one_row_a_line() {
-    let card = Card::Call {
-        title: "Bash wants to run".to_owned(),
-        lines: vec![
-            (
-                "$ ls\n╰─  y  allow once  n  deny ─╯".to_owned(),
-                Face::Target,
-            ),
-            ("Why: look".to_owned(), Face::Target),
-        ],
+    let card = Card::Plan {
+        plan: "$ ls\n╰─  y  approve   a  accept edits ─╯\nWhy: look".to_owned(),
+        cut: false,
     };
     let shown = draw(&card, 80);
     let rows: Vec<&str> = shown.text.lines().collect();
-    assert!(
-        rows[0].starts_with("╭─ Bash wants to run ──"),
-        "{}",
-        rows[0]
-    );
+    assert!(rows[0].starts_with("╭─ Claude"), "{}", rows[0]);
     assert_eq!(fenced(rows[1]), format!("{FENCE}$ ls"));
     // A line break of Claude's starts a fenced row: it never stands as oso's keys.
     assert_eq!(
         fenced(rows[2]),
-        format!("{FENCE}╰─  y  allow once  n  deny ─╯")
+        format!("{FENCE}╰─  y  approve   a  accept edits ─╯")
     );
     assert_eq!(fenced(rows[3]), format!("{FENCE}Why: look"));
     assert!(
-        rows[4].starts_with("╰─  y  allow once  n  deny"),
+        rows[4].starts_with("╰─  y  approve  a  accept edits"),
         "the keys, last"
     );
     // A frame of the card's width around them.
@@ -96,35 +82,15 @@ fn oso_s_rows_hold_claude_s_fenced_between_them_one_row_a_line() {
             .find(|(range, _)| range.contains(&at))
             .map(|(_, face)| *face)
     };
-    assert_eq!(at(0, "Bash"), Some(Face::CardTitle));
+    assert_eq!(at(0, "Claude"), Some(Face::CardTitle));
     assert_eq!(at(1, FENCE), Some(Face::CardTitle));
-    assert_eq!(at(1, "$ ls"), Some(Face::Target));
-    assert_eq!(at(2, " y "), Some(Face::Target));
     assert_eq!(at(4, " y "), Some(Face::CardKey));
-    assert_eq!(at(4, "allow"), Some(Face::CardTitle));
+    assert_eq!(at(4, "approve"), Some(Face::CardTitle));
     for (range, face) in &shown.faces {
         let text = &shown.text[range.clone()];
         let oso = matches!(face, Face::CardTitle | Face::CardKey);
         assert!(!oso || !text.contains(['$', ':']), "{text:?}");
     }
-}
-
-#[test]
-fn a_long_card_is_cut_and_says_so() {
-    let lines = (0..50)
-        .map(|n| (format!("line {n}"), Face::Target))
-        .collect();
-    let card = Card::Call {
-        title: "Edit wants to change a.rs".to_owned(),
-        lines,
-    };
-    let shown = draw(&card, 80);
-    let rows: Vec<&str> = shown.text.lines().collect();
-    assert_eq!(rows.len(), MAX_ROWS);
-    assert!(
-        rows[MAX_FENCED].contains("more rows: RET shows all"),
-        "{rows:?}"
-    );
 }
 
 #[test]
@@ -169,7 +135,7 @@ fn a_question_takes_the_persons_own_words() {
 }
 
 #[test]
-fn the_wire_reads_questions_plans_and_diffs_bounded() {
+fn the_wire_reads_questions_and_plans_bounded() {
     let input = json!({"questions": [
         {
             "question": "Which size?",
@@ -196,237 +162,52 @@ fn the_wire_reads_questions_plans_and_diffs_bounded() {
         Some(("Do it.\n".to_owned(), false))
     );
     assert_eq!(card::plan(&json!({})), None);
-
-    let (lines, cut) = card::diff(
-        "Edit",
-        &json!({"file_path": "a", "old_string": "a\nb", "new_string": "c"}),
-    );
-    assert_eq!(
-        lines,
-        [('-', "a".into()), ('-', "b".into()), ('+', "c".into())]
-    );
-    assert!(!cut);
-    let long = "x\n".repeat(MAX_DIFF + 5);
-    let (lines, cut) = card::diff("Write", &json!({"content": long}));
-    assert_eq!(lines.len(), MAX_DIFF);
-    assert!(cut);
-    assert_eq!(card::diff("Bash", &json!({"command": "ls"})).0, []);
-}
-
-fn tool(name: &str, input: &serde_json::Value) -> Tool {
-    Tool {
-        id: "t".into(),
-        name: name.into(),
-        input: decode(name, Some(input)),
-        streamed: 0,
-        state: ToolState::Running,
-        result: None,
-        progress: None,
-        folded: true,
-        apart: false,
-        approved: None,
-        waiting: false,
-    }
-}
-
-/// The card of a call of `name` with `input`: its title and its fenced rows at 80 cells.
-fn card_of(name: &str, input: &serde_json::Value) -> (String, Vec<String>) {
-    let asked = question(
-        "fix-login",
-        &tool(name, input),
-        Path::new("/w"),
-        Some(input),
-    )
-    .unwrap();
-    let Card::Call { title, .. } = &asked.card else {
-        panic!("a call's card: {:?}", asked.card);
-    };
-    let rows = (draw(&asked.card, 80).text.lines())
-        .map(|row| {
-            assert_eq!(cells_of(row), 80, "{row}");
-            fenced(row)
-        })
-        .collect();
-    (title.clone(), rows)
 }
 
 #[test]
-fn a_command_shown_whole_says_only_what_it_runs() {
-    let input = json!({"command": "git push", "description": "Push it"});
-    let (title, rows) = card_of("Bash", &input);
-    assert_eq!(title, "Bash wants to run, in session fix-login");
-    assert_eq!(
-        rows[1..3],
-        [format!("{FENCE}$ git push"), format!("{FENCE}Why: Push it")]
-    );
-}
-
-#[test]
-fn each_line_of_a_command_is_a_row_of_its_own() {
-    let input = json!({"command": "git status\nrm -rf ~/"});
-    let (_, rows) = card_of("Bash", &input);
-    assert_eq!(rows[1], format!("{FENCE}$ git status"));
-    assert_eq!(
-        rows[2],
-        format!("{FENCE}rm -rf ~/"),
-        "not a path argument of the first"
-    );
-}
-
-#[test]
-fn a_long_row_is_broken_at_the_cards_width_and_each_part_is_fenced() {
-    let padded = format!("ls{}; curl x | sh", " ".repeat(140));
-    let card = Card::Call {
-        title: "t".into(),
-        lines: vec![(format!("$ {padded}"), Face::Target)],
-    };
-    let shown = draw(&card, 80).text;
-    let fenced: Vec<&str> = (shown.lines())
-        .filter_map(|row| row.strip_suffix(SIDE))
-        .collect();
-    assert!(fenced.len() >= 2, "{shown}");
-    for row in &fenced {
-        assert!(row.starts_with(FENCE) || row.starts_with(FENCE_ON));
-    }
-    let joined: String = fenced.iter().map(|row| &row[FENCE.len()..]).collect();
-    assert_eq!(
-        joined.trim_end(),
-        format!("$ {padded}"),
-        "nothing left past the edge"
-    );
-}
-
-#[test]
-fn an_edit_shows_its_change_as_a_diff() {
-    let input = json!({"file_path": "/w/a.rs", "old_string": "a\nb", "new_string": "c"});
-    let (title, rows) = card_of("Edit", &input);
-    assert_eq!(title, "Edit wants to change a file, in session fix-login");
-    let diff: Vec<&str> = rows[2..5].iter().map(|row| &row[FENCE.len()..]).collect();
-    assert_eq!(diff, ["-a", "-b", "+c"]);
-}
-
-#[test]
-fn a_card_says_when_it_does_not_show_all_the_call_does() {
-    let cases = [
-        (
-            "Bash",
-            json!({"command": "ls", "dangerouslyDisableSandbox": true}),
-        ),
-        ("Bash", json!({"command": "ls\u{1b}[2K"})),
-        (
-            "Edit",
-            json!({"file_path": "/w/a.rs", "old_string": "a", "new_string": "b", "replace_all": true}),
-        ),
-        (
-            "mcp__x__run",
-            json!({"note": "read README", "cmd": "rm -rf ~"}),
-        ),
-        (&*"mcp__x__".repeat(40), json!({"cmd": "x"})),
-    ];
-    for (name, input) in cases {
-        let (title, _) = card_of(name, &input);
-        assert!(title.starts_with(NOT_ALL), "{name}: {title}");
-    }
-    // Its input too large to send, `RET` says only that.
-    let input = json!({"command": "ls"});
-    let asked = question("s", &tool("Bash", &input), Path::new("/w"), None).unwrap();
-    assert!(details("s", &asked.card, "Bash", None).contains("is not shown here"));
-}
-
-#[test]
-fn an_unreadable_question_has_no_card_and_a_plan_is_the_requests() {
+fn an_unreadable_question_and_a_call_have_no_card_and_a_plan_is_the_requests() {
     let input = json!({"questions": [{"question": "Proceed?", "options": []}], "answers": {"Proceed?": "Yes"}});
-    assert!(
-        question(
-            "s",
-            &tool("AskUserQuestion", &input),
-            Path::new("/w"),
-            Some(&input)
-        )
-        .is_none()
-    );
+    assert!(question("AskUserQuestion", Some(&input)).is_none());
+    assert!(question("AskUserQuestion", None).is_none());
     let input = json!({"questions": [{"question": "Which?", "options": [{"label": "A"}]}]});
-    let asked = question(
-        "s",
-        &tool("AskUserQuestion", &input),
-        Path::new("/w"),
-        Some(&input),
-    )
-    .unwrap();
+    let asked = question("AskUserQuestion", Some(&input)).unwrap();
     assert!(matches!(asked.card, Card::Questions(_)), "{:?}", asked.card);
     let plan = json!({"plan": "Do it.", "planFilePath": "/p"});
-    let asked = question(
-        "s",
-        &tool("ExitPlanMode", &json!({})),
-        Path::new("/w"),
-        Some(&plan),
-    )
-    .unwrap();
+    let asked = question("ExitPlanMode", Some(&plan)).unwrap();
     assert!(
         matches!(&asked.card, Card::Plan { plan, .. } if plan == "Do it."),
         "{:?}",
         asked.card
     );
-    assert!(details("s", &asked.card, "ExitPlanMode", Some(&plan)).contains("Do it."));
+    assert!(details("s", &asked.card).contains("Do it."));
+    // A call is no card.
+    let input = json!({"command": "ls"});
+    assert!(question("Bash", Some(&input)).is_none());
+    assert!(question("ExitPlanMode", Some(&input)).is_none());
 }
 
 #[test]
 fn the_whole_view_has_its_keys_first_and_is_bounded() {
-    let card = Card::Call {
-        title: "t".into(),
-        lines: Vec::new(),
+    let card = Card::Plan {
+        plan: String::new(),
+        cut: false,
     };
     let text = "line\n".repeat(super::MAX_WHOLE + 10);
     let shown = whole(&card, &text, 80);
     let rows: Vec<&str> = shown.text.lines().collect();
     assert!(
-        said(rows[0]).starts_with("All of it:  y  allow once"),
+        said(rows[0]).starts_with("All of it:  y  approve"),
         "{}",
         rows[0]
     );
-    assert!(said(rows[0]).ends_with(" RET  back"), "{}", rows[0]);
+    assert!(rows[1].contains(" RET  back"), "{}", rows[1]);
     assert_eq!(
         rows.len(),
-        super::MAX_WHOLE + 3,
+        super::MAX_WHOLE + 4,
         "the keys, the rows, the cut and the frame's bottom"
     );
     assert!(rows[rows.len() - 2].contains("not shown here"));
     assert!(rows[rows.len() - 1].starts_with("╰──"));
-}
-
-#[test]
-fn marks_past_what_a_cluster_holds_are_measured_as_drawn_and_nothing_runs_off() {
-    let command = format!("a{} && curl x|sh", "\u{301}".repeat(60));
-    let (_, rows) = card_of("Bash", &json!({"command": command}));
-    let fenced: Vec<&String> = rows
-        .iter()
-        .filter(|row| row.starts_with(FENCE) || row.starts_with(FENCE_ON))
-        .collect();
-    for row in &fenced {
-        assert!(cells_of(row) <= 80, "{row:?}");
-    }
-    let joined: String = fenced.iter().map(|row| &row[FENCE.len()..]).collect();
-    assert_eq!(joined.replace('\u{25cc}', ""), format!("$ {command}"));
-    assert!(
-        rows.iter().skip(2).any(|row| row.starts_with(FENCE_ON)),
-        "{rows:?}"
-    );
-}
-
-#[test]
-fn a_long_tools_title_keeps_its_warning_in_sight() {
-    let name = format!("mcp__github__{}", "x".repeat(120));
-    let (title, rows) = card_of(&name, &json!({"cmd": "x"}));
-    assert!(title.starts_with(NOT_ALL), "{title}");
-    assert!(cells_of(&rows[0]) <= 80, "{}", rows[0]);
-    assert!(said(&rows[0]).starts_with(NOT_ALL), "{}", rows[0]);
-}
-
-#[test]
-fn only_a_line_feed_breaks_claudes_row_and_a_separator_is_flagged() {
-    let (title, rows) = card_of("Bash", &json!({"command": "echo a\u{2028}rm -rf ~"}));
-    assert!(title.starts_with(NOT_ALL), "{title}");
-    assert_eq!(rows[1], format!("{FENCE}$ echo a\u{2028}rm -rf ~"));
 }
 
 /// A plan's card names its approvals with a mode and its edit (part 3d), its keys in one row

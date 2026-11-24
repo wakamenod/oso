@@ -127,18 +127,10 @@ pub(super) fn fits(value: &Value, max: usize) -> bool {
     serde_json::to_writer(Counter(max), value).is_ok()
 }
 
-/// Whether a call's input `value` names nothing but `keys` (ADR 0165, step 2): what a question
-/// shows of a call is then all it says.
-pub fn only_keys(value: &Value, keys: &[&str]) -> bool {
-    value
-        .as_object()
-        .is_some_and(|object| object.keys().all(|key| keys.contains(&key.as_str())))
-}
-
 /// A call's input `value` as indented JSON, cut to at most `max` bytes at a character, for the
-/// person to read whole (ADR 0165, step 2).
-pub fn pretty(value: &Value, max: usize) -> String {
-    written(value, max, true).0
+/// person to read whole (ADR 0165, step 2), and whether it was cut.
+pub fn pretty(value: &Value, max: usize) -> (String, bool) {
+    written(value, max, true)
 }
 
 /// `value` as indented JSON, if that takes at most `max` bytes.

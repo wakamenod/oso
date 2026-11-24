@@ -1,9 +1,10 @@
 //! The permission requests of native sessions' bridges, from their coming to their answer (ADR
-//! 0165, step 2): each waits until its call is found in its session's stream, is shown on its
-//! session's card (step 2e-2), and is answered from it.
+//! 0165, step 2): each waits until its call is found in its session's stream, is shown, a call in
+//! its session's conversation (ADR 0182) and a question or a plan on its card (step 2e-2), and is
+//! answered there.
 //!
-//! Must not depend on: threads, sockets, the editor or the UI; the app finds the calls, docks
-//! the cards and sends the replies.
+//! Must not depend on: threads, sockets, the editor or the UI; the app finds the calls, shows
+//! them and sends the replies.
 //!
 //! - At most one request waits for each connection, and so for each running native session
 //!   (each holds one connection to the sessions' socket, whose server takes one request at a
@@ -17,6 +18,7 @@ use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
 pub use super::card::Question;
+use super::request::{Block, Request};
 use crate::channel::Connection;
 use crate::channel::protocol::permission::Call;
 use crate::sessions::worker::SessionKey;
@@ -44,6 +46,9 @@ impl<R> Default for Asks<R> {
     }
 }
 
+/// The block of a call, made off the UI thread as its request came: none of a question or a plan.
+pub type Made = Option<Box<Block>>;
+
 /// One request, and what replies to it.
 #[derive(Debug)]
 pub struct Ask<R> {
@@ -51,18 +56,63 @@ pub struct Ask<R> {
     pub key: SessionKey,
     pub call: Call,
     pub came: Instant,
+    /// Its block, until it is asked.
+    pub made: Made,
     /// What the person is asked, once the call was found.
-    pub question: Option<Question>,
-    /// When its card was shown, once it was.
+    pub asked: Option<Asked>,
+    /// When it was shown, once it was.
     pub shown: Option<Instant>,
     pub reply: R,
+}
+
+/// What the person is asked: never both for one request.
+#[derive(Debug)]
+pub enum Asked {
+    /// Questions or a plan, on the session's card.
+    Card(Question),
+    /// A call, by its block in the conversation and its line.
+    Request(Box<Request>),
+}
+
+impl<R> Ask<R> {
+    /// What its card asks, if it has one.
+    pub fn question(&self) -> Option<&Question> {
+        match self.asked.as_ref()? {
+            Asked::Card(question) => Some(question),
+            Asked::Request(_) => None,
+        }
+    }
+
+    pub fn question_mut(&mut self) -> Option<&mut Question> {
+        match self.asked.as_mut()? {
+            Asked::Card(question) => Some(question),
+            Asked::Request(_) => None,
+        }
+    }
+
+    /// What it shows in the conversation, if it is a call.
+    pub fn request(&self) -> Option<&Request> {
+        match self.asked.as_ref()? {
+            Asked::Request(request) => Some(request),
+            Asked::Card(_) => None,
+        }
+    }
+
+    pub fn request_mut(&mut self) -> Option<&mut Request> {
+        match self.asked.as_mut()? {
+            Asked::Request(request) => Some(request),
+            Asked::Card(_) => None,
+        }
+    }
 }
 
 /// What the app finds of a request's call.
 #[derive(Debug)]
 pub enum Look {
-    /// It waits in the stream, and says what the request says: the question about it.
+    /// It waits in the stream, and says what the request says: what its card asks.
     Found(Question),
+    /// It waits in the stream, and says what the request says: the block made of it shows it.
+    Call,
     /// It still waits, and was found before.
     Waits,
     /// No call of that id and tool waits in the stream.
@@ -132,7 +182,7 @@ impl<R> Asks<R> {
     /// When the first request whose call has not shown is denied, if one waits.
     pub fn deadline(&self) -> Option<Instant> {
         (self.waiting.iter())
-            .filter(|ask| ask.question.is_none())
+            .filter(|ask| ask.asked.is_none())
             .map(|ask| ask.came + FIND_WITHIN)
             .min()
     }
@@ -151,14 +201,22 @@ impl<R> Asks<R> {
                 kept.push_back(ask);
                 continue;
             }
-            let found = ask.question.is_some();
+            let found = ask.asked.is_some();
             let denied = match find(&ask) {
                 Look::Found(question) if !found => {
-                    ask.question = Some(question);
+                    ask.asked = Some(Asked::Card(question));
                     outcomes.push(Outcome::Found(ask.key));
                     None
                 }
-                Look::Found(_) | Look::Waits => None,
+                Look::Call if !found => match ask.made.take() {
+                    Some(block) => {
+                        ask.asked = Some(Asked::Request(Box::new(Request::new(*block))));
+                        outcomes.push(Outcome::Found(ask.key));
+                        None
+                    }
+                    None => Some(Denied::Unreadable),
+                },
+                Look::Found(_) | Look::Call | Look::Waits => None,
                 Look::NotWaiting if found => Some(Denied::NoLonger),
                 Look::NotWaiting if now.saturating_duration_since(ask.came) >= FIND_WITHIN => {
                     Some(Denied::NotFound)
@@ -177,8 +235,8 @@ impl<R> Asks<R> {
         outcomes
     }
 
-    /// The requests found whose card is not shown yet: a session's first waiting request
-    /// alone, once found, as its card shows one at a time and in turn, though the session may
+    /// The requests found that are not shown yet: a session's first waiting request
+    /// alone, once found, as they are shown one at a time and in turn, though the session may
     /// ask on several connections at once (a turn's calls asked together). A later one waits
     /// until the one before it is answered.
     pub fn unshown(&mut self) -> impl Iterator<Item = &mut Ask<R>> {
@@ -188,33 +246,38 @@ impl<R> Asks<R> {
                 return false;
             }
             first.push(ask.key);
-            ask.question.is_some() && ask.shown.is_none()
+            ask.asked.is_some() && ask.shown.is_none()
         })
+    }
+
+    /// How many of session `key`'s requests wait for the person, the shown one the first.
+    pub fn count(&self, key: SessionKey) -> usize {
+        self.asked().filter(|(asked, _)| *asked == key).count()
     }
 
     /// The sessions and calls of the requests found, which wait for the person.
     pub fn asked(&self) -> impl Iterator<Item = (SessionKey, &str)> {
         (self.waiting.iter())
-            .filter(|ask| ask.question.is_some())
+            .filter(|ask| ask.asked.is_some())
             .map(|ask| (ask.key, ask.call.tool_use_id.as_str()))
     }
 
-    /// Session `key`'s request whose card is shown, if one is.
+    /// Session `key`'s request that is shown, if one is.
     pub fn shown(&self, key: SessionKey) -> Option<&Ask<R>> {
         (self.waiting.iter()).find(|ask| ask.key == key && ask.shown.is_some())
     }
 
-    /// Whether any session's card is shown.
+    /// Whether any session's request is shown.
     pub fn any_shown(&self) -> bool {
         self.waiting.iter().any(|ask| ask.shown.is_some())
     }
 
-    /// As [`Asks::shown`], to change its card.
+    /// As [`Asks::shown`], to change it.
     pub fn shown_mut(&mut self, key: SessionKey) -> Option<&mut Ask<R>> {
         (self.waiting.iter_mut()).find(|ask| ask.key == key && ask.shown.is_some())
     }
 
-    /// Session `key`'s request whose card is shown, answered: out of the queue, and its call
+    /// Session `key`'s request that is shown, answered: out of the queue, and its call
     /// kept as answered.
     pub fn take_shown(&mut self, key: SessionKey) -> Option<Ask<R>> {
         let index = (self.waiting.iter()).position(|ask| ask.key == key && ask.shown.is_some())?;

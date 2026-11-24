@@ -364,16 +364,16 @@ impl App {
     /// approve a plan.
     fn waiting_plan(&self, key: SessionKey) -> Option<(String, String, bool)> {
         let ask = self.hosting.natives.permissions.asks.shown(key)?;
-        match &ask.question.as_ref()?.card {
+        match &ask.question()?.card {
             Card::Plan { plan, cut } => Some((ask.call.tool_use_id.clone(), plan.clone(), *cut)),
-            Card::Call { .. } | Card::Questions(_) => None,
+            Card::Questions(_) => None,
         }
     }
 
     /// Whether session `key`'s shown call asks to approve a plan.
     fn plan_waits(&self, key: SessionKey) -> bool {
         (self.hosting.natives.permissions.asks.shown(key))
-            .and_then(|ask| ask.question.as_ref())
+            .and_then(|ask| ask.question())
             .is_some_and(|question| matches!(question.card, Card::Plan { .. }))
     }
 

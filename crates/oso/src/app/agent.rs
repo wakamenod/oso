@@ -28,6 +28,7 @@ mod admit;
 mod open;
 pub(super) use open::TOO_LARGE_FOR_THE_AGENT;
 mod questions;
+pub(super) use questions::Typed;
 mod reads;
 mod requests;
 mod saving;
@@ -94,10 +95,8 @@ pub(super) struct Agent {
     /// When a key last came while a question the channel caused was innermost, or when it
     /// opened.
     quiet_since: Option<Instant>,
-    /// When the person last typed in the window.
-    person_typed: Option<Instant>,
-    /// When the person typed the key before the last one, for a native session's card (ADR 0165).
-    key_before: Option<Instant>,
+    /// When the person typed in the window.
+    typed: questions::Typed,
     /// The files the channel is opening.
     opening: Vec<open::Opening>,
     /// How many files each connection has opened.
@@ -537,7 +536,7 @@ impl App {
                 || self.editor.hover().is_some(),
             macro_running: self.editor.macro_recording() || self.editor.macro_replaying(),
             undoing: self.editor.crossing().is_some(),
-            since_typed: self.agent.person_typed.map(|at| at.elapsed()),
+            since_typed: self.agent.typed.last.map(|at| at.elapsed()),
         })
     }
 

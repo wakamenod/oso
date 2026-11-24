@@ -132,6 +132,30 @@ fn the_strip_and_the_card_stack_above_the_composer() {
 
 /// A card's rows are as wide as it is (ADR 0180): none counts as two.
 #[test]
+fn a_requests_line_shows_all_its_rows_or_hides_with_every_dock() {
+    let (mut editor, host, _) = docked(20, "a\nb\nc\nd\ne\nf");
+    let line = editor.add_internal_buffer("*request: s*", Mode::Request);
+    editor.set_internal_text(line, "y n N\nRET i\nBash");
+    editor.set_dock(host, DockSlot::Card, Some(line));
+    let window = editor.dock_window(host, DockSlot::Card).unwrap();
+    let composer = editor.dock_window(host, DockSlot::Composer).unwrap();
+    assert_eq!(rows(&editor, window), 3);
+    for height in (4..20).rev() {
+        editor.set_frame_size(FrameSize {
+            rows: height,
+            columns: 40,
+        });
+        // The composer gives its rows up first.
+        let (line, composer) = (rows(&editor, window), rows(&editor, composer));
+        assert!(
+            line == 3 && composer >= 1 || line == 0 && composer == 0,
+            "{height}: {line} {composer}"
+        );
+    }
+    assert_eq!(rows(&editor, window), 0, "too short for it");
+}
+
+#[test]
 fn a_card_takes_a_row_a_line_however_wide() {
     let (mut editor, host, _) = docked(20, "");
     let card = editor.add_internal_buffer("*card: s*", Mode::Card);

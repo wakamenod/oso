@@ -307,7 +307,7 @@ const FADED_FLOOR: f32 = 4.5;
 /// are not here, so text on them is drawn in [`Face::Text`]'s colour.
 ///
 /// The spaces pane's bands (ADR 0140) follow: its marks and names keep their colours on them.
-pub(crate) const SYNTAX_FILLS: [Face; 21] = [
+pub(crate) const SYNTAX_FILLS: [Face; 22] = [
     Face::CurrentLine,
     Face::DiffAdded,
     Face::DiffRemoved,
@@ -318,6 +318,9 @@ pub(crate) const SYNTAX_FILLS: [Face; 21] = [
     Face::SessionPoint,
     // A waiting row's lit beat (ADR 0140, as amended): only its own inverse glyphs are on it.
     Face::SessionAlertLit,
+    // A request's block's tint (ADR 0182): why it runs and its kept lines keep their quiet
+    // colour on it.
+    Face::Card,
     // A permission card's title band and its keys' chips (ADR 0180): only oso's words are on
     // them.
     Face::CardTitle,
