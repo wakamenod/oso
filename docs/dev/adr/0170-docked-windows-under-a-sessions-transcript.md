@@ -332,6 +332,8 @@ the last, from shots of the app.
   footer, a pane of one row, keeps its band on the lower rule's row, below its line. [ADR 0165](0165-native-claude-sessions-the-route.md), parts 3a and
   3b; [ADR 0181](0181-remote-control-of-native-sessions.md), "The mark";
   [ADR 0182](0182-a-native-sessions-requests-in-its-conversation.md), "The line".
+- **Erratum:** `set_dock` with another buffer in a slot left its window docked nowhere, where it is to
+  show that buffer in the same window. It stays docked now.
 - **Not chosen:** a footer as a dock of its own (`DockSlot::Footer`), which would be a window that
   `C-x o` goes to and every state lists, with a buffer and a mode. Text drawn half a cell off the
   grid, which would cost one row less, and an offset in every place that turns a cell into pixels.

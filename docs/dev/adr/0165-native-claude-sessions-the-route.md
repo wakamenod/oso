@@ -2642,7 +2642,10 @@ orchestrator's. Where the row is and when it gives way is
   model is: its mark and its place tell it. Where no process runs the model stands alone.
 - **Its colours** are existing faces; `Prompt` is held to 4.5:1 on the text's background too.
 - **Costs:** its words are made, cut and measured when the note is, and a frame finds them by its windows' buffers; a
-  window with no docks costs a look.
+  window with no docks costs a look. Measured (release, one Mac, three runs each way in turn): key to
+  photon in a composer under 10,000 rows p50 0.85 to 0.98 and 0.85 to 0.94 ms, p99 1.19 to 1.48 and
+  1.25 to 1.53 ms, before and after; a frame's panes with three docks p50 51 to 53 and 49 to 50 µs, with
+  none the same.
 - **Built with** `sessions::native::footer` (pure: the words, what a width leaves out) and
   `app/draw/tiled/footer.rs`; the dev socket's state has `footer`, withheld as the modelines are.
 - **New public items:** none here; ADR 0170's.
