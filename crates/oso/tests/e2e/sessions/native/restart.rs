@@ -95,7 +95,7 @@ fn a_native_session_resumes_in_the_instance_oso_restart_starts_in_its_mode() {
     resumed_in_accept_edits(&flow, &id);
     show_transcript(&mut new);
     transcript_says(&mut new, "Resumed after oso-restart.");
-    new.wait_for("the mode", |state| modeline(state).contains("acceptEdits"));
+    footer_says(&mut new, "▶▶ accept edits on");
     // The resumed session takes messages: run 2's first.
     new.send_keys("i");
     new.wait_for("the composer", in_composer);

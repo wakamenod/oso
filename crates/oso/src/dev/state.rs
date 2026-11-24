@@ -493,13 +493,13 @@ fn window_state(
     state
 }
 
-/// A window's cells: its gutter, text and modeline together, from the frame's top left.
+/// A window's cells from its text's top to its modeline's bottom, its docks' rows too (ADR 0170).
 fn area_state(regions: &oso_core::frame::WindowRegions) -> Value {
     let area = regions.area();
     json!({
         "row": area.row,
         "column": area.column,
-        "rows": area.rows + regions.modeline.rows,
+        "rows": (regions.modeline.row + regions.modeline.rows).saturating_sub(area.row),
         "columns": area.columns,
     })
 }
