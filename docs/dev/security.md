@@ -835,8 +835,8 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     and keys around Claude's text, fenced row by row after `│ ` in a face of its own, each of
     Claude's line feeds a row, a long row broken at the card's width as the display measures
     it, the rows it goes on to fenced `┊ `, so that no text of Claude's runs off the card,
-    stands as a key row or passes for oso's words; no agent command runs while a card is
-    selected, a look included; the title says
+    stands as a key row or passes for oso's words; no agent command runs with the request in
+    front, a look included (below); the title says
     when it does not show all the call does, and `RET` shows the input that runs whole in the
     card. The frame, oso's words and the keys' chips are in faces that only oso's own spans take,
     and what is drawn behind them comes from those, never from what a text holds; an option's
@@ -849,7 +849,7 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     and a plan's chords among them. From the session's composer,
     `y`, `n`, `N` and a question's `o` and digits answer only while it is empty and selected, with
     one cursor and no composition, under the same gate, measured since it was so, which looks at
-    the card's window, as an agent's looks run there, and only as a
+    the card's window, and only as a
     key that would be typed: never text an input method commits, a held key's repeat, nor what a
     macro replays. Never a plan's `a`, `A` or `e`. Point moves
     to it only from that session's transcript, or its composer with no draft, at once as it
@@ -910,7 +910,14 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     `*Agent*` lists each request without its text.
   - While a native session's request waits in front of the person (its card, composer, transcript
     or plan's edit selected), `open` shows no file, one it is loading among them, which is
-    dropped; and while any card waits, an agent does not switch highlighting.
+    dropped, and no command runs, a look included. With one in a window of the frame, no
+    command that changes the windows or how they are drawn (line numbers, the current line's
+    band), goes through the buffers or explains a session runs; with the side window selected
+    too, no command runs and `open` shows nothing; and while any waits, an agent switches neither
+    highlighting nor wrapping, nor the session shown. An explanation that comes late is not shown
+    over a request, and a session that moves into a space starts behind where it would be;
+    while a session's request waits, no agent
+    renames it (ADR 0182, "Point" 8).
   - It runs registered commands only, by name, with arguments checked against their spec, and
     no keys. Each command declares a reach: `Look`, `Change` or `Person`. The channel refuses
     `Person` commands: exiting, `M-x`, answering prompts, reading the clipboard, emergency

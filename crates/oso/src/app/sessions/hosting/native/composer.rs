@@ -51,8 +51,6 @@ pub(super) struct Composing {
     /// `*compose: NAME*`, once docked.
     pub(super) buffer: Option<BufferId>,
     queue: Queue,
-    /// The queue's rows as drawn at the transcript's end: their bytes are theirs there.
-    pub(super) rows: String,
     /// The messages of the queue's rows as drawn, so that point stays on its own.
     drawn: Vec<u64>,
     /// The CLI's prompt suggestion since its turn ended, until a turn starts, the person

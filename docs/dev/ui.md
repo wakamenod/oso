@@ -1433,7 +1433,7 @@ a switch made with its command stands until that setting changes in the file
   keep the mode, `acceptEdits` and `auto` only when the person chose them with `S-TAB`. `bypassPermissions` and `dontAsk` are never set, and no agent changes the
   mode.
   While the session's to-do list has an item (part 3e), `*todo: NAME*`, withheld from agents,
-  is docked under the card and above the composer: one line, `☐ 2/5 ▶ ITEM` and `C-c C-t list`
+  is docked above the card and the composer: one line, `☐ 2/5 ▶ ITEM` and `C-c C-t list`
   at its right edge, Claude's text in a face of its own after oso's mark, cut to the width;
   `C-c C-t` in the transcript or the composer opens it to a row an item (`☑`, `▶`, `☐`), at
   most 6, and folds it back. It goes at the end of a turn that left every item completed, and

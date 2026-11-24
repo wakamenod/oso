@@ -19,7 +19,7 @@ mod tools;
 mod watch;
 mod worktrees;
 pub(super) use conversations::conversations;
-pub(super) use hosting::{Hosting, NativeSessions, Placeholder};
+pub(super) use hosting::{Hosting, NativeSessions, Placeholder, RequestWaits};
 pub(super) use spaces::Orchestrator;
 pub(super) use watch::Watch;
 pub(in crate::app) use watch::sending::{Outgoing, Shown};
@@ -51,7 +51,9 @@ impl App {
         let mut asked = false;
         for request in self.editor.take_session_requests() {
             let job = match request {
-                SessionRequest::ExplainFile(path) => Job::ExplainFile(path),
+                SessionRequest::ExplainFile(path) => {
+                    Job::ExplainFile(path, self.request_waits().holds_shown())
+                }
                 SessionRequest::Spaces(request) => {
                     self.space_request(request);
                     continue;
@@ -154,16 +156,16 @@ impl App {
     /// The worker found something.
     pub(super) fn sessions_reported(&mut self, out: Out) {
         match out {
-            Out::Explained(key, text) => {
+            Out::Explained(key, text, there) => {
                 match key.and_then(|key| self.unasked_explained(key, &text)) {
-                    Some(text) => self.show_explanation(&text),
-                    None => self.show_explanation(&text),
+                    Some(text) => self.show_explanation(&text, there),
+                    None => self.show_explanation(&text, there),
                 }
             }
             // A session started without asking still shows who started it and its brief.
-            Out::Unexplained(key, why) => {
+            Out::Unexplained(key, why, there) => {
                 match key.and_then(|key| self.unasked_explained(key, &why)) {
-                    Some(text) => self.show_explanation(&text),
+                    Some(text) => self.show_explanation(&text, there),
                     None => self.editor.message(why),
                 }
             }
@@ -241,7 +243,15 @@ impl App {
 
     /// Shows `text` in `*Session explain*`, which the agent channel cannot read: it holds a
     /// session's screen.
-    fn show_explanation(&mut self, text: &str) {
+    ///
+    /// Not where a native session's request came to wait since it was asked for, if it was not
+    /// asked for `there` (ADR 0182, "Point" 8).
+    fn show_explanation(&mut self, text: &str, there: bool) {
+        if !there && self.request_waits().holds_shown() {
+            return self
+                .editor
+                .message("Not explained: a native session's request waits for you");
+        }
         if show_explanation(&mut self.editor, &mut self.hosting.explain, text) {
             self.request_redraw();
         }

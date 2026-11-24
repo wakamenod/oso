@@ -1,6 +1,6 @@
 //! A native session's faces laid on its rows again (ADR 0165, part 2g): once highlighting is
 //! on after it was off, which drops every buffer's highlights, the faces its rows were drawn
-//! with, the queue's too.
+//! with, and those of what stands after them.
 //!
 //! Must not depend on: key presses or how a frame is drawn; `sync` says when.
 //!
@@ -19,7 +19,7 @@ use super::super::Native;
 use super::{fits, row_range, set_highlights};
 use crate::app::freer::Freer;
 use crate::sessions::native::markdown::plain;
-use crate::sessions::native::render::{self, Face};
+use crate::sessions::native::render;
 
 /// The most rows whose faces are laid again in a slice.
 pub(super) const SLICE_ROWS: usize = 512;
@@ -56,7 +56,7 @@ impl Faces {
 /// Lays the faces of `native`'s rows again as they were drawn, a reply's with no language's
 /// highlights, in one change of its buffer's: a `slice` of them, the newest first, and those
 /// in view, `shown` being room for what windows show; the rest at the next events.
-/// The first time, of its queue too. A row whose text is not what it renders to now is left
+/// The first time, of what stands after them too. A row whose text is not what it renders to now is left
 /// with none. Whether a window shows the buffer, so that a frame is due, after which the next
 /// event comes.
 pub(super) fn lay_faces(
@@ -102,9 +102,9 @@ pub(super) fn lay_faces(
         }
     }
     native.markdown.faces.laying = (next > 0).then_some(next);
-    let queue = native.placed.end()..len;
-    if first && !queue.is_empty() {
-        highlights.replace(queue.clone(), [(queue.len(), Some(Face::Dim.highlight()))]);
+    let tail = native.placed.end()..len;
+    if first && tail.len() == native.tail.len() {
+        highlights.replace(tail, native.tail.runs());
     }
     set_highlights(editor, freer, native.buffer, highlights)
 }
