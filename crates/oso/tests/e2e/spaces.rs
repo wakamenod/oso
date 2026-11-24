@@ -713,14 +713,28 @@ pub(super) fn line_starting(state: &Value, start: &str) -> Option<usize> {
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
 fn the_space_prompts_complete_over_the_space_just_switched_to() {
-    let flow = Flow::new("spaces-lists", "");
+    // Their orchestrators start in the spaces' directories, which a shared root, as the flows'
+    // temporary directory is on Linux, would refuse.
+    let root = PrivateRoot::new("spaces-lists-root");
+    let config = format!("\n[spaces]\nroot = \"{}\"\n", root.0.display());
+    let flow = Flow::new("spaces-lists", &config);
     let other = flow.scratch.path().join("other");
     fs::create_dir(&other).unwrap();
     flow.git(&other, &["init", "-q", "-b", "main"]);
     let (mut app, _) = flow.start();
     app.send_keys("C-c a O");
     answer(&mut app, "Describe the space:", "Fix login");
-    app.wait_for("the space", |state| space(state, "fix-login").is_some());
+    // Each orchestrator never works, so it is idle once it runs.
+    let idle = |state: &Value, slug: &str| {
+        space(state, slug).is_some_and(|s| s["orchestrator"].is_string())
+            && (state["sessions"]["sessions"].as_array()).is_some_and(|all| {
+                all.iter()
+                    .any(|s| s["name"] == slug && s["state"] == "idle")
+            })
+    };
+    app.wait_for("the space, its orchestrator idle", |state| {
+        idle(state, "fix-login")
+    });
     space_menu(&mut app, "a");
     answer(&mut app, "Add repository:", other.to_str().unwrap());
     app.wait_for("its second repository", |state| {
@@ -731,11 +745,8 @@ fn the_space_prompts_complete_over_the_space_just_switched_to() {
     app.send_keys("C-c a O");
     answer(&mut app, "Describe the space:", "Second");
     // Settled, so that nothing but the switch makes the lists again.
-    app.wait_for("the second space, its sessions idle", |state| {
-        let sessions = state["sessions"]["sessions"].as_array();
-        state["sessions"]["space"] == "second"
-            && sessions
-                .is_some_and(|all| all.len() == 2 && all.iter().all(|s| s["state"] == "idle"))
+    app.wait_for("the second space, its orchestrator idle", |state| {
+        state["sessions"]["space"] == "second" && idle(state, "second")
     });
     app.send_keys(&format!("C-c a j {} RET", keys("Fix login")));
     app.wait_for("the first space", |state| {
