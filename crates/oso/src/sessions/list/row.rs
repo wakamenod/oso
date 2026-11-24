@@ -19,6 +19,10 @@ use crate::sessions::state::State;
 /// The mark of a session an agent started without asking (ADR 0135, as built).
 const UNASKED: &str = "unasked";
 
+/// What comes before the name of a session that may be connected to claude.ai (ADR 0181): never
+/// cut. No name, label or reason begins with it.
+pub(super) const REMOTE: &str = "⇄ ";
+
 /// One session's lines.
 pub(super) struct Row<'e> {
     pub(super) entry: &'e Entry,
@@ -68,11 +72,14 @@ impl<'e> Row<'e> {
         };
         let label = self.label.unwrap_or(&entry.name);
         let head = format!("{}{mark} ", self.indent);
-        let age = shown_age(age(entry.since, now), width, cells(&head), label);
+        let remote = if entry.remote { REMOTE } else { "" };
+        let before = cells(&head) + cells(remote);
+        let age = shown_age(age(entry.since, now), width, before, label);
         // The label first, then its place where there is room, then the age at the right edge.
-        let room = width.saturating_sub(cells(&head) + cells(&age) + 1);
+        let room = width.saturating_sub(before + cells(&age) + 1);
         let name = cut_middle(unmarked(label), room);
-        let mut text = format!("{head}{name}");
+        let mut text = format!("{head}{remote}{name}");
+        let remote = head.len()..head.len() + remote.trim_end().len();
         // Its mark and name, which a blink's lit beat draws inverse (ADR 0140, as amended):
         // counted in cells only then, as a row is not counted twice for nothing.
         let blink = self.beat.blinks(entry);
@@ -112,6 +119,9 @@ impl<'e> Row<'e> {
                 spans.push((named, Highlight::SessionAlertLit));
             } else {
                 spans.push((at..at + mark.len_utf8(), face(entry.state)));
+            }
+            if !remote.is_empty() && blink != Some(true) {
+                spans.push((remote, Highlight::SessionAlert));
             }
             spans.extend(place.map(|place| (place, Highlight::SessionQuiet)));
             spans.push((age_at, Highlight::SessionQuiet));

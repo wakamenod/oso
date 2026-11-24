@@ -121,7 +121,10 @@ impl App {
             root,
             name: base,
         } = from;
+        // A connected session is turned off before a fork of it, which is not connected (ADR 0181).
+        self.remote_off_for_fork(&from);
         let (key, name) = self.hosting.table.reserve(&directory, &base);
+        self.note_fork(&from, key);
         // A fork in a space's directory passes its checks (ADR 0136).
         let space = self.space_checks(&directory);
         self.turn_agent_channel_on_for_a_session();

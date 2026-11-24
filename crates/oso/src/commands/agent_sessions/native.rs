@@ -17,6 +17,9 @@ use oso_core::buffer::Mode;
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
 use oso_core::editor::{NativeAction, SessionRequest};
 
+/// `y` to the question before Remote Control is turned on.
+pub const REMOTE_CONFIRMED: &str = "native-remote-control-confirmed";
+
 /// The commands of a native session's buffer.
 pub const COMMANDS: &[Command] = &[
     Command {
@@ -91,6 +94,30 @@ pub const COMMANDS: &[Command] = &[
         run: todo,
         state: None,
     },
+    Command {
+        name: "native-remote-control",
+        doc: "Turn Claude Code's Remote Control on for the native session whose transcript or composer this is, after a question, or off.\n\nOn, claude.ai follows the session, sends it messages, stops it and changes its permission mode; permission questions are answered in oso alone. What was said and what the tools gave, so far and from now on, is sent to Anthropic's servers and kept there. claude ends and resumes its conversation, idle, to turn it on or off. A session an agent started and an orchestrator are never connected. Off, claude.ai keeps what it has, and may still list the session.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: remote_control,
+        state: None,
+    },
+    Command {
+        name: "native-remote-control-address",
+        doc: "Copy the address on claude.ai of the native session whose transcript or composer this is, to the kill ring and the clipboard, once Remote Control gave it one. oso never opens it.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: remote_address,
+        state: None,
+    },
+    Command {
+        name: REMOTE_CONFIRMED,
+        doc: "The yes to `native-remote-control`'s question.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: remote_confirmed,
+        state: None,
+    },
 ];
 
 /// Asks the host to `action` at point's line of the native session's buffer in front, or of
@@ -150,6 +177,28 @@ fn cycle_mode(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 
 fn todo(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     at_point(ctx, NativeAction::Todo)
+}
+
+fn remote_control(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    at_point(ctx, NativeAction::RemoteControl)
+}
+
+fn remote_address(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    at_point(ctx, NativeAction::RemoteAddress)
+}
+
+fn remote_confirmed(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    if !ctx.confirmed() {
+        return Err(CommandError::new("Remote Control's question answers this"));
+    }
+    // What is in front is the question's report, not the session: the host kept which it is.
+    let (id, line) = (ctx.editor.tiled().0.buffer(), 0);
+    ctx.editor.request_session(SessionRequest::Native {
+        buffer: id,
+        line,
+        action: NativeAction::RemoteConfirmed,
+    });
+    Ok(())
 }
 
 #[cfg(test)]

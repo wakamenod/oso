@@ -16,6 +16,9 @@
 //!   the TUI (its `promptSource`), not the CLI's own (`isMeta`), and from a person (its
 //!   `origin`, where it says one). A message from another session is a note; anything else a
 //!   user line says is what the stream's replay of it would show.
+//! - One that came another way is from claude.ai (ADR 0181): what oso sends has no `origin` and
+//!   no `clientPlatform` (measured, CLI 2.1.330), so one sent as oso's are (`sdk`) with an
+//!   `origin`, or of any source with a `clientPlatform`, is. It is never the person's here.
 
 use std::ops::Range;
 use std::path::PathBuf;
@@ -36,6 +39,9 @@ pub const MAX_ID: usize = 64;
 /// The prompt sources of a message the person sent: through oso, or typed in the TUI.
 const PERSON: [&str; 4] = ["sdk", "typed", "queued", "suggestion_accepted"];
 
+/// The prompt source of what oso sends, which a message from claude.ai has too.
+const SENT: &str = "sdk";
+
 /// The transcript's names for fields the stream names otherwise.
 const RENAMED: [(&str, &str); 2] = [
     ("toolUseResult", "tool_use_result"),
@@ -49,12 +55,21 @@ pub enum Shows {
     Prompt,
     /// A message from another session.
     Peer,
+    /// A message from claude.ai.
+    Remote,
     /// Any other user or assistant message.
     Message,
     /// The conversation was compacted.
     Compacted,
     /// Nothing: an attachment, a compaction's summary or another system line.
     Nothing,
+}
+
+impl Shows {
+    /// Whether it starts a turn: the person's message, or one from claude.ai.
+    pub fn starts_turn(self) -> bool {
+        matches!(self, Self::Prompt | Self::Remote)
+    }
 }
 
 /// Where a line is in the conversation, and what it shows, read without decoding it.
@@ -76,6 +91,11 @@ pub enum Said {
     },
     /// A message from another session: its text and its line's id.
     Note {
+        text: String,
+        uuid: Option<String>,
+    },
+    /// A message from claude.ai: its text and its line's id.
+    Remote {
         text: String,
         uuid: Option<String>,
     },
@@ -115,6 +135,7 @@ pub fn head(line: &[u8]) -> Result<Option<Head>, Unreadable> {
         source,
         turn,
         origin,
+        platform,
     ] = fields(
         line,
         [
@@ -129,6 +150,7 @@ pub fn head(line: &[u8]) -> Result<Option<Head>, Unreadable> {
             "promptSource",
             "turnOrigin",
             "origin",
+            "clientPlatform",
         ],
     );
     let value = |range: Option<Range<usize>>| range.map(|range| &line[range]);
@@ -150,23 +172,13 @@ pub fn head(line: &[u8]) -> Result<Option<Head>, Unreadable> {
             _ => Shows::Nothing,
         },
         Some(b"\"user\"") if yes(compact) => Shows::Nothing,
-        Some(b"\"user\"") => {
-            let origin = value(origin)
-                .and_then(|origin| value_of(origin, "kind"))
-                .and_then(short);
-            let turn = value(turn).and_then(short);
-            let source = value(source).and_then(short);
-            if turn.as_deref() == Some("peer") || origin.as_deref() == Some("peer") {
-                Shows::Peer
-            } else if !yes(meta)
-                && source.is_some_and(|source| PERSON.contains(&source.as_str()))
-                && origin.as_deref().is_none_or(|origin| origin == "human")
-            {
-                Shows::Prompt
-            } else {
-                Shows::Message
-            }
-        }
+        Some(b"\"user\"") => user_shows(
+            yes(meta),
+            [source, turn, origin, platform].map(|range| {
+                let said: Option<&[u8]> = value(range);
+                said.filter(|value| *value != b"null")
+            }),
+        ),
         _ => Shows::Nothing,
     };
     let parent = value(parent)
@@ -177,6 +189,27 @@ pub fn head(line: &[u8]) -> Result<Option<Head>, Unreadable> {
         parent,
         shows,
     }))
+}
+
+/// What a user line shows, the CLI's own if `meta`, by its `promptSource`, `turnOrigin`, `origin`
+/// and `clientPlatform`, each where it says one.
+fn user_shows(meta: bool, [source, turn, origin, platform]: [Option<&[u8]>; 4]) -> Shows {
+    let (has_origin, has_platform) = (origin.is_some(), platform.is_some());
+    let origin = origin
+        .and_then(|origin| value_of(origin, "kind"))
+        .and_then(short);
+    if turn.and_then(short).as_deref() == Some("peer") || origin.as_deref() == Some("peer") {
+        return Shows::Peer;
+    }
+    let source = source.and_then(short).unwrap_or_default();
+    let person = !meta
+        && PERSON.contains(&source.as_str())
+        && origin.as_deref().is_none_or(|origin| origin == "human");
+    match person {
+        false => Shows::Message,
+        true if has_platform || (source == SENT && has_origin) => Shows::Remote,
+        true => Shows::Prompt,
+    }
 }
 
 /// The directory a line of the conversation says it ran in, if it says one.
@@ -221,6 +254,9 @@ pub fn said(line: &[u8], shows: Shows) -> Result<Option<Said>, Unreadable> {
         Shows::Prompt => user(&object)
             .and_then(|user| Some((user.text?, user.uuid)))
             .map(|(text, uuid)| Said::Prompt { text, uuid }),
+        Shows::Remote => user(&object)
+            .and_then(|user| Some((user.text?, user.uuid)))
+            .map(|(text, uuid)| Said::Remote { text, uuid }),
         Shows::Peer => user(&object)
             .and_then(|user| Some((user.text?, user.uuid)))
             .map(|(text, uuid)| Said::Note { text, uuid }),

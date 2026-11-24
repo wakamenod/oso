@@ -13,10 +13,31 @@ use crate::app::App;
 use crate::git::TrustedRoot;
 use crate::sessions::hosted::Run;
 use crate::sessions::identity::SessionId;
+use crate::sessions::start::connect::Connect;
 use crate::sessions::start::space_gate::ByGate;
 use crate::sessions::start::trust::ByRecord;
 use crate::sessions::start::{Chosen, Kind, NativeOrder, Order, Runs, TerminalOrder};
 use crate::sessions::worker::SessionKey;
+
+/// What a resume is given beyond its session.
+#[derive(Debug, Default)]
+pub(in crate::app::sessions::hosting) struct How {
+    /// What the native session handed to the TUI held (ADR 0165, part 4d-1).
+    pub(in crate::app::sessions::hosting) chosen: Option<Chosen>,
+    /// Whether a native one may be judged by its worktree's claim.
+    pub(in crate::app::sessions::hosting) by_claim: bool,
+    /// Leave to connect a native one to claude.ai (ADR 0181).
+    pub(in crate::app::sessions::hosting) connect: Option<Connect>,
+}
+
+impl How {
+    /// As any resume but a move's into a space.
+    pub(in crate::app::sessions::hosting) const BY_CLAIM: Self = Self {
+        chosen: None,
+        by_claim: true,
+        connect: None,
+    };
+}
 
 impl App {
     /// `session-resume`: the stopped session whose terminal is `buffer`, in the same buffer.
@@ -38,7 +59,11 @@ impl App {
             return;
         };
         let key = session.key;
-        match self.resume_hosted_with(key, shown, None, by_claim) {
+        let how = How {
+            by_claim,
+            ..How::default()
+        };
+        match self.resume_hosted_with(key, shown, how) {
             // The person's resume: no agent resumed it any more (ADR 0153).
             Ok(()) => self.forget_agent_resume(key),
             Err(why) => self.editor.message(why),
@@ -59,10 +84,10 @@ impl App {
         key: SessionKey,
         shown: bool,
     ) -> Result<(), String> {
-        self.resume_hosted_with(key, shown, None, true)
+        self.resume_hosted_with(key, shown, How::BY_CLAIM)
     }
 
-    /// [`App::resume_hosted`], a TUI given `chosen`: what the native session handed to it
+    /// [`App::resume_hosted`], as `how` says: a TUI given `chosen`, what the native session handed to it
     /// held (ADR 0165, part 4d-1), which no other resume passes. A native resume of a session
     /// whose TUI's `claude` may still run waits for it to be gone on its start thread, whoever
     /// resumes it (part 4d-2). With `by_claim`, as every resume but a move's into a space, a native
@@ -75,9 +100,13 @@ impl App {
         &mut self,
         key: SessionKey,
         shown: bool,
-        chosen: Option<Chosen>,
-        by_claim: bool,
+        how: How,
     ) -> Result<(), String> {
+        let How {
+            chosen,
+            by_claim,
+            connect,
+        } = how;
         let Some(session) = self.hosting.table.get(key) else {
             return Err("That session is gone".into());
         };
@@ -107,17 +136,8 @@ impl App {
         // A native session resumes natively, in its own buffer, only where its project is
         // trusted now (ADR 0165, step 2): looked at before anything changes.
         let native = self.hosting.natives.has(key);
-        if native && self.hosting.natives.moved(key) {
-            return Err(format!(
-                "Session {name}'s conversation moved to a session id oso does not follow: \
-                 resuming it would reach the conversation before, so start a new session"
-            ));
-        }
-        if native && !self.native_spoke(key) {
-            return Err(format!(
-                "Session {name} was never given a message, so Claude Code has no conversation \
-                 to resume: claude starts a new one"
-            ));
+        if native {
+            self.has_conversation(key, &name)?;
         }
         let (trusted, trust, gate) = match (native, &kind) {
             (true, Kind::Resume(id)) => {
@@ -139,7 +159,7 @@ impl App {
                 by_claim,
                 gate,
                 tui_to_end: self.hosting.table.get(key).and_then(|s| s.tui_process),
-                ..self.resume_native_buffer(key, buffer, shown)
+                ..self.resume_native_buffer(key, buffer, shown, connect)
             }),
             false => Runs::Terminal(TerminalOrder {
                 handed: chosen,
@@ -165,6 +185,27 @@ impl App {
             check_shared: false,
             space,
         });
+        Ok(())
+    }
+
+    /// Whether native session `key`, `name`, has a conversation to resume.
+    ///
+    /// # Errors
+    ///
+    /// Why not.
+    fn has_conversation(&self, key: SessionKey, name: &str) -> Result<(), String> {
+        if self.hosting.natives.moved(key) {
+            return Err(format!(
+                "Session {name}'s conversation moved to a session id oso does not follow: \
+                 resuming it would reach the conversation before, so start a new session"
+            ));
+        }
+        if !self.native_spoke(key) {
+            return Err(format!(
+                "Session {name} was never given a message, so Claude Code has no conversation \
+                 to resume: claude starts a new one"
+            ));
+        }
         Ok(())
     }
 

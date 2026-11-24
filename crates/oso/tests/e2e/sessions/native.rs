@@ -523,6 +523,7 @@ mod past;
 mod plan;
 mod point;
 mod quit;
+mod remote;
 mod request;
 mod restart;
 mod restart_wait;

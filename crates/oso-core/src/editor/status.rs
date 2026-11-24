@@ -508,8 +508,7 @@ impl Editor {
             + status.waits.len()
             + text_cells(&status.state);
         let columns = regions.modeline.columns;
-        let others = note::fit(&mut status.state, note, others, columns);
-        let cells = columns.saturating_sub(others).max(MIN_NAME_CELLS);
+        let cells = note::name_cells(status, note, others, columns);
         push_name(&mut status.name, buffer, marker, cells);
 
         status.echo.clear();
@@ -733,8 +732,104 @@ mod tests {
         let narrow = at(fits - 25);
         assert_eq!(narrow.state, "1:0  Session 2 queued · Haiku 5.5 · default");
         let least = at(30);
-        assert_eq!(least.state, "1:0  Session 2 queued");
-        assert_eq!(text_cells(&least.name), 3 + MIN_NAME_CELLS + 2);
+        assert_eq!(least.state, "2 queued", "nor where it is before it");
+        // The name gives way to it, under its least.
+        assert!(text_cells(&least.name) < 3 + MIN_NAME_CELLS + 2);
+        assert_eq!(text_cells(&least.modeline()), 30);
+    }
+
+    /// A native session in a project and a space, `columns` wide, with a session that is done and the
+    /// agent channel on, as oso shows one.
+    #[cfg(unix)]
+    fn placed_native(note: &str, columns: usize) -> Editor {
+        let mut editor = named_native("*claude: some-session-of-a-space*", note, columns);
+        let id = editor.window().buffer();
+        editor.set_front_space("a-space");
+        editor.set_agent_channel(crate::editor::AgentChannel::Connected);
+        editor.set_session_marks(crate::editor::SessionMarks {
+            done: 1,
+            ..crate::editor::SessionMarks::default()
+        });
+        let found = crate::project::Found {
+            root: crate::project::RootIdentity {
+                path: PathBuf::from("/work/some-project"),
+                identity: Some((1, 2)),
+            },
+            worktree_of: None,
+            checked_main: None,
+        };
+        editor.set_buffer_project(id, Some(found));
+        let list = crate::project::TrustList::parse("/work/some-project\tdev=1 ino=2\n").0;
+        editor.set_trust_list(Some(list));
+        let project = editor.buffer(id).and_then(Buffer::project).unwrap();
+        assert!(editor.project_trusted(project), "not restricted");
+        editor
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_native_notes_first_part_comes_before_where_it_is() {
+        let at = |columns| status(&placed_native("⇄ auto: claude.ai · Opus 5.5", columns));
+        let wide = at(200);
+        assert!(!wide.project.is_empty() && !wide.space.is_empty());
+        assert!(wide.state.starts_with("1:0  Session ⇄ auto: claude.ai · "));
+        let mut dropped = Vec::new();
+        for columns in (54..200).rev() {
+            let status = at(columns);
+            assert!(status.state.contains("⇄ auto: claude.ai"), "{columns}");
+            let cells = text_cells(&status.modeline());
+            assert!(cells <= columns, "{columns}: {}", status.modeline());
+            let place = status.state.starts_with("1:0");
+            dropped.push((status.space.is_empty(), status.project.is_empty(), !place));
+        }
+        dropped.dedup();
+        // The space first, then the project, then the position and the mode.
+        assert_eq!(
+            dropped,
+            [
+                (false, false, false),
+                (true, false, false),
+                (true, true, false),
+                (true, true, true)
+            ]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_native_sessions_mark_is_whole_in_narrow_windows() {
+        for (columns, marks) in [
+            (
+                44,
+                &[
+                    "⇄ claude.ai",
+                    "⇄ connecting",
+                    "⇄ dropped",
+                    "⇄ going off",
+                    "⇄ auto: claude.ai",
+                ][..],
+            ),
+            (
+                54,
+                &[
+                    "⇄ claude.ai",
+                    "⇄ connecting",
+                    "⇄ dropped",
+                    "⇄ going off",
+                    "⇄ auto: claude.ai",
+                    "⇄ plan: connecting",
+                    "⇄ auto: dropped",
+                ],
+            ),
+            (99, &["⇄ acceptEdits: connecting", "⇄ auto: claude.ai"]),
+        ] {
+            for mark in marks {
+                let status = status(&placed_native(&format!("{mark} · Opus 5.5"), columns));
+                let line = status.modeline();
+                assert!(line.contains(mark), "{columns}: {line}");
+                assert!(text_cells(&line) <= columns, "{columns}: {line}");
+            }
+        }
     }
 
     #[test]

@@ -25,6 +25,8 @@
 //!   as [`Out::Past`], through the same delivery, before these threads run.
 //! - An interrupt by signal (`SIGINT`) reaches the process alone: the CLI ends its own tools,
 //!   as a terminal's `C-c`, a byte, would have it do.
+//! - One that tells the process that Remote Control is off closes standard input and gives it
+//!   [`TELL_WAIT`] before `SIGTERM` (ADR 0181).
 //! - A stop closes standard input and sends the group `SIGTERM` at once, and `SIGKILL` after
 //!   [`STOP_WAIT`] if it has not ended. oso's exit kills the group at once.
 
@@ -38,6 +40,7 @@ use std::time::{Duration, Instant};
 use oso_platform::process::{Child, Signal};
 
 use super::native::wire::control::{self, INITIALIZE, Request};
+use super::native::wire::remote::{Asked, Enable};
 use super::native::wire::{self, Event, MAX_LINE};
 
 /// How often a batch of events goes to the UI thread, at most.
@@ -48,6 +51,8 @@ pub const MAX_BATCH: usize = 1024;
 pub const MAX_ERR: usize = 16 << 10;
 /// How long a stop waits before `SIGKILL`.
 pub const STOP_WAIT: Duration = Duration::from_secs(5);
+/// How long a process told that Remote Control is off has to end by itself.
+pub const TELL_WAIT: Duration = Duration::from_secs(1);
 /// How long what is left of an ended process's group has after `SIGTERM`.
 const GROUP_WAIT: Duration = Duration::from_millis(200);
 /// How many events wait for the batcher before the reader waits.
@@ -160,6 +165,12 @@ impl Stream {
         self.offer_line(control::request(id, request))
     }
 
+    /// Hands the request `asked`, which connects the session to claude.ai as `enable` says, to
+    /// the writer, never waiting: refused as [`Stream::send`] refuses (ADR 0181).
+    pub fn enable(&self, asked: &Asked, enable: &Enable<'_>) -> Result<(), NotSent> {
+        self.offer_line(control::enable(asked, enable))
+    }
+
     /// Hands `line` to the writer, never waiting.
     fn offer_line(&self, line: String) -> Result<(), NotSent> {
         let input = self.input.lock().unwrap_or_else(PoisonError::into_inner);
@@ -197,6 +208,26 @@ impl Stream {
         let stopping = named("oso-native-stop", move || {
             if !ended_within(&child, STOP_WAIT) {
                 let _ = lock(&child).signal_group(Signal::Kill);
+            }
+        });
+        if stopping.is_err() {
+            self.kill();
+        }
+    }
+
+    /// Stops the process as [`Stream::stop`] does, but first gives what waits for its input,
+    /// which closes, [`TELL_WAIT`] to be read and the process to end by itself: that Remote
+    /// Control is off, written to one that is idle (ADR 0181). A later stop does not wait.
+    pub fn stop_told(&self) {
+        self.close_input();
+        let child = Arc::clone(&self.child);
+        let stopping = named("oso-native-stop", move || {
+            // A process reaped meanwhile is sent nothing (`Child::signal_group`).
+            for (wait, signal) in [(TELL_WAIT, Signal::Terminate), (STOP_WAIT, Signal::Kill)] {
+                if ended_within(&child, wait) {
+                    return;
+                }
+                let _ = lock(&child).signal_group(signal);
             }
         });
         if stopping.is_err() {

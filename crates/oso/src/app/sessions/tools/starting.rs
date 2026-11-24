@@ -33,8 +33,7 @@ impl App {
         };
         rules::starts_without_asking(rules::Unasked {
             tool: tool.map_or(rules::Asks::Each, |tool| tool.asks),
-            allowed: self.agent_starts_allowed(),
-            caller: caller.origin,
+            standing: self.standing(caller),
             trusted,
             live_unasked,
             limit,
@@ -227,9 +226,18 @@ impl App {
 
     /// Whether the configuration and the commands let sessions the person started start
     /// sessions without asking now (ADR 0135).
-    pub(super) fn agent_starts_allowed(&self) -> bool {
+    fn agent_starts_allowed(&self) -> bool {
         let tools = &self.hosting.tools;
         tools.agent_starts.on && !tools.agent_starts_held
+    }
+
+    /// Whether `caller`'s calls may go without asking at all, as it is now.
+    pub(super) fn standing(&self, caller: &Caller) -> rules::CallerStanding {
+        rules::CallerStanding {
+            allowed: self.agent_starts_allowed(),
+            caller: caller.origin,
+            connected: self.remote_watched(caller.key),
+        }
     }
 
     /// `agent-starts-ask` when `held`, `agent-starts-allow` when not: whether sessions the person

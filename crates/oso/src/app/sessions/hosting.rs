@@ -49,6 +49,7 @@ use fork::ForkFrom;
 pub(in crate::app) use adopt::Adopting;
 pub(in crate::app) use begin::{Begin, Then};
 pub(in crate::app) use moving::{Moves, Moving};
+pub(crate) use native::Looked as RemoteLooked;
 pub(in crate::app) use native::{NativeSessions, Placeholder, RequestWaits, Typing};
 
 /// What the app keeps of its hosted sessions.
@@ -477,6 +478,7 @@ impl App {
             self.session_terminal_not_started(token);
         }
         self.hosting.baselines.remove(&token);
+        self.fork_not_started(token);
         if self.hosting.table.release(token).is_some() {
             self.hosting.trusts.remove(&token);
         } else if let Some(session) = self.hosting.table.get_mut(token)
@@ -512,6 +514,7 @@ impl App {
             if added.is_none() {
                 return;
             }
+            self.fork_started(key, &ready.id);
             self.space_session_started(key);
             self.prune_sessions();
         }

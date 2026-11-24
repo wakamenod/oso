@@ -54,6 +54,23 @@ impl App {
         if action == NativeAction::Confirmed {
             return self.plan_confirmed();
         }
+        // The `y` to Remote Control's question, which keeps the session it asked about (ADR 0181).
+        if action == NativeAction::RemoteConfirmed {
+            return self.remote_confirmed();
+        }
+        if matches!(
+            action,
+            NativeAction::RemoteControl | NativeAction::RemoteAddress
+        ) {
+            let composer = self.composer_session(buffer);
+            let key = composer
+                .or_else(|| self.hosting.table().by_buffer(buffer).map(|s| s.key))
+                .filter(|key| self.hosting.natives.has(*key));
+            return match key {
+                Some(key) => self.remote_key(key, action, composer.is_some()),
+                None => self.editor.message("This buffer holds no native session"),
+            };
+        }
         // From the transcript or the composer, the session's to-do strip (part 3e).
         if matches!(action, NativeAction::Todo) {
             let key = (self.composer_session(buffer))

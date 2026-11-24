@@ -289,6 +289,23 @@ impl Judged {
     }
 }
 
+/// The root `judged` trusts now, looked at on a thread of its own: what a session at it would
+/// resume under (ADR 0181).
+///
+/// # Errors
+///
+/// Why none, for a person.
+pub fn look(judged: Judged) -> Result<TrustedRoot, String> {
+    match judged {
+        Judged::Open(root) => root.check().map(|()| root),
+        Judged::Listed(listed) => listed
+            .look()
+            .ok_or_else(|| "it is not trusted now".to_owned()),
+        Judged::Claimed(claimed) => claimed.look().map_err(|why| why.reason().to_owned()),
+        Judged::Waits => Err("the record of trusted projects is not read yet".to_owned()),
+    }
+}
+
 /// Whether `order` waits for the record of trusted projects on the UI thread.
 pub fn waits(order: &Order) -> bool {
     matches!(&order.runs, Runs::Native(native) if matches!(native.trust, ByRecord::Unread))

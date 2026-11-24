@@ -445,6 +445,10 @@ mod tests {
         // after the command (ADR 0165).
         "native-session-copy-markdown",
         "native-session-cycle-mode",
+        // Connects the conversation to the person's account on claude.ai (ADR 0181).
+        "native-remote-control",
+        "native-remote-control-address",
+        "native-remote-control-confirmed",
         "native-session-next-prompt",
         "native-session-next-tool",
         "native-session-previous-prompt",

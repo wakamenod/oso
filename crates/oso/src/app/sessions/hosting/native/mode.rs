@@ -72,6 +72,9 @@ impl App {
             (None, Some(_)) => return self.editor.message(Refusal::Starting.message()),
             (None, None) => None,
         };
+        if native.remote_control.respawns() {
+            return self.editor.message(Refusal::Held.message());
+        }
         match native.mode.begin(control, process, Instant::now()) {
             Ok(then) => self.mode_step(key, then),
             Err(refusal) => self.editor.message(refusal.message()),
@@ -97,7 +100,7 @@ impl App {
         let changing = format!("Changing the mode to {}…", mode.name());
         let Some(id) = id else {
             // Idle: claude ends, and resumes in the mode (`end`).
-            stream.stop();
+            super::remote::stop(native);
             self.native_note_row(
                 key,
                 &format!(

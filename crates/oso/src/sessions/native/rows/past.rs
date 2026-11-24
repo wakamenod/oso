@@ -5,7 +5,7 @@
 //!
 //! - A message the transcript marks as the person's is a prompt, or the brief an agent's tool
 //!   started the session with, the first one only; a message from another session a note; any other is what its replay would show: a command's output a note, a
-//!   wrapped one nothing.
+//!   wrapped one nothing. One from claude.ai is a note that says so (ADR 0181).
 //! - Replies, thinking and tool calls are rows as they are live, folded and grouped by the
 //!   same rules. A call whose result the transcript does not hold is unfinished.
 //! - No turn has a result row: the transcript keeps none.
@@ -54,6 +54,13 @@ impl Rows {
                 Said::Prompt { text, uuid } => {
                     self.keep(uuid, true);
                     self.past_prompt(text, &mut first).into_iter().collect()
+                }
+                // Never the person's here nor a brief (ADR 0181), and the first message if it
+                // is: no later one is a brief then.
+                Said::Remote { text, uuid } => {
+                    first = false;
+                    self.keep(uuid, true);
+                    vec![self.remote(&text)]
                 }
                 Said::Note { text, uuid } => {
                     self.keep(uuid, true);

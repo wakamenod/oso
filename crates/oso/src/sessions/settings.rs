@@ -17,15 +17,29 @@ use super::worktree::steer::{HOOK, MATCHER};
 /// session to claude.ai. No project's setting turns it back on. It is no boundary (ADR 0165).
 const DISABLE_REMOTE_CONTROL: &str = "disableRemoteControl";
 
+/// The person's setting that connects each session as it starts.
+const AT_STARTUP: &str = "remoteControlAtStartup";
+
+/// What a session's `--settings` says of Remote Control.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum RemoteControl {
+    /// Nothing: a terminal's, where the person's own settings decide (ADR 0165).
+    #[default]
+    Own,
+    /// It is off: every native session's, and every one-shot run's.
+    Off,
+    /// It is not off, and only oso's request connects it (ADR 0181): the person's setting that
+    /// connects each session as it starts is off there. Not measured with a connection.
+    Asked,
+}
+
 /// What a session's `--settings` holds, built from parts so that later parts (a status line,
 /// ADR 0126) join the same object: a line has one `--settings`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Parts {
     /// `[sessions] steer_worktrees`: install the hook.
     pub steer_worktrees: bool,
-    /// Turn Remote Control off: every native session's, and no terminal's, where the person's
-    /// own settings decide (ADR 0165).
-    pub disable_remote_control: bool,
+    pub remote_control: RemoteControl,
 }
 
 /// Why no `--settings` can be made.
@@ -47,7 +61,7 @@ impl std::error::Error for SettingsError {}
 
 /// The `--settings` JSON for `parts`, `None` when no part is on. With `steer_worktrees`, a
 /// `PreToolUse` hook for `EnterWorktree` and `Bash` that runs `oso` (quoted for a POSIX shell)
-/// with [`HOOK`]. With `disable_remote_control`, `disableRemoteControl` is
+/// with [`HOOK`]. With Remote Control off, `disableRemoteControl` is
 /// true.
 ///
 /// # Errors
@@ -66,10 +80,17 @@ pub fn settings(oso: &Path, parts: &Parts) -> Result<Option<String>, SettingsErr
         });
         settings.insert("hooks".to_owned(), hooks);
     }
-    if parts.disable_remote_control {
-        settings.insert(DISABLE_REMOTE_CONTROL.to_owned(), Value::Bool(true));
-    }
+    match parts.remote_control {
+        RemoteControl::Own => None,
+        RemoteControl::Off => settings.insert(DISABLE_REMOTE_CONTROL.to_owned(), Value::Bool(true)),
+        RemoteControl::Asked => settings.insert(AT_STARTUP.to_owned(), Value::Bool(false)),
+    };
     Ok((!settings.is_empty()).then(|| Value::Object(settings).to_string()))
+}
+
+/// The `--settings` that turn Remote Control off alone, for a run that is no session.
+pub fn remote_control_off() -> String {
+    json!({ DISABLE_REMOTE_CONTROL: true }).to_string()
 }
 
 /// `text` single-quoted for a POSIX shell: each `'` becomes `'\''`.

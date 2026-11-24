@@ -332,6 +332,7 @@ mod looks {
                 trust: ByRecord::Claim(claimed),
                 by_claim: true,
                 gate: crate::sessions::start::space_gate::ByGate::No,
+                remote: crate::sessions::start::connect::Leave::Blocked,
                 settings: crate::terminal::shell::Settings::default(),
                 env: Vec::new(),
                 out: Box::new(|_| {}),

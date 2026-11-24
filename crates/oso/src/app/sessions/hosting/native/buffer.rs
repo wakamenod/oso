@@ -25,6 +25,7 @@ use crate::sessions::native::rows::Rows;
 use crate::sessions::native::slash::SlashCommands;
 use crate::sessions::native::tail::Tail;
 use crate::sessions::start::NativeOrder;
+use crate::sessions::start::connect::{self, Connect};
 use crate::sessions::worker::SessionKey;
 
 /// A new transcript buffer of the session named `name`, whose long lines wrap until the person
@@ -96,13 +97,18 @@ impl App {
             }
         }
         self.hosting.starting.insert(key, buffer);
-        self.native_order(key, buffer)
+        self.native_order(key, buffer, None)
     }
 
     /// The start thread's order for native session `key`, shown in `buffer`: its variables,
     /// and where its stream's batches go. Its control layer starts now: the process's
     /// `initialize` may be answered before the start thread says it started (step 2c).
-    pub(super) fn native_order(&mut self, key: SessionKey, buffer: BufferId) -> NativeOrder {
+    pub(super) fn native_order(
+        &mut self,
+        key: SessionKey,
+        buffer: BufferId,
+        connect: Option<Connect>,
+    ) -> NativeOrder {
         if let Some(native) = self.hosting.natives.map.get_mut(&key) {
             native.control = Some(Control::started(std::time::Instant::now()));
             native.interrupt = Interrupt::new(interrupting::SIGNALS);
@@ -110,8 +116,12 @@ impl App {
             native.cli_id = None;
             native.status.new_process();
             native.choice.new_process();
-            // Each native start's settings block it (`sessions::start::launch_of`).
-            native.remote = Remote::default();
+            // Blocked, but for a start given leave to connect: one value says both (ADR 0181).
+            native.remote = match &connect {
+                Some(connect) => Remote::coming_back(connect.back().cloned()),
+                None => Remote::default(),
+            };
+            native.remote_control = super::remote::RemoteControl::default();
         }
         // The mode it was in, as `--resume` keeps none (part 3b), and the model and effort
         // chosen (part 3c).
@@ -125,6 +135,7 @@ impl App {
             trust: crate::sessions::start::trust::ByRecord::No,
             by_claim: false,
             gate: crate::sessions::start::space_gate::ByGate::No,
+            remote: connect.map_or(connect::Leave::Blocked, connect::Leave::Connect),
             settings: self.terminal_settings(),
             env: self.configuration.session_env().to_vec(),
             out: Box::new(move |out| {
@@ -197,6 +208,7 @@ impl App {
             mode: ModeState::default(),
             choice: Choice::default(),
             remote: Remote::default(),
+            remote_control: super::remote::RemoteControl::default(),
             todo: todo::TodoStrip::default(),
             notes_after_past: None,
             resuming_for: super::resumed::ResumeFor::default(),

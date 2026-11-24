@@ -103,7 +103,9 @@ often, so it must rebuild within 2 s.
   the control layer's requests and answers included (`wire/control.rs`), the slash
   commands listed (`wire/slash.rs`) and what the status line reads of the answers
   (`wire/status_line.rs`, part 3a), what the stream says of Remote Control (`wire/remote.rs`,
-  whose state is `sessions/native/remote.rs`, ADR 0181) and a transcript's lines
+  whose state is `sessions/native/remote.rs`, ADR 0181; `app/.../native/remote.rs` turns it on and
+  off, and `start/connect` judges such a start, and reads the repository for its question on
+  `oso-remote-look`) and a transcript's lines
   (`wire/transcript.rs`, part 5a), and its
   fixtures are recordings scrubbed of ids, paths and the person's setup. Its `claude -p` is
   started on the start thread, read on `oso-native-read`, `oso-native-batch` and

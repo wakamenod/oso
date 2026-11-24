@@ -51,7 +51,8 @@ impl Doing {
             turn: native.composing.busy,
             busy,
             stopping,
-            switching,
+            // Or to be resumed with Remote Control turned on or off (ADR 0181).
+            switching: switching || native.remote_control.respawns(),
             sending: native.composing.holds_a_send(),
         }
     }

@@ -2686,6 +2686,8 @@ its own asks for it, in an ADR of its own.
   with the hook beside it; no terminal's has it, handed or not), `steer`'s (the JSON, and that
   it needs no path in UTF-8). End to end: the line `claude` was started with, of a new native
   session, a switch to the TUI and back, and a space's new orchestrator.
+  - Erratum (2026-11-24, ADR 0181's part RC-2): one-shot runs are started with the block too, and
+    a native start the person connects is not.
   - Erratum (2026-11-24, ADR 0181's part RC-1): the JSON's tests are `sessions::settings`', where
     `steer`'s settings moved.
 - **New public items:** none.

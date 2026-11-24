@@ -453,11 +453,11 @@ item notes when it must be settled.
   which supersedes 0129): its four steps are built. A disabled entry of TypeWhisper's
   dictionary, which its API does not list, is written over when oso promotes its word: only a
   change of TypeWhisper's API would show it.
-- The third probe of Remote Control
-  ([ADR 0181](adr/0181-remote-control-of-native-sessions.md)), the author's, before RC-2 ships:
-  stop, a message during a turn, what the phone shows while oso's card waits, the modes it offers,
-  its reads of files over a connection, and whether a `claude -p` without the block connects by
-  `remoteControlAtStartup` of itself.
+- What the third probe of Remote Control ([ADR 0181](adr/0181-remote-control-of-native-sessions.md))
+  left unmeasured on 2026-11-24: a message during a turn, the modes the phone offers and one set
+  there, what it shows while a request waits in oso, whether the session stays listed after
+  `enabled: false` with `keep_session_on_exit`, coming back over `oso-restart`, and what a fork's
+  connection attaches to.
 
 ## Later
 

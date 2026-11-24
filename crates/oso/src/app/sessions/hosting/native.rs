@@ -61,6 +61,7 @@ mod note;
 mod past;
 mod permissions;
 mod recap;
+mod remote;
 mod restarting;
 mod resume;
 mod resumed;
@@ -71,6 +72,7 @@ mod switching;
 mod todo;
 mod widths;
 
+pub(crate) use remote::Looked;
 pub(super) use resumed::runs_elsewhere;
 
 use std::collections::HashMap;
@@ -98,6 +100,7 @@ use crate::sessions::native::slash::SlashCommands;
 use crate::sessions::native::tail::{Part, Run, Tail};
 use crate::sessions::native::turns;
 use crate::sessions::native::wire::Event;
+use crate::sessions::start::connect::Settled;
 use crate::sessions::start::{Ready, Started};
 use crate::sessions::state::Target;
 use crate::sessions::stream::{Out, Stream};
@@ -126,6 +129,8 @@ pub(in crate::app) struct NativeSessions {
     /// The orchestrators resumed with a repository added, at the person's `y` (ADR 0176,
     /// part O-2).
     adding: HashMap<SessionKey, adding::Adding>,
+    /// What Remote Control keeps beside the sessions (ADR 0181).
+    remotes: remote::Remotes,
     /// What an empty composer's placeholder says (ADR 0170), until the user's keys change.
     placeholder: Option<Placeholder>,
 }
@@ -186,8 +191,9 @@ struct Native {
     /// the model and effort level the person chose (part 3c).
     mode: ModeState,
     choice: Choice,
-    /// Where Remote Control is in its process (ADR 0181): off, as nothing asks for it yet.
+    /// Where Remote Control is in its process (ADR 0181), and what it is respawned for.
     remote: Remote,
+    remote_control: remote::RemoteControl,
     /// Its start reads its earlier turns (step 5): the notes said meanwhile, drawn after them.
     notes_after_past: Option<Vec<String>>,
     /// What its resume under way says once its start thread reports.
@@ -297,6 +303,7 @@ impl App {
             started: Started::Native(stream),
             directory,
             added,
+            remote,
             ..
         } = ready
         else {
@@ -306,6 +313,10 @@ impl App {
             && self.hosting.natives.map.contains_key(&key)
             && self.hosting.table.get(key).is_some();
         if !kept {
+            // Marked until it ended, if it may be connected (ADR 0181).
+            if matches!(remote, Settled::Connects(_)) {
+                self.hosting.natives.remotes.ending.insert(key);
+            }
             stream.stop();
             return false;
         }
@@ -346,6 +357,7 @@ impl App {
         }
         // Its `initialize` may have been answered before its stream was here (part 3a).
         self.ask_usage(key, None);
+        self.remote_settled(key, remote);
         true
     }
 
@@ -355,6 +367,7 @@ impl App {
         self.hosting.starting.remove(&key);
         // No earlier turns come: what waited for them is said now (step 5).
         self.native_past_given_up(key);
+        self.remote_not_started(key);
         // No process answers its control layer.
         if let Some(native) = self.hosting.natives.map.get_mut(&key) {
             native.control = None;
@@ -380,6 +393,9 @@ impl App {
             Out::Events(events) => self.native_events(key, events),
             Out::Past(past) => self.native_past(key, *past),
             Out::Ended { status, stderr } => {
+                if self.hosting.natives.remotes.ending.remove(&key) {
+                    self.sessions_touched();
+                }
                 self.native_ended(key, status, &stderr);
                 // The restart goes on once each session it ends has (part 4c).
                 self.native_ended_for_restart(key);
@@ -421,12 +437,14 @@ impl App {
         let was_interrupting = interrupting(native);
         let (mut noted, mut usage_id) = (false, None);
         let mut suggested = false;
+        let (marked, mut stray) = (native.remote.mark(), None);
         let mut follows = Vec::new();
         for mut event in events {
             suggested |= suggesting::suggestion_event(native, &event);
             recap::recap_event(native, &event, seen);
             noted |= control::control_event(native, &mut event, &mut follows, resumable);
             noted |= mode::mode_event(native, &event);
+            stray = native.mode.take_stray_row().or(stray);
             let (changed, ask) = status::status_event(native, &event);
             noted |= changed;
             usage_id = usage_id.or(ask);
@@ -458,6 +476,20 @@ impl App {
         for follow in follows {
             self.follow(key, follow);
         }
+        if let Some(row) = stray {
+            self.native_note_row(key, &row);
+        }
+        if marked
+            != self
+                .hosting
+                .natives
+                .map
+                .get(&key)
+                .and_then(|n| n.remote.mark())
+        {
+            self.remote_changed(key);
+        }
+        self.remote_ready(key);
         if todo {
             self.draw_todo(key);
         }

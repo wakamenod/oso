@@ -385,6 +385,7 @@ impl App {
                 pinned: false,
                 archived: false,
                 unasked: false,
+                remote: false,
                 not_resumed: None,
                 parent: None,
                 dir: external.place.clone(),
@@ -449,6 +450,7 @@ impl App {
                     pinned: session.pinned,
                     archived: session.archived,
                     unasked: session.origin == crate::sessions::identity::Origin::Unasked,
+                    remote: self.hosting.natives.remote_mark(session.key).is_some(),
                     not_resumed: (self.hosting.natives.left_stopped_why(session.key))
                         .map(str::to_owned),
                     parent,

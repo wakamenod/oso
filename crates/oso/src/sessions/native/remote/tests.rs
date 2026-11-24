@@ -127,14 +127,14 @@ fn it_is_asked_connects_drops_connects_again_and_is_turned_off() {
         remote.event(&mut bridge("connected"));
         assert_eq!(remote.phase(), &Phase::On);
     }
-    let off = remote.end(&mut control).unwrap();
+    let off = remote.end(Some(&mut control), now).unwrap();
     assert_ne!(off, id);
     assert_eq!(remote.phase(), &Phase::Ended);
     for mut event in forged() {
         remote.event(&mut event);
         assert_eq!(remote.phase(), &Phase::Ended, "until the process ended");
     }
-    assert_eq!(remote.end(&mut control), None, "once");
+    assert_eq!(remote.end(Some(&mut control), now), None, "once");
     assert_eq!(remote.begin(&mut control, 1, now), Err(Refusal::Already));
     let human = replay("a", UUID, HUMAN);
     assert_eq!(
@@ -160,7 +160,7 @@ fn what_is_not_asked() {
     let mut blocked = Remote::default();
     blocked.initialized(Some(true));
     assert_eq!(blocked.begin(&mut control, 1, now), Err(Refusal::Blocked));
-    assert_eq!(blocked.end(&mut control), None);
+    assert_eq!(blocked.end(Some(&mut control), now), None);
     assert!(!blocked.marked());
     // Marked from its start, whether asked or not.
     let mut early = Remote::unblocked();
@@ -181,7 +181,10 @@ fn what_is_not_asked() {
     let mut remote = Remote::unblocked();
     assert!(!remote.event(&mut bridge("connected")));
     assert_eq!(remote.phase(), &Phase::On);
-    assert!(remote.end(&mut control).is_some(), "and turned off");
+    assert!(
+        remote.end(Some(&mut control), now).is_some(),
+        "and turned off"
+    );
 }
 
 #[test]

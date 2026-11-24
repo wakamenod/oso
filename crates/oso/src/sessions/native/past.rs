@@ -8,8 +8,8 @@
 //!   the newest line that shows anything back through each line's parent, so that a branch
 //!   left by a rewind is not, and on across a compaction.
 //! - The newest whole turns are shown, within [`MAX_BYTES`] of their lines and [`MAX_LINES`]
-//!   lines: a cut starts at a message of the person's, and the rows say how many of the
-//!   person's messages are before it.
+//!   lines: a cut starts at a message of the person's, or one from claude.ai (ADR
+//!   0181), and the rows say how many of them are before it.
 //! - At most [`MAX_INDEXED`] lines are placed, many times the longest transcript measured; a
 //!   line's parent is found only among the lines before it, so the chain always goes back in
 //!   the file, and ends. A chain whose oldest line names a parent not placed, as one past the
@@ -101,7 +101,7 @@ pub struct Chosen {
     pub unreadable: usize,
     /// Earlier lines of the conversation are not shown.
     pub cut: bool,
-    /// How many of them are messages of the person's.
+    /// How many of them are messages that started a turn: the person's, or from claude.ai.
     pub prompts_left_out: usize,
 }
 
@@ -204,12 +204,12 @@ impl Index {
         }
         let mut window = &chain[..shown];
         let cut = shown < chain.len();
-        // A cut starts at a message of the person's, where there is one.
-        if cut && let Some(prompt) = window.iter().rposition(|e| e.shows == Shows::Prompt) {
+        // A cut starts at a message that started a turn, where there is one.
+        if cut && let Some(prompt) = window.iter().rposition(|e| e.shows.starts_turn()) {
             window = &window[..=prompt];
         }
         let prompts_left_out = (chain[window.len()..].iter())
-            .filter(|entry| entry.shows == Shows::Prompt)
+            .filter(|entry| entry.shows.starts_turn())
             .count();
         Chosen {
             lines: (window.iter().rev())
@@ -251,8 +251,8 @@ pub struct Past {
     /// They were asked after the rows' messages: rows that hold the conversation already say
     /// nothing of a transcript that is not found.
     pub after_rows: bool,
-    /// Earlier lines of the conversation are not shown, and how many of them are messages of
-    /// the person's.
+    /// Earlier lines of the conversation are not shown, and how many of them started a
+    /// turn.
     pub cut: bool,
     pub prompts_left_out: usize,
     /// Lines of the transcript that did not read, or were too long to.

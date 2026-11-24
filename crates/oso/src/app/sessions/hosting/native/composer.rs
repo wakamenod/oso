@@ -196,7 +196,10 @@ impl App {
             | NativeAction::Todo
             | NativeAction::EditPlan
             | NativeAction::Approve(_)
-            | NativeAction::Confirmed => return false,
+            | NativeAction::Confirmed
+            | NativeAction::RemoteControl
+            | NativeAction::RemoteConfirmed
+            | NativeAction::RemoteAddress => return false,
         }
         self.request_redraw();
         true

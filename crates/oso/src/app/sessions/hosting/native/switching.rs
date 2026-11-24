@@ -98,9 +98,7 @@ impl App {
         let Some(native) = self.hosting.natives.map.get_mut(&key) else {
             return;
         };
-        if let Some(stream) = &native.stream {
-            stream.stop();
-        }
+        super::remote::stop(native);
         let change = native
             .rows
             .note("Handing the session to the TUI: claude ends, then the TUI resumes it.");
