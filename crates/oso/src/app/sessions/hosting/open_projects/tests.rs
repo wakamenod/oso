@@ -3,7 +3,7 @@
 //!
 //! Must not depend on: `App`; the transcripts' buffers are named as the app's table does.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use oso_core::buffer::{Baseline, Buffer, BufferId};
 use oso_core::editor::Editor;
@@ -12,16 +12,29 @@ use oso_core::project::{Found, ProjectId, RootIdentity, TrustList};
 use super::{at_root, of_all, of_files_and_terminals, trust_at};
 use crate::git::TrustedRoot;
 
+/// An absolute path on this system, spelled as it spells one: `path` as written on Unix, and on
+/// drive `C:` on Windows, where a path with no drive is not absolute.
+pub(in crate::app::sessions::hosting) fn abs(path: &str) -> PathBuf {
+    if cfg!(windows) {
+        PathBuf::from(format!("C:{path}").replace('/', "\\"))
+    } else {
+        PathBuf::from(path)
+    }
+}
+
+/// The root at `path`, with an identity where the system records one.
 fn root(path: &str) -> RootIdentity {
     RootIdentity {
-        path: PathBuf::from(path),
-        identity: Some((1, 7)),
+        path: abs(path),
+        identity: cfg!(unix).then_some((1, 7)),
     }
 }
 
 pub(in crate::app::sessions::hosting) fn record(path: &str) -> TrustList {
-    let (list, skipped) = TrustList::parse(&format!("{path}\tdev=1 ino=7\n"));
-    assert_eq!(skipped, 0);
+    let identity = if cfg!(unix) { "\tdev=1 ino=7" } else { "" };
+    let line = format!("{}{identity}\n", abs(path).display());
+    let (list, skipped) = TrustList::parse(&line);
+    assert_eq!(skipped, 0, "{line:?}");
     list
 }
 
@@ -41,13 +54,13 @@ fn found_in(editor: &mut Editor, id: BufferId, path: &str) -> ProjectId {
 pub(in crate::app::sessions::hosting) fn transcript(editor: &mut Editor, path: &str) -> BufferId {
     let id = editor.add_native_session_buffer("*claude: s*");
     editor.set_hosts_session(id, true);
-    editor.request_directory_project(id, Path::new(path));
+    editor.request_directory_project(id, &abs(path));
     found_in(editor, id, path);
     id
 }
 
 pub(in crate::app::sessions::hosting) fn file(editor: &mut Editor, path: &str) -> ProjectId {
-    let place = PathBuf::from(path).join("a.rs");
+    let place = abs(path).join("a.rs");
     let mut buffer = Buffer::visiting(place.clone());
     buffer.set_baseline(Baseline {
         location: place,
@@ -63,11 +76,7 @@ fn open(editor: &Editor, transcripts: &[BufferId]) -> Vec<ProjectId> {
 }
 
 fn trust(editor: &Editor, transcripts: &[BufferId], path: &str) -> Option<Option<TrustedRoot>> {
-    trust_at(
-        editor,
-        open(editor, transcripts).into_iter(),
-        Path::new(path),
-    )
+    trust_at(editor, open(editor, transcripts).into_iter(), &abs(path))
 }
 
 #[test]
@@ -80,15 +89,11 @@ fn a_transcripts_project_counts_and_the_editors_buffers_leave_it_out() {
     let project = editor.buffer(id).unwrap().project();
     assert_eq!(open(&editor, &[id]), Vec::from_iter(project));
     assert_eq!(
-        at_root(
-            &editor,
-            open(&editor, &[id]).into_iter(),
-            Path::new("/w/own")
-        ),
+        at_root(&editor, open(&editor, &[id]).into_iter(), &abs("/w/own")),
         project
     );
     assert_eq!(
-        at_root(&editor, open(&editor, &[id]).into_iter(), Path::new("/w")),
+        at_root(&editor, open(&editor, &[id]).into_iter(), &abs("/w")),
         None
     );
 }

@@ -71,7 +71,7 @@ mod tests {
     use oso_core::project::TrustList;
 
     use super::super::open_projects::of_transcripts;
-    use super::super::open_projects::tests::{file, record, transcript};
+    use super::super::open_projects::tests::{abs, file, record, transcript};
     use super::placing;
 
     /// The root a conversation in `/w/r/in` is placed by, native where `native` says.
@@ -81,7 +81,7 @@ mod tests {
         native: impl Fn(Option<&Path>) -> bool,
     ) -> PathBuf {
         let transcripts = of_transcripts(editor, ids.iter().copied());
-        placing(editor, transcripts, Path::new("/w/r/in"), native)
+        placing(editor, transcripts, &abs("/w/r/in"), native)
             .and_then(|id| editor.project(id))
             .map(|project| project.root().to_owned())
             .unwrap_or_default()
@@ -94,28 +94,23 @@ mod tests {
         let never = |_: Option<&Path>| false;
         assert_eq!(placed(&editor, &[], never), PathBuf::new());
         let outer = transcript(&mut editor, "/w/r");
-        assert_eq!(placed(&editor, &[outer], never), Path::new("/w/r"));
+        assert_eq!(placed(&editor, &[outer], never), abs("/w/r"));
         let own = transcript(&mut editor, "/w/r/in");
-        assert_eq!(placed(&editor, &[outer, own], never), Path::new("/w/r/in"));
+        assert_eq!(placed(&editor, &[outer, own], never), abs("/w/r/in"));
         file(&mut editor, "/w/r");
-        assert_eq!(placed(&editor, &[outer], never), Path::new("/w/r"));
-        assert_eq!(placed(&editor, &[outer, own], never), Path::new("/w/r/in"));
+        assert_eq!(placed(&editor, &[outer], never), abs("/w/r"));
+        assert_eq!(placed(&editor, &[outer, own], never), abs("/w/r/in"));
         editor.set_trust_list(Some(TrustList::default()));
-        assert_eq!(
-            placed(&editor, &[own], never),
-            Path::new("/w/r"),
-            "restricted"
-        );
+        assert_eq!(placed(&editor, &[own], never), abs("/w/r"), "restricted");
         let deeper = transcript(&mut editor, "/w/r/in/deeper");
-        assert_eq!(placed(&editor, &[deeper], never), Path::new("/w/r"));
+        assert_eq!(placed(&editor, &[deeper], never), abs("/w/r"));
     }
 
     /// A nested root the record itself holds runs natively at its own root and nowhere else, so
     /// no transcript moves a conversation there or away from there.
     #[test]
     fn a_transcript_never_changes_whether_a_conversation_runs_natively() {
-        let at_own =
-            |root: Option<&Path>| root.unwrap_or(Path::new("/w/r/in")) == Path::new("/w/r/in");
+        let at_own = |root: Option<&Path>| root.is_none_or(|root| root == abs("/w/r/in"));
         // With no file open it runs at its directory, natively; the outer transcript does not count.
         let mut editor = Editor::default();
         editor.set_trust_list(Some(record("/w/r/in")));
@@ -123,9 +118,9 @@ mod tests {
         let own = transcript(&mut editor, "/w/r/in");
         assert_eq!(placed(&editor, &[outer], at_own), PathBuf::new());
         // Its own root's transcript leaves it there.
-        assert_eq!(placed(&editor, &[outer, own], at_own), Path::new("/w/r/in"));
+        assert_eq!(placed(&editor, &[outer, own], at_own), abs("/w/r/in"));
         // With a file of the outer project open it does not, and its own root's does not count.
         file(&mut editor, "/w/r");
-        assert_eq!(placed(&editor, &[outer, own], at_own), Path::new("/w/r"));
+        assert_eq!(placed(&editor, &[outer, own], at_own), abs("/w/r"));
     }
 }

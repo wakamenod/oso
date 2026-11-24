@@ -183,23 +183,21 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
-
     use oso_core::editor::Editor;
     use oso_core::project::TrustList;
 
-    use super::super::open_projects::tests::{file, record, transcript};
+    use super::super::open_projects::tests::{abs, file, record, transcript};
     use super::{open_root_trust, starts_natively_in};
 
     #[test]
     fn a_transcript_is_no_open_buffer_of_the_judges_trusted_or_not() {
         let mut editor = Editor::default();
         transcript(&mut editor, "/w/own");
-        assert!(open_root_trust(&editor, Path::new("/w/own")).is_none());
+        assert!(open_root_trust(&editor, &abs("/w/own")).is_none());
         editor.set_trust_list(Some(record("/w/own")));
-        assert!(open_root_trust(&editor, Path::new("/w/own")).is_none());
+        assert!(open_root_trust(&editor, &abs("/w/own")).is_none());
         file(&mut editor, "/w/own");
-        let open = open_root_trust(&editor, Path::new("/w/own"));
+        let open = open_root_trust(&editor, &abs("/w/own"));
         assert!(open.expect("a file's").is_some());
     }
 
