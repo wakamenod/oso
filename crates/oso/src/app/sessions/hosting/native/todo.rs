@@ -15,6 +15,7 @@
 //!   tier-1 interrupt's resume keeps it, as the turn goes on, if in a new process.
 
 use oso_core::buffer::{BufferId, Mode};
+use oso_core::editor::Editor;
 use oso_core::syntax::Highlights;
 use oso_core::window::DockSlot;
 
@@ -76,7 +77,7 @@ impl App {
         let Some(buffer) = self.todo_buffer(key) else {
             return;
         };
-        self.write_todo(buffer, &text);
+        write(&mut self.editor, buffer, &text);
         if let Some(native) = self.hosting.natives.map.get_mut(&key) {
             native.todo.drawn = Some((width, text));
         }
@@ -158,23 +159,61 @@ impl App {
             return Some(id);
         }
         let name = self.hosting.table.get(key).map_or("", |s| s.name.as_str());
-        let id = self
-            .editor
-            .add_internal_buffer(format!("*todo: {name}*"), Mode::Fundamental);
-        if let Some(buffer) = self.editor.buffer_mut(id) {
-            buffer.withhold_from_agents();
-        }
+        let id = strip_buffer(&mut self.editor, name);
         self.hosting.natives.map.get_mut(&key)?.todo.buffer = Some(id);
         Some(id)
     }
+}
 
-    /// Puts `shown` in strip `id`, with its faces.
-    fn write_todo(&mut self, id: BufferId, shown: &Strip) {
-        self.editor.set_internal_text(id, &shown.text);
-        let mut highlights = Highlights::new(shown.text.len());
-        for (range, face) in &shown.faces {
-            highlights.replace(range.clone(), [(range.len(), Some(face.highlight()))]);
-        }
-        let _ = self.editor.set_internal_highlights(id, highlights);
+/// Session `name`'s strip's buffer, empty: of a mode of its own, whose faces are the host's.
+fn strip_buffer(editor: &mut Editor, name: &str) -> BufferId {
+    let id = editor.add_internal_buffer(format!("*todo: {name}*"), Mode::Todo);
+    if let Some(buffer) = editor.buffer_mut(id) {
+        buffer.withhold_from_agents();
+    }
+    id
+}
+
+/// Puts `shown` in strip `id`, with its faces.
+fn write(editor: &mut Editor, id: BufferId, shown: &Strip) {
+    editor.set_internal_text(id, &shown.text);
+    let mut highlights = Highlights::new(shown.text.len());
+    for (range, face) in &shown.faces {
+        highlights.replace(range.clone(), [(range.len(), Some(face.highlight()))]);
+    }
+    let _ = editor.set_internal_highlights(id, highlights);
+}
+
+#[cfg(test)]
+mod tests {
+    use oso_core::syntax::Highlight;
+
+    use super::*;
+    use crate::sessions::native::render::Face;
+
+    /// Its faces are in the buffer a frame draws, each where the strip has it.
+    #[test]
+    fn a_strip_is_drawn_in_its_faces() {
+        let mut editor = Editor::default();
+        let id = strip_buffer(&mut editor, "s");
+        let shown = Strip {
+            text: "▸ Tasks (0/1)  [/] go".into(),
+            faces: vec![(17..20, Face::Waiting), (21..23, Face::Waiting)],
+        };
+        write(&mut editor, id, &shown);
+        let buffer = editor.buffer(id).unwrap();
+        let highlights = buffer.highlights().expect("the strip's faces");
+        let runs: Vec<_> = highlights.runs(0..shown.text.len()).collect();
+        let working = Some(Highlight::SessionWorking);
+        assert_eq!(
+            runs,
+            [
+                (0..17, None),
+                (17..20, working),
+                (20..21, None),
+                (21..23, working)
+            ]
+        );
+        assert!(buffer.is_internal() && buffer.withheld_from_agents());
     }
 }

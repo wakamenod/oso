@@ -57,6 +57,27 @@ impl Bands {
     };
 }
 
+/// Lines drawn inside a pane's region, each from its left edge to its right, a thin line's width
+/// along it, in a face's foreground: along the top of its first row and the bottom of its last
+/// (ADR 0170). They take no cell. They are over the background and a view's fills up to its current
+/// line's band, and under the fills after it, its flash and its cursor. The pane's text, its boxes
+/// and what an input method composes are cut to between them, and keep no band past them, so none
+/// of it is drawn where a line is. A jump's labels, a server's marks, a grid, a divider and signs
+/// are not cut.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Rules {
+    pub above: Option<Face>,
+    pub below: Option<Face>,
+}
+
+impl Rules {
+    /// None.
+    pub const NONE: Self = Self {
+        above: None,
+        below: None,
+    };
+}
+
 /// How a view's cursor is drawn.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CursorStyle {
@@ -97,7 +118,8 @@ pub struct TextView<'a> {
     /// The frame's cells filled behind the text and its boxes, each list in its face's
     /// background, back to front: isearch's matches (ADR 0082), then the regions between
     /// marks and cursors (ADR 0071), as `Editor::isearch_cells` and `frame::region_cells`
-    /// give them.
+    /// give them. A ruled pane's lines are just over the current line's band among them, or under
+    /// them all with none ([`Rules`]).
     pub fills: &'a [(Face, &'a [CellRect])],
     /// Text drawn over the frame's cells after the text, as a jump's labels (ADR 0116): each
     /// its cells, one row and one cell a character, and its text and face, the face's
@@ -369,8 +391,10 @@ pub struct Pane<'a> {
     pub background: Option<Face>,
     /// A float's panel, drawn over the background and under the content (ADR 0075).
     pub panel: Option<Panel<'a>>,
-    /// The bands its glyphs keep past its region.
+    /// The bands its glyphs keep past its region, but past a line of its `rules`.
     pub bands: Bands,
+    /// The lines along its edges.
+    pub rules: Rules,
     pub content: PaneContent<'a>,
 }
 

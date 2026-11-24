@@ -1625,7 +1625,7 @@ As built:
   call. A `TodoWrite` replaces the list whole. At most 100 items, each text cut to 256 bytes
   as read (`wire::todo`, the only place that reads them), and at most 64 calls waiting for
   their result. A subagent's calls are not the session's list.
-- **`*todo: NAME*`,** an internal buffer, read-only and withheld from agents, as the card is,
+- **`*todo: NAME*`,** an internal buffer, of `Mode::Todo` since the amendment below, read-only and withheld from agents, as the card is,
   docked in `DockSlot::Strip`, under the card and above the composer, while the list has an
   item. Folded it is one line, `☐ 2/5 ▶ ITEM`, the item in progress or else the first not
   started, and `C-c C-t list` at its right edge where there is room; `C-c C-t`
@@ -1634,7 +1634,7 @@ As built:
   completed and `… N more`), and folds it back. It shows while an item is not completed, and
   once all are until the turn ends; then the list goes, and the strip with it, point going
   to the composer if it was there.
-- **Claude's text, fenced (ADR 0170):** oso's marks and keys are in faces of oso's own, and
+- **Claude's text, fenced (ADR 0170; its faces as amended below):** oso's marks and keys are in faces of oso's own, and
   each item's text, after them, in a face of its own, its control characters as spaces, cut
   to the strip's width with `…`, measured as the display draws it: none of it runs past the
   strip's edge, wraps, or stands where oso's keys are. The strip's width is its window's
@@ -1659,6 +1659,29 @@ As built:
   folded or opened, as the card's does (ADR 0170), not its text. `C-c C-t` works in the
   transcript and the composer, not in the strip itself, whose buffer has no keymap of its
   own.
+
+- **Its words and faces, amended on 2026-11-24** (the look, element 19; the author's choices). What
+  is above of its marks and faces was so before:
+  - Folded: `▸ Tasks (2/5)  [/] ITEM` and `C-c C-t list` at its right edge. With less room the keys
+    are left out first (an item is cut to no fewer than 8 cells for them), then the item, then the
+    head is cut.
+  - Opened: `▾ Tasks (2/5)`, with `C-c C-t fold` at its right edge, then a row an item, four columns
+    in: `[x]` completed, `[/]` in progress or `[ ]` not started, and its text. The head is one of
+    the 6 rows: with more than 5 items, the 5 around the first not completed show, and the head says
+    `… N more`.
+  - The head is plain text, not bold (Q-F7). A mark and its item are one: in progress in the amber
+    of a state at work, completed quiet, not started as a target. oso's keys, its `…` and
+    `… N more` are in a face no item has. Claude's text is still after oso's mark, on cells of its
+    own: an item's face is its state's, so what tells it from oso's words is first its place, after
+    its mark, then its face. Some of these colours are near or the same: dusk's string colour is its
+    text's, a completed item is in the placeholder's and the rules' dim colour, and the amber is the
+    one a call that waits for the person has in the transcript. An item too narrow for the keys may
+    reach the cells they would have.
+  - **Its faces were not drawn before this:** the strip's buffer was in `Fundamental`, and oso-core
+    takes a host's faces only in the modes of buffers a host generates, so it was all in the text's
+    colour, and its fence was the place alone. It has a mode of its own now, `Mode::Todo` (a public
+    item the author approved on 2026-11-24), which takes them, with no keys of its own. The card, the
+    request's line and the transcript have such a mode, and drew theirs.
 
 ### Part 3f, as built: prompt suggestions and the recap
 

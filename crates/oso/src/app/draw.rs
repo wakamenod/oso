@@ -17,7 +17,7 @@ use oso_core::editor::{Editor, MatchCells, Status};
 use oso_core::frame::CellRect;
 use oso_core::window::{Screen, WindowId};
 use oso_render::{
-    Bands, Face, GridRow, Layer, Pane, PaneContent, PaneId, Redraw, RenderState, Span,
+    Bands, Face, GridRow, Layer, Pane, PaneContent, PaneId, Redraw, RenderState, Rules, Span,
 };
 
 use super::App;
@@ -230,6 +230,7 @@ fn echo_pane<'a>(editor: &Editor, echo: &'a [&'a [Span<'a>]]) -> Pane<'a> {
         background: None,
         panel: None,
         bands: Bands::NONE,
+        rules: Rules::NONE,
         content: PaneContent::Lines(echo),
     }
 }

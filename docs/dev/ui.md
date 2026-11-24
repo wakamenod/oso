@@ -1334,7 +1334,8 @@ a switch made with its command stands until that setting changes in the file
   messages and `]`/`[` between tool rows; session mode's `C-c` keys work there too, but
   `C-c +` and `C-c -`, as it has no screen for an agent to read. Its next messages are
   written in its composer (step 2, ADR 0170), `*compose: NAME*`, docked under the transcript
-  and withheld from agents: `i` goes there and `C-c C-o` back, `C-c C-c` sends (at most
+  and withheld from agents, between two thin lines in its own rows (ADR 0170, as amended): `i` goes
+  there and `C-c C-o` back, `C-c C-c` sends (at most
   64 KiB), and `M-p`/`M-n` walk the messages sent. While it is empty, a placeholder drawn over
   it names its keys (ADR 0170, as amended). Once a turn ends, the CLI's suggestion of
   the next message shows there instead, with the key that takes it, until a turn starts, the
@@ -1451,10 +1452,10 @@ a switch made with its command stands until that setting changes in the file
   keep the mode, `acceptEdits` and `auto` only when the person chose them with `S-TAB`. `bypassPermissions` and `dontAsk` are never set, and no agent changes the
   mode.
   While the session's to-do list has an item (part 3e), `*todo: NAME*`, withheld from agents,
-  is docked above the card or the request's line and the composer: one line, `☐ 2/5 ▶ ITEM` and `C-c C-t list`
-  at its right edge, Claude's text in a face of its own after oso's mark, cut to the width;
-  `C-c C-t` in the transcript or the composer opens it to a row an item (`☑`, `▶`, `☐`), at
-  most 6, and folds it back. It goes at the end of a turn that left every item completed, and
+  is docked above the card or the request's line and the composer: one line, `▸ Tasks (2/5)  [/] ITEM` and `C-c C-t list`
+  at its right edge, Claude's text after oso's mark in its state's face, cut to the width;
+  `C-c C-t` in the transcript or the composer opens it to its head, `▾ Tasks (2/5)`, and a row an
+  item (`[x]`, `[/]`, `[ ]`), at most 6 rows in all, the head saying `… N more`, and folds it back. It goes at the end of a turn that left every item completed, and
   a resumed session has none until its next to-do call. Claude Code gives a session the to-do
   tools only once its settings turn them on: `"env": {"CLAUDE_CODE_ENABLE_TODO_TOOLS": "1"}`
   in `~/.claude/settings.json`; oso sets no variable for it.

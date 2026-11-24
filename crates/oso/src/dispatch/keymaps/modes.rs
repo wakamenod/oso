@@ -180,7 +180,8 @@ impl Modes {
             | Mode::Yaml
             | Mode::Latex
             | Mode::Swift
-            | Mode::SessionMove => None,
+            | Mode::SessionMove
+            | Mode::Todo => None,
             Mode::NativeSession => Some(&self.native),
             Mode::Composer => Some(&self.composer),
             Mode::Card => Some(&self.card),

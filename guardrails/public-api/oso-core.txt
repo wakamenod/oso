@@ -91,6 +91,7 @@ pub oso_core::buffer::Mode::SessionMove
 pub oso_core::buffer::Mode::Sessions
 pub oso_core::buffer::Mode::Swift
 pub oso_core::buffer::Mode::Terminal
+pub oso_core::buffer::Mode::Todo
 pub oso_core::buffer::Mode::Toml
 pub oso_core::buffer::Mode::Tsx
 pub oso_core::buffer::Mode::TypeScript

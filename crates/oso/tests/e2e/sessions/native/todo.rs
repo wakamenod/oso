@@ -1,7 +1,7 @@
 //! A native session's to-do strip (ADR 0165, part 3e), with a fake `claude -p` whose stream
 //! creates three tasks and starts one, then, once the flow says so, completes them all and
 //! ends its turn: the strip shows one line docked under the transcript, `C-c C-t` opens it to
-//! a row each and folds it back, and it goes at the turn's end.
+//! its head and a row each and folds it back, and it goes at the turn's end.
 //!
 //! Must not depend on: the app's internals; the list's rules and the strip's text have their
 //! own tests.
@@ -140,21 +140,27 @@ fn the_to_do_strip_shows_opens_folds_and_goes_at_the_turns_end() {
             && strip(state).is_some_and(|strip| strip["area"]["rows"] == 1)
     });
     let folded = strip_text(&mut app, "the strip selected");
-    assert!(folded.starts_with("☐ 1/3 ▶ Run the auth tests"), "{folded}");
+    assert!(
+        folded.starts_with("▸ Tasks (1/3)  [/] Run the auth tests"),
+        "{folded}"
+    );
     assert!(folded.trim_end().ends_with("C-c C-t list"), "{folded}");
 
     // `C-c C-t` opens it to a row each, and folds it back.
     app.send_keys("C-c C-t");
     app.wait_for("the strip opened", |state| {
-        strip(state).is_some_and(|strip| strip["area"]["rows"] == 3)
+        strip(state).is_some_and(|strip| strip["area"]["rows"] == 4)
     });
     let opened = strip_text(&mut app, "the strip opened, selected");
+    let (head, items) = opened.split_once('\n').unwrap();
+    assert!(head.starts_with("▾ Tasks (1/3) "), "{head}");
+    assert!(head.trim_end().ends_with("C-c C-t fold"), "{head}");
     assert_eq!(
-        opened.lines().map(str::trim_end).collect::<Vec<_>>(),
+        items.lines().map(str::trim_end).collect::<Vec<_>>(),
         [
-            "☑ Read the handler",
-            "▶ Run the auth tests",
-            "☐ Update the changelog"
+            "    [x] Read the handler",
+            "    [/] Run the auth tests",
+            "    [ ] Update the changelog"
         ],
     );
     app.send_keys("C-c C-t");

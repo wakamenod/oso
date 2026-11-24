@@ -166,6 +166,14 @@ fn the_list_and_its_calls_are_bounded() {
     assert_eq!(todo.calls.len(), MAX_CALLS);
 }
 
+/// The texts of `strip` in `face`.
+fn in_face(strip: &Strip, face: Face) -> Vec<&str> {
+    (strip.faces.iter())
+        .filter(|(_, its)| *its == face)
+        .map(|(range, _)| &strip.text[range.clone()])
+        .collect()
+}
+
 #[test]
 fn the_folded_strip_fences_claudes_text_and_keeps_its_keys() {
     let mut todo = Todo::default();
@@ -174,29 +182,51 @@ fn the_folded_strip_fences_claudes_text_and_keeps_its_keys() {
     create(&mut todo, 3, "Update\u{1b}[31m the\nchangelog");
     status(&mut todo, 1, "completed");
     status(&mut todo, 2, "in_progress");
-    let strip = todo.folded(50);
-    assert_eq!(cells_of(&strip.text), 50);
-    assert!(strip.text.starts_with("☐ 1/3 ▶ Run the auth tests "));
-    assert!(strip.text.ends_with(KEYS));
-    let target = (strip.faces.iter())
-        .find(|(_, face)| *face == Face::Target)
-        .map(|(range, _)| &strip.text[range.clone()]);
-    assert_eq!(target, Some("Run the auth tests"));
+    let strip = todo.folded(60);
+    assert_eq!(cells_of(&strip.text), 60);
+    let head = "▸ Tasks (1/3)  [/] Run the auth tests ";
+    assert!(strip.text.starts_with(head), "{}", strip.text);
+    assert!(strip.text.ends_with("  C-c C-t list"));
+    // The mark and the item as one, the keys in a face of their own, the head as plain text.
+    assert_eq!(
+        in_face(&strip, Face::Waiting),
+        ["[/]", "Run the auth tests"]
+    );
+    assert_eq!(in_face(&strip, Face::Prompt), ["C-c C-t list"]);
+    let first = strip.faces.iter().map(|(range, _)| range.start).min();
+    assert_eq!(first, Some("▸ Tasks (1/3)  ".len()));
     // Narrow: Claude's text is cut, and oso's keys stay at the edge.
-    let strip = todo.folded(30);
-    assert_eq!(cells_of(&strip.text), 30);
-    assert!(strip.text.ends_with(KEYS), "{}", strip.text);
-    assert!(strip.text.contains('…'));
-    // Too narrow for the keys: no text of Claude's runs past the edge.
-    assert!(cells_of(&todo.folded(12).text) <= 12);
+    let strip = todo.folded(45);
+    assert_eq!(strip.text, "▸ Tasks (1/3)  [/] Run the aut…  C-c C-t list");
+    assert_eq!(in_face(&strip, Face::Prompt), ["…", "C-c C-t list"]);
+    // Too narrow for them and 8 cells of it: the keys go, then the item, then the head is cut.
+    assert_eq!(
+        todo.folded(41).text,
+        "▸ Tasks (1/3)  [/] Run the…  C-c C-t list"
+    );
+    assert_eq!(
+        todo.folded(40).text,
+        "▸ Tasks (1/3)  [/] Run the auth tests"
+    );
+    assert_eq!(todo.folded(30).text, "▸ Tasks (1/3)  [/] Run the au…");
+    assert_eq!(todo.folded(20).text, "▸ Tasks (1/3)  [/] …");
+    assert_eq!(todo.folded(19).text, "▸ Tasks (1/3)");
+    assert_eq!(todo.folded(12).text, "▸ Tasks (1/…");
     // The item not started next, escaped.
     status(&mut todo, 2, "completed");
-    let strip = todo.folded(60);
-    assert!(
-        strip.text.starts_with("☐ 2/3 ☐ Update [31m the changelog"),
-        "{}",
-        strip.text
-    );
+    let strip = todo.folded(80);
+    let head = "▸ Tasks (2/3)  [ ] Update [31m the changelog ";
+    assert!(strip.text.starts_with(head), "{}", strip.text);
+    assert_eq!(in_face(&strip, Face::Target)[0], "[ ]");
+    // A short item's keys stay where it is whole.
+    let mut short = Todo::default();
+    create(&mut short, 1, "go");
+    assert_eq!(short.folded(35).text, "▸ Tasks (0/1)  [ ] go  C-c C-t list");
+    assert_eq!(short.folded(34).text, "▸ Tasks (0/1)  [ ] go");
+    // All done: no item.
+    status(&mut short, 1, "completed");
+    assert_eq!(short.folded(30).text, "▸ Tasks (1/1)     C-c C-t list");
+    assert_eq!(short.folded(20).text, "▸ Tasks (1/1)");
 }
 
 #[test]
@@ -207,22 +237,65 @@ fn the_opened_strip_shows_six_rows_at_most_around_the_work() {
     }
     status(&mut todo, 1, "completed");
     status(&mut todo, 2, "in_progress");
-    assert_eq!(todo.opened(40).text, "☑ Item 1\n▶ Item 2\n☐ Item 3");
-    for n in 4..=9 {
+    let strip = todo.opened(40);
+    assert_eq!(
+        strip.text,
+        "▾ Tasks (1/3)               C-c C-t fold\n    [x] Item 1\n    [/] Item 2\n    [ ] Item 3"
+    );
+    assert_eq!(in_face(&strip, Face::Dim), ["[x]", "Item 1"]);
+    assert_eq!(in_face(&strip, Face::Waiting), ["[/]", "Item 2"]);
+    assert_eq!(in_face(&strip, Face::Target), ["[ ]", "Item 3"]);
+    assert_eq!(in_face(&strip, Face::Prompt), ["C-c C-t fold"]);
+    // Five items fill it.
+    for n in 4..=5 {
+        create(&mut todo, n, &format!("Item {n}"));
+    }
+    let opened = todo.opened(40).text;
+    assert_eq!(opened.lines().count(), OPEN_ROWS);
+    assert!(!opened.contains("more"), "{opened}");
+    // More: the five around the work, and the head says how many more.
+    for n in 6..=9 {
         create(&mut todo, n, &format!("Item {n}"));
     }
     for n in 2..=4 {
         status(&mut todo, n, "completed");
     }
     status(&mut todo, 5, "in_progress");
-    let opened = todo.opened(40).text;
-    assert_eq!(opened.lines().count(), OPEN_ROWS);
+    let strip = todo.opened(40);
     assert_eq!(
-        opened,
-        "☑ Item 4\n▶ Item 5\n☐ Item 6\n☐ Item 7\n☐ Item 8\n… 4 more"
+        strip.text,
+        "▾ Tasks (4/9)  … 4 more     C-c C-t fold\n    [x] Item 4\n    [/] Item 5\n    [ ] Item 6\n    [ ] Item 7\n    [ ] Item 8"
     );
-    let long = todo.opened(6);
-    assert!(long.text.lines().all(|row| cells_of(row) <= 6));
+    assert_eq!(in_face(&strip, Face::Prompt), ["… 4 more", "C-c C-t fold"]);
+    // Narrow: the keys go, then how many more, then the head is cut; an item's text is cut.
+    let first = |width| todo.opened(width).text.lines().next().unwrap().to_owned();
+    assert_eq!(first(37), "▾ Tasks (4/9)  … 4 more  C-c C-t fold");
+    assert_eq!(first(36), "▾ Tasks (4/9)  … 4 more");
+    assert_eq!(first(22), "▾ Tasks (4/9)");
+    assert_eq!(todo.opened(12).text.lines().nth(1), Some("    [x] Ite…"));
+}
+
+#[test]
+fn every_row_is_at_most_the_strips_width() {
+    let mut todo = Todo::default();
+    for n in 1..=100 {
+        create(
+            &mut todo,
+            n,
+            "テストを実行する, all of them, then say what they said",
+        );
+    }
+    status(&mut todo, 1, "in_progress");
+    for width in 0..=130 {
+        for strip in [todo.folded(width), todo.opened(width)] {
+            assert!(fits(&strip, width), "{width}: {:?}", strip.text);
+        }
+        assert_eq!(
+            todo.folded(width).text.lines().count(),
+            usize::from(width > 0)
+        );
+        assert!(todo.opened(width).text.split('\n').count() <= OPEN_ROWS);
+    }
 }
 
 #[test]
@@ -238,8 +311,7 @@ fn a_resumed_session_has_no_list() {
 }
 
 /// Whether every row of `strip`, measured whole as the display draws it, is at most `width`
-/// cells, and each stretch of Claude's text starts and ends where a cluster of the whole text
-/// does.
+/// cells, and each stretch of an item's starts and ends where a cluster of the whole text does.
 fn fits(strip: &Strip, width: usize) -> bool {
     use oso_core::display_map::text_clusters;
     let rows = strip.text.split('\n').all(|row| cells_of(row) <= width);
@@ -252,7 +324,7 @@ fn fits(strip: &Strip, width: usize) -> bool {
         at += 1;
     }
     let fenced = (strip.faces.iter())
-        .filter(|(_, face)| *face == Face::Target)
+        .filter(|(_, face)| matches!(face, Face::Target | Face::Waiting | Face::Dim))
         .all(|(range, _)| starts.contains(&range.start) && starts.contains(&range.end));
     rows && fenced
 }
@@ -271,7 +343,7 @@ fn marks_that_would_join_oso_s_text_go_on_their_own_base() {
         let opened = todo.opened(width);
         assert!(fits(&opened, width), "{width}: {:?}", opened.text);
     }
-    assert!(todo.folded(80).text.contains("▶ \u{25cc}\u{301}"));
+    assert!(todo.folded(80).text.contains("[/] \u{25cc}\u{301}"));
     // A run of prepends past a cluster's limit, cut: oso's `…` stays its own.
     status(&mut todo, 1, "completed");
     status(&mut todo, 4, "in_progress");
@@ -302,4 +374,66 @@ fn the_same_list_written_again_changes_nothing() {
     todo.apply(&call("c", "TaskCreate", &json!({}), None));
     let again = json!({"task": {"id": "0", "subject": "One"}});
     assert!(!todo.apply(&result("c", &again, false)));
+}
+
+/// An item that says what oso says is never where oso's words show.
+#[test]
+fn an_item_in_osos_words_is_after_its_mark_and_before_the_keys() {
+    let mut todo = Todo::default();
+    create(
+        &mut todo,
+        1,
+        "▸ Tasks (9/9)  … 4 more  C-c C-t list C-c C-t fold",
+    );
+    status(&mut todo, 1, "in_progress");
+    for width in 24..=120 {
+        for (strip, keys) in [
+            (todo.folded(width), KEYS_LIST),
+            (todo.opened(width), KEYS_FOLD),
+        ] {
+            let head = strip.text.lines().next().unwrap();
+            assert!(head[4..].starts_with("Tasks (0/1)"), "{width}: {head}");
+            let item = in_face(&strip, Face::Waiting);
+            assert_eq!(item[0], "[/]", "{width}");
+            let shown = in_face(&strip, Face::Prompt);
+            if shown.contains(&keys) {
+                let last = head.trim_end().len() - keys.len();
+                let claudes = (strip.faces.iter())
+                    .filter(|(_, face)| *face == Face::Waiting)
+                    .all(|(range, _)| range.end + APART <= last || range.start > head.len());
+                assert!(claudes, "{width}: {head}");
+            }
+        }
+    }
+}
+
+proptest::proptest! {
+    /// Whatever an item says and however wide the strip, each row of it fits, and each stretch of
+    /// an item's is clusters of its own.
+    #[test]
+    fn prop_a_strip_fits_whatever_its_items_say(
+        texts in proptest::collection::vec(
+            proptest::collection::vec(
+                proptest::sample::select(vec![
+                    'a', ' ', 'あ', '\u{301}', '\u{600}', '\u{200d}', '\u{fe0f}', '🍣', '🇯', '🇵',
+                    '\u{202e}', '\u{200b}', '\t', '\u{2028}', '\u{1b}', 'ก', '\u{e33}', '\u{903}',
+                ]),
+                1..60,
+            ),
+            1..8,
+        ),
+        done in 0usize..8,
+        width in 0usize..130,
+    ) {
+        let mut todo = Todo::default();
+        for (n, text) in (1u32..).zip(&texts) {
+            create(&mut todo, n, &text.iter().collect::<String>());
+            if n as usize <= done {
+                status(&mut todo, n, "completed");
+            }
+        }
+        for strip in [todo.folded(width), todo.opened(width)] {
+            proptest::prop_assert!(fits(&strip, width), "{width}: {:?}", strip.text);
+        }
+    }
 }

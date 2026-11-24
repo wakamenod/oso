@@ -80,6 +80,7 @@ fn language_id(mode: Mode, path: &std::path::Path) -> &'static str {
         | Mode::NativeSession
         | Mode::Card
         | Mode::Request
+        | Mode::Todo
         | Mode::Plan
         | Mode::GitDiscarded => "plaintext",
     }

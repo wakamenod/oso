@@ -140,8 +140,8 @@ pub(crate) struct Layout {
     metrics: CellMetrics,
     /// The frame's cells the pane is drawn in.
     region: CellRect,
-    /// The same in pixels. Nothing of the pane is drawn outside it, but for
-    /// [`Self::top_band`].
+    /// The same in pixels, less what the pane's lines take of it ([`Self::with_rules`]). Nothing
+    /// drawn by this layout is outside it, but for [`Self::top_band`].
     clip: PixelRect,
     /// The row and the column of its line at the region's top-left cell. A buffer's rows
     /// are counted from the region's top, each with its own line's column (ADR 0104).
@@ -153,6 +153,8 @@ pub(crate) struct Layout {
     keeps_band_above: bool,
     /// Glyphs keep the band below the region, on the row below it.
     keeps_band_below: bool,
+    /// A line is along the region's top, so its glyphs keep no band above it (ADR 0170).
+    ruled_above: bool,
 }
 
 impl Layout {
@@ -168,6 +170,7 @@ impl Layout {
             cursor: None,
             keeps_band_above: false,
             keeps_band_below: false,
+            ruled_above: false,
         }
     }
 
@@ -271,7 +274,9 @@ impl Layout {
     /// The pixels above the region that its glyphs may paint: in the top margin on
     /// the frame's top row, and on the row above if the pane keeps its band.
     fn top_band(&self) -> f32 {
-        if self.keeps_band_above || (self.region.row == 0 && self.region.rows > 0) {
+        if self.ruled_above {
+            0.0
+        } else if self.keeps_band_above || (self.region.row == 0 && self.region.rows > 0) {
             self.metrics.descent
         } else {
             0.0
@@ -300,7 +305,7 @@ impl Layout {
     /// of the pane, but the frame's top row keeps its band in the top margin,
     /// where no other pane draws (ADR 0061), a tiled pane of one row that is no
     /// buffer's keeps it on the row above (ADR 0063), and what a float shows keeps both
-    /// in its padding (ADR 0072).
+    /// in its padding (ADR 0072). None is kept past a line of the pane's (ADR 0170).
     pub(crate) fn quad(
         &self,
         row: usize,

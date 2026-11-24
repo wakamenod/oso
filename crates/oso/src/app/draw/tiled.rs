@@ -22,8 +22,8 @@ use oso_core::editor::{
 use oso_core::frame::{CellRect, WindowRegions};
 use oso_core::window::{Screen, WindowId};
 use oso_render::{
-    Bands, CursorStyle, Face, FlashFill, GridRow, GridView, Layer, Pane, PaneContent, PaneId, Span,
-    TextMarks, TextView,
+    Bands, CursorStyle, Face, FlashFill, GridRow, GridView, Layer, Pane, PaneContent, PaneId,
+    Rules, Span, TextMarks, TextView,
 };
 
 use super::card::CardFills;
@@ -33,11 +33,13 @@ use crate::app::sessions::NativeSessions;
 use crate::sessions::list::SpaceBands;
 use crate::terminal::hosted::Terminals;
 
+mod composer;
 mod labels;
 mod modeline;
 pub(super) mod placeholder;
 pub(in crate::app) use modeline::{statuses_into, tiled_status};
 
+use composer::rules_of;
 use labels::{label_runs, labels_of};
 use modeline::{MODELINE_SPANS, modeline_face, modeline_spans};
 
@@ -388,15 +390,18 @@ pub(super) fn panes<'a>(editor: &'a Editor, drawn: &Drawn<'a>, list: &mut Vec<Pa
     let selected = editor.window().id();
     // A docked window's text is drawn over the float's face, as a prompt's answer is, so that
     // the composer reads as a place to type.
-    let pane = |id, region, background, content| Pane {
+    let ruled = |(id, rules), region, background, content| Pane {
         id,
         region,
         layer: Layer::TILED,
         background,
         panel: None,
         bands: Bands::NONE,
+        rules,
         content,
     };
+    let pane =
+        |id, region, background, content| ruled((id, Rules::NONE), region, background, content);
     let shown = || windows.iter().zip(drawn.cells).enumerate();
     // The docked windows of this frame, found once (ADR 0170).
     let docked: Vec<WindowId> = (editor.windows())
@@ -404,6 +409,10 @@ pub(super) fn panes<'a>(editor: &'a Editor, drawn: &Drawn<'a>, list: &mut Vec<Pa
         .map(oso_core::window::Window::id)
         .collect();
     let docked_face = |id: WindowId| super::card::dock_face(editor, id);
+    let rules = |id: WindowId| match docked.contains(&id) {
+        true => rules_of(editor, id),
+        false => Rules::NONE,
+    };
     // The selected window's text last, or the text of the one beneath the prompts.
     let tiled = editor.tiled().0.id();
     for last in [false, true] {
@@ -414,17 +423,15 @@ pub(super) fn panes<'a>(editor: &'a Editor, drawn: &Drawn<'a>, list: &mut Vec<Pa
             if (*id == tiled) == last {
                 let content = text(editor, (*id, *id == selected), cells, drawn, labels);
                 let background = docked_face(*id);
-                list.push(pane(
-                    pane_id(*id, Part::Text),
-                    regions.text,
-                    background,
-                    content,
-                ));
+                let its = (pane_id(*id, Part::Text), rules(*id));
+                list.push(ruled(its, regions.text, background, content));
             }
         }
     }
     let (rows, lines) = drawn.placeholders;
-    list.extend((rows.iter().zip(lines)).map(|(row, line)| placeholder::pane(row, line)));
+    // An empty composer is one row, its placeholder's.
+    let hints = rows.iter().zip(lines);
+    list.extend(hints.map(|(row, line)| placeholder::pane(row, line, rules(row.0))));
     let mut at = 0;
     for ((id, regions), cells) in windows.iter().zip(drawn.cells) {
         let rows = cells.gutter.rows().count();
@@ -436,9 +443,12 @@ pub(super) fn panes<'a>(editor: &'a Editor, drawn: &Drawn<'a>, list: &mut Vec<Pa
             let content = PaneContent::Signs(&cells.signs);
             list.push(pane(pane_id(*id, Part::Signs), signs, None, content));
         }
-        // No band and no fill: the current line's number marks the line there.
+        // No band: the current line's number marks the line there. A composer's is on its text's
+        // background.
         let content = PaneContent::Lines(gutter);
-        list.push(pane(pane_id(*id, Part::Gutter), numbers, None, content));
+        let its = (pane_id(*id, Part::Gutter), rules(*id));
+        let background = docked_face(*id).filter(|_| its.1 != Rules::NONE);
+        list.push(ruled(its, numbers, background, content));
     }
     // A docked window has no modeline: its host's is under it (ADR 0170).
     for (index, ((id, regions), _)) in shown().filter(|(_, ((id, _), _))| !docked.contains(id)) {
@@ -484,6 +494,7 @@ fn divider<'a>(id: WindowId, regions: &WindowRegions, list: &mut Vec<Pane<'a>>) 
             background: Some(Face::Text),
             panel: None,
             bands: Bands::NONE,
+            rules: Rules::NONE,
             content: PaneContent::Divider,
         });
     }

@@ -10,7 +10,9 @@ use oso_core::editor::{Editor, Preview};
 use oso_core::frame::CellRect;
 use oso_core::syntax::Highlights;
 use oso_core::window::Screen;
-use oso_render::{Bands, CursorStyle, Face, Layer, Pane, PaneContent, PaneId, TextMarks, TextView};
+use oso_render::{
+    Bands, CursorStyle, Face, Layer, Pane, PaneContent, PaneId, Rules, TextMarks, TextView,
+};
 
 use super::{Lines, Parts, Screens};
 use crate::app::draw::transcript::styled;
@@ -49,6 +51,7 @@ pub(super) fn preview_panes<'a>(
         background: None,
         panel: None,
         bands: Bands::NONE,
+        rules: Rules::NONE,
         content,
     };
     let divider = CellRect {
