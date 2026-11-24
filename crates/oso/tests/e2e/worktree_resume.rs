@@ -2,8 +2,8 @@
 //! (ADR 0165, "Worktrees' resumes"), with a fake `claude -p` that answers each message and runs
 //! its bridge as `session_tools`' fake does. `oso-restart` resumes one whose repository is
 //! trusted, and it takes a message; one whose repository was untrusted meanwhile stays stopped
-//! and runs nothing, its transcript, its row of `*Spaces*` and the echo area saying so, until it
-//! is trusted again and `session-resume` resumes it; and an orchestrator's `session_resume`
+//! and runs nothing, its transcript, its row of `*Spaces*`, the echo area and `*Messages*`
+//! saying so, until it is trusted again and `session-resume` resumes it; and an orchestrator's `session_resume`
 //! resumes a stopped one.
 //!
 //! Must not depend on: the app's internals; each refusal of the claim has its own test. Driven
@@ -19,7 +19,7 @@ use serde_json::{Value, json};
 use super::harness::{App, sockets};
 use super::session_tools::{Bridge, Run, answer, run_in, runs};
 use super::spaces::{PrivateRoot, trust_restricted};
-use super::worktrees::{DEADLINE, Flow, keys};
+use super::worktrees::{DEADLINE, Flow, keys, text_until};
 
 /// The fake: where it runs and its arguments, as `session_tools`' fake writes them, and the
 /// bridge its flow asks for, run as its child. Each message `M` it writes to `sent.PID.M`, and
@@ -224,16 +224,27 @@ fn one_whose_repository_was_untrusted_stays_stopped_until_it_is_trusted_again() 
         (state["echo"].as_str()).is_some_and(|echo| echo.ends_with("is restricted again"))
     });
     let mut new = restarted(&mut old);
-    // Said once every resume reported.
+    // Said once every resume reported and the agent channel came on, if it does.
+    let left = "oso-restart left 1 session stopped: e2e-own; its transcript says why";
     let state = until(&mut new, "echo of what was left stopped", |state| {
-        (state["echo"].as_str()).is_some_and(|echo| {
-            echo == "oso-restart left 1 session stopped: e2e-own; its transcript says why"
-        })
+        state["echo"] == left
     });
     let session = listed(&state, "e2e-own").expect("its row");
     assert_eq!(session["state"], "stopped", "{}", shown(&state));
     let row = "not resumed: repository not trusted; trust-project, then session-resume";
     assert_eq!(session["not_resumed"], row, "{}", shown(&state));
+    select(&mut new, "*Messages*");
+    let lines = text_until(&mut new, "line of what was left stopped", |lines| {
+        lines.iter().any(|line| line == left)
+    });
+    let said = |line: &str| line.starts_with("Agent channel") || line == left;
+    let said: Vec<&String> = lines.iter().filter(|line| said(line)).collect();
+    assert_eq!(said.last(), Some(&&left.to_owned()), "{lines:?}");
+    assert_eq!(
+        said.iter().filter(|line| **line == left).count(),
+        1,
+        "{lines:?}"
+    );
     select(&mut new, WORKTREE);
     says(
         &mut new,
@@ -247,8 +258,11 @@ fn one_whose_repository_was_untrusted_stays_stopped_until_it_is_trusted_again() 
     // Trusted again, the person resumes it.
     select(&mut new, "README.md");
     trust_restricted(&mut new, "repo");
-    until(&mut new, "the trust", |state| {
-        (state["echo"].as_str()).is_some_and(|echo| echo.starts_with("Trusted "))
+    // By the modeline: a message of oso's own may take the echo area.
+    until(&mut new, "project trusted", |state| {
+        (state["modeline"].as_str()).is_some_and(|modeline| {
+            modeline.contains("  repo  ") && !modeline.contains("restricted")
+        })
     });
     select(&mut new, WORKTREE);
     new.run_command("session-resume", None).unwrap();

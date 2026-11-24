@@ -7,9 +7,14 @@
 //!
 //! - A restart's resume says "Resumed after oso-restart." once its process started, not as it
 //!   was ordered: the start thread may still refuse it.
+//! - That line waits until the agent channel, which the resumes ask for, has said that it is on,
+//!   as that would take its place in the echo area at once: [`CHANNEL_TIME`] at most.
 //! - A refusal's reason is the start thread's or the judge's; it names no path a repository
 //!   wrote. It is kept in memory alone, until the session runs.
 
+use std::time::{Duration, Instant};
+
+use super::restarting::Resuming;
 use crate::app::App;
 use crate::app::sessions::spaces::printable;
 use crate::channel::protocol::mode::PermissionMode;
@@ -19,6 +24,9 @@ use crate::sessions::worker::SessionKey;
 
 /// The names the line for a restart's refused resumes gives.
 const NAMED: usize = 3;
+
+/// How long that line waits for the agent channel, whose thread may hang.
+const CHANNEL_TIME: Duration = Duration::from_secs(5);
 
 /// What a resume under way says of itself.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -144,6 +152,34 @@ fn left_stopped(left: &[String]) -> Option<String> {
     }
 }
 
+impl Resuming {
+    /// Those a restart resumes, once, when each has reported and the agent channel no longer
+    /// comes on, or has for [`CHANNEL_TIME`]: `starts` says whether one still starts,
+    /// `channel_comes` whether the channel may come on still.
+    fn over(
+        &mut self,
+        starts: impl Fn(&SessionKey) -> bool,
+        channel_comes: bool,
+        now: Instant,
+    ) -> Option<Vec<SessionKey>> {
+        if self.asked.is_empty() || self.asked.iter().any(starts) {
+            self.reported = None;
+            return None;
+        }
+        let since = *self.reported.get_or_insert(now);
+        if channel_comes && now.duration_since(since) < CHANNEL_TIME {
+            return None;
+        }
+        self.reported = None;
+        Some(std::mem::take(&mut self.asked))
+    }
+
+    /// When what waits for the agent channel is said without it.
+    fn deadline(&self) -> Option<Instant> {
+        Some(self.reported? + CHANNEL_TIME)
+    }
+}
+
 impl App {
     /// Native session `key` is about to be resumed for `what`.
     pub(super) fn native_resumes_for(&mut self, key: SessionKey, what: ResumeFor) {
@@ -192,15 +228,21 @@ impl App {
         self.hosting.natives.resuming.asked.contains(&key)
     }
 
-    /// After each event: once none of the sessions a restart resumes is starting, those left
-    /// stopped are said, once. One that went meanwhile is not.
-    pub(super) fn sync_restart_resumes(&mut self) {
-        let hosting = &mut self.hosting;
-        let asked = &mut hosting.natives.resuming.asked;
-        if asked.is_empty() || asked.iter().any(|key| hosting.starting.contains_key(key)) {
+    /// After each event, and before the loop waits: once none of the sessions a restart resumes
+    /// is starting, and the agent channel is on if it comes on, those left stopped are said,
+    /// once. One that went meanwhile is not.
+    pub(in crate::app) fn sync_restart_resumes(&mut self) {
+        // With none, nothing is looked at.
+        if self.hosting.natives.resuming.asked.is_empty() {
             return;
         }
-        let asked = std::mem::take(asked);
+        let channel_comes = self.restart_holds() || self.agent_channel_starting();
+        let hosting = &mut self.hosting;
+        let starts = |key: &SessionKey| hosting.starting.contains_key(key);
+        let resuming = &mut hosting.natives.resuming;
+        let Some(asked) = resuming.over(starts, channel_comes, Instant::now()) else {
+            return;
+        };
         let left: Vec<String> = (asked.iter())
             .filter(|key| {
                 (hosting.natives.map.get(key)).is_some_and(|native| native.not_resumed.is_some())
@@ -215,6 +257,11 @@ impl App {
 }
 
 impl super::NativeSessions {
+    /// When the loop wakes to say what a restart left stopped, if that waits.
+    pub(in crate::app) fn restart_resumes_deadline(&self) -> Option<Instant> {
+        self.resuming.deadline()
+    }
+
     /// Why session `key` did not resume, as its row of `*Spaces*` says it, until it runs.
     pub(in crate::app) fn left_stopped_why(&self, key: SessionKey) -> Option<&str> {
         self.map.get(&key)?.not_resumed.as_deref()
@@ -224,7 +271,10 @@ impl super::NativeSessions {
 #[cfg(test)]
 mod tests {
     use super::super::resume::not_trusted;
-    use super::{ResumeFor, left_stopped, list_row, runs_elsewhere};
+    use super::{
+        CHANNEL_TIME, Duration, Instant, ResumeFor, Resuming, SessionKey, left_stopped, list_row,
+        runs_elsewhere,
+    };
     use crate::channel::protocol::mode::PermissionMode;
     use crate::sessions::start::trust::{NOT_ONE, NOT_RECORDED, NotTrusted, UNLISTED};
     use crate::sessions::start::{NOT_STARTED, ROOT_REPLACED, space_gate};
@@ -299,6 +349,51 @@ mod tests {
         // Below its root, which no short words are for, without what else to do.
         let below = list_row(&not_trusted("wa", NotTrusted::NotAtRoot), "wa");
         assert_eq!(below, "not resumed: it runs below its project's root");
+    }
+
+    /// A restart's resumes of two sessions, and their keys.
+    fn resuming() -> (Resuming, Vec<SessionKey>) {
+        let asked = vec![1, 2];
+        let mut resuming = Resuming::default();
+        resuming.asked.clone_from(&asked);
+        (resuming, asked)
+    }
+
+    #[test]
+    fn what_a_restart_left_stopped_is_said_once_after_the_agent_channel() {
+        let (mut resuming, asked) = resuming();
+        let now = Instant::now();
+        let none = |_: &SessionKey| false;
+        // One still starts, whether the channel comes on or not.
+        assert_eq!(resuming.over(|key| *key == asked[1], false, now), None);
+        assert_eq!(resuming.over(|key| *key == asked[1], true, now), None);
+        assert_eq!(resuming.deadline(), None);
+        // Each reported; the restart is not over, then the channel starts.
+        assert_eq!(resuming.over(none, true, now), None);
+        assert_eq!(resuming.over(none, true, now), None);
+        assert_eq!(resuming.deadline(), Some(now + CHANNEL_TIME));
+        // On, or failed, or off again: it comes on no more.
+        assert_eq!(resuming.over(none, false, now), Some(asked));
+        assert_eq!(resuming.over(none, false, now), None);
+        assert_eq!(resuming.deadline(), None);
+    }
+
+    #[test]
+    fn what_a_restart_left_stopped_is_said_at_once_if_no_channel_comes_on() {
+        let (mut resuming, asked) = resuming();
+        assert_eq!(resuming.over(|_| false, false, Instant::now()), Some(asked));
+    }
+
+    #[test]
+    fn what_a_restart_left_stopped_is_said_though_the_agent_channel_never_reports() {
+        let (mut resuming, asked) = resuming();
+        let now = Instant::now();
+        let before = now + CHANNEL_TIME.saturating_sub(Duration::from_millis(1));
+        assert_eq!(resuming.over(|_| false, true, now), None);
+        assert_eq!(resuming.over(|_| false, true, before), None);
+        let due = resuming.deadline().unwrap();
+        assert_eq!(resuming.over(|_| false, true, due), Some(asked));
+        assert_eq!(resuming.deadline(), None);
     }
 
     #[test]

@@ -68,6 +68,14 @@ pub(crate) fn hand_over(old: &mut App, new: &mut App) -> Value {
     state
 }
 
+/// Waits until the agent channel is on in `new`, which carried sessions turn on: that is said in
+/// the echo area, in place of what a flow waits for there.
+pub(crate) fn channel_on(new: &mut App) {
+    new.wait_for("the agent channel on", |state| {
+        (state["modeline"].as_str()).is_some_and(|modeline| modeline.starts_with("Agent"))
+    });
+}
+
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
 fn a_shell_goes_on_in_the_new_instance_with_its_screen_and_what_it_printed_meanwhile() {
