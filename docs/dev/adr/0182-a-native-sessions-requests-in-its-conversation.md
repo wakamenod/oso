@@ -412,7 +412,8 @@ Each holds from the step that builds it.
   switch to ASCII is told too, as `Other`: while oso wants ASCII, and 500 ms after, an `Other` does not
   take the place of a Japanese known before. Linux and Windows tell of no source. No row's width need
   become public, and `Editor::replace_native_rows` no argument: a place under the block's title keeps
-  its byte, which the tail's property test holds.
+  its byte, which the tail's property test holds. For that, a text that goes on from all its range
+  held puts its last character in again, so that a place right after the range goes along.
 
 ## Open
 

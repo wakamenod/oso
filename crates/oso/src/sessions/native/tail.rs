@@ -149,6 +149,26 @@ mod tests {
         assert_eq!(at(&tail, 0), Some((Part::Title, 0)));
     }
 
+    /// A title that goes on from all it held, of a block whose first byte under it the person is at.
+    #[test]
+    fn a_title_that_goes_on_moves_no_place_under_it() {
+        let mut editor = Editor::default();
+        let id = editor.add_native_session_buffer("*claude: s*");
+        editor.show(id);
+        let mut tail = Tail::default();
+        for (at, text) in [(1, "\n"), (2, "\n"), (1, "\n\n")] {
+            let (part, highlight) = PARTS[at];
+            if text == "\n\n" {
+                editor.current_mut().0.selections.move_primary(1);
+            }
+            let its = runs(text, highlight);
+            let place = tail.put(part, text.to_owned(), its.clone()).unwrap();
+            editor.replace_native_rows(id, place, text, &its);
+        }
+        let now = editor.window().selections.primary().cursor;
+        assert_eq!(at(&tail, now), Some((Part::Body, 0)));
+    }
+
     /// One change of a transcript: rows put in after the last, the last ones drawn again, or a
     /// part put.
     #[derive(Clone, Debug)]
