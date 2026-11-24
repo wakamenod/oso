@@ -19,6 +19,7 @@ mod dictation;
 pub(crate) mod dired;
 mod edit;
 pub use edit::MAX_CROSSINGS;
+pub use modes::FONT_LOCK;
 mod files;
 pub(crate) mod help;
 mod indent;

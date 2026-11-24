@@ -204,6 +204,11 @@ impl<R> Asks<R> {
         (self.waiting.iter()).find(|ask| ask.key == key && ask.shown.is_some())
     }
 
+    /// Whether any session's card is shown.
+    pub fn any_shown(&self) -> bool {
+        self.waiting.iter().any(|ask| ask.shown.is_some())
+    }
+
     /// As [`Asks::shown`], to change its card.
     pub fn shown_mut(&mut self, key: SessionKey) -> Option<&mut Ask<R>> {
         (self.waiting.iter_mut()).find(|ask| ask.key == key && ask.shown.is_some())

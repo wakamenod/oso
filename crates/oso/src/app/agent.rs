@@ -29,6 +29,7 @@ mod open;
 pub(super) use open::TOO_LARGE_FOR_THE_AGENT;
 mod questions;
 mod reads;
+mod requests;
 mod saving;
 mod undoing;
 
@@ -435,7 +436,7 @@ impl App {
             self.agent_log(&format!("run: refused: {}", refused.0));
             return (Err(refused.0), Vec::new());
         }
-        if let Some(why) = self.agent_waits() {
+        if let Some(why) = self.run_waits(name) {
             self.agent_log_often(why);
             return (Err(why.into()), Vec::new());
         }
@@ -509,10 +510,7 @@ impl App {
             })),
             (Ok(()), None) => Ok(json!({ "command": name })),
         };
-        match not_started {
-            Some(why) => (Err(why.into()), Vec::new()),
-            None => (reply, saves),
-        }
+        not_started.map_or((reply, saves), |why| (Err(why.into()), Vec::new()))
     }
 
     /// Why the channel may run nothing now, if it may not.

@@ -22,6 +22,7 @@
 
 mod composer;
 mod focus;
+mod front;
 mod gate;
 mod pages;
 mod plan;
@@ -75,8 +76,8 @@ enum Mark {
     Approved(bool, Approval),
 }
 
-/// Where an answer to a card may come from now, and since when: the card, or its session's
-/// empty composer (ADR 0180), whichever is the selected buffer.
+/// Where an answer to a card may come from now, and since when: the card, its session's empty
+/// composer (ADR 0180) or its plan's edit (part 3d), whichever is the selected buffer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::app::sessions::hosting::native) struct Current {
     key: SessionKey,
