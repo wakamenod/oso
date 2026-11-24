@@ -55,10 +55,6 @@ impl App {
                 SessionRequest::ExplainFile(path) => {
                     Job::ExplainFile(path, self.request_waits().holds_shown())
                 }
-                SessionRequest::Spaces(request) => {
-                    self.space_request(request);
-                    continue;
-                }
                 SessionRequest::Start { name, directory } => {
                     self.start_session(name, directory);
                     continue;

@@ -39,7 +39,8 @@ pub use send::{
     COMMANDS as SEND_COMMANDS, MAX_SEND_BYTES, MENTION_LIST, SEND_LIST, YANK_IMAGE, too_large,
 };
 pub use spaces::{
-    ARCHIVED_LIST, COMMANDS as SPACE_COMMANDS, MEMBERS_LIST, REPOSITORIES_LIST, SPACE_RENAME_TO,
+    ARCHIVED_LIST, CLOSE_LIST, COMMANDS as SPACE_COMMANDS, MEMBERS_LIST, REPOSITORIES_LIST,
+    SPACE_RENAME_TO,
 };
 
 use std::path::PathBuf;
@@ -85,9 +86,10 @@ const ADOPT_HISTORY: &str = "session-adopt";
 /// Whether the prompt of a command over `list` keeps the order the host gave: `session-adopt`
 /// lists live sessions, then the newest stopped ones, an order a history or the names' lengths
 /// must not undo; a native session's models and effort levels come in the CLI's order, the
-/// levels from the least (part 3c).
+/// levels from the least (part 3c); `space-close` lists the space in front first, which `RET`
+/// alone closes.
 pub fn listed_in_given_order(list: &str) -> bool {
-    list == ADOPT_LIST || list == MODEL_LIST || list == EFFORT_LIST
+    [ADOPT_LIST, MODEL_LIST, EFFORT_LIST, CLOSE_LIST].contains(&list)
 }
 
 /// Whether the prompt of a command over `list` takes any text as its answer, not only a

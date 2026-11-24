@@ -193,7 +193,7 @@ pub enum SessionRequest {
 }
 
 /// What a command asks of the host about issue spaces (ADR 0136). Each acts on the space in
-/// front, but for a new one and one reopened.
+/// front, but for a new one, one reopened, and one closed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SpaceRequest {
     /// Make a space for what this description says, of the selected buffer's repository, enter
@@ -209,8 +209,8 @@ pub enum SpaceRequest {
     /// Use the repository of this name of the space in front for the project commands run
     /// from its orchestrator's buffer (`space-use-repo`).
     UseRepo(String),
-    /// Archive the space (`space-close`).
-    Close,
+    /// Archive the open space of this name (`space-close`).
+    Close(String),
     /// Open the archived space of this name again, and enter it (`space-reopen`).
     Reopen(String),
     /// Open `space-rename-to`'s prompt holding the display name of the space in front
@@ -297,7 +297,7 @@ pub enum RowAction {
     Fold,
     /// Pin or unpin the session: pinned ones come first in their group.
     Pin,
-    /// Archive the session, or bring an archived one back.
+    /// Archive the session, or bring an archived one back; on a space's row, close the space.
     Archive,
     /// Resume the stopped session.
     Resume,

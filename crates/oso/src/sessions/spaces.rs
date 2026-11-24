@@ -441,7 +441,7 @@ impl Spaces {
     }
 
     /// The open spaces' places.
-    fn open(&self) -> impl Iterator<Item = usize> + '_ {
+    fn open(&self) -> impl Iterator<Item = usize> + Clone + '_ {
         (0..self.spaces.len()).filter(|&at| self.spaces[at].is_open())
     }
 

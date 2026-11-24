@@ -72,6 +72,7 @@ impl App {
                 line,
                 action,
             } => self.native_key(buffer, line, action),
+            SessionRequest::Spaces(request) => self.space_request(request),
             SessionRequest::Regroup => self.watch.list.regroup(),
             SessionRequest::CycleFolds => {
                 if !self.watch.list.cycle_folds(self.watch.view.open_to) {
@@ -221,8 +222,9 @@ impl App {
         if self.watch.spaces.enter(&mut self.editor, at) == Err(Refused) {
             self.editor.message(PROMPT_OPEN);
         }
-        // The modeline names the space in front (ADR 0159).
-        self.watch.stale = true;
+        // The modeline names the space in front (ADR 0159), and the space prompts' lists are its
+        // or begin with it.
+        self.sessions_touched();
     }
 
     /// `RET` on the row of the worktree at `path` (ADR 0131, step 2b): the session there, in
@@ -335,6 +337,19 @@ impl App {
                     self.space_request(oso_core::editor::SpaceRequest::Reopen(name));
                 }
                 return;
+            }
+            // Its sessions stop and it goes in `Archived spaces`, as a session's `A` sends it to
+            // `Archived` (ADR 0136, "A chosen space is closed, as amended").
+            Line::Space(id) if action == RowAction::Archive => {
+                if let Some(at) = self.watch.spaces.find(&id) {
+                    // A held key's repeats are not meant for where point goes next.
+                    self.held_key.point_moved();
+                    self.close_space(at);
+                }
+                return;
+            }
+            Line::ClosedSpace(_) if action == RowAction::Archive => {
+                return self.editor.message("RET opens it again");
             }
             Line::ClosedSpace(_) | Line::Title => return,
             // A repository's row folds on `RET` too, as its worktrees are what it holds.

@@ -2524,7 +2524,7 @@ impl core::marker::StructuralPartialEq for oso_core::editor::Shift
 pub enum oso_core::editor::SpaceRequest
 pub oso_core::editor::SpaceRequest::AddRepo(alloc::string::String)
 pub oso_core::editor::SpaceRequest::AskRename
-pub oso_core::editor::SpaceRequest::Close
+pub oso_core::editor::SpaceRequest::Close(alloc::string::String)
 pub oso_core::editor::SpaceRequest::Confirmed
 pub oso_core::editor::SpaceRequest::Directory
 pub oso_core::editor::SpaceRequest::Instructions

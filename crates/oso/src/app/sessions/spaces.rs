@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 use oso_core::editor::{ListingRequest, SpaceRequest};
 
 use crate::app::App;
-use crate::sessions::spaces::edit::{NotAdded, sessions_to_stop};
+use crate::sessions::spaces::edit::{NotAdded, NotNamed, kept_open, sessions_to_stop};
 use crate::sessions::spaces::probe::Made;
 use crate::sessions::spaces::probe::RepoCheck;
 use crate::sessions::spaces::stored::MAX_MEMBERS;
@@ -121,7 +121,7 @@ impl App {
             SpaceRequest::AddRepo(text) => self.add_repository(&text),
             SpaceRequest::RemoveRepo(name) => self.remove_repository(&name),
             SpaceRequest::UseRepo(name) => self.use_repository(&name),
-            SpaceRequest::Close => self.close_space(),
+            SpaceRequest::Close(name) => self.close_named_space(&name),
             SpaceRequest::Reopen(name) => self.reopen_space(&name),
             SpaceRequest::AskRename => self.ask_space_rename(),
             SpaceRequest::Rename(display) => self.rename_space(&display),
@@ -393,12 +393,27 @@ impl App {
         }
     }
 
-    /// `space-close`: refused while a session of the space works or needs input; its idle
-    /// ones are stopped, and the space is archived.
-    fn close_space(&mut self) {
-        let Some(at) = self.watch.spaces().current() else {
-            return self.editor.message("No space in front".to_owned());
-        };
+    /// `space-close`: the open space its answer names is closed.
+    fn close_named_space(&mut self, name: &str) {
+        match self.watch.spaces().open_named(name) {
+            Ok(at) => self.close_space(at),
+            Err(NotNamed::Nothing) => self
+                .editor
+                .message(format!("No open space {}", printable(name))),
+            Err(NotNamed::Several) => self.editor.message(format!(
+                "Two open spaces are called {}: A on a row of *Spaces* closes that one",
+                printable(name)
+            )),
+        }
+    }
+
+    /// Closes open space `at`, in front or not: refused while a session of it works or needs
+    /// input; its idle ones are stopped, and the space is archived. Closing one that is not in
+    /// front leaves the front as it is. One closed already stays so.
+    pub(in crate::app) fn close_space(&mut self, at: usize) {
+        if !(self.watch.spaces().get(at)).is_some_and(crate::sessions::spaces::Space::is_open) {
+            return;
+        }
         let sessions: Vec<_> = self
             .hosting
             .table()
@@ -410,10 +425,10 @@ impl App {
         let idle = match sessions_to_stop(sessions) {
             Ok(idle) => idle,
             Err(who) => {
-                return self.editor.message(format!(
-                    "Session {} is working or needs input; the space stays open",
-                    printable(&who)
-                ));
+                let space = self.space_label(at);
+                return self
+                    .editor
+                    .message(kept_open(&printable(&who), &printable(&space)));
             }
         };
         let name = self.space_label(at);
@@ -430,6 +445,7 @@ impl App {
         }
         // Nothing starts in it any more: no successor, and no orchestrator after its directory.
         self.forget_space_starts(at);
+        self.sessions_touched();
         self.editor
             .message(format!("Space {name} closed; space-reopen opens it again"));
     }

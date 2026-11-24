@@ -4,6 +4,8 @@
 //!
 //! Must not depend on: `app` or `dispatch`; these drive an editor alone, with no window.
 
+mod closing;
+
 use std::path::{Path, PathBuf};
 
 use oso_core::buffer::Buffer;
@@ -38,7 +40,12 @@ fn no_session(_: &str) -> bool {
 }
 
 fn editor() -> Editor {
-    Editor::with_buffer(Buffer::from_text("a.rs", "a\n"))
+    let mut editor = Editor::with_buffer(Buffer::from_text("a.rs", "a\n"));
+    editor.set_frame_size(oso_core::frame::FrameSize {
+        rows: 40,
+        columns: 200,
+    });
+    editor
 }
 
 #[test]

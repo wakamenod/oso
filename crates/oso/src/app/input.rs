@@ -404,6 +404,10 @@ mod tests {
         held.pressed(key("RET"), true);
         held.point_moved();
         assert!(held.drops(key("RET"), false));
+        // `A` on a space's row of `*Spaces*`: held, it closes that space and no other.
+        held.pressed(key("A"), false);
+        held.point_moved();
+        assert!(held.drops(key("A"), false));
         held.pressed(key("C-n"), false);
         held.answered(key("C-n"));
         assert!(held.drops(key("C-n"), false));

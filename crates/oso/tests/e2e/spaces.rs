@@ -279,7 +279,7 @@ pub(super) fn space<'a>(state: &'a Value, name: &str) -> Option<&'a Value> {
 }
 
 /// What the echo area says.
-fn echo(state: &Value) -> String {
+pub(super) fn echo(state: &Value) -> String {
     state["echo"].as_str().unwrap_or_default().to_owned()
 }
 
@@ -309,7 +309,7 @@ pub(super) fn space_menu(app: &mut crate::harness::App, key: &str) {
 /// Answers the prompt labelled `label` with `text` once its list offers `text`. The prompt took
 /// the list as it was when it opened: one that opened before the host listed `text` never
 /// offers it, as [`switch_space`] says.
-fn answer_listed(app: &mut crate::harness::App, label: &str, text: &str) {
+pub(super) fn answer_listed(app: &mut crate::harness::App, label: &str, text: &str) {
     app.wait_for(&format!("{label} offering {text}"), |state| {
         super::worktrees::asks(state).is_some_and(|prompt| prompt.starts_with(label))
             && state["prompts"][0]["completion"]["rows"]
@@ -477,6 +477,20 @@ fn claude_names_a_new_space_and_a_name_that_does_not_hold_gives_way() {
     flow.exit_with(0);
 }
 
+/// `space-close` from the space menu, `RET` alone: the space called `front`, in front, is offered
+/// first.
+fn close_front(app: &mut crate::harness::App, front: &str) {
+    space_menu(app, "c");
+    let state = app.wait_for("the close prompt", |state| {
+        super::worktrees::asks(state).is_some_and(|prompt| prompt.starts_with("Close space:"))
+    });
+    assert_eq!(
+        state["prompts"][0]["completion"]["rows"][0], front,
+        "the space in front first"
+    );
+    app.send_keys("RET");
+}
+
 /// Enters the first space and closes it once its sessions, its orchestrator here, are idle:
 /// they are stopped and the space archived.
 fn close_with_its_idle_session(app: &mut crate::harness::App) {
@@ -492,7 +506,7 @@ fn close_with_its_idle_session(app: &mut crate::harness::App) {
             && !sessions.is_empty()
             && sessions.iter().all(|s| s["state"] == "idle")
     });
-    space_menu(app, "c");
+    close_front(app, "Fix login error");
     app.wait_for("the sessions stopped and the space closed", |state| {
         space(state, "fix-login-error").is_some_and(|s| s["archived"] == true)
             && theirs(state).iter().all(|s| s["state"] == "stopped")
@@ -607,7 +621,7 @@ fn the_space_commands_make_change_close_and_reopen_a_space() {
     assert_eq!(state["sessions"]["space"], "second");
 
     // Closing the space in front enters the one entered last; reopening brings it back.
-    space_menu(&mut app, "c");
+    close_front(&mut app, "Third 名前 🔧");
     app.wait_for("the space closed", |state| {
         space(state, "second").is_some_and(|s| s["archived"] == true)
             && state["sessions"]["space"] == "fix-login-error"
@@ -648,9 +662,7 @@ fn a_space_closed_just_before_quitting_is_kept() {
     app.wait_for("the space", |state| {
         space(state, "close-then-quit").is_some()
     });
-    app.send_keys("C-c a S");
-    app.wait_for("the space menu", |state| state["menu"] == "space");
-    app.send_keys("c");
+    close_front(&mut app, "Close then quit");
     app.wait_for("the space closed", |state| {
         space(state, "close-then-quit").is_some_and(|s| s["archived"] == true)
     });
@@ -694,8 +706,65 @@ pub(super) fn list(state: &Value) -> String {
 }
 
 /// The line of the list that starts with `start`, indent and all.
-fn line_starting(state: &Value, start: &str) -> Option<usize> {
+pub(super) fn line_starting(state: &Value, start: &str) -> Option<usize> {
     list(state).lines().position(|row| row.starts_with(start))
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn the_space_prompts_complete_over_the_space_just_switched_to() {
+    // Their orchestrators start in the spaces' directories, which a shared root, as the flows'
+    // temporary directory is on Linux, would refuse.
+    let root = PrivateRoot::new("spaces-lists-root");
+    let config = format!("\n[spaces]\nroot = \"{}\"\n", root.0.display());
+    let flow = Flow::new("spaces-lists", &config);
+    let other = flow.scratch.path().join("other");
+    fs::create_dir(&other).unwrap();
+    flow.git(&other, &["init", "-q", "-b", "main"]);
+    let (mut app, _) = flow.start();
+    app.send_keys("C-c a O");
+    answer(&mut app, "Describe the space:", "Fix login");
+    // Each orchestrator never works, so it is idle once it runs.
+    let idle = |state: &Value, slug: &str| {
+        space(state, slug).is_some_and(|s| s["orchestrator"].is_string())
+            && (state["sessions"]["sessions"].as_array()).is_some_and(|all| {
+                all.iter()
+                    .any(|s| s["name"] == slug && s["state"] == "idle")
+            })
+    };
+    app.wait_for("the space, its orchestrator idle", |state| {
+        idle(state, "fix-login")
+    });
+    space_menu(&mut app, "a");
+    answer(&mut app, "Add repository:", other.to_str().unwrap());
+    app.wait_for("its second repository", |state| {
+        space(state, "fix-login")
+            .is_some_and(|s| s["members"].as_array().is_some_and(|m| m.len() == 2))
+    });
+    show_readme(&mut app);
+    app.send_keys("C-c a O");
+    answer(&mut app, "Describe the space:", "Second");
+    // Settled, so that nothing but the switch makes the lists again.
+    app.wait_for("the second space, its orchestrator idle", |state| {
+        state["sessions"]["space"] == "second" && idle(state, "second")
+    });
+    app.send_keys(&format!("C-c a j {} RET", keys("Fix login")));
+    app.wait_for("the first space", |state| {
+        state["sessions"]["space"] == "fix-login"
+    });
+    for (key, label) in [("r", "Remove repository:"), ("u", "Use repository:")] {
+        space_menu(&mut app, key);
+        let state = app.wait_for(label, |state| {
+            super::worktrees::asks(state).is_some_and(|prompt| prompt.starts_with(label))
+        });
+        let rows = state["prompts"][0]["completion"]["rows"].as_array();
+        let mut rows: Vec<&str> = rows.unwrap().iter().filter_map(Value::as_str).collect();
+        rows.sort_unstable();
+        assert_eq!(rows, ["other", "repo"], "{label}");
+        app.send_keys("C-g");
+        app.wait_for("no prompt", |state| super::worktrees::asks(state).is_none());
+    }
+    flow.exit_with(0);
 }
 
 #[test]
@@ -771,7 +840,7 @@ fn the_pane_shows_spaces_their_repositories_worktrees_and_sessions() {
     app.wait_for("the second space", |state| {
         state["sessions"]["space"] == "second"
     });
-    space_menu(&mut app, "c");
+    close_front(&mut app, "Second");
     app.wait_for("the closed space listed", |state| {
         line_starting(state, " ▸ Archived spaces ─").is_some()
     });

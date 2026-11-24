@@ -252,7 +252,7 @@ In `*Spaces*`:
 | `g` | Refresh. |
 | `s` | The tree, or grouped by state. |
 | `P` | Pin or unpin: pinned sessions come first. |
-| `A` | Archive, or bring an archived session back. |
+| `A` | Archive, or bring an archived session back. On a space, close it, as `C-c a S` `c` does, and go to `Archived spaces`; on a closed one, `RET` opens it again. |
 | `r` | Resume a stopped session. |
 | `k` | Stop the session. It asks first while the session works or needs input. |
 | `R` | Rename the session: the prompt holds its name, `M-p` empties it. |
@@ -293,7 +293,8 @@ alone, and refuses a root that other users can write. When the directory or the 
 refused, the space stays, and `o` in the space menu starts its orchestrator once you fixed what
 the echo area said.
 
-`C-c a S` opens the space menu for the space in front:
+`C-c a S` opens the space menu. Its keys act on the space in front, but for `c` and `R`, which
+read a space:
 
 | Key | Command | What it does |
 |---|---|---|
@@ -303,7 +304,7 @@ the echo area said.
 | `i` | `space-instructions` | Edit the goal the space's orchestrator is given. |
 | `d` | `space-directory` | List the space's directory. |
 | `n` | `space-rename` | Give the space a new display name, unlike every other space's: the prompt holds its name now. Its slug, directory and orchestrator's name stay. |
-| `c` | `space-close` | Archive the space; refused while one of its sessions works or needs input. |
+| `c` | `space-close` | Close a space, by completion, the one in front first: `RET` alone closes it. Its idle sessions are stopped; its worktrees, branches and directory stay. Refused while one of its sessions works or needs input. Closing another leaves the one in front as it is. |
 | `R` | `space-reopen` | Open a closed space again. |
 | `o` | `space-orchestrator-start` | Start the space's orchestrator again, the session you talk to about the work, in the space's directory, with each trusted repository as a working directory. `C-u` makes a space directory that is gone again at its place. |
 | `O` | `space-orchestrator-replace` | Replace the orchestrator by a new one that takes over from it, once it is idle: the old one is stopped and kept as `NAME-was-N`, and the new one is told to read `handoff.md` first. Asks first when there is no `handoff.md`. |
