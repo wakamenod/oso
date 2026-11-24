@@ -7,7 +7,7 @@ use super::palettes::Name;
 use crate::pane::Face;
 
 /// Every face, in the order of [`index`], so that a theme keeps a table of them.
-pub(super) const FACES: [Face; 136] = [
+pub(super) const FACES: [Face; 137] = [
     Face::Text,
     Face::Escape,
     Face::Boxed,
@@ -144,6 +144,7 @@ pub(super) const FACES: [Face; 136] = [
     Face::SessionIconOther,
     Face::SessionBrief,
     Face::SessionBriefMark,
+    Face::SessionTable,
 ];
 
 /// Where `face` is in [`FACES`]. A match with no wildcard, so that a new face does not
@@ -290,6 +291,7 @@ pub(super) const fn index(face: Face) -> usize {
         Face::SessionIconOther => 133,
         Face::SessionBrief => 134,
         Face::SessionBriefMark => 135,
+        Face::SessionTable => 136,
     }
 }
 
@@ -425,6 +427,8 @@ pub(super) fn faces(face: Face) -> (Name, Name) {
         Face::SessionTool => (FgTool, BgMain),
         Face::SessionCode => (FgInlineCode, BgMain),
         Face::SessionBullet => (FgBullet, BgMain),
+        // A grid's lines, as quiet as a gutter's numbers.
+        Face::SessionTable => (FgLineNumber, BgMain),
         Face::SessionRunning => (FgRunning, BgMain),
         Face::SessionIconRead => (FgIconRead, BgIconRead),
         Face::SessionIconWrite => (FgIconWrite, BgIconWrite),

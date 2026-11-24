@@ -744,7 +744,10 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   look: Markdown"): what is hidden is marks, a fence's language of at most 16 bytes, and a
   link's web address behind plain words, on a line of words alone, never other text; invisible and bidi characters show as anywhere. A line that could start as a row
   of oso's keeps its marks, or is drawn behind a bar in code; a fence's code can still have a
-  tool row's colours, not its place. `w` copies the raw text, on the person's key.
+  tool row's colours, not its place. A table's box is in a class and a colour of its own, inside a
+  reply's indent, so it is no card's frame, guide or diff; a cell hides nothing a line would not, and one broken inside a word says so with `↩`,
+  and one that would not stand as it measures leaves the table as written, as do the bounds on
+  its size. `w` copies the raw text, on the person's key.
 - A native session's control layer (ADR 0165, step 2c) writes only `initialize`,
   `interrupt`, `get_usage` (part 3a) and `set_permission_mode` (part 3b), and reads of an
   answer only its id, its success, its error, cut to 256 bytes and logged escaped,

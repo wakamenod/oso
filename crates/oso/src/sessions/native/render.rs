@@ -11,7 +11,7 @@
 //! - Only oso's marks stand in a row's first two columns, a nested row's [`GUIDE`] among them: every line of a reply, a note or a
 //!   tool's result is further in, whatever its text says, so none passes for a row of oso's.
 //! - A reply is drawn as its Markdown says, its marks hidden ([`super::shown`]), with faces no
-//!   row of oso's has; its code's own highlighting lies over it.
+//!   row of oso's has, its tables for its window's width; its code's own highlighting lies over it.
 //! - What comes from the model or a tool is shown as text, never read as anything: what is
 //!   shown on a row's one line (a tool's name and target, a reason, a progress line) has its
 //!   control characters turned to spaces, and is cut with `…`.
@@ -32,7 +32,7 @@ mod tools;
 
 pub use queued::queue_rows;
 pub(super) use reply::reply_lines;
-pub use reply::tail;
+pub use reply::{tables, tail};
 #[cfg(test)]
 pub(super) use tools::{
     MAX_DIFF_LINE, MAX_DIFF_SHOWN, MAX_SHOWN_RESULT, RESULT_LINES, first_lines,
@@ -105,6 +105,10 @@ pub struct Rendered {
     pub text: String,
     pub faces: Vec<(Range<usize>, Face)>,
     pub calls: Vec<(usize, Range<usize>)>,
+    /// The lines of each whole table of a reply among its row's, which depend on the width, and
+    /// about what they took to draw, in cells.
+    pub tables: Vec<Range<usize>>,
+    pub cells: usize,
 }
 
 impl Rendered {
@@ -163,7 +167,7 @@ fn blank_mark(mark: &str, empty: bool) -> &str {
 /// `row` as it shows, its paths relative to `directory`, for a window `width` cells wide.
 pub fn render(row: &Row, directory: &Path, width: usize) -> Rendered {
     if matches!(row.kind, Kind::Reply { .. }) {
-        return tail(row, LineStart::default());
+        return tail(row, LineStart::default(), width);
     }
     let mut out = Rendered::default();
     if row.gap {

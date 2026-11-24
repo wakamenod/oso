@@ -56,18 +56,15 @@ impl Placed {
         }
     }
 
-    /// Notes that `range` of row `at` was replaced by `length` bytes: the rows after it move.
+    /// Notes that `range` of row `at`, the whole row or some of it, was replaced by `length`
+    /// bytes: its end and the rows after it move.
     pub fn put(&mut self, at: usize, range: Range<usize>, length: usize) {
-        let end = range.start + length;
         if at == self.ends.len() {
-            self.ends.push(end);
+            self.ends.push(range.start + length);
             return;
         }
-        let Some(old) = self.ends.get(at).copied() else {
-            return;
-        };
-        for later in &mut self.ends[at..] {
-            *later = (*later + end).saturating_sub(old);
+        for later in self.ends.get_mut(at..).unwrap_or_default() {
+            *later = (*later + length).saturating_sub(range.len());
         }
     }
 }
@@ -88,5 +85,10 @@ mod tests {
             [Some(0), Some(0), Some(1), Some(1), None]
         );
         assert_eq!((placed.start(0), placed.start(1)), (0, 4));
+        // Some of a row, as a table in it.
+        placed.put(0, 1..3, 5);
+        assert_eq!((placed.start(1), placed.end()), (7, 13));
+        placed.put(1, 8..13, 0);
+        assert_eq!((placed.start(1), placed.end()), (7, 8));
     }
 }

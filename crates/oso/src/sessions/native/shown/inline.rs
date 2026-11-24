@@ -29,6 +29,8 @@ pub(super) struct Marks<'a> {
     line: &'a str,
     from: usize,
     style: Option<Style>,
+    /// A link's target may be hidden.
+    may_hide: bool,
     cuts: Vec<Cut>,
     open: Vec<(usize, usize)>,
 }
@@ -49,9 +51,16 @@ enum Span {
 }
 
 impl<'a> Marks<'a> {
-    /// Reads the marks of `line` from byte `from` on, whose text is of `style` outside any.
-    pub(super) fn read(&mut self, line: &'a str, from: usize, style: Option<Style>) {
-        (self.line, self.from, self.style) = (line, from, style);
+    /// Reads the marks of `line` from byte `from` on, whose text is of `style` outside any;
+    /// `may_hide` unless what is beside the line could read as a link's target.
+    pub(super) fn read(
+        &mut self,
+        line: &'a str,
+        from: usize,
+        style: Option<Style>,
+        may_hide: bool,
+    ) {
+        (self.line, self.from, self.style, self.may_hide) = (line, from, style, may_hide);
         self.cuts.clear();
         self.open.clear();
         let bytes = line.as_bytes();
@@ -197,7 +206,9 @@ impl<'a> Marks<'a> {
     fn hides(&self, open: usize, text: &str, target: Range<usize>) -> bool {
         let address = &self.line[target.clone()];
         let web = address.starts_with("https://") || address.starts_with("http://");
-        web && text.chars().all(plain)
+        self.may_hide
+            && web
+            && text.chars().all(plain)
             && self.line.matches("://").nth(1).is_none()
             && !self.line.contains("www.")
             && around_link(&self.line[..open], &self.line[target.end + 1..])

@@ -659,6 +659,9 @@ pub(crate) mod tests {
             Face::SessionTool | Face::SessionBullet | Face::SessionRunning => {
                 &[(Face::Text, LABEL), (Face::CurrentLine, LABEL)]
             }
+            // A table's rules are no text, and on the line at point they are seen at 3:1, as a
+            // test of their own says.
+            Face::SessionTable => &[(Face::Text, LABEL)],
             Face::SessionIconRead => &[(Face::SessionIconRead, LABEL)],
             Face::SessionIconWrite => &[(Face::SessionIconWrite, LABEL)],
             Face::SessionIconShell => &[(Face::SessionIconShell, LABEL)],
@@ -1309,7 +1312,7 @@ pub(crate) mod tests {
         for theme in &themes() {
             let name = theme.name();
             let ink = |face| theme.foreground(face);
-            let replys = [Face::SessionCode, Face::SessionBullet];
+            let replys = [Face::SessionCode, Face::SessionBullet, Face::SessionTable];
             for row in [
                 Face::SessionTool,
                 Face::SessionPromptMark,
@@ -1320,6 +1323,23 @@ pub(crate) mod tests {
                     let apart = distance(ink(row), ink(reply));
                     assert!(apart >= 0.05, "{name}: {row:?} and {reply:?} {apart:.3}");
                 }
+            }
+            let rules = contrast(ink(Face::SessionTable), theme.background(Face::CurrentLine));
+            assert!(rules >= 3.0, "{name}: a table's rules {rules:.2}");
+            // A table's rules pass for no frame, guide or quiet word of oso's.
+            for row in [
+                Face::SessionQuiet,
+                Face::SessionAlert,
+                Face::SessionWorking,
+                Face::CardTitle,
+                Face::DiffAdded,
+                Face::DiffRemoved,
+            ] {
+                let apart = distance(ink(Face::SessionTable), ink(row));
+                assert!(
+                    apart >= 0.05,
+                    "{name}: a table's rules and {row:?} {apart:.3}"
+                );
             }
             let apart = distance(ink(Face::SessionTool), ink(Face::SessionCode));
             assert!(apart >= 0.09, "{name}: a tool's name and code {apart:.3}");

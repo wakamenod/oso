@@ -116,11 +116,10 @@ fn lay_row(native: &Native, row: usize, highlights: &mut Highlights) {
     };
     let range = row_range(native, row);
     // A reply's text is not rendered again.
-    let runs = match plain(at) {
+    let width = native.row_width(row);
+    let runs = match plain(at, width) {
         Some(runs) => fits(&runs, &range).then_some(runs),
         None => {
-            // A result's, for the width it was drawn for.
-            let width = native.results.get(&row).copied().unwrap_or(native.width);
             let rendered = render::render(at, native.rows.directory(), width);
             // Its runs leave out what has none at its end.
             (rendered.text.len() == range.len()).then(|| rendered.runs())

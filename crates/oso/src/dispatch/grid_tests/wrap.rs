@@ -135,3 +135,24 @@ fn a_native_transcripts_rows_go_on_indented_with_the_cursor_a_region_and_matches
     ];
     check_editor("wrap_native_transcript", text.as_bytes(), editor, &steps);
 }
+
+#[test]
+fn a_native_transcripts_table_is_as_wide_as_its_rules_whatever_its_cells_hold() {
+    // 40 columns: 39 of text, for which it is laid out, and the mark's.
+    use crate::sessions::native::render::render;
+    use crate::sessions::native::rows::Rows;
+    use crate::sessions::native::wire::parse;
+    let text = "| キー | What |\n|:-:|---|\n| `C-c` | 日本語の説明を、セルの中で折り返します。 |\n| ⚠\u{fe0f} 👩\u{200d}💻 | \u{202e}x \u{1b}[1m e\u{301} |\n| w | https://example.com/a/long/one |";
+    let mut rows = Rows::new("/w".into());
+    let line = serde_json::json!({"type": "assistant", "message": {"id": "m", "content": [{"type": "text", "text": text}]}});
+    rows.apply(parse(line.to_string().as_bytes()));
+    let drawn = render(&rows.rows()[0], rows.directory(), 39);
+    let mut editor = oso_core::editor::Editor::default();
+    super::aids_off(&mut editor);
+    editor.set_view_size(oso_core::window::ViewSize::new(16, 40));
+    let id = editor.add_native_session_buffer("*claude: s*");
+    editor.set_wraps(id, true);
+    editor.show(id);
+    editor.replace_native_rows(id, 0..0, &drawn.text, &drawn.runs());
+    check_editor("wrap_native_table", drawn.text.as_bytes(), editor, &["M-<"]);
+}

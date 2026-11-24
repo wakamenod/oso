@@ -54,6 +54,7 @@ impl Face {
             Highlight::SessionTool => Self::SessionTool,
             Highlight::SessionCode => Self::SessionCode,
             Highlight::SessionBullet => Self::SessionBullet,
+            Highlight::SessionTable => Self::SessionTable,
             Highlight::SessionRunning => Self::SessionRunning,
             Highlight::SessionIconRead => Self::SessionIconRead,
             Highlight::SessionIconWrite => Self::SessionIconWrite,
