@@ -240,7 +240,7 @@ fn the_phones_message_and_mode_are_shown_and_never_the_persons() {
     );
     // Beside the mark, which a narrow modeline keeps.
     app.wait_for("the mode", |state| {
-        modeline(state).contains("⇄ claude.ai: plan")
+        modeline(state).contains("⇄ plan: claude.ai")
     });
     // The person's key goes to default first, not on to auto.
     app.send_keys("S-TAB");

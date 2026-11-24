@@ -159,11 +159,16 @@ fn a_start_blocked_after_all_is_off_and_keeps_the_canary() {
 fn the_mark_and_the_rows_say_where_it_is() {
     let now = Instant::now();
     assert_eq!(Remote::default().mark(), None);
+    assert_eq!(Remote::default().mark_with(Some("auto")), None);
     let mut remote = Remote::unblocked();
     assert_eq!(remote.mark(), Some("⇄ connecting"));
+    let with = |remote: &Remote, mode| remote.mark_with(mode).unwrap();
+    assert_eq!(with(&remote, None), "⇄ connecting");
+    assert_eq!(with(&remote, Some("auto")), "⇄ auto: connecting");
     assert_eq!(remote.take_row(), None);
     remote.event(&mut bridge("connected", ""));
     assert_eq!(remote.mark(), Some("⇄ claude.ai"));
+    assert_eq!(with(&remote, Some("plan")), "⇄ plan: claude.ai");
     assert!(
         remote
             .take_row()
@@ -173,6 +178,7 @@ fn the_mark_and_the_rows_say_where_it_is() {
     assert_eq!(remote.take_row(), None, "once");
     remote.event(&mut bridge("failed", "a\u{1b}[31m\nb\u{202e}"));
     assert_eq!(remote.mark(), Some("⇄ dropped"));
+    assert_eq!(with(&remote, Some("auto")), "⇄ auto: dropped");
     let row = remote.take_row().unwrap();
     assert!(row.contains("may connect again"), "{row}");
     assert!(
@@ -191,6 +197,7 @@ fn the_mark_and_the_rows_say_where_it_is() {
     assert_eq!(rows, MAX_ROWS);
     remote.end(None, now);
     assert_eq!(remote.mark(), Some("⇄ going off"));
+    assert_eq!(with(&remote, Some("auto")), "⇄ auto: going off");
     remote.event(&mut bridge("connected", ""));
     assert_eq!(remote.mark(), Some("⇄ going off"), "until it ended");
 }

@@ -742,7 +742,7 @@ mod tests {
         let root = PathBuf::from("/work/some-project");
         let at = |columns| {
             let mut editor =
-                named_native("*claude: some-session*", "⇄ claude.ai: auto · m", columns);
+                named_native("*claude: some-session*", "⇄ auto: claude.ai · m", columns);
             let id = editor.window().buffer();
             editor.set_front_space("a-space");
             let found = crate::project::Found {
@@ -761,7 +761,7 @@ mod tests {
         let mut dropped = Vec::new();
         for columns in (68..200).rev() {
             let status = at(columns);
-            assert!(status.state.contains("⇄ claude.ai: auto"), "{columns}");
+            assert!(status.state.contains("⇄ auto: claude.ai"), "{columns}");
             assert!(
                 super::text_cells(&status.modeline()) <= columns,
                 "{columns}: {}",

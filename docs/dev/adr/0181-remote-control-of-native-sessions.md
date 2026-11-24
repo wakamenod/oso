@@ -236,8 +236,8 @@ the five calls that ask, and forks of an agent's session.
   source off first. The words are "claude.ai keeps what it has, and may still list this session":
   whether it stays listed with `keep_session_on_exit` is not measured.
 - **The mark** is `⇄ connecting`, `⇄ claude.ai`, `⇄ dropped` or `⇄ going off`, first in the
-  modeline's note, with a mode no key here gave after it (`⇄ claude.ai: auto`), as a narrow modeline
-  drops the note's later parts; before the note's first part, a native session's modeline drops the
+  modeline's note, with a mode no key here gave in it (`⇄ auto: claude.ai`), as a narrow modeline drops
+  the note's later parts and cuts the end; before the note's first part, a native session's modeline drops the
   space's and the project's names; in `*Spaces*`, `⇄` before the name, never cut, which no name or reason begins
   with; also while its buffer is killed and its process ends. At most six rows a process say that
   it is on or dropped, the latter "and may connect again by itself".

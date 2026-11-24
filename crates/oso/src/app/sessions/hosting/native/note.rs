@@ -75,8 +75,7 @@ impl App {
             0 => String::new(),
             count => format!("{count} queued"),
         };
-        let mark = native.remote.mark().unwrap_or_default();
-        let mark = strayed.map_or_else(|| mark.to_owned(), |mode| format!("{mark}: {mode}"));
+        let mark = native.remote.mark_with(strayed).unwrap_or_default();
         let mut note = [mark.as_str(), state, &queued]
             .into_iter()
             .filter(|part| !part.is_empty())

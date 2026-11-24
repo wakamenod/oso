@@ -60,6 +60,9 @@ const MAX_ROWS: usize = 6;
 /// The most characters of the CLI's words of why it dropped in a row.
 const MAX_WHY: usize = 200;
 
+/// What a mark starts with.
+const SIGN: &str = "⇄ ";
+
 /// What the canary says.
 pub const CANARY: &str = "This claude says that Remote Control, which oso turned off for it, \
      is available or connecting. oso did not ask it to connect.";
@@ -305,6 +308,16 @@ impl Remote {
             Phase::Dropped(_) => Some("⇄ dropped"),
             Phase::Ended => Some("⇄ going off"),
         }
+    }
+
+    /// Its mark with the mode `strayed`, which no key here gave, before where it is, as a narrow
+    /// modeline cuts the end.
+    pub fn mark_with(&self, strayed: Option<&str>) -> Option<String> {
+        let mark = self.mark()?;
+        Some(match (strayed, mark.strip_prefix(SIGN)) {
+            (Some(mode), Some(at)) => format!("{SIGN}{mode}: {at}"),
+            _ => mark.to_owned(),
+        })
     }
 
     /// The row that says where it is now, if it came there since the last and rows are left.
