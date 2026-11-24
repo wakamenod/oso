@@ -50,7 +50,7 @@ pub(in crate::app) use adopt::Adopting;
 pub(in crate::app) use begin::{Begin, Then};
 pub(in crate::app) use moving::{Moves, Moving};
 pub(crate) use native::Looked as RemoteLooked;
-pub(in crate::app) use native::{NativeSessions, Placeholder, RequestWaits};
+pub(in crate::app) use native::{NativeSessions, Placeholder, RequestWaits, Typing};
 
 /// What the app keeps of its hosted sessions.
 #[derive(Debug, Default)]

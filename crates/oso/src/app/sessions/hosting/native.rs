@@ -83,7 +83,7 @@ use oso_core::project::ProjectId;
 
 pub(in crate::app) use self::composer::Placeholder;
 use self::note::NativeState;
-pub(in crate::app) use self::permissions::RequestWaits;
+pub(in crate::app) use self::permissions::{RequestWaits, Typing};
 use super::Begin;
 use super::trust::starts_natively_in;
 use crate::app::App;

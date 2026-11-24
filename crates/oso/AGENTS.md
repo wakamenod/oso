@@ -262,7 +262,9 @@ often, so it must rebuild within 2 s.
   session's conversation (`permissions/request.rs`, over `sessions::native::request`, whose block is
   made on the socket's thread; what of it was read in `request/read.rs`, whether a key answers in
   `request/gate.rs`, its keys in `request/keys.rs` and the question before one not read in
-  `request/ask.rs`, ADR 0182), questions and a plan on the
+  `request/ask.rs`; when point goes to its line in `request/point.rs`, with the input source in
+  `app/ime/source.rs`, the composer's place in `request/place.rs`, a tall block's head in
+  `request/head.rs`, ADR 0182), questions and a plan on the
   session's card (`permissions/card.rs`, over `sessions::native::card`, step 2e-2; when point goes
   to it in `card/focus.rs`, its keys typed in the session's empty composer in `card/composer.rs` and
   `dispatch/card.rs`, its pages in `card/pages.rs`, its size in `card/size.rs`, and what is drawn behind both in

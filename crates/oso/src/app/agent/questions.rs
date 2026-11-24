@@ -50,7 +50,7 @@ pub(in crate::app) struct Typed {
 
 impl Typed {
     /// A key came at `now`: one that goes on with a sequence under way if `goes_on`.
-    fn key(&mut self, now: Instant, goes_on: bool) {
+    pub(in crate::app) fn key(&mut self, now: Instant, goes_on: bool) {
         self.before = self.last.replace(now);
         if !goes_on || self.first.is_none() {
             (self.first, self.before_first) = (Some(now), self.before);

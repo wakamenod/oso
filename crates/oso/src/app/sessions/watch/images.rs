@@ -23,6 +23,11 @@ use crate::sessions::images::{self, Kept};
 use crate::sessions::worker::SessionKey;
 
 impl App {
+    /// Whether an image is read for session `key`, whose mention goes into its composer.
+    pub(in crate::app) fn reads_image_for(&self, key: SessionKey) -> bool {
+        self.watch.sending.reading_image_for == Some(key)
+    }
+
     /// `session-yank-image` in the terminal `buffer`: starts reading the clipboard's image for
     /// its session, unless the session could not take the paste now, or an image is being read
     /// already. `from_socket` says whether the command came through the dev socket, as the

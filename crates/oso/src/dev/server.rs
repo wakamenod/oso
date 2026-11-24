@@ -313,6 +313,7 @@ mod tests {
             | UiOp::Mouse { .. }
             | UiOp::Focus(_)
             | UiOp::WindowFocus
+            | UiOp::InputSource { .. }
             | UiOp::Restart(crate::carry::Op::ExportText { .. })
             | UiOp::Restart(crate::carry::Op::ImportText(_))
             | UiOp::Restart(crate::carry::Op::HandOverTerminals { .. })

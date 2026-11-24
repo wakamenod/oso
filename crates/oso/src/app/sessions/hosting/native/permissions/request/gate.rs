@@ -104,7 +104,7 @@ impl App {
         let Some(current) = current else {
             return Some(Refusal::NotCurrent);
         };
-        let Some(since) = self.request_since(key, current) else {
+        let Some(since) = self.line_since(key) else {
             return Some(Refusal::NotCurrent);
         };
         if !waited(since, pressed) {
@@ -112,6 +112,16 @@ impl App {
         }
         // Whole only since it was last looked at: the person has not seen it.
         (!current.whole || !self.line_shows_all(key)).then_some(Refusal::Cut)
+    }
+
+    /// Since when session `key`'s line, with point on it, waits to take a key: what its keys, text typed
+    /// as point came and a press of the mouse are judged by. None while it takes none whatever the time:
+    /// no frame showed point that went there by itself, or oso's window is not in front.
+    pub(super) fn line_since(&self, key: SessionKey) -> Option<Instant> {
+        let permissions = &self.hosting.natives.permissions;
+        let current = (permissions.current).filter(|now| now.key == key)?;
+        let seen = !permissions.requests.point.unseen(key);
+        self.request_since(key, current).filter(|_| seen)
     }
 
     /// Since when the call session `key` shows could be answered where point is, `current`: the latest
@@ -224,6 +234,8 @@ impl App {
         let refusal = self.request_refusal(key, line, pressed);
         let (read, of) = request.reading.lines();
         Some(serde_json::json!({
+            // Whether oso's window is in front and not covered, as the window system said.
+            "seen": self.window_seen_since().is_some(),
             "takes_answer": refusal.is_none(),
             "refusal": refusal.map(|refusal| format!("{refusal:?}")),
             "allows": refusal.is_none() && request.reading.allows(),

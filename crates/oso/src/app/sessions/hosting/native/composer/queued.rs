@@ -150,6 +150,7 @@ impl App {
         if !empty {
             taken.push_str("\n\n");
         }
+        self.composer_back(key);
         if let Some(composer) = self.composer(key) {
             let edit = Replacement {
                 range: 0..0,

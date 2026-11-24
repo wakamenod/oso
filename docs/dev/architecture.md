@@ -339,7 +339,9 @@ A panicking command is caught at the command boundary
   system as `Event::InputSource`; a review comment's draft allows it at once, as a buffer does;
   neither while a buffer that may hold secrets is shown
   ([ADR 0106](adr/0106-the-input-source-turns-japanese-on-in-a-file-name-prompt.md),
-  [ADR 0158](adr/0158-japanese-in-prompts-and-review-drafts.md)). Turning
+  [ADR 0158](adr/0158-japanese-in-prompts-and-review-drafts.md)). The kind of source the person types
+  with, oso's own switch apart, is `app/ime/source.rs`'s, for a native session's request
+  ([ADR 0182](adr/0182-a-native-sessions-requests-in-its-conversation.md)). Turning
   off during a composition commits it first, where
   typing goes then, on oso's own layer if it would go in as typed there
   (`Dispatcher::types_text`), and otherwise waits for it to end, as always on winit, which
@@ -1280,8 +1282,9 @@ Full details are in [`security.md`](security.md).
     `sessions::native::request` makes its block on the socket's thread, over `review::diff`, and
     `permissions/request.rs` puts it in the transcript's tail and docks its line, with what was read
     of it (`request/read.rs`, looked at after each event and as `app/draw.rs` presented a frame), its
-    gate (`request/gate.rs`), its keys (`request/keys.rs`) and the question before one not read
-    (`request/ask.rs`). Questions and plans are asked on the session's
+    gate (`request/gate.rs`), its keys (`request/keys.rs`), the question before one not read
+    (`request/ask.rs`), when point goes to the line by itself (`request/point.rs`), the composer's place
+    there (`request/place.rs`) and the head of a tall block (`request/head.rs`). Questions and plans are asked on the session's
     docked card (`permissions/card.rs`), whose text and questions are
     `sessions::native::card`'s, from what `sessions::native::wire::card` reads of the call; both are
     answered there. What answers runs only as the person's key is pressed (`dispatch/answers.rs`). A key typed

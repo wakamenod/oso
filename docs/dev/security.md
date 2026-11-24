@@ -843,8 +843,12 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     What is not shown, or was not read, is allowed by `C-u y` alone, after a question bound to the call,
     which closes as oso loses the front. The wait is 500 ms since the line was selected, the call
     shown, oso came in front and the key before, to a chord's or an argument's first key, longer after a
-    prompt an agent opened. No letter in the composer answers it, and point does not go to the line by
-    itself. An `ExitPlanMode` whose plan cannot be read is denied unasked, and said.
+    prompt an agent opened. No letter in the composer answers it. Point goes to the line by itself only
+    from the session's empty composer, its transcript's end or the head of its block, in the middle of nothing, with oso's
+    window in front and the input source, not a Japanese one, settled for 500 ms each; it goes back if the
+    source turns out Japanese before the person did anything. The line then takes no key before 500 ms
+    since a frame that shows point there was presented; till then text typed, where point came from the
+    composer, goes there and point with it, and else is refused, and a key held as oso moved point does nothing. An `ExitPlanMode` whose plan cannot be read is denied unasked, and said.
   - **Only a key pressed now answers** a call, a question or a plan: no macro's, none held back while
     something else went on, no repeat of a held key, and no text an input method commits.
   - **Questions and plans** are asked on the session's card (step 2e-2), withheld from agents: oso's title

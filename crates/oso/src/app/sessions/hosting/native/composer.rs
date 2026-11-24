@@ -93,7 +93,11 @@ impl Composing {
 
 /// A new composer of the session named `name`, docked under its transcript `transcript`. Its
 /// long lines wrap, as its window's height counts them (ADR 0170).
-fn new_docked_composer(editor: &mut Editor, transcript: BufferId, name: &str) -> BufferId {
+pub(super) fn new_docked_composer(
+    editor: &mut Editor,
+    transcript: BufferId,
+    name: &str,
+) -> BufferId {
     let name = format!("*compose: {name}*");
     let id = withheld_draft(editor, &name, Mode::Composer, "");
     editor.set_wraps(id, true);
@@ -332,7 +336,11 @@ impl App {
     /// composer hidden, the selected window, if it shows it.
     fn transcript_carrier(&mut self, key: SessionKey, transcript: BufferId) -> Option<WindowId> {
         self.composer(key);
-        let carried = carrier(&self.editor, transcript, DockSlot::Composer).map(|(id, _)| id);
+        // As its request's line has its place, that window is the one (ADR 0182).
+        let carried = [DockSlot::Composer, DockSlot::Card]
+            .into_iter()
+            .find_map(|slot| carrier(&self.editor, transcript, slot))
+            .map(|(id, _)| id);
         carried.or_else(|| {
             let (selected, _) = self.editor.tiled();
             (selected.buffer() == transcript).then(|| selected.id())
@@ -534,6 +542,10 @@ impl App {
         else {
             return;
         };
+        // It takes its place back from a request's line (ADR 0182).
+        if to_composer && !self.composer_back_for_point(key) {
+            return self.editor.message(HIDDEN);
+        }
         let composer = self.composer(key);
         let docked = composer.and(self.editor.dock_window(transcript, DockSlot::Composer));
         let shown = docked.and_then(|id| Some((id, self.editor.regions(id)?.text)));
@@ -560,6 +572,7 @@ impl App {
         if len == 0 && text.is_empty() {
             return;
         }
+        self.composer_back(key);
         let edit = Replacement {
             range: 0..len,
             text,

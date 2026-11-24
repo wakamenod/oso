@@ -9,15 +9,20 @@
 //! - The block's text under its title is put in once, and does not change until it goes; the title
 //!   alone is drawn again, as the window's width or the count changes.
 //! - The line is written again as what its keys do, or what was read, changes.
-//! - Point goes to the line only as the person goes there: `C-c C-j`, `C-x o`, a click (until
-//!   ADR 0182's "Point" 1 to 4 are built).
+//! - When point goes to the line by itself is `point`'s, the composer's place there `place`'s, and the
+//!   head of a block taller than its window `head`'s.
 //! - What of the block was read is `read`'s, whether an answer counts `gate`'s, the keys `keys`',
 //!   and the question before a call not all read runs `ask`'s.
 
 mod ask;
 pub(in crate::app::sessions::hosting::native) mod gate;
+mod head;
 mod keys;
+mod place;
+mod point;
 mod read;
+
+pub(in crate::app) use point::Typing;
 
 use std::time::Instant;
 
@@ -44,6 +49,8 @@ pub(super) struct Requests {
     room: read::Room,
     /// The event under way drew a frame, and what it showed was looked at.
     drawn_now: bool,
+    /// Where point is, and what it came from.
+    point: point::Point,
 }
 
 /// What session `key`'s block and line are drawn as.
@@ -56,6 +63,10 @@ struct Drawn {
     line: Option<(Says, usize, Line)>,
     /// What was read changed since.
     stale: bool,
+    /// Whether point goes to its line by itself.
+    goes: point::Goes,
+    /// The windows looked at for its block's head.
+    heads: head::Heads,
 }
 
 impl Requests {
@@ -94,6 +105,8 @@ fn put_title(
 impl App {
     /// Session `key`'s call, just found, shows: its block and its line.
     pub(super) fn show_request(&mut self, key: SessionKey) {
+        // Where point is now was not chosen while it waited; what was, of another call, is noted.
+        self.note_point();
         let place = (1, self.hosting.natives.permissions.asks.count(key));
         let NativeSessions {
             map, permissions, ..
@@ -115,6 +128,8 @@ impl App {
             title,
             line: None,
             stale: false,
+            goes: point::Goes::default(),
+            heads: head::Heads::default(),
         });
         self.draw_line(key);
         let line = self.line_buffer(key);
@@ -123,6 +138,8 @@ impl App {
         }
         // Its width is known once it is docked.
         self.draw_line(key);
+        self.line_focus_at_once(key);
+        self.show_heads(key);
         self.request_redraw();
     }
 
@@ -149,6 +166,8 @@ impl App {
         if requests.drawn.is_empty() {
             return;
         }
+        self.note_point();
+        self.point_back_if_japanese();
         self.note_current_card();
         for at in 0..self.hosting.natives.permissions.requests.drawn.len() {
             let Some(drawn) = self.hosting.natives.permissions.requests.drawn.get(at) else {
@@ -170,6 +189,9 @@ impl App {
                     self.request_redraw();
                 }
             }
+            self.composer_back_with_text(key);
+            self.line_takes_place(key);
+            self.show_heads(key);
             if !drawn_now {
                 self.look_at_request(key, Instant::now());
             }
@@ -246,16 +268,20 @@ impl App {
             return;
         };
         let (transcript, line) = (native.buffer, native.line);
+        let heads = head::in_block(&self.editor, native);
         for part in [Part::Title, Part::Body] {
             put_tail(&mut self.editor, native, part, String::new(), Vec::new());
         }
-        let was_in = line.is_some_and(|line| self.editor.window().buffer() == line);
+        head::to_end(&mut self.editor, transcript, &heads);
+        let was_in = line.is_some_and(|line| self.editor.tiled().0.buffer() == line);
         self.editor.set_dock(transcript, DockSlot::Card, None);
+        self.composer_back(key);
         if let Some(line) = line {
             self.editor.set_internal_text(line, "");
         }
         if was_in {
             self.composer_go(key, true);
+            self.point_moved_by_oso();
         }
         self.request_redraw();
     }

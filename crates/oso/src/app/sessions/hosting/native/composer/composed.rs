@@ -119,6 +119,7 @@ impl App {
     ) -> Result<(), String> {
         let transcript = (self.hosting.natives.map.get(&key)).map(|native| native.buffer);
         let transcript = transcript.ok_or_else(|| "That session is gone".to_owned())?;
+        self.composer_back(key);
         let id = (self.composer(key)).ok_or_else(|| "The session has no composer".to_owned())?;
         let buffer = (self.editor.buffer(id)).ok_or_else(|| "The composer is gone".to_owned())?;
         let text = at_end(buffer, text)?;
@@ -140,6 +141,7 @@ impl App {
         }
         let transcript = (self.hosting.natives.map.get(&key)).map(|native| native.buffer);
         let transcript = transcript.ok_or_else(|| "That session is gone".to_owned())?;
+        self.composer_back(key);
         let id = (self.composer(key)).ok_or_else(|| "The session has no composer".to_owned())?;
         let buffer = (self.editor.buffer(id)).ok_or_else(|| "The composer is gone".to_owned())?;
         refuses(buffer)?;

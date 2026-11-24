@@ -15,9 +15,10 @@ use oso_core::minibuffer::PromptId;
 
 use super::App;
 use super::draw::with_frame;
+use super::sessions::Typing;
 use super::shell::Loop;
 use crate::dev;
-use oso_platform::window::{Held, ImeEvent, Mouse, MouseAction, Position, Wheel};
+use oso_platform::window::{Held, ImeEvent, InputSource, Mouse, MouseAction, Position, Wheel};
 
 impl App {
     /// Answers a control socket request on the UI thread.
@@ -61,6 +62,9 @@ impl App {
                 Err(why.into())
             }
             dev::UiOp::SendKeys(keys) => {
+                if self.dev_keys_dropped(&keys) {
+                    return Some((reply, Ok(json!({ "keys": 0 }))));
+                }
                 self.note_person_acted();
                 let count = keys.len();
                 let started = Instant::now();
@@ -131,6 +135,7 @@ impl App {
                 self.window_gained_focus();
                 Ok(json!({ "focused": true }))
             }
+            dev::UiOp::InputSource { japanese } => Ok(self.dev_input_source(japanese)),
             dev::UiOp::Exit { generation } => self.answer_exit(event_loop, generation),
             // The rest are a restart's: exporting and importing the state, its texts and its
             // terminals, and whether it may go.
@@ -318,6 +323,24 @@ impl App {
         };
         self.timings.key_handled(received, key);
         Ok(json!({ "ime": true }))
+    }
+
+    /// The person's input source is a Japanese mode, or not, whatever the window system says of it from
+    /// then on (ADR 0182).
+    fn dev_input_source(&mut self, japanese: bool) -> serde_json::Value {
+        let source = match japanese {
+            true => InputSource::Japanese,
+            false => InputSource::Other,
+        };
+        self.ime.source.pin(source, Instant::now());
+        self.point_back_if_japanese();
+        json!({ "japanese": japanese })
+    }
+
+    /// Whether `keys` do nothing: the first may be text typed as point came to a request's line, as
+    /// one from the window may (ADR 0182).
+    fn dev_keys_dropped(&mut self, keys: &[oso_core::key::KeyPress]) -> bool {
+        (keys.first()).is_some_and(|&key| self.typed_as_point_came(Typing::Key(key)))
     }
 
     /// Takes the keyboard's focus or loses it, as the window's focus event would: only

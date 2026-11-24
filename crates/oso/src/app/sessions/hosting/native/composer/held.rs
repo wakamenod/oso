@@ -37,6 +37,11 @@ impl Composing {
     pub(in crate::app::sessions::hosting::native) fn holds_a_send(&self) -> bool {
         self.held.is_some()
     }
+
+    /// Whether a send that waits, or the edit of a queued message, is under way here.
+    pub(in crate::app::sessions::hosting::native) fn under_way(&self) -> bool {
+        self.held.is_some() || self.queue.editing().is_some()
+    }
 }
 
 impl App {
