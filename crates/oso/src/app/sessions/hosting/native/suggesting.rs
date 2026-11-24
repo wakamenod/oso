@@ -1,8 +1,9 @@
 //! A native session's prompt suggestion in the app (ADR 0165, part 3f; the author's Q-F1 (a)
-//! and Q-F2 (a)): the CLI's suggestion, given once a turn ended, kept and drawn as a dim row
-//! after the queue's at the transcript's end until a turn starts, the person sends or the
-//! process ends; and `M-n` past the newest message sent puts it into an empty composer, not
-//! sent. Which suggestion is kept, and its row, are `sessions::native::suggest`'s.
+//! and Q-F2 (a), amended 2026-11-24): the CLI's suggestion, given once a turn ended, kept until
+//! a turn starts, the person sends or the process ends, which the empty composer's placeholder
+//! shows meanwhile (`composer/placeholder.rs`); `C-c C-s` puts it at the composer's end, and
+//! `M-n` past the newest message sent into an empty composer, not sent. Which suggestion is
+//! kept is `sessions::native::suggest`'s.
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 //!
@@ -22,7 +23,7 @@ use crate::sessions::state::Target;
 use crate::sessions::worker::SessionKey;
 
 /// Notes what `event` of a native session says of its suggestion. Whether the suggestion
-/// changed, so that the transcript's end is drawn again.
+/// changed, so that the composer's placeholder is drawn again.
 pub(super) fn suggestion_event(native: &mut Native, event: &Event) -> bool {
     let before = native.composing.suggestion.is_some();
     match event {
@@ -40,6 +41,20 @@ pub(super) fn suggestion_event(native: &mut Native, event: &Event) -> bool {
 }
 
 impl App {
+    /// `C-c C-s`: native session `key`'s suggestion, escaped, at the end of its composer, with
+    /// point after it, or why not.
+    pub(super) fn suggestion_to_composer(&mut self, key: SessionKey) {
+        let text = (self.hosting.natives.map.get(&key))
+            .and_then(|native| native.composing.suggestion.clone());
+        let taken = match text {
+            Some(text) => self.compose_after(key, &text),
+            None => Err("No suggestion to take".to_owned()),
+        };
+        if let Err(why) = taken {
+            self.editor.message(why);
+        }
+    }
+
     /// `M-n` past the newest message sent: native session `key`'s suggestion, escaped, into
     /// its composer if that is empty, still a composer and not turned secret. Whether it was
     /// put in.
@@ -122,6 +137,28 @@ mod tests {
             &Event::Suggestion("a\u{202e}b".into())
         ));
         assert_eq!(native.composing.suggestion, None);
+    }
+
+    #[test]
+    fn a_composers_placeholder_has_its_own_sessions_suggestion() {
+        use std::collections::HashMap;
+        let mut editor = Editor::with_buffer(Buffer::from_text("*scratch*", ""));
+        let mut session = |name: &str, suggestion: Option<&str>| {
+            let transcript = editor.add_native_session_buffer(name);
+            let composer = editor.add_buffer(Buffer::from_text("*compose*", ""));
+            let mut native = super::super::markdown::tests::native(transcript);
+            native.composing.buffer = Some(composer);
+            native.composing.suggestion = suggestion.map(str::to_owned);
+            (composer, native)
+        };
+        let (with, first) = session("*claude: a*", Some("run it"));
+        let (without, second) = session("*claude: b*", None);
+        let natives = super::super::NativeSessions {
+            map: HashMap::from([(1, first), (2, second)]),
+            ..Default::default()
+        };
+        assert_eq!(natives.suggested(with), Some("run it"));
+        assert_eq!(natives.suggested(without), None);
     }
 
     #[test]

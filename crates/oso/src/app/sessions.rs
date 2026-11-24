@@ -19,7 +19,7 @@ mod tools;
 mod watch;
 mod worktrees;
 pub(super) use conversations::conversations;
-pub(super) use hosting::Hosting;
+pub(super) use hosting::{Hosting, NativeSessions, Placeholder};
 pub(super) use spaces::Orchestrator;
 pub(super) use watch::Watch;
 pub(in crate::app) use watch::sending::{Outgoing, Shown};

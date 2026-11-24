@@ -21,12 +21,15 @@ mod held;
 mod placeholder;
 mod queued;
 
+pub(in crate::app) use placeholder::Placeholder;
+
 use std::collections::VecDeque;
 
 use oso_core::buffer::{Buffer, BufferId, Mode, Replacement};
 use oso_core::editor::{Editor, NativeAction};
 use oso_core::window::{DockSlot, WindowId};
 
+use super::NativeSessions;
 use super::interrupting::Interrupted;
 use super::note::NativeState;
 use crate::app::App;
@@ -39,19 +42,21 @@ use crate::sessions::worker::{Job, SessionKey};
 /// The most messages the composer's history keeps.
 const MAX_HISTORY: usize = 100;
 
+/// What a key to a composer that is not shown says.
+const HIDDEN: &str = "The composer is hidden: the window is too short for it";
+
 /// What a native session keeps of its composer.
 #[derive(Debug, Default)]
 pub(super) struct Composing {
     /// `*compose: NAME*`, once docked.
     pub(super) buffer: Option<BufferId>,
     queue: Queue,
-    /// The queue's rows as drawn at the transcript's end, then the suggestion's: their bytes
-    /// are theirs there.
+    /// The queue's rows as drawn at the transcript's end: their bytes are theirs there.
     pub(super) rows: String,
     /// The messages of the queue's rows as drawn, so that point stays on its own.
     drawn: Vec<u64>,
     /// The CLI's prompt suggestion since its turn ended, until a turn starts, the person
-    /// sends or the process ends (part 3f).
+    /// sends or the process ends (part 3f), which its empty composer's placeholder shows.
     pub(super) suggestion: Option<String>,
     /// The messages sent, the newest last, and where `M-p` is among them.
     history: VecDeque<String>,
@@ -97,6 +102,14 @@ fn new_docked_composer(editor: &mut Editor, transcript: BufferId, name: &str) ->
     id
 }
 
+impl NativeSessions {
+    /// The session whose composer `buffer` is.
+    fn composer_session(&self, buffer: BufferId) -> Option<SessionKey> {
+        (self.map.iter())
+            .find_map(|(key, native)| (native.composing.buffer == Some(buffer)).then_some(*key))
+    }
+}
+
 impl App {
     /// Makes native session `key`'s composer, `*compose: NAME*`, and docks it under its
     /// transcript `transcript`.
@@ -125,8 +138,7 @@ impl App {
 
     /// The native session whose composer `buffer` is.
     pub(in crate::app) fn composer_session(&self, buffer: BufferId) -> Option<SessionKey> {
-        (self.hosting.natives.map.iter())
-            .find_map(|(key, native)| (native.composing.buffer == Some(buffer)).then_some(*key))
+        self.hosting.natives.composer_session(buffer)
     }
 
     /// Carries out a composer's or a queue's `action` for native session `key`, at `offset`
@@ -152,6 +164,7 @@ impl App {
             NativeAction::Transcript => self.composer_go(key, false),
             NativeAction::Compose => self.composer_go(key, true),
             NativeAction::Queue => self.queue_go(key, 0),
+            NativeAction::Suggestion => self.suggestion_to_composer(key),
             // The transcript's and the composer's `S-TAB` (part 3b).
             NativeAction::CycleMode => self.native_cycle_mode(key),
             NativeAction::Open => match offset.and_then(|at| self.queued_at(key, at)) {
@@ -360,7 +373,6 @@ impl App {
                     worker.send(Job::Stream(key, Target::Working));
                 }
                 native.spoke = true;
-                // Drawn away by the queue's drawing that follows each send.
                 native.composing.suggestion = None;
                 let history = &mut native.composing.history;
                 if history.len() == MAX_HISTORY {
@@ -531,9 +543,7 @@ impl App {
         if to_composer {
             return match shown {
                 Some((id, _)) => self.editor.select_window(id),
-                None => self
-                    .editor
-                    .message("The composer is hidden: the window is too short for it"),
+                None => self.editor.message(HIDDEN),
             };
         }
         match self.transcript_carrier(key, transcript) {

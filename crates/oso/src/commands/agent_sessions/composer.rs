@@ -2,7 +2,8 @@
 //! dock): `C-c C-c` sends, or queues while a turn runs, `C-u C-c C-c` sends at once, ahead of
 //! the queue, interrupting the turn, `C-c C-k` cancels a queued message's edit or else
 //! interrupts the turn, as the transcript's `C-c C-k` does (step 2c), `M-p`/`M-n` walk the messages sent, `C-c C-o` goes back to
-//! the transcript and `i` there to the composer; and on a queued message's row `e` edits it in
+//! the transcript and `i` there to the composer, `C-c C-s` in either puts the session's prompt suggestion at the composer's end
+//! (part 3f); and on a queued message's row `e` edits it in
 //! its place, `d` drops it and `M-<up>`/`M-<down>` move it (`RET` takes it back, as the
 //! transcript's `RET` asks). Each asks the host, which keeps the queue. `/` as an empty
 //! composer's first character, or `C-c /`, completes over the session's slash commands, which
@@ -163,6 +164,14 @@ pub const COMMANDS: &[Command] = &[
         state: None,
     },
     Command {
+        name: "native-session-take-suggestion",
+        doc: "Put the native session's prompt suggestion at the end of its composer, and go there.\n\nIt is escaped as text oso composes, and not sent. It goes after the draft there, with a space between, unless the draft is a command.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: take_suggestion,
+        state: None,
+    },
+    Command {
         name: "native-queued-edit",
         doc: "Edit the queued message at point of a native session's transcript in its composer, where it keeps its place: `C-c C-c` puts it back, `C-c C-k` gives the edit up.",
         args: ArgSpec::None,
@@ -231,6 +240,10 @@ fn compose(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 
 fn queue(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     ask(ctx, NativeAction::Queue)
+}
+
+fn take_suggestion(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    ask(ctx, NativeAction::Suggestion)
 }
 
 fn edit(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
@@ -421,6 +434,29 @@ mod tests {
                 at(NativeAction::History(2)),
             ]
         );
+    }
+
+    #[test]
+    fn the_suggestion_is_asked_for_in_the_transcript_and_the_composer() {
+        let mut editor = Editor::default();
+        let transcript = editor.add_native_session_buffer("*claude: x*");
+        let mut composer = Buffer::from_text("*compose: x*", "draft");
+        composer.set_mode(Mode::Composer);
+        let composer = editor.add_buffer(composer);
+        let name = "native-session-take-suggestion";
+        for buffer in [transcript, composer] {
+            editor.show(buffer);
+            run(&mut editor, name, Args::NONE).unwrap();
+            let request = SessionRequest::Native {
+                buffer,
+                line: 0,
+                action: NativeAction::Suggestion,
+            };
+            assert_eq!(editor.take_session_requests(), [request]);
+        }
+        let plain = editor.add_buffer(Buffer::from_text("plain", ""));
+        editor.show(plain);
+        assert!(run(&mut editor, name, Args::NONE).is_err());
     }
 
     #[test]

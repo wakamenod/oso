@@ -1,34 +1,24 @@
 //! The CLI's prompt suggestion in a native session (ADR 0165, part 3f): which suggestion is
-//! kept, and its dim row at the transcript's end.
+//! kept.
 //!
 //! Must not depend on: `app` or `dispatch`; plain functions over the text given.
 //!
-//! - A suggestion is Claude's text, which what Claude read can steer, and `M-n` puts it into
-//!   the composer as it is, unescaped but for part 2f's escapes. So only one the row shows as
+//! - A suggestion is Claude's text, which what Claude read can steer, and a key puts it into
+//!   the composer as it is, unescaped but for part 2f's escapes. So only one a row shows as
 //!   it is is kept: a line break, a control, bidi or invisible character, anything that
 //!   `*Messages*` would escape ([`oso_core::editor::row_text`]) or that draws as nothing, a
 //!   variation selector say ([`is_invisible`]), makes it none, so that what goes into the
-//!   composer is what the row showed. The CLI's suggestions are a short line.
+//!   composer shows there as it is. The CLI's suggestions are a short line.
 //! - `wire` cuts it to 256 bytes.
 
 use oso_core::display_map::cell::is_invisible;
 use oso_core::editor::row_text;
 
-/// What starts the suggestion's row.
-const SUGGESTED: &str = "Suggested: ";
-
-/// `text` as the suggestion kept, trimmed: none if blank, if its row would show it escaped, or
-/// if it holds what draws as nothing.
+/// `text` as the suggestion kept, trimmed: none if blank, if a row would show it escaped, or if it holds what draws as nothing.
 pub fn suggestion(text: &str) -> Option<String> {
     let text = text.trim();
     let shown = !text.is_empty() && row_text(text) == text && !text.chars().any(is_invisible);
     shown.then(|| text.to_owned())
-}
-
-/// The row of `text`, a [`suggestion`] kept, ending in `\n`: `Suggested: TEXT`.
-pub fn suggestion_row(text: &str) -> String {
-    // Escaped again, should a caller give one not kept: the row stays one line.
-    format!("{SUGGESTED}{}\n", row_text(text))
 }
 
 #[cfg(test)]
@@ -70,7 +60,7 @@ mod tests {
     }
 
     #[test]
-    fn only_a_suggestion_its_row_shows_as_it_is_is_kept() {
+    fn only_a_suggestion_a_row_shows_as_it_is_is_kept() {
         assert_eq!(suggestion(" run it \n").as_deref(), Some("run it"));
         assert_eq!(
             suggestion("/review @notes.md \"x\" 'y' \\z 全角\u{3000}空白").as_deref(),
@@ -98,13 +88,5 @@ mod tests {
         ] {
             assert_eq!(suggestion(hidden), None, "{hidden:?}");
         }
-    }
-
-    #[test]
-    fn the_suggestions_row_is_one_line() {
-        assert_eq!(suggestion_row("run it"), "Suggested: run it\n");
-        let row = suggestion_row("a\nb\u{202e}c");
-        assert_eq!(row.lines().count(), 1);
-        assert!(!row.contains('\u{202e}'));
     }
 }

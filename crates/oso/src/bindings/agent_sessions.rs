@@ -54,6 +54,9 @@ pub const NATIVE: &[(&str, &str)] = &[
     ("d", "native-queued-drop"),
     ("M-<up>", "native-queued-up"),
     ("M-<down>", "native-queued-down"),
+    // The prompt suggestion into the composer (part 3f): session mode leaves `C-c C-s` to a
+    // terminal.
+    ("C-c C-s", "native-session-take-suggestion"),
     // The permission mode's next (part 3b), as Claude Code's terminal has it.
     ("S-TAB", "native-session-cycle-mode"),
     // The to-do strip, opened or folded (step 3, part 3e).
@@ -68,6 +71,7 @@ pub const COMPOSER: &[(&str, &str)] = &[
     ("M-n", "native-composer-next"),
     ("C-c C-o", "native-composer-transcript"),
     ("C-c C-q", "native-session-queue"),
+    ("C-c C-s", "native-session-take-suggestion"),
     // The session's slash commands (step 2d); `/` as an empty composer's first character asks
     // too, from the dispatcher.
     ("C-c /", "native-composer-command"),

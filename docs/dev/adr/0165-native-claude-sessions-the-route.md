@@ -1,6 +1,6 @@
 # 0165. Native Claude sessions: the route
 
-- Status: Accepted, amended by 0170, 0173, 0176, 0180 and 0181; "Worktrees' resumes", "Following the end, as amended" and "Remote Control is off, as amended" (2026-11-24)
+- Status: Accepted, amended by 0170, 0173, 0176, 0180 and 0181; "Worktrees' resumes", "Following the end, as amended", "Remote Control is off, as amended" and part 3f's suggestion (2026-11-24)
 - Date: 2026-11-21
 
 ## Context
@@ -1503,7 +1503,7 @@ As built:
 
 The author's (a) on Q-F1 and Q-F2 of the step 3 plan, and the recap as below (2026-11-23),
 through the coordinator; the author approved the one public item, `Editor::echo_withheld_text`.
-No `NativeAction` was added: `M-n` stays `History`.
+No `NativeAction` was added then (the amendment below adds one): `M-n` stays `History`.
 
 Measured on 2026-11-23 (CLI 2.1.330, `--model=haiku`, `--tools=`, made-up prompts, an empty
 directory): with `--prompt-suggestions=true` (or the bare flag), the CLI writes one
@@ -1519,9 +1519,9 @@ you were away" summary is the TUI's: nothing in `-p` sends it, so the recap is o
   started, a queued message's say, is old. Only one that `*Messages*` would show as it is is
   kept (`sessions::native::suggest::suggestion`): a line break, a control, bidi or invisible
   character, or a mark that draws as nothing after its base, such as a variation selector,
-  makes it none, so that what goes into the composer is the line its row showed,
-  never a line hidden below it. It shows dim at the transcript's end, after the queue's rows,
-  as `Suggested: TEXT`, and goes when a turn starts (oso's send, or the CLI's replay or
+  makes it none, so that what goes into the composer is one line a row shows as it is,
+  never a line hidden below it. It showed dim at the transcript's end, after the queue's rows,
+  as `Suggested: TEXT` (now in the composer's placeholder, as amended below), and goes when a turn starts (oso's send, or the CLI's replay or
   request), at each send and when the process ends; the next turn's replaces it.
 - **`M-n` takes it (Q-F2 (a)):** past the newest message sent, that is with no message of the
   history shown, in an empty composer that is still one and that no yank turned secret, as
@@ -1531,6 +1531,34 @@ you were away" summary is the TUI's: nothing in `-p` sends it, so the recap is o
   or `#` gets a space and an `@` that starts a word a `\`, which the person sees in the
   composer. A suggested command or file to attach then runs only if the person takes the
   escape out. The security review agreed, with the line breaks refused as above.
+- **In the placeholder, and `C-c C-s`, as amended (2026-11-24):** the author found the row alone
+  of no use and asked for the behaviour of their own Emacs package; the rest is the space's
+  orchestrator's, inside that. The row is gone: the suggestion is an empty composer's
+  placeholder, `TEXT   (C-c C-s takes it)`, over the usual hint
+  ([ADR 0170](0170-docked-windows-under-a-sessions-transcript.md), amended).
+  - `C-c C-s` (`native-session-take-suggestion`, `Person`), in the transcript and the composer,
+    puts it at the composer's end, not sent, and goes there, point after it. With none, as in a
+    stopped session, it says so; a transcript set aside in the TUI says what its other keys do;
+    a card and a plan's edit do not bind it. It asks with `NativeAction::Suggestion`, the name
+    approved for this part and first added now.
+  - With a draft it goes after it, escaped, with a space first unless the draft ends in
+    whitespace (`send::after_draft`): joined with no space, a draft's last `@` or `/` would
+    make a file to attach or a command of what `for_claude` never read so. It is refused, the
+    draft left as it is and the echo area saying why, after a draft that is a command, a shell
+    command or a memory (its first character `/`, `!` or `#`, behind what a paste drops
+    too), as it would be Claude's text as its argument; after one that leaves a quoted `@"` open;
+    beneath a prompt; in a composer that is no longer one or
+    that a yank turned secret; past 64 KiB in all; and in a composer that is hidden, as the
+    person could not read it. The composer's view follows point to its end, so that a long draft
+    shows what went in. A send that waits for a dictation's fix is dropped by it, as by any edit.
+  - The host puts it in after the event, as `i` goes to the composer. Each key and commit of the
+    person's is an event of its own, so none overtakes it; the keys a keyboard macro replays, or
+    that were held while a command waited, run together, so those after `C-c C-s` run before it,
+    as those after `i` do. A change for both is left to a step of its own.
+  - The text kept, the escapes, and when it goes are as above. `M-n` stays, in an empty
+    composer. No buffer holds the suggestion, so what reads the transcript, the dev control
+    socket among it, no longer reads it, nor does the agent channel, which never did; a
+    screenshot of the window still shows it.
 - **The recap:** a turn whose `result` comes while the person is not in front of the session
   (its transcript or its composer in the selected window of a focused oso window, no prompt
   open) is marked, and a turn that starts takes the mark away. After each event, a marked
@@ -1546,15 +1574,17 @@ you were away" summary is the TUI's: nothing in `-p` sends it, so the recap is o
   channel's `echo`, and the dev socket's modeline beside it), as the transcript it quotes is
   withheld from agents. The `(last reply)` marker, the author's choice after the security
   review, keeps it from passing for a message of oso's own, as `proj: Saved.` would.
-- **Costs:** a suggestion is a copy of at most 256 bytes and one redraw of the transcript's
-  end, once a turn, with a frame asked for only if a window shows the session; the recap walks
+- **Costs:** a suggestion is a copy of at most 256 bytes, once a turn, with a frame asked for
+  only if a window shows the session, and as it shows, the measure of that text in each frame; the recap walks
   back over at most 10000 rows once, when the session comes in front, and after each event
   only the marked sessions are looked at.
 - **Built with:** `sessions::native::suggest` and `sessions::native::recap` (pure, with tests
   of the line, which suggestion is kept, the last reply, the first sentence and the recap's
-  cut); `app/sessions/hosting/native/suggesting.rs` (the events and `M-n`'s take) and
+  cut); `app/sessions/hosting/native/suggesting.rs` (the events and the takes), over
+  `composer/composed.rs`, and
   `native/recap.rs` (the mark, and the recap after each event, from `sync_native_sessions`),
-  with tests of what keeps and clears each; the queue's drawing in `composer/queued.rs`; a
+  with tests of what keeps and clears each; the placeholder, `composer/placeholder.rs` and
+  `app/draw/tiled/placeholder.rs`; a
   test that the agent channel does not read an echo withheld so; and the e2e flow
   `sessions::native::suggest`.
 

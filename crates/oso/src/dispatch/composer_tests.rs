@@ -33,7 +33,7 @@ fn the_composer_takes_typing_and_its_own_keys() {
     send(
         &mut d,
         &mut editor,
-        "h i C-c C-c C-c C-k M-p M-n C-c C-o C-c C-q",
+        "h i C-c C-c C-c C-k M-p M-n C-c C-o C-c C-q C-c C-s",
     );
     assert_eq!(editor.current().1.text().to_string(), "hi");
     assert_eq!(
@@ -45,6 +45,7 @@ fn the_composer_takes_typing_and_its_own_keys() {
             NativeAction::History(-1),
             NativeAction::Transcript,
             NativeAction::Queue,
+            NativeAction::Suggestion,
         ]
     );
 }
@@ -54,7 +55,11 @@ fn the_transcripts_letters_go_to_the_composer_and_act_on_a_queued_message() {
     let (mut d, mut editor) = (Dispatcher::new(), Editor::default());
     let transcript = editor.add_native_session_buffer("*claude: s*");
     editor.show(transcript);
-    send(&mut d, &mut editor, "i e d M-<up> M-<down> C-c C-q C-c C-k");
+    send(
+        &mut d,
+        &mut editor,
+        "i e d M-<up> M-<down> C-c C-q C-c C-k C-c C-s",
+    );
     assert_eq!(
         actions(&mut editor),
         [
@@ -66,6 +71,8 @@ fn the_transcripts_letters_go_to_the_composer_and_act_on_a_queued_message() {
             NativeAction::Queue,
             // The interrupt, over session mode's `C-c C-k`, which it leaves to a terminal.
             NativeAction::Cancel,
+            // So is `C-c C-s`.
+            NativeAction::Suggestion,
         ]
     );
 }
@@ -75,7 +82,8 @@ fn a_cards_keys_answer_its_call_and_a_digit_chooses() {
     let (mut d, mut editor) = (Dispatcher::new(), Editor::default());
     let card = editor.add_internal_buffer("*card: s*", Mode::Card);
     editor.show(card);
-    send(&mut d, &mut editor, "y n N o 3 RET");
+    // It takes no suggestion.
+    send(&mut d, &mut editor, "y n N o 3 RET C-c C-s");
     assert_eq!(
         actions(&mut editor),
         [
