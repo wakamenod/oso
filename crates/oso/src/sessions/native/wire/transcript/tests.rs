@@ -92,6 +92,57 @@ fn the_person_is_who_the_transcript_marks() {
     );
 }
 
+/// Only a message from claude.ai, of those a native session takes, has an `origin` beside
+/// `promptSource` `sdk`, or a `clientPlatform` (measured, ADR 0181); one typed in the TUI has an
+/// origin too.
+#[test]
+fn a_message_that_came_another_way_is_never_the_persons() {
+    let shown = |fields: &str| shows(&user_line(fields, r#""Hi""#));
+    for fields in [
+        r#""promptSource":"sdk","origin":{"kind":"human"},"clientPlatform":"ios","#,
+        r#""promptSource":"sdk","origin":{"kind":"human"},"#,
+        // Any origin, of whatever type.
+        r#""promptSource":"sdk","origin":{},"#,
+        r#""promptSource":"sdk","origin":"human","#,
+        r#""promptSource":"sdk","origin":null,"clientPlatform":"web","#,
+        // From a platform, into a session of the TUI's too.
+        r#""promptSource":"typed","origin":{"kind":"human"},"clientPlatform":"android","#,
+        r#""promptSource":"queued","clientPlatform":7,"#,
+        r#""promptSource":"suggestion_accepted","clientPlatform":"","#,
+    ] {
+        assert_eq!(shown(fields), Some(Shows::Remote), "{fields}");
+    }
+    // oso's own, and the TUI's.
+    for fields in [
+        r#""promptSource":"sdk","#,
+        r#""promptSource":"sdk","origin":null,"clientPlatform":null,"#,
+        r#""promptSource":"typed","origin":{"kind":"human"},"#,
+        r#""promptSource":"queued","origin":{"kind":"human"},"#,
+    ] {
+        assert_eq!(shown(fields), Some(Shows::Prompt), "{fields}");
+    }
+    // Never more than it was: another session's, the CLI's own, a side chain's.
+    let peer = r#""promptSource":"sdk","origin":{"kind":"peer"},"clientPlatform":"ios","#;
+    assert_eq!(shown(peer), Some(Shows::Peer));
+    let meta = r#""promptSource":"sdk","origin":{"kind":"human"},"isMeta":true,"#;
+    assert_eq!(shown(meta), Some(Shows::Message));
+    let side = r#""promptSource":"sdk","origin":{"kind":"human"},"isSidechain":true,"#;
+    assert_eq!(shown(side), None);
+    let task = r#""promptSource":"sdk","origin":{"kind":"task-notification"},"#;
+    assert_eq!(shown(task), Some(Shows::Message));
+    let line = user_line(
+        r#""promptSource":"sdk","origin":{"kind":"human"},"#,
+        r#""Hi""#,
+    );
+    assert_eq!(
+        said(line.as_bytes(), Shows::Remote),
+        Ok(Some(Said::Remote {
+            text: "Hi".into(),
+            uuid: Some(uuid(2)),
+        }))
+    );
+}
+
 #[test]
 fn a_side_chain_a_record_and_a_line_with_no_id_are_not_placed() {
     let side = user_line(r#""isSidechain":true,"promptSource":"sdk","#, r#""Hi""#);

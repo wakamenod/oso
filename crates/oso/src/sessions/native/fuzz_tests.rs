@@ -301,11 +301,12 @@ fn transcript_line() -> impl Strategy<Value = Vec<u8>> {
         Just("\"peer\"".to_owned()),
         "\"[a-z<>\\n]{0,20}\"",
     ];
-    let shaped = (0..4usize, id.clone(), id, value).prop_map(|(kind, uuid, parent, v)| {
+    let shaped = (0..5usize, id.clone(), id, value).prop_map(|(kind, uuid, parent, v)| {
         match kind {
             0 => format!(r#"{{"parentUuid":{parent},"promptSource":{v},"turnOrigin":{v},"isMeta":{v},"type":"user","message":{{"content":{v}}},"uuid":{uuid}}}"#),
             1 => format!(r#"{{"parentUuid":{parent},"type":"assistant","message":{{"id":{v},"content":[{{"type":"tool_use","id":{v},"name":"Read","input":{{"file_path":{v}}}}},{{"type":"text","text":{v}}}]}},"uuid":{uuid}}}"#),
             2 => format!(r#"{{"parentUuid":{parent},"type":"user","message":{{"content":[{{"type":"tool_result","tool_use_id":{v},"content":{v}}}]}},"toolUseResult":{{"structuredPatch":{v}}},"uuid":{uuid}}}"#),
+            3 => format!(r#"{{"parentUuid":{parent},"promptSource":"sdk","origin":{{"kind":{v}}},"clientPlatform":{v},"type":"user","message":{{"content":{v}}},"uuid":{uuid}}}"#),
             _ => format!(r#"{{"parentUuid":null,"logicalParentUuid":{parent},"type":"system","subtype":"compact_boundary","compactMetadata":{{"preTokens":{v}}},"uuid":{uuid}}}"#),
         }
     });
