@@ -15,7 +15,7 @@
 //!   and the question before a call not all read runs `ask`'s.
 
 mod ask;
-mod gate;
+pub(in crate::app::sessions::hosting::native) mod gate;
 mod keys;
 mod read;
 

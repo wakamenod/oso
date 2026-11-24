@@ -250,7 +250,7 @@ impl App {
             };
             // Marked until its process ended (ADR 0181).
             if native.remote.marked() && native.stream.is_some() {
-                self.hosting.natives.ending_remote.insert(key);
+                self.hosting.natives.remotes.ending.insert(key);
             }
             remote::stop(&mut native);
             self.kill_native_buffers(&native);

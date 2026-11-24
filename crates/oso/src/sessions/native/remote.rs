@@ -140,7 +140,7 @@ impl Remote {
 
     /// Its start thread blocked it after all: off, as it is told from the process's start; what
     /// the stream said meanwhile is judged so. Whether the canary says so.
-    pub fn blocked(&mut self) -> bool {
+    pub fn start_blocked(&mut self) -> bool {
         let available = self.available;
         let connected = self.phase != Phase::Connecting;
         *self = Self {
@@ -360,10 +360,9 @@ impl Remote {
         false
     }
 
-    /// When the request's wait ends, while one waits, or its process is to end.
+    /// When the request's wait ends, while one waits. When its process is to end is [`Off`]'s.
     pub fn deadline(&self) -> Option<Instant> {
-        let off = self.off.as_ref().map(Off::deadline);
-        self.waits.map(|(_, by)| by).into_iter().chain(off).min()
+        self.waits.map(|(_, by)| by)
     }
 
     /// What is due at `now`: a request not answered in time is dropped, and still marked. Its

@@ -8,7 +8,7 @@
 //!   filled in once a thread read it, under the trust judged then: what may not be sent closes the
 //!   question, saying why.
 //! - Its `y` counts only for the session and the conversation it asked about, with its report whole
-//!   and in a window, [`QUIET`] after the report was whole, the question opened or oso's window came
+//!   and in a window, a quiet moment after the report was whole, the question opened or oso's window came
 //!   in front, and after the key before it; never from a macro, nor as the repeat of a held key.
 //!   Everything is judged again then.
 //! - It closes as oso's window loses the front or goes out of sight; closed any way, its report
@@ -20,7 +20,7 @@ use std::time::Instant;
 use oso_core::buffer::{Buffer, BufferId};
 use oso_core::minibuffer::PromptId;
 
-use crate::app::agent::{QUIET, Typed};
+use super::super::permissions::request::gate::{Pressed, waited};
 use crate::app::sessions::show_withheld;
 use crate::app::{App, UserEvent};
 use crate::commands::agent_sessions::REMOTE_CONFIRMED;
@@ -52,8 +52,8 @@ pub(in crate::app::sessions::hosting::native) struct Question {
     report: BufferId,
     /// Asked from the composer, which is selected again after.
     composer: bool,
-    /// Since when it may be answered, once its report is whole.
-    since: Option<Instant>,
+    /// What its report says, and since when it may be answered, once the report is whole.
+    sent: Option<(Sent, Instant)>,
     opened: Instant,
 }
 
@@ -69,10 +69,9 @@ impl Report<'_> {
         let (remotes, branch) = match self.sent {
             None => (READING.to_owned(), READING.to_owned()),
             Some(sent) => (
-                match (sent.addresses.is_empty(), sent.more) {
-                    (true, _) => "none".to_owned(),
-                    (false, 0) => sent.addresses.join(", "),
-                    (false, more) => format!("{} and {more} more", sent.addresses.join(", ")),
+                match sent.addresses.is_empty() {
+                    true => "none".to_owned(),
+                    false => sent.addresses.join(", "),
                 },
                 sent.branch.clone().unwrap_or_else(|| "none".to_owned()),
             ),
@@ -101,11 +100,17 @@ impl Report<'_> {
     }
 }
 
-/// Whether a `y` the person pressed, as `typed` says, counts of what may be answered `since`.
-fn counts(since: Instant, typed: Typed, now: Instant) -> bool {
-    let pressed = typed.first.unwrap_or(now).min(now);
-    let quiet = |from: Instant| pressed >= from + QUIET;
-    quiet(since) && typed.before_first.is_none_or(quiet)
+/// The most rows `text` takes where a window has `columns`, its lines wrapped.
+fn rows(text: &str, columns: usize) -> usize {
+    let cells = |line: &str| {
+        line.chars()
+            .map(|c| if c.is_ascii() { 1 } else { 2 })
+            .sum::<usize>()
+    };
+    // A wrap may leave a part of a row empty, less than half of it.
+    (text.lines())
+        .map(|line| 1 + cells(line) * 2 / (columns.max(1) * 2 - 1))
+        .sum()
 }
 
 impl App {
@@ -146,6 +151,7 @@ impl App {
         let Some(report) = report else {
             return;
         };
+        self.editor.set_wraps(report, true);
         let question =
             format!("Connect {name} to claude.ai, its conversation and tool output too? (y or n)");
         let prompt = match self.editor.ask(question, REMOTE_CONFIRMED) {
@@ -156,16 +162,16 @@ impl App {
             }
         };
         let natives = &mut self.hosting.natives;
-        natives.remote_token += 1;
-        let token = natives.remote_token;
-        natives.remote_question = Some(Question {
+        natives.remotes.token += 1;
+        let token = natives.remotes.token;
+        natives.remotes.question = Some(Question {
             token,
             prompt,
             key,
             of,
             report,
             composer,
-            since: None,
+            sent: None,
             opened: Instant::now(),
         });
         let waker = self.waker.clone();
@@ -189,7 +195,7 @@ impl App {
     /// The thread read what is sent of the session's repository: it is in the report, or it may
     /// not be sent, and the question closes.
     pub(in crate::app) fn remote_looked(&mut self, looked: Looked) {
-        let Some(question) = (self.hosting.natives.remote_question.as_ref())
+        let Some(question) = (self.hosting.natives.remotes.question.as_ref())
             .filter(|question| question.token == looked.token)
         else {
             return;
@@ -216,8 +222,8 @@ impl App {
                 if self.editor.buffer(report).is_some_and(Buffer::is_internal) {
                     self.editor.set_internal_text(report, &text);
                 }
-                if let Some(question) = &mut self.hosting.natives.remote_question {
-                    question.since = Some(Instant::now().max(question.opened));
+                if let Some(question) = &mut self.hosting.natives.remotes.question {
+                    question.sent = Some((sent, Instant::now().max(question.opened)));
                 }
             }
         }
@@ -226,37 +232,60 @@ impl App {
 
     /// `y` to the question: the session it asked about is connected, if it still may be.
     pub(in crate::app::sessions::hosting::native) fn remote_confirmed(&mut self) {
-        let Some(question) = self.hosting.natives.remote_question.take() else {
+        let Some(question) = self.hosting.natives.remotes.question.take() else {
             return self.editor.message("Nothing was asked");
         };
-        let in_window = (self.editor.windows()).any(|window| window.buffer() == question.report);
+        let shown = self.report_shows_all(question.report);
         let Question {
-            key, report, of, ..
+            key,
+            report,
+            of,
+            sent,
+            composer,
+            ..
         } = question;
-        self.leave_report(key, report, question.composer);
+        self.leave_report(key, report, composer);
         self.request_redraw();
         let still = (self.hosting.table.get(key)).is_some_and(|session| session.id == of);
-        let since = question.since.map(|since| self.waits_after_agents(since));
-        let typed = self.person_typed_at();
+        let since = (sent.as_ref()).map(|(_, since)| self.waits_after_agents(*since));
+        let pressed = Pressed::last(self.person_typed_at(), Instant::now());
         let refused = match since {
             _ if self.editor.macro_replaying() => Some("a macro does not connect a session"),
             _ if !still => Some("the session asked about is gone"),
             None => Some("what is sent was not read yet; ask again"),
-            Some(_) if !in_window => Some("what is sent was not shown; ask again"),
-            Some(since) if !counts(since, typed, Instant::now()) => {
+            Some(_) if !shown => {
+                Some("what is sent was not shown whole; make the window larger and ask again")
+            }
+            Some(since) if !waited(since, pressed) => {
                 Some("wait a moment after the question, then answer it; ask again")
             }
             Some(_) => None,
         };
-        match refused {
-            Some(why) => self.editor.message(format!("Not connected: {why}")),
-            None => self.remote_on(key),
+        match (refused, sent) {
+            (Some(why), _) => self.editor.message(format!("Not connected: {why}")),
+            (None, Some((sent, _))) => self.remote_on(key, sent),
+            (None, None) => {}
         }
+    }
+
+    /// Whether a window shows all of `report`, from its start.
+    fn report_shows_all(&self, report: BufferId) -> bool {
+        let Some(buffer) = self.editor.buffer(report) else {
+            return false;
+        };
+        (self.editor.windows().filter(|w| w.buffer() == report)).any(|window| {
+            let scroll = window.scroll();
+            (self.editor.regions(window.id())).is_some_and(|regions| {
+                let text = buffer.text().to_string();
+                (scroll.start, scroll.left) == (0, 0)
+                    && rows(&text, regions.text.columns) <= regions.text.rows
+            })
+        })
     }
 
     /// The question before Remote Control is turned on, if one is open, closes.
     pub(in crate::app) fn close_remote_question(&mut self) {
-        if let Some(question) = self.hosting.natives.remote_question.take() {
+        if let Some(question) = self.hosting.natives.remotes.question.take() {
             self.close_question(question.prompt);
             self.leave_report(question.key, question.report, question.composer);
         }
@@ -264,23 +293,25 @@ impl App {
 
     /// The person came back to oso's window: the question is new to them.
     pub(in crate::app::sessions::hosting::native) fn remote_question_waits_again(&mut self) {
-        if let Some(question) = &mut self.hosting.natives.remote_question {
+        if let Some(question) = &mut self.hosting.natives.remotes.question {
             let now = Instant::now();
             question.opened = question.opened.max(now);
-            question.since = question.since.map(|since| since.max(now));
+            if let Some((_, since)) = &mut question.sent {
+                *since = (*since).max(now);
+            }
         }
     }
 
     /// After each event: the question closed otherwise is dropped, with its report.
     pub(in crate::app::sessions::hosting::native) fn sync_remote_question(&mut self) {
-        let Some(question) = self.hosting.natives.remote_question.as_ref() else {
+        let Some(question) = self.hosting.natives.remotes.question.as_ref() else {
             return;
         };
         let open = (self.editor.prompts().iter()).any(|prompt| prompt.id() == question.prompt);
         if open {
             return;
         }
-        if let Some(question) = self.hosting.natives.remote_question.take() {
+        if let Some(question) = self.hosting.natives.remotes.question.take() {
             self.leave_report(question.key, question.report, question.composer);
             self.request_redraw();
         }
@@ -311,26 +342,20 @@ impl App {
     /// Whether the question, if it is the open prompt, takes its `y` now. For end-to-end flows.
     #[cfg(feature = "dev")]
     pub(in crate::app) fn remote_question_takes_answer(&self) -> Option<bool> {
-        let question = self.hosting.natives.remote_question.as_ref()?;
+        let question = self.hosting.natives.remotes.question.as_ref()?;
         let open = self.editor.prompt().map(|prompt| prompt.id());
+        let pressed = Pressed::next(self.person_typed_at(), Instant::now());
         (open == Some(question.prompt)).then(|| {
-            let typed = self.person_typed_at();
-            let now = Instant::now();
-            let next = Typed {
-                first: Some(now),
-                before_first: typed.last,
-                ..typed
-            };
-            (question.since).is_some_and(|since| counts(self.waits_after_agents(since), next, now))
+            self.report_shows_all(question.report)
+                && (question.sent.as_ref())
+                    .is_some_and(|(_, since)| waited(self.waits_after_agents(*since), pressed))
         })
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::time::{Duration, Instant};
-
-    use super::{QUIET, READING, Report, Sent, Typed, counts};
+    use super::{READING, Report, Sent};
 
     fn report(sent: Option<&Sent>) -> String {
         Report {
@@ -345,7 +370,6 @@ mod tests {
     fn the_report_says_what_is_sent_where_it_stays_and_who_drives_it() {
         let sent = Sent {
             addresses: vec!["https://h/r".into(), "git@h:f".into()],
-            more: 0,
             branch: Some("main".into()),
         };
         let text = report(Some(&sent));
@@ -368,27 +392,6 @@ mod tests {
         assert!(text.lines().all(|line| line.chars().count() <= 96));
         let none = report(Some(&Sent::default()));
         assert!(none.contains("addresses: none\n") && none.contains("branch: none\n"));
-        let more = Sent { more: 3, ..sent };
-        assert!(report(Some(&more)).contains("git@h:f and 3 more\n"));
         assert_eq!(report(None).matches(READING).count(), 2);
-    }
-
-    #[test]
-    fn a_yes_counts_only_after_a_quiet_moment() {
-        let at = Instant::now();
-        let pressed = |first: Duration, before: Option<Duration>| Typed {
-            last: Some(at + first),
-            before: None,
-            first: Some(at + first),
-            before_first: before.map(|before| at + before),
-        };
-        let later = at + QUIET * 10;
-        let ms = Duration::from_millis;
-        assert!(counts(at, pressed(QUIET, None), later));
-        assert!(!counts(at, pressed(QUIET - ms(1), None), later));
-        // As one key of a sentence typed on.
-        let typed_on = pressed(QUIET * 3, Some(QUIET * 3 - ms(50)));
-        assert!(!counts(at, typed_on, later));
-        assert!(counts(at, pressed(QUIET * 3, Some(ms(5))), later));
     }
 }

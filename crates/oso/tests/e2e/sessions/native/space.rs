@@ -131,6 +131,17 @@ fn native_in_space(native: &[String]) -> bool {
         && native.iter().any(|arg| arg == USER_ONLY)
 }
 
+/// `native-remote-control` in the buffer in front refuses, as `why` starts, with no question.
+fn remote_refused(app: &mut App, why: &str) {
+    app.run_command("native-remote-control", None).unwrap();
+    let state = app.wait_for(why, |state| {
+        state["echo"]
+            .as_str()
+            .is_some_and(|echo| echo.starts_with(why))
+    });
+    assert!(state["card"]["question_takes_answer"].is_null(), "{state}");
+}
+
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
 fn an_orchestrator_resumes_and_forks_natively_in_its_spaces_directory() {
@@ -141,6 +152,9 @@ fn an_orchestrator_resumes_and_forks_natively_in_its_spaces_directory() {
     let shown = text(&app.wait_for("the row", |state| text(state).contains("Resumed.")));
     assert!(!shown.contains("did not"), "{shown}");
 
+    // Neither it nor an agent's session is connected to claude.ai (ADR 0181).
+    remote_refused(&mut app, "Session fix-login is an orchestrator");
+
     // A fork of it runs natively there too, judged by the orchestrator it copies.
     app.run_command("session-fork", None).unwrap();
     let fork = args(&flow, 2);
@@ -149,6 +163,7 @@ fn an_orchestrator_resumes_and_forks_natively_in_its_spaces_directory() {
 
     // A session an agent started in the directory does not resume natively there.
     select(&mut app, "*claude: helper*");
+    remote_refused(&mut app, "Session helper was started by an agent");
     app.run_command("session-resume", None).unwrap();
     app.wait_for("the refusal", |state| {
         state["echo"].as_str().is_some_and(|echo| {

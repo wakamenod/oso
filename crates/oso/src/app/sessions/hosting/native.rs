@@ -75,7 +75,7 @@ mod widths;
 pub(crate) use remote::Looked;
 pub(super) use resumed::runs_elsewhere;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::ops::Range;
 
 use oso_core::buffer::{Buffer, BufferId};
@@ -87,7 +87,7 @@ pub(in crate::app) use self::permissions::RequestWaits;
 use super::Begin;
 use super::trust::starts_natively_in;
 use crate::app::App;
-use crate::sessions::identity::{Origin, SessionId};
+use crate::sessions::identity::Origin;
 use crate::sessions::native::choice::Choice;
 use crate::sessions::native::control::Control;
 use crate::sessions::native::interrupt::Interrupt;
@@ -100,6 +100,7 @@ use crate::sessions::native::slash::SlashCommands;
 use crate::sessions::native::tail::{Part, Run, Tail};
 use crate::sessions::native::turns;
 use crate::sessions::native::wire::Event;
+use crate::sessions::start::connect::Settled;
 use crate::sessions::start::{Ready, Started};
 use crate::sessions::state::Target;
 use crate::sessions::stream::{Out, Stream};
@@ -128,15 +129,8 @@ pub(in crate::app) struct NativeSessions {
     /// The orchestrators resumed with a repository added, at the person's `y` (ADR 0176,
     /// part O-2).
     adding: HashMap<SessionKey, adding::Adding>,
-    /// The question before Remote Control is turned on (ADR 0181), and the last one's number.
-    remote_question: Option<remote::Question>,
-    remote_token: u64,
-    /// Sessions whose buffer was killed and whose process may still be connected.
-    ending_remote: HashSet<SessionKey>,
-    /// Conversations forked, through any number of forks, from an agent's session, and the forks
-    /// of one being started: never connected, while oso runs or restarts itself.
-    from_agents: HashSet<SessionId>,
-    forks_of_agents: HashSet<SessionKey>,
+    /// What Remote Control keeps beside the sessions (ADR 0181).
+    remotes: remote::Remotes,
     /// What an empty composer's placeholder says (ADR 0170), until the user's keys change.
     placeholder: Option<Placeholder>,
 }
@@ -319,6 +313,10 @@ impl App {
             && self.hosting.natives.map.contains_key(&key)
             && self.hosting.table.get(key).is_some();
         if !kept {
+            // Marked until it ended, if it may be connected (ADR 0181).
+            if matches!(remote, Settled::Connects(_)) {
+                self.hosting.natives.remotes.ending.insert(key);
+            }
             stream.stop();
             return false;
         }
@@ -347,11 +345,6 @@ impl App {
             return false;
         };
         native.stream = Some(stream);
-        // Before what the person does next: its mark is how it was started.
-        self.remote_settled(key, remote);
-        let Some(native) = self.hosting.natives.map.get_mut(&key) else {
-            return false;
-        };
         // Its first message was written: a turn is under way.
         if native.first
             && let Some(worker) = &self.sessions
@@ -364,7 +357,7 @@ impl App {
         }
         // Its `initialize` may have been answered before its stream was here (part 3a).
         self.ask_usage(key, None);
-        self.remote_ready(key);
+        self.remote_settled(key, remote);
         true
     }
 
@@ -400,7 +393,7 @@ impl App {
             Out::Events(events) => self.native_events(key, events),
             Out::Past(past) => self.native_past(key, *past),
             Out::Ended { status, stderr } => {
-                if self.hosting.natives.ending_remote.remove(&key) {
+                if self.hosting.natives.remotes.ending.remove(&key) {
                     self.sessions_touched();
                 }
                 self.native_ended(key, status, &stderr);
@@ -486,7 +479,14 @@ impl App {
         if let Some(row) = stray {
             self.native_note_row(key, &row);
         }
-        if marked != self.hosting.natives.remote_mark(key) {
+        if marked
+            != self
+                .hosting
+                .natives
+                .map
+                .get(&key)
+                .and_then(|n| n.remote.mark())
+        {
             self.remote_changed(key);
         }
         self.remote_ready(key);

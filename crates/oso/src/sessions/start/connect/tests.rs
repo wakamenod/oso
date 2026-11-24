@@ -12,8 +12,8 @@ use oso_platform::process::{Executable, Sink, Source, Spawn, spawn};
 use serde_json::json;
 
 use super::{
-    Back, Connect, MOVED, NO_ANSWER, NO_STATE, NO_TRUST, Place, Remote, Sent, Settled, address_of,
-    judge, look, settle,
+    Back, CHANGED, Connect, Leave, MOVED, NO_ANSWER, NO_STATE, NO_TRUST, Place, Sent, Settled,
+    TOO_MANY, address_of, judge, look, settle,
 };
 use crate::git::TrustedRoot;
 use crate::sessions::native::wire::remote::RemoteId;
@@ -125,17 +125,22 @@ fn what_is_sent_names_each_address_and_the_branch() {
             "https://example.invalid/o/r.git"
         ]
     );
-    assert_eq!((sent.more, sent.branch.as_deref()), (0, Some("main")));
+    assert_eq!(sent.branch.as_deref(), Some("main"));
     assert!(place.unwrap().repository.is_some());
     // Detached, no branch is shown.
     scratch.git(&["checkout", "-q", "--detach"]);
     assert_eq!(scratch.look().unwrap().0.branch, None);
-    for n in 0..20 {
+    for n in 0..10 {
         let name = format!("r{n}");
         scratch.git(&["remote", "add", &name, &format!("https://h/{n}")]);
     }
-    let sent = scratch.look().unwrap().0;
-    assert_eq!((sent.addresses.len(), sent.more), (8, 14));
+    assert_eq!(scratch.look().unwrap().0.addresses.len(), 12);
+    scratch.git(&["remote", "add", "more", "https://h/more"]);
+    assert_eq!(scratch.refusal(), TOO_MANY);
+    scratch.git(&["remote", "remove", "more"]);
+    let long = format!("https://h/{}", "r".repeat(400));
+    scratch.git(&["remote", "set-url", "r0", &long]);
+    assert_eq!(scratch.refusal(), TOO_MANY);
 }
 
 #[test]
@@ -198,8 +203,16 @@ fn below_another_repository_it_refuses_and_with_none_nothing_is_sent() {
     assert_eq!(sent, Sent::default());
     assert_eq!(place.unwrap().repository, None);
     fs::create_dir(scratch.dir.join(".git")).unwrap();
-    let why = "its directory is below another repository";
+    let why = "its directory is in another repository";
     assert_eq!(scratch.refusal(), why);
+    // Or one with no `.git` of its own, above it or itself.
+    for place in ["", "repo"] {
+        let scratch = Scratch::bare("bare");
+        for name in ["HEAD", "objects", "refs"] {
+            fs::create_dir(scratch.dir.join(place).join(name)).unwrap();
+        }
+        assert_eq!(scratch.refusal(), why);
+    }
 }
 
 #[test]
@@ -281,14 +294,20 @@ fn a_session_comes_back_only_where_it_was() {
     ] {
         assert_eq!(again(place), Err(MOVED.to_owned()));
     }
-    // The person's own needs no place it was in.
-    assert_eq!(
-        judge(&root, &scratch.root, Some(&state), &Connect::asked()),
-        Ok(Some(at))
-    );
+    // The person's own needs no place it was in, and what it was said to send.
+    let sent = scratch.look().unwrap().0;
+    let asked = Connect::asked(sent);
+    let judged = || judge(&root, &scratch.root, Some(&state), &asked);
+    assert_eq!(judged(), Ok(Some(at)));
+    scratch.git(&["remote", "add", "origin", "https://example.invalid/other"]);
+    assert_eq!(judged(), Err(CHANGED.to_owned()));
+    scratch.git(&["remote", "remove", "origin"]);
+    assert_eq!(judged(), Ok(Some(at)));
+    scratch.git(&["checkout", "-q", "-b", "other"]);
+    assert_eq!(judged(), Err(CHANGED.to_owned()));
 }
 
-fn order(scratch: &Scratch, remote: Remote, trusted: Option<TrustedRoot>) -> Order {
+fn order(scratch: &Scratch, remote: Leave, trusted: Option<TrustedRoot>) -> Order {
     Order {
         token: 1,
         kind: Kind::New,
@@ -311,13 +330,19 @@ fn order(scratch: &Scratch, remote: Remote, trusted: Option<TrustedRoot>) -> Ord
 fn a_start_is_blocked_unless_every_check_passes() {
     let scratch = Scratch::new("settle");
     let trusted = || Some(TrustedRoot::for_tests(scratch.root.clone()));
-    let connect = || Remote::Connect(Connect::asked());
+    let connect = || {
+        let sent = Sent {
+            branch: Some("main".into()),
+            ..Sent::default()
+        };
+        Leave::Connect(Connect::asked(sent))
+    };
     let blocked = |order: &Order| match &order.runs {
         Runs::Native(native) => native.remote.blocked(),
         Runs::Terminal(_) => panic!("not native"),
     };
     // With no leave.
-    let mut plain = order(&scratch, Remote::Blocked, trusted());
+    let mut plain = order(&scratch, Leave::Blocked, trusted());
     assert_eq!(settle(&mut plain), Settled::Blocked);
     assert!(blocked(&plain));
     // With it.

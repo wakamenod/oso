@@ -142,6 +142,13 @@ impl App {
         })
     }
 
+    /// Whether native session `key`, ended for a restart, was not turned off meanwhile.
+    fn remote_still_on(&self, key: SessionKey) -> bool {
+        (self.hosting.natives.map.get(&key))
+            .is_some_and(|native| !native.moved && !native.remote_control.told_off())
+            && !self.watch.stop_asked(key)
+    }
+
     /// What the state says of `ended`, which the restart ended: each with the mode its next
     /// process starts in as it is now that its process ended, as the stream's last words may
     /// have changed it.
@@ -153,6 +160,8 @@ impl App {
             .map(|(key, resume)| NativeResume {
                 mode: (self.hosting.natives.map.get(key))
                     .map_or(resume.mode, |native| native.mode.carried()),
+                // Turned off, stopped or moved since, it is not connected again (ADR 0181).
+                remote: resume.remote.clone().filter(|_| self.remote_still_on(*key)),
                 ..resume.clone()
             })
             .collect()

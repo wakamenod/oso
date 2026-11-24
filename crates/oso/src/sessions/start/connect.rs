@@ -5,7 +5,7 @@
 //! Must not depend on: `app`. [`look`] and [`settle`] run git and read the disk, so they run on
 //! threads of their own: a start thread, and the one before the person's question.
 //!
-//! - A start is [`Remote::Blocked`] unless the app gives it a [`Connect`], which is made for one
+//! - A start is [`Leave::Blocked`] unless the app gives it a [`Connect`], which is made for one
 //!   start and cannot be copied: at the person's `y`, or from the parent's restart state.
 //! - Judged just before the line is built, under the trust the start was judged by; never under
 //!   a space's gate. Refused, it starts blocked, and says why.
@@ -15,6 +15,7 @@
 //! - What a refusal says names no address and no remote. Between this look and the spawn, and as
 //!   long as the session runs, what its own tools make of the configuration is not seen.
 
+use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
@@ -27,11 +28,11 @@ pub mod address;
 /// The most bytes of the configuration's remotes read.
 const MAX_CONFIG: usize = 256 * 1024;
 
-/// The most addresses shown.
-const MAX_SHOWN: usize = 8;
+/// The most addresses sent: the question shows each, whole.
+const MAX_SHOWN: usize = 12;
 
-/// The most characters of an address or a branch shown.
-const MAX_CELLS: usize = 200;
+/// The most characters of an address or a branch sent, as it is shown.
+const MAX_CELLS: usize = 400;
 
 /// The configuration's keys an address, or a remote's name that may be one, is in.
 const KEYS: &str =
@@ -42,12 +43,14 @@ const OLD: [&str; 2] = ["remotes", "branches"];
 
 const NO_ANSWER: &str = "git did not say what the repository's remotes are";
 const MOVED: &str = "its directory or its repository is not the one it was connected in";
+const CHANGED: &str = "its git remotes or its branch changed since the question";
+const TOO_MANY: &str = "its repository has more git remotes than the question can show";
 const NO_TRUST: &str = "its project is not trusted now";
 const NO_STATE: &str = "oso has no state directory, which its git needs";
 
 /// Whether a native start's Remote Control is blocked.
 #[derive(Debug, Default)]
-pub enum Remote {
+pub enum Leave {
     /// The line blocks it: every start but the two a [`Connect`] is made for.
     #[default]
     Blocked,
@@ -58,8 +61,17 @@ pub enum Remote {
 /// Leave for one start not to block Remote Control.
 #[derive(Debug)]
 pub struct Connect {
-    /// The session was connected before `oso-restart`.
-    back: Option<Back>,
+    /// What it must find as it was.
+    was: Was,
+}
+
+/// What a start with leave to connect must find as it was.
+#[derive(Debug)]
+enum Was {
+    /// What the person's question said is sent.
+    Shown(Sent),
+    /// Where the session was connected before `oso-restart`.
+    Back(Back),
 }
 
 /// A connection to come back to.
@@ -82,8 +94,6 @@ pub struct Place {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Sent {
     pub addresses: Vec<String>,
-    /// More than are shown.
-    pub more: usize,
     pub branch: Option<String>,
 }
 
@@ -99,23 +109,30 @@ pub enum Settled {
 }
 
 impl Connect {
-    /// Leave at the person's `y`.
-    pub fn asked() -> Self {
-        Self { back: None }
+    /// Leave at the person's `y` to a question that said `sent`.
+    pub fn asked(sent: Sent) -> Self {
+        Self {
+            was: Was::Shown(sent),
+        }
     }
 
     /// Leave to come back to `back`, which the parent's restart state carried.
     pub fn again(back: Back) -> Self {
-        Self { back: Some(back) }
+        Self {
+            was: Was::Back(back),
+        }
     }
 
     /// The session's id there, if it comes back.
     pub fn back(&self) -> Option<&RemoteId> {
-        self.back.as_ref().map(|back| &back.id)
+        match &self.was {
+            Was::Shown(_) => None,
+            Was::Back(back) => Some(&back.id),
+        }
     }
 }
 
-impl Remote {
+impl Leave {
     /// Whether the line blocks it.
     pub fn blocked(&self) -> bool {
         matches!(self, Self::Blocked)
@@ -128,7 +145,7 @@ pub(super) fn settle(order: &mut Order) -> Settled {
     let Runs::Native(native) = &mut order.runs else {
         return Settled::Blocked;
     };
-    let Remote::Connect(connect) = std::mem::take(&mut native.remote) else {
+    let Leave::Connect(connect) = std::mem::take(&mut native.remote) else {
         return Settled::Blocked;
     };
     let judged = match &order.trusted {
@@ -137,7 +154,7 @@ pub(super) fn settle(order: &mut Order) -> Settled {
     };
     match judged {
         Ok(place) => {
-            native.remote = Remote::Connect(connect);
+            native.remote = Leave::Connect(connect);
             Settled::Connects(place)
         }
         Err(why) => Settled::Refused(why),
@@ -151,10 +168,11 @@ fn judge(
     state: Option<&Path>,
     connect: &Connect,
 ) -> Result<Option<Place>, String> {
-    let (_, place) = look(root, directory, state)?;
-    match &connect.back {
-        Some(back) if place != Some(back.place) => Err(MOVED.to_owned()),
-        _ => Ok(place),
+    let (sent, place) = look(root, directory, state)?;
+    match &connect.was {
+        Was::Shown(shown) if *shown != sent => Err(CHANGED.to_owned()),
+        Was::Back(back) if place != Some(back.place) => Err(MOVED.to_owned()),
+        Was::Shown(_) | Was::Back(_) => Ok(place),
     }
 }
 
@@ -183,8 +201,8 @@ pub fn look(
         // git here never looks above the root, and `claude` may.
         let above = (directory.ancestors().skip(1))
             .any(|dir| std::fs::symlink_metadata(dir.join(".git")).is_ok());
-        return match above {
-            true => Err("its directory is below another repository".to_owned()),
+        return match above || directory.ancestors().any(bare) {
+            true => Err("its directory is in another repository".to_owned()),
             false => Ok((Sent::default(), place(None))),
         };
     }
@@ -199,6 +217,13 @@ pub fn look(
     };
     let repository = std::fs::metadata(&common).ok().as_ref().and_then(identity);
     Ok((sent, repository.and_then(|of| place(Some(of)))))
+}
+
+/// Whether `dir` looks like a repository of its own with no `.git`, which git would find.
+fn bare(dir: &Path) -> bool {
+    ["HEAD", "objects", "refs"]
+        .iter()
+        .all(|name| dir.join(name).exists())
 }
 
 /// The repository's common directory, which holds no remotes of old.
@@ -236,19 +261,19 @@ fn listed(git: &Git) -> Result<Sent, String> {
     let args = ["remote", "-v"].map(OsStr::new);
     let out = (git.run(&args, &[], MAX_CONFIG)).map_err(|_| NO_ANSWER.to_owned())?;
     let mut addresses: Vec<String> = Vec::new();
+    let mut seen = HashSet::new();
     for line in out.split(|b| *b == b'\n').filter(|line| !line.is_empty()) {
         let address = address_of(line).ok_or(NO_ANSWER)?;
         let address = address::judge(address).map_err(|why| why.to_string())?;
-        let shown = printable(address, MAX_CELLS);
-        if !addresses.contains(&shown) {
-            addresses.push(shown);
+        if seen.insert(address) {
+            addresses.push(printable(address, MAX_CELLS));
+        }
+        if addresses.len() > MAX_SHOWN || address.chars().count() > MAX_CELLS {
+            return Err(TOO_MANY.to_owned());
         }
     }
-    let more = addresses.len().saturating_sub(MAX_SHOWN);
-    addresses.truncate(MAX_SHOWN);
     Ok(Sent {
         addresses,
-        more,
         branch: None,
     })
 }

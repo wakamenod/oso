@@ -8,7 +8,7 @@ use oso_core::command::Reach;
 use super::add_repo::AddDir;
 use super::guard::{CALLS_A_MINUTE, RATE_WINDOW};
 use super::{
-    Asks, Branch, Renamable, Resumable, Standing, StartLimit, TOOLS, Unasked, add_dir,
+    Asks, Branch, CallerStanding, Renamable, Resumable, StartLimit, TOOLS, Unasked, add_dir,
     add_repo_question, add_repo_said, addable, quoted, renamable, rename_clash, rename_note,
     renamed_said, resumable, resume_question, resume_started, start_question, start_started,
     starts_without_asking, stops_without_asking, tool, worktree_question, worktree_started,
@@ -221,7 +221,7 @@ fn a_start_says_what_started_without_asking() {
 }
 
 /// A session of the person's, as their configuration allows.
-const PERSONS: Standing = Standing {
+const PERSONS: CallerStanding = CallerStanding {
     allowed: true,
     caller: Origin::Person,
     connected: false,
@@ -247,7 +247,7 @@ fn a_connected_session_asks_at_each_call() {
     );
     for name in covered {
         let goes = |connected| {
-            let standing = Standing {
+            let standing = CallerStanding {
                 connected,
                 ..PERSONS
             };
@@ -289,7 +289,7 @@ fn only_the_person_s_session_starts_without_asking_trusted_and_below_its_limit()
         ..yes
     }));
     assert!(starts_without_asking(Unasked {
-        standing: Standing {
+        standing: CallerStanding {
             caller: Origin::Answered,
             ..PERSONS
         },
@@ -297,7 +297,7 @@ fn only_the_person_s_session_starts_without_asking_trusted_and_below_its_limit()
     }));
     for no in [
         Unasked {
-            standing: Standing {
+            standing: CallerStanding {
                 allowed: false,
                 ..PERSONS
             },
@@ -308,14 +308,14 @@ fn only_the_person_s_session_starts_without_asking_trusted_and_below_its_limit()
             ..yes
         },
         Unasked {
-            standing: Standing {
+            standing: CallerStanding {
                 caller: Origin::Unasked,
                 ..PERSONS
             },
             ..yes
         },
         Unasked {
-            standing: Standing {
+            standing: CallerStanding {
                 caller: Origin::Unknown,
                 ..PERSONS
             },
@@ -546,7 +546,7 @@ fn an_add_goes_without_asking_only_when_trusted_and_past_no_limit() {
     let unasked = |trusted, caller| {
         starts_without_asking(Unasked {
             tool: add.asks,
-            standing: Standing { caller, ..PERSONS },
+            standing: CallerStanding { caller, ..PERSONS },
             trusted,
             live_unasked: 0,
             limit: StartLimit::Unlimited,

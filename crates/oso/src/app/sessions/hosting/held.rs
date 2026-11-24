@@ -94,7 +94,7 @@ impl App {
             && !native.remote.blocked()
             && (!matches!(native.gate, start::space_gate::ByGate::No) || self.remote_never(token))
         {
-            native.remote = start::connect::Remote::Blocked;
+            native.remote = start::connect::Leave::Blocked;
         }
         if order.space.is_some() {
             order.space = self.orchestrator_start_for(order.token)?;

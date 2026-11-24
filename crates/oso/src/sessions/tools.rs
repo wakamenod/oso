@@ -300,17 +300,17 @@ fn brief_said(lines: Option<usize>) -> String {
 /// Whether a caller's calls may go without asking at all, where they otherwise would ask: the one
 /// rule every such call is judged by first.
 #[derive(Clone, Copy, Debug)]
-pub struct Standing {
+pub struct CallerStanding {
     /// `[sessions] agents_start_without_asking` at oso's start, and no `agent-starts-ask` since.
     pub allowed: bool,
     /// How the calling session started.
     pub caller: Origin,
     /// It may be connected to claude.ai (ADR 0181): whoever holds the account may drive it, so each
-    /// call of its asks the person at oso.
+    /// call of its that may go without asking otherwise asks the person at oso.
     pub connected: bool,
 }
 
-impl Standing {
+impl CallerStanding {
     /// Whether its calls may go without asking.
     pub fn goes_unasked(self) -> bool {
         self.allowed && self.caller.by_the_person() && !self.connected
@@ -323,7 +323,7 @@ pub struct Unasked {
     /// The tool is one the setting covers: [`Asks::UnlessAllowed`].
     pub tool: Asks,
     /// The caller's standing.
-    pub standing: Standing,
+    pub standing: CallerStanding,
     /// The project the session would start in is trusted, its directory's repository the
     /// caller's.
     pub trusted: bool,

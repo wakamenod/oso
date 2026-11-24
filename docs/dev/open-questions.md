@@ -456,8 +456,10 @@ item notes when it must be settled.
 - The third probe of Remote Control
   ([ADR 0181](adr/0181-remote-control-of-native-sessions.md)), the author's, before RC-2 ships:
   stop, a message during a turn, what the phone shows while oso's card waits, the modes it offers,
-  its reads of files over a connection, and whether a `claude -p` without the block connects by
-  `remoteControlAtStartup` of itself.
+  its reads of files over a connection, whether a `claude -p` without the block connects by
+  `remoteControlAtStartup` of itself or with it set false, what a connection asked with no
+  session to come back to attaches to, a fork's among them, and whether the session stays listed
+  there after `enabled: false` with `keep_session_on_exit`.
 
 ## Later
 

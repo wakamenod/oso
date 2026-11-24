@@ -166,6 +166,8 @@ mod tests {
     fn what_cannot_be_read_refuses() {
         for address in [
             "",
+            "helper::h:r",
+            "https://h/https://h/r",
             "helper::https://me:secret@h/r",
             "ext::sh -c x",
             "https://h/https://me:secret@h/r",

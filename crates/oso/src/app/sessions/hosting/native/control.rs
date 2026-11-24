@@ -145,6 +145,7 @@ impl App {
                     .chain(native.interrupt.deadline())
                     .chain(native.mode.deadline())
                     .chain(native.remote.deadline())
+                    .chain(native.remote_control.deadline(&native.remote))
             })
             .chain(card)
             .chain(self.request_read_deadline())

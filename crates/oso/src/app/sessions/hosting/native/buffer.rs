@@ -135,7 +135,7 @@ impl App {
             trust: crate::sessions::start::trust::ByRecord::No,
             by_claim: false,
             gate: crate::sessions::start::space_gate::ByGate::No,
-            remote: connect.map_or(connect::Remote::Blocked, connect::Remote::Connect),
+            remote: connect.map_or(connect::Leave::Blocked, connect::Leave::Connect),
             settings: self.terminal_settings(),
             env: self.configuration.session_env().to_vec(),
             out: Box::new(move |out| {

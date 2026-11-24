@@ -51,6 +51,11 @@ impl Off {
         }
     }
 
+    /// Whether its request was written and is not answered yet: the process may not have read it.
+    pub fn unread(&self) -> bool {
+        matches!(self.told, Told::Asked(..))
+    }
+
     /// Whether the process ends at `now`, `idle` or not.
     pub fn ends(&self, idle: bool, now: Instant) -> bool {
         idle || now >= self.deadline() || self.told == Told::No
@@ -84,6 +89,7 @@ mod tests {
         let now = Instant::now();
         let mut off = Off::begun(Some(3), now);
         off.answered(3, true);
+        assert!(!off.unread());
         assert_eq!(off.deadline(), now + TURN_WAIT);
         assert!(!off.ends(false, now + TURN_WAIT - TICK));
         assert!(off.ends(true, now + TICK));
@@ -94,6 +100,7 @@ mod tests {
     fn not_told_it_ends_whatever_runs() {
         let now = Instant::now();
         assert!(Off::begun(None, now).ends(false, now), "no control layer");
+        assert!(!Off::begun(None, now).unread() && Off::begun(Some(3), now).unread());
         let mut refused = Off::begun(Some(3), now);
         refused.answered(4, true);
         assert_eq!(refused.deadline(), now + TOLD_WAIT, "another's answer");

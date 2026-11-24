@@ -24,10 +24,10 @@ fn kinds() -> [Kind; 3] {
 }
 
 fn native() -> Runs {
-    native_with(connect::Remote::Blocked)
+    native_with(connect::Leave::Blocked)
 }
 
-pub(super) fn native_with(remote: connect::Remote) -> Runs {
+pub(super) fn native_with(remote: connect::Leave) -> Runs {
     let mut editor = oso_core::editor::Editor::default();
     Runs::Native(NativeOrder {
         buffer: editor.add_terminal_buffer("*claude: test*"),
@@ -114,7 +114,7 @@ fn a_native_start_keeps_the_steering_hook_beside_it() {
 #[test]
 fn a_start_given_leave_to_connect_is_not_blocked_and_does_not_connect_by_itself() {
     for kind in kinds() {
-        let remote = connect::Remote::Connect(connect::Connect::asked());
+        let remote = connect::Leave::Connect(connect::Connect::asked(connect::Sent::default()));
         let said = settings(kind.clone(), native_with(remote), true, false).unwrap();
         assert_eq!(said.get("disableRemoteControl"), None, "{kind:?}");
         assert_eq!(said["remoteControlAtStartup"], false, "{kind:?}");

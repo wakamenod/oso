@@ -44,16 +44,16 @@ impl Refusal {
 
 /// When a key is pressed, for an answer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct Pressed {
+pub(in crate::app::sessions::hosting::native) struct Pressed {
     /// The key, or the first of its sequence.
-    pub(super) at: Instant,
+    pub(in crate::app::sessions::hosting::native) at: Instant,
     /// The one before that.
-    pub(super) before: Option<Instant>,
+    pub(in crate::app::sessions::hosting::native) before: Option<Instant>,
 }
 
 impl Pressed {
     /// The key the person typed last, as `typed` says.
-    pub(super) fn last(typed: Typed, now: Instant) -> Self {
+    pub(in crate::app::sessions::hosting::native) fn last(typed: Typed, now: Instant) -> Self {
         Self {
             at: typed.first.unwrap_or(now).min(now),
             before: typed.before_first,
@@ -61,7 +61,7 @@ impl Pressed {
     }
 
     /// The next key, at `now`, after what `typed` says.
-    pub(super) fn next(typed: Typed, now: Instant) -> Self {
+    pub(in crate::app::sessions::hosting::native) fn next(typed: Typed, now: Instant) -> Self {
         Self {
             at: now,
             before: typed.last,
@@ -71,7 +71,7 @@ impl Pressed {
 
 /// Whether the quiet wait passed at `pressed` of what came in front at `since`: [`QUIET`] since then
 /// and since the key before.
-pub(super) fn waited(since: Instant, pressed: Pressed) -> bool {
+pub(in crate::app::sessions::hosting::native) fn waited(since: Instant, pressed: Pressed) -> bool {
     let quiet = |from: Instant| pressed.at >= from + QUIET;
     quiet(since) && pressed.before.is_none_or(quiet)
 }

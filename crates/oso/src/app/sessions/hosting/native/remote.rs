@@ -17,25 +17,33 @@
 //! - The address is copied at the person's key alone, as text that is not secret; it is logged
 //!   nowhere and given to no agent.
 
+use std::collections::HashSet;
 use std::time::Instant;
 
 use oso_core::editor::NativeAction;
 
 use super::Native;
 use crate::app::App;
+use crate::app::sessions::hosting::Hosting;
 use crate::sessions::identity::{Origin, SessionId};
 use crate::sessions::native::mode::Refusal;
+use crate::sessions::native::remote::Remote;
+use crate::sessions::native::remote::off::Off;
 use crate::sessions::native::remote::refusal::{At, Refused, Whose};
 use crate::sessions::native::wire::control::Request;
 use crate::sessions::native::wire::remote::Enable;
-use crate::sessions::start::connect::{Connect, Place, Settled};
+use crate::sessions::start::connect::{Connect, Place, Sent, Settled};
 use crate::sessions::worker::SessionKey;
 
 mod again;
 mod question;
 
 pub(crate) use question::Looked;
-pub(super) use question::Question;
+use question::Question;
+
+/// The most characters of a session's name shown: more than a name has (`identity::MAX_NAME`), so
+/// that it is the one sent.
+const MAX_NAME: usize = 64;
 
 /// What a session's end says once it was marked.
 const OFF: &str =
@@ -45,6 +53,22 @@ const OFF: &str =
 const GOING_OFF: &str = "Turning Remote Control off: claude.ai is told, and claude ends once its turn is over, in \
      60 s at the latest, to resume its conversation. native-remote-control again ends it now.";
 
+/// What Remote Control keeps beside the sessions.
+#[derive(Debug, Default)]
+pub(super) struct Remotes {
+    /// The question before it is turned on, and the last one's number.
+    question: Option<Question>,
+    token: u64,
+    /// Sessions whose buffer was killed and whose process may still be connected.
+    pub(super) ending: HashSet<SessionKey>,
+    /// Conversations forked, through any number of forks, from an agent's session, and the forks
+    /// of one being started: never connected, while oso runs or restarts itself. Any may be one
+    /// where a restart could not name them.
+    from_agents: HashSet<SessionId>,
+    forks_of_agents: HashSet<SessionKey>,
+    any_may_be_agents: bool,
+}
+
 /// Remote Control of a session beside its process's state.
 #[derive(Debug, Default)]
 pub(super) struct RemoteControl {
@@ -52,8 +76,11 @@ pub(super) struct RemoteControl {
     connect: Option<Connect>,
     /// The person turned it off: its process ends, and resumes blocked.
     off: bool,
-    /// Its process was ended for that.
+    /// Its process, which may be connected, was ended.
     ending: bool,
+    /// Its side was told that it is off: kept past its process's end, so that a restart that
+    /// waits for others to end does not connect it again.
+    told_off: bool,
     /// Where its process runs, for a restart.
     pub(super) place: Option<Place>,
 }
@@ -64,6 +91,18 @@ impl RemoteControl {
         self.connect.is_some() || self.off
     }
 
+    /// Whether its side was told that it is off since its process started.
+    pub(super) fn told_off(&self) -> bool {
+        self.told_off
+    }
+
+    /// When the process of one turned off is to end, until it was ended: a wake past it would
+    /// come again and again.
+    pub(super) fn deadline(&self, remote: &Remote) -> Option<Instant> {
+        let waits = self.off && !self.ending;
+        remote.off().filter(|_| waits).map(Off::deadline)
+    }
+
     /// Whether the person turned it off, and its process is to end.
     pub(super) fn off(&self) -> bool {
         self.off
@@ -71,19 +110,25 @@ impl RemoteControl {
 
     /// Its process ended: the leave held for its resume.
     pub(super) fn ended(&mut self) -> Option<Connect> {
-        std::mem::take(self).connect
+        let before = std::mem::take(self);
+        self.told_off = before.told_off;
+        before.connect
     }
 }
 
 /// Ends `native`'s process, telling claude.ai's side first that Remote Control is off, where it
 /// may be on.
 pub(super) fn stop(native: &mut Native) {
-    let told = tell_off(native);
+    tell_off(native);
     let Some(stream) = &native.stream else {
         return;
     };
-    // A turn's tools get no second more.
-    match told && !native.composing.busy {
+    // The first end of one that may not have read it yet waits for it; a turn's tools get no
+    // second more, and a second end none.
+    let unread = native.remote.off().is_some_and(Off::unread);
+    let first =
+        native.remote.marked() && !std::mem::replace(&mut native.remote_control.ending, true);
+    match first && unread && !native.composing.busy {
         true => stream.stop_told(),
         false => stream.stop(),
     }
@@ -92,7 +137,9 @@ pub(super) fn stop(native: &mut Native) {
 /// Tells claude.ai's side of `native`'s process that Remote Control is off, where it may be on and
 /// was not told before. Whether it was written.
 pub(super) fn tell_off(native: &mut Native) -> bool {
+    let was_marked = native.remote.marked();
     let id = native.remote.end(native.control.as_mut(), Instant::now());
+    native.remote_control.told_off |= was_marked;
     let written = (native.stream.as_ref().zip(id))
         .is_some_and(|(stream, id)| stream.request(id, Request::RemoteControl).is_ok());
     if id.is_some() && !written {
@@ -106,7 +153,7 @@ impl super::NativeSessions {
     pub(in crate::app) fn remote_mark(&self, key: SessionKey) -> Option<&'static str> {
         (self.map.get(&key))
             .and_then(|native| native.remote.mark())
-            .or_else(|| self.ending_remote.contains(&key).then_some("⇄ going off"))
+            .or_else(|| self.remotes.ending.contains(&key).then_some("⇄ going off"))
     }
 }
 
@@ -122,6 +169,13 @@ impl App {
         }
     }
 
+    /// Whether a call of native session `key`'s may come from claude.ai: it is marked, or the canary
+    /// said that it may be connected.
+    pub(in crate::app) fn remote_watched(&self, key: SessionKey) -> bool {
+        let native = self.hosting.natives.map.get(&key);
+        self.remote_marked(key) || native.is_some_and(|native| native.remote.watched())
+    }
+
     /// Whether native session `key`'s process may be connected to claude.ai, by how oso started
     /// it.
     pub(in crate::app) fn remote_marked(&self, key: SessionKey) -> bool {
@@ -135,7 +189,13 @@ impl App {
         };
         let agents = session.parent.is_some()
             || session.origin != Origin::Person
-            || self.hosting.natives.from_agents.contains(&session.id);
+            || self.hosting.natives.remotes.any_may_be_agents
+            || self
+                .hosting
+                .natives
+                .remotes
+                .from_agents
+                .contains(&session.id);
         Whose {
             agents,
             orchestrator: self.orchestrates(&session.id)
@@ -188,7 +248,7 @@ impl App {
     }
 
     /// The person's `y`: native session `key`'s process ends, idle, to resume with no block.
-    fn remote_on(&mut self, key: SessionKey) {
+    fn remote_on(&mut self, key: SessionKey, sent: Sent) {
         let name = self.remote_name(key);
         if let Some(refused) = self.remote_refused(key) {
             return self
@@ -198,7 +258,7 @@ impl App {
         let Some(native) = self.hosting.natives.map.get_mut(&key) else {
             return;
         };
-        native.remote_control.connect = Some(Connect::asked());
+        native.remote_control.connect = Some(Connect::asked(sent));
         stop(native);
         self.native_note_row(
             key,
@@ -217,8 +277,12 @@ impl App {
                 .message(format!("Session {name}'s claude is ending"));
         };
         if native.stream.is_none() {
+            // It is never asked to connect, and its process ends once it runs.
+            native.remote_control.off = true;
+            tell_off(native);
+            self.native_note_changed(key);
             return self.editor.message(format!(
-                "Session {name} is starting: turn Remote Control off once it runs"
+                "Session {name} is starting: Remote Control goes off as it runs"
             ));
         }
         let again = native.remote_control.off;
@@ -262,7 +326,7 @@ impl App {
             let idle = !native.composing.busy && !native.interrupt.interrupting();
             // Its input closed already: once only.
             if native.remote.off().is_none_or(|off| off.ends(idle, now))
-                && !std::mem::replace(&mut native.remote_control.ending, true)
+                && !native.remote_control.ending
             {
                 stop(native);
             }
@@ -281,20 +345,28 @@ impl App {
         self.sessions_touched();
     }
 
-    /// Native session `key`, whose start thread said how Remote Control was settled, runs.
+    /// Native session `key`, whose start thread said how Remote Control was settled, runs: it is
+    /// asked to connect, if it may.
     pub(super) fn remote_settled(&mut self, key: SessionKey, settled: Settled) {
         let Some(native) = self.hosting.natives.map.get_mut(&key) else {
             return;
         };
-        let (why, canary) = match settled {
+        match &settled {
             Settled::Connects(place) => {
-                native.remote_control.place = place;
-                return;
+                native.remote_control.place = *place;
+                self.remote_ready(key);
+                return self.sweep_remote_off();
             }
             Settled::Blocked if !native.remote.marked() => return,
-            Settled::Blocked => (None, native.remote.blocked()),
-            Settled::Refused(why) => (Some(why), native.remote.blocked()),
+            // Nothing is left to turn off.
+            Settled::Blocked | Settled::Refused(_) => native.remote_control.off = false,
+        }
+        let why = match settled {
+            Settled::Refused(why) => Some(why),
+            Settled::Blocked | Settled::Connects(_) => None,
         };
+        // One that ended and resumes already is another start's.
+        let canary = native.remote.marked() && native.remote.start_blocked();
         if canary {
             self.follow(key, super::control::Follow::Canary);
         }
@@ -315,7 +387,7 @@ impl App {
     /// Native session `key` did not start, or may not connect after all: no mark stays.
     pub(super) fn remote_not_started(&mut self, key: SessionKey) {
         if let Some(native) = self.hosting.natives.map.get_mut(&key) {
-            native.remote = crate::sessions::native::remote::Remote::default();
+            native.remote = Remote::default();
             native.remote_control = RemoteControl::default();
         }
         self.sessions_touched();
@@ -324,19 +396,22 @@ impl App {
     /// Asks to connect native session `key`, once it is known that it can be asked: after its
     /// events, and once its process's stream is there.
     pub(super) fn remote_ready(&mut self, key: SessionKey) {
-        let name = (self.hosting.table.get(key)).map(|session| session.name.clone());
-        let Some(native) = self.hosting.natives.map.get_mut(&key) else {
+        let Hosting { natives, table, .. } = &mut self.hosting;
+        let Some(native) = natives.map.get_mut(&key) else {
             return;
         };
-        let (Some(stream), Some(control), Some(name)) =
-            (&native.stream, native.control.as_mut(), name)
+        if !native.remote.marked() {
+            return;
+        }
+        let (Some(stream), Some(control), Some(session)) =
+            (&native.stream, native.control.as_mut(), table.get(key))
         else {
             return;
         };
         let was = native.remote.mark();
         if let Some(asked) = native.remote.ready(control, random, Instant::now()) {
             let enable = Enable {
-                name: Some(&name),
+                name: Some(&session.name),
                 reattach: native.remote.back(),
                 // A restart ends the process, and asks again (ADR 0181).
                 keep: true,
@@ -376,11 +451,11 @@ impl App {
         let Some(native) = self.hosting.natives.map.get_mut(&key) else {
             return;
         };
+        // The list says only whether it is marked, which its start and its end change.
         if let Some(row) = native.remote.take_row() {
             self.native_note_row(key, &row);
         }
         self.native_note_changed(key);
-        self.sessions_touched();
     }
 
     /// `native-remote-control-address`.
@@ -401,7 +476,7 @@ impl App {
     /// Session `key`'s name, as the echo area says it.
     pub(super) fn remote_name(&self, key: SessionKey) -> String {
         (self.hosting.table.get(key)).map_or_else(String::new, |session| {
-            crate::git::printable(&session.name, 40)
+            crate::git::printable(&session.name, MAX_NAME)
         })
     }
 
@@ -415,10 +490,10 @@ impl App {
         let source = (self.hosting.table.iter())
             .find(|session| session.id == *from)
             .map(|session| session.key);
-        let agents = self.hosting.natives.from_agents.contains(from)
+        let agents = self.hosting.natives.remotes.from_agents.contains(from)
             || source.is_some_and(|source| self.remote_whose(source).agents);
         if agents {
-            self.hosting.natives.forks_of_agents.insert(key);
+            self.hosting.natives.remotes.forks_of_agents.insert(key);
         }
     }
 
@@ -428,8 +503,8 @@ impl App {
         key: SessionKey,
         id: &SessionId,
     ) {
-        if self.hosting.natives.forks_of_agents.remove(&key) {
-            self.hosting.natives.from_agents.insert(id.clone());
+        if self.hosting.natives.remotes.forks_of_agents.remove(&key) {
+            self.hosting.natives.remotes.from_agents.insert(id.clone());
         }
     }
 }
@@ -437,7 +512,7 @@ impl App {
 impl App {
     /// Fork `key` did not start.
     pub(in crate::app::sessions::hosting) fn fork_not_started(&mut self, key: SessionKey) {
-        self.hosting.natives.forks_of_agents.remove(&key);
+        self.hosting.natives.remotes.forks_of_agents.remove(&key);
     }
 }
 
@@ -446,4 +521,31 @@ fn random() -> std::io::Result<u64> {
     let mut bytes = [0; 8];
     oso_platform::random::fill(&mut bytes)?;
     Ok(u64::from_ne_bytes(bytes))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Instant;
+
+    use super::{Remote, RemoteControl};
+    use crate::sessions::native::control::Control;
+
+    /// What is due of one going off is due once: its process, ended, may take long to go.
+    #[test]
+    fn a_process_ended_for_off_wakes_the_loop_no_more() {
+        let now = Instant::now();
+        let mut remote = Remote::unblocked();
+        remote.end(Some(&mut Control::started(now)), now);
+        let mut control = RemoteControl::default();
+        assert_eq!(
+            control.deadline(&remote),
+            None,
+            "stopped for another reason"
+        );
+        control.off = true;
+        assert!(control.deadline(&remote).is_some_and(|by| by > now));
+        control.ending = true;
+        assert_eq!(control.deadline(&remote), None);
+        assert_eq!(remote.deadline(), None);
+    }
 }

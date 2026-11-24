@@ -12,7 +12,7 @@
 //!   same id. Any of these otherwise, it resumes off, and says so.
 
 use crate::app::App;
-use crate::carry::natives::RemoteResume;
+use crate::carry::natives::{Agents, RemoteResume};
 use crate::sessions::identity::SessionId;
 use crate::sessions::native::wire::remote::RemoteId;
 use crate::sessions::start::connect::{Back, Connect, Place};
@@ -20,17 +20,32 @@ use crate::sessions::worker::SessionKey;
 
 impl App {
     /// The conversations forked from an agent's session that oso still has, for a restart's state.
-    pub(in crate::app) fn natives_of_agents(&self) -> impl Iterator<Item = &str> {
-        (self.hosting.table.iter())
-            .map(|session| &session.id)
-            .filter(|id| self.hosting.natives.from_agents.contains(*id))
-            .map(SessionId::as_str)
+    pub(in crate::app) fn natives_of_agents(&self) -> Agents {
+        let natives = &self.hosting.natives;
+        if natives.remotes.any_may_be_agents {
+            return Agents::Unknown;
+        }
+        let named: Vec<String> = (self.hosting.table.iter())
+            .filter(|session| natives.remotes.from_agents.contains(&session.id))
+            .map(|session| session.id.as_str().to_owned())
+            .collect();
+        match named.is_empty() {
+            true => Agents::None,
+            false => Agents::Named(named),
+        }
     }
 
     /// The instance before named `agents` so.
-    pub(in crate::app) fn natives_of_agents_carried(&mut self, agents: &[String]) {
-        let ids = agents.iter().filter_map(|id| SessionId::parse(id));
-        self.hosting.natives.from_agents.extend(ids);
+    pub(in crate::app) fn natives_of_agents_carried(&mut self, agents: Agents) {
+        let natives = &mut self.hosting.natives;
+        match agents {
+            Agents::None => {}
+            Agents::Named(ids) => {
+                let ids = ids.iter().filter_map(|id| SessionId::parse(id));
+                natives.remotes.from_agents.extend(ids);
+            }
+            Agents::Unknown => natives.remotes.any_may_be_agents = true,
+        }
     }
 
     /// How native session `key` is connected, for a restart's state.

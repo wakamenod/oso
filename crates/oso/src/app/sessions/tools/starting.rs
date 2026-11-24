@@ -232,11 +232,11 @@ impl App {
     }
 
     /// Whether `caller`'s calls may go without asking at all, as it is now.
-    pub(super) fn standing(&self, caller: &Caller) -> rules::Standing {
-        rules::Standing {
+    pub(super) fn standing(&self, caller: &Caller) -> rules::CallerStanding {
+        rules::CallerStanding {
             allowed: self.agent_starts_allowed(),
             caller: caller.origin,
-            connected: self.remote_marked(caller.key),
+            connected: self.remote_watched(caller.key),
         }
     }
 

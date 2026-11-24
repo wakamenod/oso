@@ -521,6 +521,7 @@ mod modes;
 mod past;
 mod plan;
 mod quit;
+mod remote;
 mod request;
 mod restart;
 mod restart_wait;

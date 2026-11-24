@@ -9,7 +9,7 @@ use super::{
 };
 use crate::sessions::identity::Origin;
 use crate::sessions::registry::{Entry, Live};
-use crate::sessions::tools::{Asks, Standing, tool};
+use crate::sessions::tools::{Asks, CallerStanding, tool};
 
 /// A stopped session of the caller's space, which its orchestrator may archive.
 fn of_space() -> Archivable {
@@ -159,7 +159,7 @@ fn only_a_stop_asks_as_the_table_says() {
 #[test]
 fn a_stop_goes_unasked_only_for_the_persons_caller_with_the_setting_on() {
     let stops = |allowed, caller| {
-        stops_without_asking(Standing {
+        stops_without_asking(CallerStanding {
             allowed,
             caller,
             connected: false,

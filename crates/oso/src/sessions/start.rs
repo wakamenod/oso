@@ -186,7 +186,7 @@ pub struct NativeOrder {
     /// project's root (ADR 0176): its line then reads the person's own settings alone.
     pub gate: space_gate::ByGate,
     /// Whether Remote Control is blocked, which this alone decides (ADR 0181).
-    pub remote: connect::Remote,
+    pub remote: connect::Leave,
     /// `[terminal]`'s settings: the shell, `-l` and the names passed on.
     pub settings: Settings,
     /// `[sessions] env`: more names passed on from oso's environment.

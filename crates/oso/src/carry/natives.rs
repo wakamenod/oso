@@ -123,30 +123,44 @@ pub(super) fn parse(state: &Map<String, Value>) -> Vec<NativeResume> {
 /// The most conversations an agent's are named in a state.
 const MAX_AGENTS: usize = 256;
 
-/// Adds to the exported `state` the conversations forked from an agent's session, which are never
-/// connected to claude.ai (ADR 0181): what they name only refuses.
-pub fn add_agents<'a>(state: &mut Value, agents: impl Iterator<Item = &'a str>) {
-    let agents: Vec<&str> = agents.take(MAX_AGENTS).collect();
-    if agents.is_empty() {
-        return;
-    }
-    state["native_agents"] = json!(agents);
+/// The conversations forked from an agent's session, which are never connected to claude.ai
+/// (ADR 0181): what they name only refuses.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum Agents {
+    /// These, by their ids.
+    #[default]
+    None,
+    Named(Vec<String>),
+    /// More than a state names, or none that reads: any conversation may be one.
+    Unknown,
+}
+
+/// Adds `agents` to the exported `state`, after the resumes, which it never crowds out; where they
+/// do not fit, that they are not known.
+pub fn add_agents(state: &mut Value, agents: &Agents) {
+    let named = match agents {
+        Agents::None => return,
+        Agents::Named(named) if named.len() <= MAX_AGENTS => json!(named),
+        Agents::Named(_) | Agents::Unknown => json!(true),
+    };
+    state["native_agents"] = named;
     if super::fits(state).is_err() {
-        log::info!("the agents' conversations are left out of the restart's state");
-        if let Some(state) = state.as_object_mut() {
-            state.remove("native_agents");
-        }
+        state["native_agents"] = json!(true);
     }
 }
 
 /// The conversations `state` names so.
-pub(super) fn parse_agents(state: &Map<String, Value>) -> Vec<String> {
-    let agents = state.get("native_agents").and_then(Value::as_array);
-    (agents.into_iter().flatten().take(MAX_AGENTS))
-        .filter_map(Value::as_str)
-        .filter(|id| id.len() == 36)
-        .map(str::to_owned)
-        .collect()
+pub(super) fn parse_agents(state: &Map<String, Value>) -> Agents {
+    let named = match state.get("native_agents") {
+        None | Some(Value::Null) => return Agents::None,
+        Some(Value::Array(named)) if named.len() <= MAX_AGENTS => named,
+        Some(_) => return Agents::Unknown,
+    };
+    let id = |id: &Value| id.as_str().filter(|id| id.len() == 36).map(str::to_owned);
+    match named.iter().map(id).collect() {
+        Some(named) => Agents::Named(named),
+        None => Agents::Unknown,
+    }
 }
 
 fn parse_entry(entry: &Map<String, Value>) -> Option<NativeResume> {
@@ -287,15 +301,29 @@ mod tests {
     }
 
     #[test]
-    fn the_agents_conversations_go_and_come_back() {
+    fn the_agents_conversations_go_and_come_back_or_are_unknown() {
+        let carried = |agents: &Agents| {
+            let mut state = json!({});
+            add_agents(&mut state, agents);
+            parse_agents(state.as_object().unwrap())
+        };
+        let named = Agents::Named(vec![ID.to_owned(), OTHER.to_owned()]);
+        for agents in [Agents::None, named, Agents::Unknown] {
+            assert_eq!(carried(&agents), agents);
+        }
+        let many = Agents::Named(vec![ID.to_owned(); MAX_AGENTS + 1]);
+        assert_eq!(carried(&many), Agents::Unknown);
+        for odd in [json!("x"), json!(7), json!([7]), json!([ID, "short"])] {
+            let state = json!({ "native_agents": odd });
+            assert_eq!(parse_agents(state.as_object().unwrap()), Agents::Unknown);
+        }
+        // Too long for the line, it says so in its place.
         let mut state = json!({});
-        add_agents(&mut state, [ID, OTHER].into_iter());
-        let state = state.as_object().unwrap();
-        assert_eq!(parse_agents(state), [ID, OTHER]);
-        assert!(parse_agents(json!({}).as_object().unwrap()).is_empty());
-        let odd = json!({ "native_agents": [7, "x", ID] });
-        assert_eq!(parse_agents(odd.as_object().unwrap()), [ID]);
-        assert!(parse_agents(json!({ "native_agents": "x" }).as_object().unwrap()).is_empty());
+        let room = carry::MAX_STATE - r#"{"filler":""}"#.len() - 100;
+        state["filler"] = json!("x".repeat(room));
+        add_agents(&mut state, &Agents::Named(vec![ID.to_owned(); 8]));
+        assert!(carry::fits(&state).is_ok());
+        assert_eq!(parse_agents(state.as_object().unwrap()), Agents::Unknown);
     }
 
     #[test]

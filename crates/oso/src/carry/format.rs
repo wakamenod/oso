@@ -86,7 +86,7 @@ pub struct State {
     /// The native sessions it resumes once the instance before has gone (ADR 0165, part 4c).
     pub native_resumes: Vec<super::natives::NativeResume>,
     /// The conversations forked from an agent's session (ADR 0181).
-    pub native_agents: Vec<String>,
+    pub native_agents: super::natives::Agents,
 }
 
 #[cfg(test)]

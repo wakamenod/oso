@@ -52,6 +52,7 @@ fn it_asks_once_where_initialize_said_it_is_available() {
     remote.initialized(Some(true));
     assert!(remote.ready(&mut control, seven, now).is_some());
     assert_eq!(remote.ready(&mut control, seven, now), None, "once");
+    assert_eq!(remote.phase(), &Phase::Connecting, "still waits for it");
     // Never where it is blocked, turned off, or was not written.
     let mut blocked = Remote::default();
     blocked.initialized(Some(true));
@@ -141,15 +142,15 @@ fn turned_off_nothing_is_carried_over_a_restart() {
 #[test]
 fn a_start_blocked_after_all_is_off_and_keeps_the_canary() {
     let mut remote = Remote::unblocked();
-    assert!(!remote.blocked(), "nothing said it may be connected");
+    assert!(!remote.start_blocked(), "nothing said it may be connected");
     assert!(!remote.marked());
     let mut remote = Remote::unblocked();
     remote.initialized(Some(true));
-    assert!(remote.blocked(), "available, though it is blocked");
+    assert!(remote.start_blocked(), "available, though it is blocked");
     assert!(!remote.marked() && remote.watched());
     let mut remote = Remote::unblocked();
     remote.event(&mut bridge("connected", ""));
-    assert!(remote.blocked(), "connected, though it is blocked");
+    assert!(remote.start_blocked(), "connected, though it is blocked");
     assert!(!remote.marked() && remote.watched());
     assert_eq!(remote.mark(), None);
 }
