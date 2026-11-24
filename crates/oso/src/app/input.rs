@@ -47,8 +47,9 @@ fn held_from_the_window(
 
 /// Whether `key` in a buffer of `mode`, or in a question, is an answer and not something to
 /// repeat. Where a letter answers, holding it must not go on through the rows, and some answers
-/// delete; on a native session's card `RET` answers too, and in its plan's edit a chord does, while
-/// `sequence` says one is under way. The app also
+/// delete; on a native session's card `RET` answers too, in its plan's edit a chord does, while
+/// `sequence` says one is under way, and on its request's line every key but those that move: no
+/// repeat of one answers (ADR 0182). The app also
 /// drops the repeats of a press this was true of, as an answer can move the window to a file,
 /// where the same letter would type, and a held `y` must answer once (ADR 0072).
 fn answers_once(mode: Mode, question: bool, sequence: bool, key: KeyPress) -> bool {
@@ -56,6 +57,11 @@ fn answers_once(mode: Mode, question: bool, sequence: bool, key: KeyPress) -> bo
     (question && letter)
         || match mode {
             Mode::Card => letter || key.key == Key::Named(NamedKey::Return),
+            Mode::Request => {
+                (letter && key.text() != Some(' '))
+                    || key.key == Key::Named(NamedKey::Return)
+                    || sequence
+            }
             Mode::Plan => sequence,
             mode => mode.shows_copies() && letter,
         }
@@ -84,6 +90,7 @@ impl App {
             } else {
                 self.answering = once.then_some(key);
             }
+            self.dispatcher.set_key_repeats(input.repeat);
             if self.note_key_for_agent(key) {
                 return;
             }
@@ -175,7 +182,8 @@ impl App {
         let view = self.view.as_ref()?;
         let grid = view.render_state.pixel_grid();
         let cell = at.and_then(|at| grid.cell_at(at.x, at.y));
-        let window = self.editor.wheel_window(cell);
+        // Over a request's line, the transcript above it (ADR 0182).
+        let window = self.wheel_over_request(self.editor.wheel_window(cell));
         // Positive deltas move the content down and right: the view moves the other
         // way.
         let (rows, columns) = match delta {
@@ -285,6 +293,13 @@ mod tests {
             // `RET` there gives a question's marked options.
             (Mode::Card, false, false, "RET"),
             (Mode::Card, false, false, "S-RET"),
+            // A request's line's, its chord and an argument's key among them.
+            (Mode::Request, false, false, "y"),
+            (Mode::Request, false, false, "n"),
+            (Mode::Request, false, false, "N"),
+            (Mode::Request, false, false, "RET"),
+            (Mode::Request, false, true, "C-k"),
+            (Mode::Request, false, true, "C-u"),
             // In a plan's edit, what comes in a chord.
             (Mode::Plan, false, true, "C-c"),
             (Mode::Plan, false, true, "C-A"),
@@ -304,6 +319,9 @@ mod tests {
             (Mode::Card, false, false, "C-n"),
             (Mode::Card, false, false, "<down>"),
             (Mode::Card, false, false, "DEL"),
+            (Mode::Request, false, false, "SPC"),
+            (Mode::Request, false, false, "DEL"),
+            (Mode::Request, false, false, "C-v"),
             (Mode::Plan, false, false, "x"),
             (Mode::Plan, false, false, "RET"),
             (Mode::Plan, false, false, "C-k"),

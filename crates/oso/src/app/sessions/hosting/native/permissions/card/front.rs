@@ -5,7 +5,7 @@
 //!
 //! - In front: the selected window, or the one beneath the prompts, shows the session's
 //!   transcript, its composer or its plan's edit, or is docked under its transcript, as its card
-//!   is, while its request waits.
+//!   or its line is, or a call's whole input or result, while its request waits.
 //! - In sight: a window of the frame shows one of those.
 //! - Anywhere: one a window shows, and one of a session no window shows.
 //! - With the side window selected, a buffer shown goes to a window of the tree, which may be a
@@ -63,7 +63,10 @@ fn waiting_at(natives: &NativeSessions, window: &Window) -> Option<SessionKey> {
     let its = (natives.map.iter()).find_map(|(key, native)| {
         let here = native.buffer == host
             || native.composing.buffer == Some(shown)
-            || native.card == Some(shown);
+            || native.card == Some(shown)
+            || native.line == Some(shown)
+            // A call's whole input, as its line shows it, in the transcript's place.
+            || native.result == Some(shown);
         here.then_some(*key)
     });
     let key = its.or_else(|| natives.permissions.plans.session(shown))?;
@@ -109,7 +112,8 @@ mod tests {
                 input: None,
             },
             came: Instant::now(),
-            question: None,
+            made: None,
+            asked: None,
             shown: shown.then(Instant::now),
             reply: mpsc::channel().0,
         });
@@ -126,9 +130,13 @@ mod tests {
         let composer = add("*compose: s*", Mode::Composer);
         let strip = add("*todo: s*", Mode::Fundamental);
         let plan = add("*plan: s*", Mode::Plan);
+        let line = add("*request: s*", Mode::Request);
+        let result = add("*result: s*", Mode::Fundamental);
         let mut natives = NativeSessions::default();
         let mut its = native(transcript);
         its.card = Some(card);
+        its.line = Some(line);
+        its.result = Some(result);
         its.composing.buffer = Some(composer);
         natives.map.insert(KEY, its);
         natives.map.insert(KEY + 1, native(other));
@@ -147,22 +155,26 @@ mod tests {
                 seen.push(waiting_at(natives, editor.tiled().0));
             }
             editor.select_window(host);
-            for shown in [transcript, composer, plan] {
+            for shown in [transcript, composer, plan, line, result] {
                 editor.show(shown);
                 seen.push(waiting_at(natives, editor.tiled().0));
             }
             seen
         };
-        assert_eq!(look(&natives, &mut editor), [None; 5], "nothing waits");
+        assert_eq!(look(&natives, &mut editor), [None; 7], "nothing waits");
         editor.show(transcript);
         wait(&mut natives, KEY, false);
-        assert_eq!(look(&natives, &mut editor), [None; 5], "not shown yet");
+        assert_eq!(look(&natives, &mut editor), [None; 7], "not shown yet");
         assert!(!natives.permissions.asks.any_shown());
         let _ = natives.permissions.asks.remove_where(|_| true);
         wait(&mut natives, KEY, true);
         assert!(natives.permissions.asks.any_shown());
         editor.show(transcript);
-        assert_eq!(look(&natives, &mut editor), [Some(KEY); 5]);
+        assert_eq!(look(&natives, &mut editor), [Some(KEY); 7]);
+        // Its line, docked in the card's place.
+        editor.show(transcript);
+        editor.set_dock(transcript, DockSlot::Card, Some(line));
+        assert_eq!(look(&natives, &mut editor)[0], Some(KEY));
         for elsewhere in [notes, other] {
             editor.show(elsewhere);
             assert_eq!(waiting_at(&natives, editor.tiled().0), None);

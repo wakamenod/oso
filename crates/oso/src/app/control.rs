@@ -127,6 +127,7 @@ impl App {
             dev::UiOp::Focus(focused) => Ok(self.dev_focus(focused)),
             dev::UiOp::WindowFocus => {
                 self.terminals.focused = true;
+                self.note_window_in_front(true);
                 self.window_gained_focus();
                 Ok(json!({ "focused": true }))
             }
@@ -195,8 +196,11 @@ impl App {
         state["card"] = json!({
             "takes_answer": self.card_takes_answer(),
             "plan_takes_answer": self.plan_takes_answer(),
-            "question_takes_answer": self.plan_question_takes_answer(),
+            "question_takes_answer": (self.plan_question_takes_answer())
+                .or_else(|| self.unread_question_takes_answer()),
         });
+        // A call that waits (ADR 0182).
+        state["request"] = json!(self.request_state());
         // The menu open, as the channel's state names it (ADR 0117).
         state["menu"] = json!(self.dispatcher.menu_name());
         // Each terminal, for end-to-end flows (ADR 0120). The dev socket trusts the same user
@@ -320,6 +324,7 @@ impl App {
     /// follow (ADR 0120, ADR 0121).
     fn dev_focus(&mut self, focused: bool) -> serde_json::Value {
         self.terminals.focused = focused;
+        self.note_window_in_front(focused);
         json!({ "focused": focused })
     }
 

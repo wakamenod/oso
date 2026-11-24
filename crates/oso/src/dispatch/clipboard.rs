@@ -220,7 +220,7 @@ impl Dispatcher {
             let more = match input {
                 Held::Key(key, from_socket) => {
                     self.from_socket = from_socket;
-                    self.handle_key(editor, key)
+                    self.as_held(editor, |this, editor| this.handle_key(editor, key))
                 }
                 Held::Text(text, from_socket) => {
                     self.from_socket = from_socket;

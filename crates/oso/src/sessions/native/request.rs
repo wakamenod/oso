@@ -5,20 +5,22 @@
 //! Must not depend on: threads, the stream or the UI; the caller gives what the call says, the
 //! widths, what its window shows and the times, and puts the text in the session's buffer.
 //!
+//! - `input`: what `RET` shows, a call's input as JSON.
 //! - `body`: the text under the title, made once, off the UI thread, as a change is compared.
 //! - `title`: the words on the title's band, the only text of a block drawn again.
 //! - `line`: the text of the dock that says the keys.
 //! - `reading`: what of the body was shown long enough, as ranges of its bytes.
 
 pub mod body;
+pub mod input;
 pub mod line;
 pub mod reading;
 mod title;
 
 #[cfg(test)]
-mod fuzz_tests;
+pub(crate) mod fuzz_tests;
 #[cfg(test)]
-mod measure_tests;
+pub(crate) mod measure_tests;
 #[cfg(test)]
 mod tests;
 
@@ -27,11 +29,35 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 
 use self::body::{Count, Hidden};
+use self::reading::Reading;
 use super::render::Rendered;
 use super::wire::request::{changes_a_file, parts};
 
 /// How long a call's changes may be compared, all of them together, off the UI thread.
 pub const COMPARE_WITHIN: Duration = Duration::from_millis(50);
+
+/// Whether a request about `tool` is a call's, shown by a block: neither questions nor a plan, which
+/// have a card, or are denied if they cannot be read.
+pub fn is_call(tool: &str) -> bool {
+    !matches!(tool, "AskUserQuestion" | "ExitPlanMode")
+}
+
+/// A call that waits for the person: its block, and what of it was read, which goes with it.
+#[derive(Debug)]
+pub struct Request {
+    pub block: Block,
+    pub reading: Reading,
+}
+
+impl Request {
+    /// `block`, nothing of it read.
+    pub fn new(block: Block) -> Self {
+        Self {
+            reading: Reading::new(&block),
+            block,
+        }
+    }
+}
 
 /// The block of a call that waits: its text under the title, which never changes, and what its
 /// title and its line say of it.
@@ -71,7 +97,13 @@ impl Block {
         &self.body
     }
 
+    /// The tool's name as oso's words say it.
+    pub fn tool(&self) -> &str {
+        &self.tool
+    }
+
     /// What of the call it does not show.
+    #[cfg(test)]
     pub fn hidden(&self) -> Hidden {
         self.hidden
     }

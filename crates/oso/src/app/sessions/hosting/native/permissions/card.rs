@@ -1,13 +1,14 @@
-//! A native session's permission card in the app (ADR 0165, step 2e-2, the author's (a) on Q1
-//! to Q4): `*card: NAME*`, docked between the session's transcript and its composer while a
-//! call of the session waits for the person, and gone once answered. The card's text is
+//! A native session's card in the app (ADR 0165, step 2e-2, the author's (a) on Q1
+//! to Q4): `*card: NAME*`, docked between the session's transcript and its composer while
+//! questions or a plan of the session wait for the person, and gone once answered. Another call is
+//! `request`'s (ADR 0182), and both are answered here. The card's text is
 //! `sessions::native::card`'s; this docks it at its window's width, moves point to it, carries
 //! out its keys and answers the session's bridge.
 //!
 //! Must not depend on: key presses or how a frame is drawn; the card's commands ask, and this
 //! carries out.
 //!
-//! - The card is the only place the call is asked (Q1 (a)): elsewhere the session's `needs
+//! - The card is the only place its call is asked (Q1 (a)): elsewhere the session's `needs
 //!   input` leads there, as a terminal's dialog does.
 //! - Point moves to it as it appears, while the person is in that session's transcript or its
 //!   empty composer and in the middle of nothing, or after [`QUIET`] with no key once that
@@ -31,6 +32,9 @@ mod size;
 pub(in crate::app) use front::RequestWaits;
 pub(super) use plan::Plans;
 
+/// The width what is docked is drawn at while no window shows its session.
+pub(super) const UNSHOWN_WIDTH: usize = size::UNSHOWN.0;
+
 use std::time::Instant;
 
 use oso_core::buffer::{BufferId, Mode};
@@ -38,7 +42,6 @@ use oso_core::editor::{Approval, NativeAction};
 use oso_core::syntax::Highlights;
 use oso_core::window::DockSlot;
 
-use super::DENIED;
 use crate::app::App;
 use crate::channel::protocol::permission;
 use crate::commands::agent_sessions::{CARD_NOTE, CARD_OWN};
@@ -50,17 +53,26 @@ use crate::sessions::worker::SessionKey;
 /// How many times a card is drawn again at most as the docks settle on its rows.
 const SETTLES: usize = 4;
 /// What a denial without a note says on its call's row.
-const BY_THE_PERSON: &str = "by the person";
+pub(super) const BY_THE_PERSON: &str = "by the person";
 
-/// What the person writes in the minibuffer for a card, as its `N` or `o` asked.
+/// What the person writes in the minibuffer for a request, as its `N` or `o` asked.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::app::sessions::hosting::native) enum Writing {
     Note(SessionKey),
     Own(SessionKey),
 }
 
-/// What a card's answer comes to.
-enum Answer {
+impl Writing {
+    /// Whose request it is for.
+    pub(super) fn session(self) -> SessionKey {
+        match self {
+            Self::Note(key) | Self::Own(key) => key,
+        }
+    }
+}
+
+/// What a request's answer comes to.
+pub(super) enum Answer {
     Allow,
     /// Each question with its answer.
     Answers(Vec<(String, String)>),
@@ -77,41 +89,46 @@ enum Mark {
     Approved(bool, Approval),
 }
 
-/// Where an answer to a card may come from now, and since when: the card, its session's empty
-/// composer (ADR 0180) or its plan's edit (part 3d), whichever is the selected buffer.
+/// Where an answer to a request may come from now, and since when: the card, its session's empty
+/// composer (ADR 0180), its plan's edit (part 3d) or a call's line (ADR 0182), whichever is the
+/// selected buffer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::app::sessions::hosting::native) struct Current {
-    key: SessionKey,
-    place: BufferId,
-    since: Instant,
-    /// The card's window showed all of it when this was last looked at.
-    whole: bool,
+    pub(super) key: SessionKey,
+    pub(super) place: BufferId,
+    pub(super) since: Instant,
+    /// The card's, or the line's, window showed all of it when this was last looked at.
+    pub(super) whole: bool,
 }
 
 impl App {
-    /// After each sync: each request found whose card is not shown gets its card, docked
+    /// After each sync: each request found that is not shown is: a call by its block and its line
+    /// (ADR 0182), questions and a plan on the card, docked
     /// under its session's transcript; a shown card whose window's size changed is drawn at
     /// the new one.
-    pub(in crate::app::sessions::hosting::native) fn show_cards(&mut self) {
+    pub(in crate::app::sessions::hosting::native) fn show_asked(&mut self) {
         let now = Instant::now();
-        let shown: Vec<SessionKey> = (self.hosting.natives.permissions.asks.unshown())
-            .map(|ask| {
-                ask.shown = Some(now);
-                log::debug!(
-                    "native sessions: a permission card shown {} ms after its request",
-                    now.saturating_duration_since(ask.came).as_millis()
-                );
-                ask.key
-            })
-            .collect();
-        for &key in &shown {
-            self.draw_card(key);
-            self.hosting
-                .natives
-                .permissions
-                .focus_pending
-                .push((key, now));
-            // A new call in the card in front: its wait starts again.
+        let shown: Vec<(SessionKey, bool, Target)> =
+            (self.hosting.natives.permissions.asks.unshown())
+                .map(|ask| {
+                    ask.shown = Some(now);
+                    log::debug!(
+                        "native sessions: shown {} ms after its request",
+                        now.saturating_duration_since(ask.came).as_millis()
+                    );
+                    let target = super::waits_for(&ask.call.tool_name);
+                    (ask.key, ask.request().is_some(), target)
+                })
+                .collect();
+        for &(key, call, target) in &shown {
+            self.tell_tracker(key, target);
+            if call {
+                self.show_request(key);
+            } else {
+                self.draw_card(key);
+                (self.hosting.natives.permissions.focus_pending).push((key, now));
+            }
+            // A new one in the place in front: its wait starts again.
             self.wait_on_card_again(key);
         }
         // Where the docks gave a row back as a card was drawn, it is drawn once more.
@@ -133,7 +150,7 @@ impl App {
         if drawn_again == SETTLES {
             log::debug!("native sessions: a card's size had not settled");
         }
-        for &key in &shown {
+        for &(key, ..) in shown.iter().filter(|(_, call, _)| !call) {
             self.focus_card_at_once(key);
         }
         self.note_cards_on_screen();
@@ -152,7 +169,7 @@ impl App {
         let size = (self.card_size(key).or(before)).unwrap_or(size::UNSHOWN);
         let permissions = &mut self.hosting.natives.permissions;
         let Some(shown) = (permissions.asks.shown_mut(key))
-            .and_then(|ask| ask.question.as_mut())
+            .and_then(|ask| ask.question_mut())
             .map(|question| question.shown(size.0, size.1))
         else {
             return;
@@ -215,7 +232,7 @@ impl App {
             .focus_pending
             .retain(|&(pending, _)| pending != key);
         permissions.drawn.retain(|&(drawn, _)| drawn != key);
-        if matches!(permissions.writing, Some(Writing::Note(k) | Writing::Own(k)) if k == key) {
+        if (permissions.writing.as_ref()).is_some_and(|(writing, _)| writing.session() == key) {
             permissions.writing = None;
         }
         let Some(native) = self.hosting.natives.map.get(&key) else {
@@ -264,7 +281,7 @@ impl App {
             return false;
         }
         let Some((kind, multi)) = self.card_kind(key) else {
-            self.editor.message("No call waits for you here");
+            self.editor.message("Nothing waits for you here");
             return true;
         };
         // A page is no answer.
@@ -287,15 +304,14 @@ impl App {
             NativeAction::Approve(approval) if kind == Kind::Plan => {
                 self.approve_plan_card(key, approval);
             }
-            NativeAction::Allow => self.answer_card(key, Answer::Allow),
-            NativeAction::Approve(_) => self.editor.message("This card holds no plan: y allows it"),
+            NativeAction::Allow => {}
+            NativeAction::Approve(_) => self.editor.message("This card holds no plan"),
             NativeAction::EditPlan if kind == Kind::Plan => self.edit_plan(key),
             NativeAction::EditPlan => self.editor.message("This card holds no plan"),
             NativeAction::Deny => {
                 let why = match kind {
                     Kind::Questions => "The person declined to answer in oso.",
                     Kind::Plan => "The person wants you to keep planning, in oso.",
-                    Kind::Call => DENIED,
                 };
                 self.answer_card(key, Answer::Deny(why.to_owned(), BY_THE_PERSON.to_owned()));
             }
@@ -322,32 +338,53 @@ impl App {
     /// several options.
     fn card_kind(&self, key: SessionKey) -> Option<(Kind, bool)> {
         let ask = self.hosting.natives.permissions.asks.shown(key)?;
-        Some(match &ask.question.as_ref()?.card {
+        Some(match &ask.question()?.card {
             Card::Questions(questions) => (
                 Kind::Questions,
                 questions.current().is_some_and(|asked| asked.multi),
             ),
             Card::Plan { .. } => (Kind::Plan, false),
-            Card::Call { .. } => (Kind::Call, false),
         })
     }
 
     /// Opens `writing`'s prompt, whose answer comes back as [`App::card_written`].
-    fn write_for_card(&mut self, writing: Writing) {
+    pub(super) fn write_for_card(&mut self, writing: Writing) {
         let command = match writing {
             Writing::Note(_) => CARD_NOTE,
             Writing::Own(_) => CARD_OWN,
         };
+        let shown = self
+            .hosting
+            .natives
+            .permissions
+            .asks
+            .shown(writing.session());
+        let Some(of) = shown.map(|ask| ask.call.tool_use_id.clone()) else {
+            return;
+        };
         if self.open_host_prompt(command).is_some() {
-            self.hosting.natives.permissions.writing = Some(writing);
+            self.hosting.natives.permissions.writing = Some((writing, of));
         }
     }
 
-    /// The person wrote `text` for the card the last `N` or `o` asked about.
+    /// The person wrote `text` for the request the last `N` or `o` asked about, if it waits still.
     pub(in crate::app) fn card_written(&mut self, text: &str) {
-        let Some(writing) = self.hosting.natives.permissions.writing.take() else {
-            return;
+        let Some((writing, of)) = self.hosting.natives.permissions.writing.take() else {
+            return self
+                .editor
+                .message("What this was written for no longer waits");
         };
+        let shown = self
+            .hosting
+            .natives
+            .permissions
+            .asks
+            .shown(writing.session());
+        if shown.is_none_or(|ask| ask.call.tool_use_id != of) {
+            return self
+                .editor
+                .message("What this was written for no longer waits");
+        }
         match writing {
             Writing::Note(key) => {
                 let note = printable(text, permission::MAX_MESSAGE / 2);
@@ -362,7 +399,7 @@ impl App {
     /// answer goes.
     fn step_questions(&mut self, key: SessionKey, step: impl FnOnce(&mut Questions) -> Step) {
         let asks = &mut self.hosting.natives.permissions.asks;
-        let Some(question) = asks.shown_mut(key).and_then(|ask| ask.question.as_mut()) else {
+        let Some(question) = asks.shown_mut(key).and_then(|ask| ask.question_mut()) else {
             return;
         };
         let Card::Questions(questions) = &mut question.card else {
@@ -387,8 +424,8 @@ impl App {
     }
 
     /// Answers session `key`'s shown request as `answer` says: its bridge is told, its call's
-    /// row says a denial, and its card goes.
-    fn answer_card(&mut self, key: SessionKey, answer: Answer) {
+    /// row says a denial, and what it shows goes.
+    pub(super) fn answer_card(&mut self, key: SessionKey, answer: Answer) {
         let Some(ask) = self.hosting.natives.permissions.asks.take_shown(key) else {
             return;
         };
@@ -427,11 +464,16 @@ impl App {
         {
             native.mode.chose(mode);
         }
-        self.close_card(key);
+        match ask.request() {
+            Some(_) => self.close_request(key),
+            None => self.close_card(key),
+        }
+        // The session's next, at once: none of it is anyone else's to change meanwhile.
+        self.show_asked();
     }
 
-    /// `RET` on a card: it shows the call's whole input, or the whole plan, or goes back. What
-    /// it shows is made the first time.
+    /// `RET` on a plan's card: it shows the whole plan, or goes back. What it shows is made the
+    /// first time.
     fn toggle_whole(&mut self, key: SessionKey) {
         let name = self
             .hosting
@@ -442,10 +484,9 @@ impl App {
         let Some(ask) = asks.shown_mut(key) else {
             return;
         };
-        let (tool, input) = (&ask.call.tool_name, ask.call.input.as_ref());
-        if let Some(question) = ask.question.as_mut() {
+        if let Some(question) = ask.question_mut() {
             if question.details.is_none() {
-                let details = card::call::details(&name, &question.card, tool, input);
+                let details = card::call::details(&name, &question.card);
                 let shown: Vec<String> = details
                     .lines()
                     .map(|line| printable(line, details.len()))
@@ -471,7 +512,6 @@ impl App {
 /// What kind of card a key acts on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Kind {
-    Call,
     Questions,
     Plan,
 }

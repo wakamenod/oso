@@ -4,7 +4,9 @@
 
 use std::time::{Duration, Instant};
 
-use super::{Ask, Asks, Denied, FIND_WITHIN, Look, Outcome, Question, Refused};
+use serde_json::json;
+
+use super::{Ask, Asks, Block, Denied, FIND_WITHIN, Look, Outcome, Question, Refused};
 use crate::channel::Connection;
 use crate::channel::protocol::permission::Call;
 use crate::sessions::native::card::Card;
@@ -22,16 +24,17 @@ fn ask(from: u64, key: u64, id: &str, came: Instant) -> Ask<()> {
             input: None,
         },
         came,
-        question: None,
+        made: None,
+        asked: None,
         shown: None,
         reply: (),
     }
 }
 
 fn question(label: &str) -> Question {
-    Question::new(Card::Call {
-        title: label.into(),
-        lines: Vec::new(),
+    Question::new(Card::Plan {
+        plan: label.into(),
+        cut: false,
     })
 }
 
@@ -111,7 +114,7 @@ fn a_call_that_does_not_show_in_time_is_denied_and_one_found_is_asked_in_turn() 
     assert_eq!(asks.deadline(), None, "only found ones wait");
     let next = asks.unshown().next().unwrap();
     assert!(
-        matches!(&next.question.as_ref().unwrap().card, Card::Call { title, .. } if title == "run make?")
+        matches!(&next.question().unwrap().card, Card::Plan { plan, .. } if plan == "run make?")
     );
     next.shown = Some(start);
     assert!(asks.unshown().next().is_none(), "its card is shown");
@@ -152,6 +155,35 @@ fn a_found_call_that_stops_waiting_or_differs_is_denied_before_it_is_asked() {
         ]
     );
     assert!(asks.is_empty());
+}
+
+#[test]
+fn a_call_is_shown_by_the_block_made_of_it_and_denied_with_none() {
+    let now = Instant::now();
+    let mut asks = Asks::default();
+    let block = Block::call("Bash", Some(&json!({"command": "ls"})), now);
+    let mut made = ask(1, 7, "t1", now);
+    made.made = Some(Box::new(block.clone()));
+    asks.push(made);
+    asks.push(ask(2, 7, "t2", now));
+    asks.push(ask(3, 8, "t3", now));
+    assert_eq!(asks.count(7), 0);
+    let outcomes = asks.look(now, |ask| match ask.key {
+        7 => Look::Call,
+        _ => Look::Found(question("q")),
+    });
+    assert_eq!(denied(&outcomes), [("t2".to_owned(), Denied::Unreadable)]);
+    // Found, it is as it was made.
+    asks.look(now, |_| Look::Call);
+    assert_eq!((asks.count(7), asks.count(8)), (1, 1));
+    for ask in asks.unshown() {
+        ask.shown = Some(now);
+    }
+    let shown = asks.shown(7).unwrap();
+    assert_eq!(shown.request().unwrap().block, block);
+    assert!(shown.question().is_none() && shown.made.is_none());
+    let card = asks.shown(8).unwrap();
+    assert!(card.request().is_none() && card.question().is_some());
 }
 
 #[test]

@@ -221,7 +221,9 @@ one layer:
   modeline, as a native session's composer is under its transcript
   ([ADR 0170](adr/0170-docked-windows-under-a-sessions-transcript.md)). It takes as many rows as its
   text wraps to, but a permission card a row a line: its host breaks its rows at its width, and it
-  never wraps ([ADR 0180](adr/0180-a-permission-card-that-stands-out-and-is-read-as-it-is.md)).
+  never wraps ([ADR 0180](adr/0180-a-permission-card-that-stands-out-and-is-read-as-it-is.md)). A
+  request's line is a row a line too, and gives up none
+  ([ADR 0182](adr/0182-a-native-sessions-requests-in-its-conversation.md)).
 - Each window has its own selection set, so the same buffer in two windows can
   be edited at different places.
 - Two windows can be a pair that scrolls together, as a review's two sides do: one run of two

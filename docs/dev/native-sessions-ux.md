@@ -20,7 +20,8 @@ The author chose (a) on each question of section 6 on 2026-11-21, through the sp
 orchestrator:
 
 - **The permission card** is docked between the transcript and the composer, and goes once
-  answered; the tool row says what came of it (proposal 8, step 2).
+  answered; the tool row says what came of it (proposal 8, step 2). Since 2026-11-24 a call is asked in
+  the conversation instead, at its end, with its line docked (ADR 0182).
 - **The status** is the session window's modeline: model, mode, `ctx N%`, cost and the rate
   limit's window, each once (proposal 13, step 3).
 - **The to-do list** is a strip pinned above the composer, one line, opened to at most 6 rows
@@ -174,7 +175,8 @@ A tool row unfolded with `TAB`:
 ```
 
 A permission card, docked between the transcript and the composer (as built, ADR 0180: the title is
-on the frame's top, and the keys, on chips, on its bottom):
+on the frame's top, and the keys, on chips, on its bottom; a call is asked in the conversation since
+ADR 0182):
 
 ```text
   ◌ Bash git push origin fix-login

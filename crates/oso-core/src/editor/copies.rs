@@ -244,6 +244,7 @@ impl Editor {
             | Mode::SessionMove
             | Mode::NativeSession
             | Mode::Card
+            | Mode::Request
             | Mode::Plan
             | Mode::GitDiscarded
             | Mode::Sessions => {}

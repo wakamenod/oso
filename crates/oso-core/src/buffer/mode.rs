@@ -102,10 +102,14 @@ pub enum Mode {
     /// A native agent session's conversation, `*claude: NAME*`, which oso writes from the
     /// session's stream (ADR 0165).
     NativeSession,
-    /// A native session's permission card, `*card: NAME*`, docked under its transcript: what a
-    /// call that waits for the person asks, which oso writes, with keys of its own to answer it
+    /// A native session's card, `*card: NAME*`, docked under its transcript: what questions or a
+    /// plan that wait for the person ask, which oso writes, with keys of its own to answer them
     /// (ADR 0165, step 2e-2; ADR 0170).
     Card,
+    /// The line of a native session's request, `*request: NAME*`, docked under its transcript:
+    /// the keys that answer the call whose block ends the transcript, which oso writes
+    /// (ADR 0182).
+    Request,
     /// A native session's plan being edited before it is approved, `*plan: NAME*`, shown in
     /// place of its transcript: Claude's plan, then the person's (ADR 0165, part 3d).
     Plan,
@@ -200,6 +204,7 @@ impl Mode {
             Self::SessionMove => "Session Move",
             Self::NativeSession => "Session",
             Self::Card => "Card",
+            Self::Request => "Request",
             Self::Plan => "Plan",
         }
     }
@@ -256,6 +261,7 @@ impl Mode {
             | Self::SessionMove
             | Self::NativeSession
             | Self::Card
+            | Self::Request
             | Self::Plan => None,
         };
         given.unwrap_or_default()
@@ -317,6 +323,7 @@ impl Mode {
             | Self::SessionMove
             | Self::NativeSession
             | Self::Card
+            | Self::Request
             | Self::GitDiscarded
             | Self::Sessions => None,
         }

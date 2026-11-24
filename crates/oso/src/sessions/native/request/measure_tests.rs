@@ -11,7 +11,7 @@ use super::tests::block;
 use super::*;
 
 /// The middle and the 98th hundredth of 200 runs of `run`.
-fn times(mut run: impl FnMut()) -> String {
+pub(crate) fn times(mut run: impl FnMut()) -> String {
     let mut took: Vec<Duration> = (0..200)
         .map(|_| {
             let started = Instant::now();
@@ -57,7 +57,7 @@ fn view(block: &Block, from: usize) -> View {
 }
 
 /// Calls of each size and some made to cost much: what each is, its tool and its input.
-fn calls() -> Vec<(&'static str, &'static str, Value)> {
+pub(crate) fn calls() -> Vec<(&'static str, &'static str, Value)> {
     let code = "    let target = redirect(&req).location();\n";
     let old: String = (0..1200).map(|n| format!("{n}{}", &code[..20])).collect();
     vec![

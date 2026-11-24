@@ -95,7 +95,7 @@ fn value() -> impl Strategy<Value = Value> {
 }
 
 /// A tool and the input of a call of it.
-fn call() -> impl Strategy<Value = (String, Value)> {
+pub(crate) fn call() -> impl Strategy<Value = (String, Value)> {
     let tool = prop_oneof![
         prop::sample::select(&["Bash", "Edit", "MultiEdit", "Write", "Read", "mcp__x__y"][..])
             .prop_map(str::to_owned),
@@ -163,7 +163,7 @@ fn face_at(body: &Rendered, at: usize) -> Option<Face> {
 
 /// Says what of `body` is not as it must be: each line starts with oso's mark, in oso's face or a
 /// changed line's, or is oso's words, and Claude's text is in neither place.
-fn only_oso_stands_first(body: &Rendered) -> Result<(), String> {
+pub(crate) fn only_oso_stands_first(body: &Rendered) -> Result<(), String> {
     let mut at = 0;
     for line in body.text.split_inclusive('\n') {
         let start = at;

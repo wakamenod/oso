@@ -81,6 +81,7 @@ pub oso_core::buffer::Mode::Markdown
 pub oso_core::buffer::Mode::NativeSession
 pub oso_core::buffer::Mode::Plan
 pub oso_core::buffer::Mode::RenamePreview
+pub oso_core::buffer::Mode::Request
 pub oso_core::buffer::Mode::Review
 pub oso_core::buffer::Mode::ReviewCommits
 pub oso_core::buffer::Mode::ReviewFiles
@@ -2001,6 +2002,8 @@ pub oso_core::editor::NativeAction::Other
 pub oso_core::editor::NativeAction::Page(isize)
 pub oso_core::editor::NativeAction::Prompt(isize)
 pub oso_core::editor::NativeAction::Queue
+pub oso_core::editor::NativeAction::ReadOn(isize)
+pub oso_core::editor::NativeAction::Request
 pub oso_core::editor::NativeAction::Send
 pub oso_core::editor::NativeAction::SendNow
 pub oso_core::editor::NativeAction::Suggestion
@@ -2008,6 +2011,7 @@ pub oso_core::editor::NativeAction::Todo
 pub oso_core::editor::NativeAction::Toggle
 pub oso_core::editor::NativeAction::Tool(isize)
 pub oso_core::editor::NativeAction::Transcript
+pub oso_core::editor::NativeAction::Unread
 impl core::clone::Clone for oso_core::editor::NativeAction
 pub fn oso_core::editor::NativeAction::clone(&self) -> oso_core::editor::NativeAction
 impl core::cmp::Eq for oso_core::editor::NativeAction

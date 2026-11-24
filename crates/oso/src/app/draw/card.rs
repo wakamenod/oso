@@ -1,7 +1,8 @@
-//! What a native session's permission card draws behind its text (ADR 0180): the band behind
-//! its title row, and a chip behind each key of its own. A chip is where the card's highlights
-//! say a key is, which only `sessions::native::card` gives, and only to oso's own words: what
-//! Claude's text holds is never looked at.
+//! What a native session's card and a request's line draw behind their text (ADR 0180, ADR 0182):
+//! the band behind a card's title row, or each row of a line, and a chip behind each key of oso's. A
+//! chip is where the highlights say a key is, which only `sessions::native::card` and
+//! `sessions::native::request` give, and only to oso's own words: what Claude's text holds is never
+//! looked at.
 //!
 //! Must not depend on: key presses or commands; a frame only reads the editor's state.
 
@@ -14,7 +15,7 @@ use oso_render::Face;
 
 use super::chip::chip;
 
-/// The face docked window `id` is drawn over, if it is one: a permission card's own, and the
+/// The face docked window `id` is drawn over, if it is one: a card's or a line's own, and the
 /// float's for the others (ADR 0170).
 pub(super) fn dock_face(editor: &Editor, id: WindowId) -> Option<Face> {
     match editor.window_by_id(id)?.docked()?.1 {
@@ -31,7 +32,7 @@ pub(super) struct CardFills {
 }
 
 impl CardFills {
-    /// Fills in what window `id`, as `screen` shows it, draws behind a card, if it shows one,
+    /// Fills in what window `id`, as `screen` shows it, draws behind a card or a line, if it shows one,
     /// which has no band of the current line's, `band`.
     pub(super) fn fill(
         &mut self,
@@ -43,7 +44,7 @@ impl CardFills {
         self.keys.clear();
         let Some(buffer) = (editor.window_by_id(id))
             .and_then(|window| editor.buffer(window.buffer()))
-            .filter(|buffer| buffer.mode() == Mode::Card)
+            .filter(|buffer| matches!(buffer.mode(), Mode::Card | Mode::Request))
         else {
             return;
         };
@@ -59,7 +60,7 @@ impl CardFills {
                 rows: 1,
                 ..text
             };
-            if row.line == 0 {
+            if row.line == 0 || buffer.mode() == Mode::Request {
                 self.title.push(on_row);
             }
             let Some(highlights) = highlights else {
@@ -88,7 +89,6 @@ mod tests {
 
     use super::*;
     use crate::sessions::native::card::{Card, Question};
-    use crate::sessions::native::render::Face as CardFace;
 
     #[test]
     fn a_cards_title_has_a_band_and_only_osos_keys_have_chips() {
@@ -101,9 +101,9 @@ mod tests {
         editor.show(host);
         let id = editor.add_internal_buffer("*card: s*", Mode::Card);
         // Claude's text says what a card's keys say.
-        let card = Card::Call {
-            title: "Bash wants to run".into(),
-            lines: vec![("$  y  allow once   n  deny".into(), CardFace::Target)],
+        let card = Card::Plan {
+            plan: " y  approve   n  no".into(),
+            cut: false,
         };
         let shown = Question::new(card).shown(80, 12);
         editor.set_internal_text(id, &shown.text);
@@ -128,13 +128,59 @@ mod tests {
         let keys: Vec<_> = (fills.keys.iter())
             .map(|r| (r.row - text.row, r.column - text.column, r.columns))
             .collect();
-        // `╰─  y  allow once  n  deny …`: each key's cells with a space on each side.
-        assert_eq!(keys[..2], [(2, 3, 3), (2, 18, 3)]);
-        assert_eq!(keys.len(), 4, "y, n, N and RET: {keys:?}");
+        // `╰─  y  approve  a  accept edits …`: each key's cells with a space on each side.
+        assert_eq!(keys[..2], [(2, 3, 3), (2, 15, 3)]);
+        assert_eq!(keys.len(), 7, "each key of a plan's card: {keys:?}");
         assert!(keys.iter().all(|(row, ..)| *row == 2), "{keys:?}");
         // Another window draws none.
         let tree = editor.window().id();
         fills.fill(&editor, (tree, &screen), &mut Vec::new());
         assert!(fills.title.is_empty() && fills.keys.is_empty());
+    }
+
+    #[test]
+    fn a_requests_line_is_a_band_on_every_row_with_a_chip_on_each_lit_key() {
+        use crate::sessions::native::request::line::{Says, line};
+        use crate::sessions::native::request::{Block, Request};
+        let mut editor = Editor::default();
+        editor.set_frame_size(FrameSize {
+            rows: 24,
+            columns: 40,
+        });
+        let host = editor.add_native_session_buffer("*claude: s*");
+        editor.show(host);
+        let id = editor.add_internal_buffer("*request: s*", Mode::Request);
+        let input = serde_json::json!({"command": "ls"});
+        let block = Block::call("Bash", Some(&input), std::time::Instant::now());
+        let request = Request::new(block);
+        let mut fill = |answers| {
+            let says = Says {
+                here: true,
+                answers,
+            };
+            let line = line(&request.block, &request.reading, says, 40);
+            editor.set_internal_text(id, &line.shown.text);
+            let mut highlights = Highlights::new(line.shown.text.len());
+            for (range, face) in &line.shown.faces {
+                highlights.replace(range.clone(), [(range.len(), Some(face.highlight()))]);
+            }
+            let _ = editor.set_internal_highlights(id, highlights);
+            editor.set_dock(host, DockSlot::Card, Some(id));
+            let window = editor.dock_window(host, DockSlot::Card).unwrap();
+            let text = editor.regions(window).unwrap().text;
+            let mut screen = Screen::default();
+            editor.screen_of(window, &mut screen);
+            let (mut fills, mut band) = (CardFills::default(), vec![text]);
+            fills.fill(&editor, (window, &screen), &mut band);
+            assert!(band.is_empty(), "no current line's band");
+            assert!(fills.title.iter().all(|row| row.columns == text.columns));
+            assert_eq!(dock_face(&editor, window), Some(Face::Card));
+            (line.rows, fills.title.len(), fills.keys.len())
+        };
+        let (rows, bands, keys) = fill(true);
+        assert!(rows > 1 && bands == rows, "{bands} of {rows}");
+        assert!(keys >= 3, "{keys}");
+        // Dim, no key has a chip.
+        assert_eq!(fill(false), (rows, rows, 0));
     }
 }

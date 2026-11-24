@@ -45,7 +45,7 @@ fn recorded() -> Vec<&'static str> {
 }
 
 /// A line: a recorded one, one cut short, a shape of each kind with odd values, or bytes.
-fn line() -> impl Strategy<Value = Vec<u8>> {
+pub(crate) fn line() -> impl Strategy<Value = Vec<u8>> {
     let lines = recorded();
     let count = lines.len();
     prop_oneof![

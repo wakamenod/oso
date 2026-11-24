@@ -214,7 +214,7 @@ const BRIEF_REFUSED: &str = concat!(
 
 /// Why the agent may not change a window docked under a session's transcript (ADR 0170).
 /// Why an agent's command of `reach` does not run in the selected window, if it is docked: a
-/// docked window's text is a session's, the person's to write (ADR 0170); a permission card is
+/// docked window's text is a session's, the person's to write (ADR 0170); a card or a request's line is
 /// theirs to read too, as no view of it may hide what it asks (ADR 0165, step 2e-2). So is a
 /// plan being edited, though not docked: a region or cursors an agent left would steer the
 /// person's typing into what `C-c C-c` approves (part 3d).
@@ -235,9 +235,9 @@ const DOCK_REFUSED: &str = "what is docked under a session is the person's; ask 
 const PLAN_REFUSED: &str =
     "a native session's plan is being edited: it is the person's to write and approve";
 
-/// What an agent is told while a native session's permission card is selected.
+/// What an agent is told while a native session's card or request's line is selected.
 const CARD_REFUSED: &str =
-    "a native session's permission card is selected: it is the person's to read and answer";
+    "a native session's request is selected: it is the person's to read and answer";
 
 /// Why the agent may not delete the side window.
 const SIDE_REFUSED: &str = "hiding the list of sessions is the person's";
@@ -400,6 +400,7 @@ fn has_own_keys(mode: Mode) -> bool {
         | Mode::GitDiscarded
         | Mode::NativeSession
         | Mode::Card
+        | Mode::Request
         | Mode::Plan
         | Mode::Sessions => true,
         Mode::Fundamental
@@ -473,7 +474,7 @@ mod tests {
             Given::Count(2),
             Reach::Look,
         );
-        assert!(why.contains("permission card"), "{why}");
+        assert!(why.contains("request is selected"), "{why}");
         let why = refusal(
             &mut dispatcher,
             &mut editor,
@@ -481,7 +482,36 @@ mod tests {
             Given::Nothing,
             Reach::Look,
         );
-        assert!(why.contains("permission card"), "{why}");
+        assert!(why.contains("request is selected"), "{why}");
+    }
+
+    #[test]
+    fn no_command_of_an_agents_runs_while_a_requests_line_is_selected() {
+        use oso_core::buffer::Mode;
+        use oso_core::window::DockSlot;
+        let (mut dispatcher, mut editor) = (Dispatcher::new(), editor(""));
+        let host = editor.add_native_session_buffer("*claude: s*");
+        editor.show(host);
+        let line = editor.add_internal_buffer("*request: s*", Mode::Request);
+        editor.set_internal_text(line, " y  allow   n  deny");
+        editor.set_dock(host, DockSlot::Card, Some(line));
+        let window = editor.dock_window(host, DockSlot::Card).unwrap();
+        editor.select_window(window);
+        // Not even a look, as a scroll could hide the keys.
+        for (name, given, reach) in [
+            ("scroll-up-command", Given::Count(2), Reach::Look),
+            ("other-window", Given::Nothing, Reach::Look),
+            ("toggle-truncate-lines", Given::Nothing, Reach::Look),
+            ("insert", Given::Text("y"), Reach::Change),
+        ] {
+            let why = refusal(&mut dispatcher, &mut editor, name, given, reach);
+            assert!(
+                why.contains("the person's to read and answer"),
+                "{name}: {why}"
+            );
+        }
+        assert_eq!(editor.tiled().0.id(), window);
+        assert!(super::has_own_keys(Mode::Request));
     }
 
     /// A plan's edit (ADR 0165, part 3d) takes no command of an agent's, a look included, as

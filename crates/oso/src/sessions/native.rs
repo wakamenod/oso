@@ -60,10 +60,6 @@ pub mod queue;
 pub mod recap;
 pub mod remote;
 pub mod render;
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "nothing shows a request until ADR 0182's R1c")
-)]
 pub mod request;
 pub mod rows;
 pub mod shown;
@@ -78,7 +74,7 @@ pub mod usage;
 pub mod wire;
 
 #[cfg(test)]
-mod fuzz_tests;
+pub(crate) mod fuzz_tests;
 #[cfg(test)]
 mod tests;
 

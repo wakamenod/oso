@@ -38,7 +38,6 @@ impl App {
     /// The window is in front again, as its event or the dev socket's `window-focus` says.
     pub(super) fn window_gained_focus(&mut self) {
         self.window_focused();
-        self.card_seen_again();
         self.look_at_configuration_again();
         self.list_adoptable_on_focus();
         self.look_at_binary();
@@ -71,6 +70,8 @@ impl App {
         self.sync_native_sessions();
         self.sync_servers();
         self.sync_pane_directory();
+        // After what may change what its window shows.
+        self.sync_requests();
         // Once for all the changes the event made to the sessions (ADR 0121).
         self.save_sessions();
         // And to the recent files (ADR 0148).
@@ -132,7 +133,7 @@ impl App {
                 self.handle_agent(event_loop, request);
             }
             UserEvent::AgentStarted(started) => self.agent_started(started),
-            UserEvent::SessionSocket(request) => self.handle_session_socket(request),
+            UserEvent::SessionSocket(request, made) => self.handle_session_socket(request, made),
             UserEvent::SessionSocketStarted(started) => self.sessions_socket_started(started),
             UserEvent::Sessions(out) => self.sessions_reported(out),
             UserEvent::SessionStart(report) => self.session_start_reported(report),
@@ -221,6 +222,10 @@ impl App {
         self.begin_logging();
         if let Some(focused) = focus_after(&event) {
             self.terminals.focused = focused;
+            self.note_window_in_front(focused);
+        }
+        if let Event::Occluded(hidden) = event {
+            self.note_window_hidden(hidden);
         }
         // An exit only sets a flag, and the loop still delivers what is queued. Input
         // handled now, by any path, would be lost with the process. But a leave can be
@@ -242,7 +247,6 @@ impl App {
             // ---- Visible again: frames skipped while occluded need a redraw ----
             Event::Occluded(false) => {
                 self.sessions_occluded(false);
-                self.card_seen_again();
                 self.reviews_occluded(false);
                 self.request_redraw();
             }

@@ -1,14 +1,14 @@
-//! A native session's permission card (ADR 0165, step 2e-2, the author's (a) on Q1 to Q4;
-//! ADR 0170's `Card` dock): what a call that waits for the person shows, as text and faces, and
-//! the answers of an `AskUserQuestion` as the person gives them. `call` makes the card of a
-//! call from what it says.
+//! A native session's card (ADR 0165, step 2e-2, the author's (a) on Q1 to Q4; ADR 0170's `Card`
+//! dock): what an `AskUserQuestion` or an `ExitPlanMode` that waits for the person shows, as text
+//! and faces, and the answers of the questions as the person gives them. `call` makes the card
+//! from what the request says. Another call is a block in the conversation (ADR 0182).
 //!
 //! Must not depend on: threads, the stream or the UI; the caller gives what the call says, the
 //! card's width and the keys' meaning, and docks the text.
 //!
 //! - oso's words are the card's first row, its title, and its last, the keys, the top and the
 //!   bottom of its frame; what Claude
-//!   wrote (a command, a diff, a reason, a question, its options, a plan) is fenced between
+//!   wrote (a question, its options, a plan) is fenced between
 //!   them, each row of it after the frame's left side, `│ `, in a face of its own, so that none
 //!   of it can stand as a key row or pass for oso's own words (ADR 0170). The frame and the
 //!   title are in [`Face::CardTitle`] and the keys' chips in [`Face::CardKey`], which oso's own
@@ -18,10 +18,9 @@
 //!   the display draws it, the rows it goes on to fenced `┊ `: no text of Claude's runs past
 //!   the card's edge or wraps unfenced, and a row is one row on screen. A mark that would
 //!   start a row goes on `◌`, as it would join the fence.
-//! - A call's card is at most [`MAX_ROWS`] rows; what is left out says so, and `RET` shows all
-//!   of it in the card, at most [`MAX_WHOLE`] rows, with the keys on its title row. A question's
-//!   and a plan's grow to what they say, up to the rows the caller has, and page past that
-//!   (`body`): an option may be chosen only once it has been on screen (ADR 0180).
+//! - A card grows to what it says, up to the rows the caller has, and pages past that (`body`): an
+//!   option may be chosen only once it has been on screen (ADR 0180). `RET` shows a whole plan in
+//!   it, at most [`MAX_WHOLE`] rows, with the keys on its title row.
 //! - A question's answer is an option's label, or several joined by `, ` (measured, CLI
 //!   2.1.330), or the person's own words.
 
@@ -33,23 +32,20 @@ mod rows;
 use self::body::{Body, Page};
 pub use self::call::question;
 pub use self::frame::Shown;
-use self::frame::{BOTTOM, Key, MIN_WIDTH, TOP, chips, room_in};
+use self::frame::{BOTTOM, Key, MIN_WIDTH, chips, room_in};
 use self::rows::{Break, Row, rows_of};
 use super::render::Face;
 use super::wire::card::Asked;
 
-/// The most rows a call's card has: its title, what it fences and its keys (ADR 0170).
-pub const MAX_ROWS: usize = 12;
-/// The most rows of Claude's text a call's card fences, with its keys on one row.
-#[cfg(test)]
-const MAX_FENCED: usize = MAX_ROWS - 2;
+/// The rows a card is drawn in while no window shows it.
+pub const UNSHOWN_ROWS: usize = 12;
 /// The most rows `RET`'s whole view fences.
 pub const MAX_WHOLE: usize = 2000;
 /// The narrowest window a card is read in, in cells: a narrower one cuts each of its rows.
 pub const NARROWEST: usize = MIN_WIDTH;
 
-/// What the person is asked about a call: its card, what `RET` shows of it whole, once
-/// asked, whether the card shows that now, and where a question's or a plan's page is.
+/// What a card asks the person: what `RET` shows of it whole, once
+/// asked, whether the card shows that now, and where its page is.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Question {
     pub card: Card,
@@ -69,9 +65,10 @@ impl Question {
         }
     }
 
-    /// Whether the card grows to what it says, and pages past that: a question or a plan.
+    /// Whether the card grows to what it says, and pages past that: not while it shows all of a
+    /// plan.
     pub fn grows(&self) -> bool {
-        !matches!(self.card, Card::Call { .. }) && !self.whole
+        !self.whole
     }
 
     /// The card as text `width` cells wide and, if it [grows](Self::grows), at most `room` rows
@@ -82,7 +79,6 @@ impl Question {
         }
         let keys = self.card.keys();
         match &self.card {
-            Card::Call { title, lines } => call_shown(title, lines, keys, width),
             Card::Questions(questions) => {
                 (self.page).shown((width, room), keys, || Body::question(questions, width))
             }
@@ -113,7 +109,7 @@ impl Question {
         match &self.card {
             Card::Questions(questions) => (questions.current())
                 .is_some_and(|asked| (1..=asked.options.len()).contains(&number)),
-            Card::Call { .. } | Card::Plan { .. } => false,
+            Card::Plan { .. } => false,
         }
     }
 
@@ -139,12 +135,6 @@ impl Question {
 /// What a card asks.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Card {
-    /// May a call run: `title`, such as `Bash wants to run`, then Claude's `lines`, each with
-    /// its face.
-    Call {
-        title: String,
-        lines: Vec<(String, Face)>,
-    },
     /// Questions to answer.
     Questions(Questions),
     /// A plan to approve, and whether the request cut it.
@@ -155,12 +145,6 @@ impl Card {
     /// Its keys, the card's last row.
     fn keys(&self) -> &'static [Key] {
         match self {
-            Self::Call { .. } => &[
-                ("y", "allow once", "allow"),
-                ("n", "deny", "deny"),
-                ("N", "deny with a note", "note"),
-                ("RET", "the whole call", "all"),
-            ],
             Self::Questions(questions) if questions.current().is_some_and(|asked| asked.multi) => {
                 &[
                     ("1-9", "choose or unchoose", "choose"),
@@ -186,40 +170,6 @@ impl Card {
             ],
         }
     }
-}
-
-/// A call's card as text `width` cells wide: its `title`, Claude's `lines` fenced, at most
-/// [`MAX_ROWS`] rows with them, and its `keys`, the title and the keys the frame's top and bottom.
-fn call_shown(title: &str, lines: &[(String, Face)], keys: &[Key], width: usize) -> Shown {
-    let mut shown = Shown::default();
-    // Cut to the card: what the title says first, as a warning, stays in sight.
-    shown.edge(TOP, &[(title.to_owned(), Face::CardTitle)], width);
-    let room = room_in(width);
-    let keys = chips("", keys, width);
-    // A second row of keys takes one of Claude's.
-    let most = MAX_ROWS.saturating_sub(1 + keys.len()).max(1);
-    let mut rows = Vec::new();
-    let mut more = false;
-    for (line, face) in lines {
-        let (broken, left) = rows_of(line, room, Break::Exact, most + 1 - rows.len());
-        rows.extend(broken.into_iter().map(|row| (row, *face)));
-        if left || rows.len() > most {
-            more = true;
-            break;
-        }
-    }
-    if more {
-        rows.truncate(most - 1);
-    }
-    for (row, face) in &rows {
-        shown.fenced_row(row, *face, width);
-    }
-    if more {
-        let said = Row::said("… more rows: RET shows all", room);
-        shown.fenced_row(&said, Face::Dim, width);
-    }
-    shown.bottom(&keys, width);
-    shown
 }
 
 /// `card` shown whole, `details`, as `RET` asks, `width` cells wide: its keys on the title row,

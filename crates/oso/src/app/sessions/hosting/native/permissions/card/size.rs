@@ -14,7 +14,7 @@ use crate::sessions::native::card::{self, Question};
 use crate::sessions::worker::SessionKey;
 
 /// What a card is drawn at while no window shows its session.
-pub(super) const UNSHOWN: (usize, usize) = (80, card::MAX_ROWS);
+pub(super) const UNSHOWN: (usize, usize) = (80, card::UNSHOWN_ROWS);
 /// The rows of the transcript a card that grows leaves.
 const TRANSCRIPT: usize = 4;
 /// The most rows a card that grows takes: what its dock gives it.
@@ -52,7 +52,7 @@ impl App {
             return None;
         }
         let question = self.hosting.natives.permissions.asks.shown(key);
-        let grows = (question.and_then(|ask| ask.question.as_ref())).is_some_and(Question::grows);
+        let grows = (question.and_then(|ask| ask.question())).is_some_and(Question::grows);
         let rows = if grows {
             room(carrier.text.rows, shown.map_or(0, |shown| shown.rows))
         } else {

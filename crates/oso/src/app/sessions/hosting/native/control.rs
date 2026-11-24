@@ -124,7 +124,7 @@ impl App {
     }
 
     /// When a native session's control layer, interrupt, mode switch, Remote Control request,
-    /// card focus or `get_usage` is next due, if one is. A request that waits on a process that ended waits
+    /// card focus, a request's reading or line, or `get_usage` is next due, if one is. A request that waits on a process that ended waits
     /// for nothing.
     pub(in crate::app) fn natives_deadline(&self) -> Option<Instant> {
         // A permission card that waits for point, too (step 2e-2).
@@ -139,14 +139,17 @@ impl App {
                     .chain(native.remote.deadline())
             })
             .chain(card)
+            .chain(self.request_read_deadline())
+            .chain(self.line_lit_deadline())
             .chain(self.usage_deadline())
             .min()
     }
 
     /// Carries out what is due of each native session's control layer, interrupt, mode switch,
-    /// Remote Control request, card focus and `get_usage` at `now`.
+    /// Remote Control request, card focus, requests and `get_usage` at `now`.
     pub(in crate::app) fn natives_due(&mut self, now: Instant) {
         self.card_focus_due(now);
+        self.requests_due(now);
         self.usage_due(now);
         let processes: Vec<_> = (self.hosting.natives.map.keys())
             .filter_map(|key| Some((*key, self.mode_process(*key)?)))

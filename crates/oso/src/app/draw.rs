@@ -137,6 +137,7 @@ pub(super) fn with_frame<R>(
         gutters: &rows.1,
         statuses,
         placeholders: (&hints, &hint_lines),
+        natives,
         flash: cells.flash,
     };
     // A prompt's float goes over the tiled panes.
@@ -381,28 +382,17 @@ impl App {
         self.note_placeholder();
         // A load, a reload or a key may have given the line count another digit (ADR 0097).
         self.editor.fit_gutter();
+        // What this frame shows of a request, from the state it is built of (ADR 0182).
+        self.note_frame_of_requests();
         let Some(view) = self.view.as_mut() else {
             return;
         };
-        // A switch of theme costs this frame only: nothing is shaped again (ADR 0089). The
-        // editor's names are the renderer's, so it never refuses one.
-        let wanted = self.editor.theme_name();
-        if let Some(name) = wanted.filter(|_| wanted != view.theme) {
-            match view.render_state.set_theme(name) {
-                Some(_) => view.theme = Some(name),
-                None => debug_assert!(false, "the renderer has no theme named {name}"),
-            }
-            super::terminals::retheme(
-                &self.terminals.map,
-                &self.terminals.palettes,
-                self.editor.theme(),
-            );
-        }
+        take_theme(view, &self.editor, &self.terminals);
         let window = &view.window;
         let window_size = || window.inner_size();
         statuses_into(&self.editor, &mut self.statuses);
-        #[cfg(feature = "dev")]
         let presented = view.render_state.presented_frames();
+        let fits = view.render_state.frame_size() == self.editor.frame().size();
         #[cfg(feature = "dev")]
         let rendering = Instant::now();
         let render_state = &mut view.render_state;
@@ -418,6 +408,11 @@ impl App {
         // `Resized` says so, and panes stop at their regions, so the editor catches
         // up now.
         let size = view.render_state.frame_size();
+        // Every glyph of it, at the size it was laid out for, before and after.
+        let whole = fits
+            && matches!(result, Ok(Redraw::NotNeeded))
+            && view.render_state.presented_frames() > presented
+            && size == self.editor.frame().size();
         if size != self.editor.frame().size() {
             self.editor.set_frame_size(size);
             view.window.request_redraw();
@@ -457,7 +452,22 @@ impl App {
             // Not fatal: the frame is skipped and the next one retries.
             Err(e) => log::error!("render error: {e}"),
         }
+        self.frame_of_requests_drawn(whole);
     }
+}
+
+/// Draws in the theme the editor names, from this frame on. A switch costs this frame only: nothing is
+/// shaped again (ADR 0089). The editor's names are the renderer's, so it never refuses one.
+fn take_theme(view: &mut View, editor: &Editor, terminals: &super::terminals::Host) {
+    let wanted = editor.theme_name();
+    let Some(name) = wanted.filter(|_| wanted != view.theme) else {
+        return;
+    };
+    match view.render_state.set_theme(name) {
+        Some(_) => view.theme = Some(name),
+        None => debug_assert!(false, "the renderer has no theme named {name}"),
+    }
+    super::terminals::retheme(&terminals.map, &terminals.palettes, editor.theme());
 }
 
 #[cfg(test)]

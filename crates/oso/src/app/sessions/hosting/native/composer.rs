@@ -30,6 +30,7 @@ use oso_core::editor::{Editor, NativeAction};
 use oso_core::window::{DockSlot, WindowId};
 
 use super::NativeSessions;
+use super::carrier::carrier;
 use super::interrupting::Interrupted;
 use super::note::NativeState;
 use crate::app::App;
@@ -161,6 +162,7 @@ impl App {
             NativeAction::History(count) => self.composer_history(key, count),
             NativeAction::Transcript => self.composer_go(key, false),
             NativeAction::Compose => self.composer_go(key, true),
+            NativeAction::Request => self.go_to_request(key),
             NativeAction::Queue => self.queue_go(key, 0),
             NativeAction::Suggestion => self.suggestion_to_composer(key),
             // The transcript's and the composer's `S-TAB` (part 3b).
@@ -185,6 +187,8 @@ impl App {
             | NativeAction::Choose(_)
             | NativeAction::Other
             | NativeAction::Page(_)
+            | NativeAction::ReadOn(_)
+            | NativeAction::Unread
             | NativeAction::Todo
             | NativeAction::EditPlan
             | NativeAction::Approve(_)
@@ -321,22 +325,14 @@ impl App {
         }
     }
 
-    /// The window that carries native session `key`'s composer, which shows `transcript`: it
-    /// holds the composer's cells inside its own. With the composer hidden, the selected window,
-    /// if it shows it.
+    /// The window that carries native session `key`'s composer, which shows `transcript`. With the
+    /// composer hidden, the selected window, if it shows it.
     fn transcript_carrier(&mut self, key: SessionKey, transcript: BufferId) -> Option<WindowId> {
-        let composer = self.composer(key);
-        let docked = composer.and(self.editor.dock_window(transcript, DockSlot::Composer));
-        let Some(inside) = docked.and_then(|id| Some(self.editor.regions(id)?.text)) else {
+        self.composer(key);
+        let carried = carrier(&self.editor, transcript, DockSlot::Composer).map(|(id, _)| id);
+        carried.or_else(|| {
             let (selected, _) = self.editor.tiled();
-            return (selected.buffer() == transcript).then(|| selected.id());
-        };
-        (self.editor.frame().windows().iter()).find_map(|(id, regions)| {
-            let window = self.editor.window_by_id(*id)?;
-            let area = regions.area();
-            let holds = (area.row..regions.modeline.row).contains(&inside.row)
-                && (area.column..area.column + area.columns).contains(&inside.column);
-            (window.docked().is_none() && window.buffer() == transcript && holds).then_some(*id)
+            (selected.buffer() == transcript).then(|| selected.id())
         })
     }
 

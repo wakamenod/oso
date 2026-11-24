@@ -655,6 +655,10 @@ As built:
   wrap could hide what it asks. A held answer key
   answers once (ADR 0072). Its other keys, as `C-c C-o` (`native-card-leave`) or `C-x o` to
   leave it, are any buffer's. Answered, the card goes and point goes to the composer.
+- **Amended by [ADR 0182](0182-a-native-sessions-requests-in-its-conversation.md), R1c
+  (2026-11-24):** a call is no card: it is a block in the conversation, answered from a line, and
+  no letter answers it from the composer. Questions and plans keep the card until that ADR's R2 and
+  R3. Only a key pressed now answers either: no macro's, and none held back.
 - **Amended 2026-11-24 (the author):** while a request waits in front of the person (its card,
   composer, transcript or plan's edit selected), the agent channel's `open` shows no file, and
   while any card waits an agent does not switch highlighting; a held key answers once, `RET` and
@@ -1537,6 +1541,8 @@ As built:
   selected buffer, as the card's keys do from when the card did, and longer after a prompt an
   agent opened closed; not since the key before, as the person writes the edit and then
   approves it.
+- **Amended 2026-11-24 (ADR 0182, R1c): a plan that cannot be read is denied,** unasked, as questions
+  that cannot be read are, and its row and the echo area say so, in oso's words.
 - **The edit (Q-D1 (a)):** `*plan: NAME*`, the person's draft as a composer is: an editable
   buffer withheld from agents, whose changes the agent channel refuses, in `Mode::Plan`,
   which it keeps, highlighted as Markdown, with keys of its own. `e` makes it from the

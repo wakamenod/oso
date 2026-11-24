@@ -35,6 +35,29 @@ fn log_restart(by: &str, since: Option<Duration>) {
     log::debug!("agent question: the quiet wait restarted by {by}, {since} after the last start");
 }
 
+/// When the person typed in the window.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(in crate::app) struct Typed {
+    /// The last key or text, or a press of the mouse's button.
+    pub(in crate::app) last: Option<Instant>,
+    /// The one before the last key.
+    pub(in crate::app) before: Option<Instant>,
+    /// The first key of the last sequence of keys, as a chord's or one after an argument's, and the
+    /// one before it: what an answer's wait is measured to (ADR 0182).
+    pub(in crate::app) first: Option<Instant>,
+    pub(in crate::app) before_first: Option<Instant>,
+}
+
+impl Typed {
+    /// A key came at `now`: one that goes on with a sequence under way if `goes_on`.
+    fn key(&mut self, now: Instant, goes_on: bool) {
+        self.before = self.last.replace(now);
+        if !goes_on || self.first.is_none() {
+            (self.first, self.before_first) = (Some(now), self.before);
+        }
+    }
+}
+
 impl App {
     /// Notes the prompts a channel command opened, those newer than `newest`, which are the
     /// agent's, and returns the innermost one's label if it opened any.
@@ -62,8 +85,9 @@ impl App {
     /// it takes no answer until [`QUIET`] has passed with no key, and every key starts that
     /// wait again. `C-g` always goes through.
     pub(in crate::app) fn note_key_for_agent(&mut self, key: KeyPress) -> bool {
-        // A native session's permission card answers only after a quiet moment (ADR 0165).
-        self.agent.key_before = self.agent.person_typed.replace(Instant::now());
+        // A native session's request is answered only after a quiet moment (ADR 0165).
+        let goes_on = self.dispatcher.keys_in_progress();
+        self.agent.typed.key(Instant::now(), goes_on);
         if !self
             .editor
             .prompt()
@@ -113,19 +137,24 @@ impl App {
 
     /// When the person last typed in the window, if they did.
     pub(in crate::app) fn agent_person_typed(&self) -> Option<Instant> {
-        self.agent.person_typed
+        self.agent.typed.last
     }
 
     /// When the person typed the key before the last one, if they did.
     pub(in crate::app) fn agent_key_before(&self) -> Option<Instant> {
-        self.agent.key_before
+        self.agent.typed.before
+    }
+
+    /// When the person typed in the window.
+    pub(in crate::app) fn person_typed_at(&self) -> Typed {
+        self.agent.typed
     }
 
     /// Text or a composition came from the window: the person is typing, and a question
     /// the channel caused waits longer. `by` names what came, never its text: `"text"`, or
     /// the input method's report by its kind, which a dev build logs.
     pub(in crate::app) fn person_typed(&mut self, by: &'static str) {
-        self.agent.person_typed = Some(Instant::now());
+        self.agent.typed.last = Some(Instant::now());
         if self
             .editor
             .prompt()
@@ -201,6 +230,12 @@ impl App {
         self.close_orphaned_questions();
     }
 
+    /// The question `id` takes no answer any more: it closes once it is innermost.
+    pub(in crate::app) fn close_question(&mut self, id: PromptId) {
+        self.agent.orphaned.push(id);
+        self.close_orphaned_questions();
+    }
+
     /// Closes the orphaned questions that are innermost, as `C-g` would.
     pub(super) fn close_orphaned_questions(&mut self) {
         while let Some(id) = self.editor.prompt().map(|prompt| prompt.id())
@@ -218,10 +253,28 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use super::{QUIET, holds};
+    use super::{QUIET, Typed, holds};
     use oso_core::key::{Key, KeyPress};
     use oso_core::keymap::CANCEL;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn a_sequence_is_timed_by_its_first_key_and_the_one_before_it() {
+        let start = Instant::now();
+        let at = |ms| Some(start + Duration::from_millis(ms));
+        let mut typed = Typed::default();
+        typed.key(at(0).unwrap(), false);
+        assert_eq!((typed.first, typed.before_first), (at(0), None));
+        // Text typed, then a chord, an argument's key before it.
+        typed.last = at(100);
+        for (ms, goes_on) in [(200, false), (300, true), (900, true)] {
+            typed.key(at(ms).unwrap(), goes_on);
+            assert_eq!((typed.first, typed.before_first), (at(200), at(100)));
+        }
+        assert_eq!((typed.last, typed.before), (at(900), at(300)));
+        typed.key(at(950).unwrap(), false);
+        assert_eq!((typed.first, typed.before_first), (at(950), at(900)));
+    }
 
     #[test]
     fn a_question_takes_no_key_until_a_quiet_moment_but_c_g() {

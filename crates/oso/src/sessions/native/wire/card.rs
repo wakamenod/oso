@@ -1,13 +1,12 @@
 //! What a permission card shows of a call's input (ADR 0165, step 2e-2): an `AskUserQuestion`'s
-//! questions, an `ExitPlanMode`'s plan, and an edit's lines as a diff, read from the input the
-//! request carries.
+//! questions and an `ExitPlanMode`'s plan, read from the input the request carries.
 //!
 //! Must not depend on: `rows`, `render` or the UI; plain functions over a parsed value.
 //!
 //! - All of it is Claude's text, untrusted: at most [`MAX_QUESTIONS`] questions of at most
 //!   [`MAX_OPTIONS`] options, each label and header cut to [`MAX_NAME`] bytes of its first line,
-//!   each description to [`MAX_DESCRIBED`] bytes with its lines, a plan to [`MAX_PLAN`] bytes,
-//!   and at most [`MAX_DIFF`] diff lines of at most [`MAX_NAME`] bytes each. What is cut says so.
+//!   each description to [`MAX_DESCRIBED`] bytes with its lines, and a plan to [`MAX_PLAN`] bytes.
+//!   What is cut says so.
 //! - A question is its answer's key, which the CLI looks up whole: one over [`MAX_ASKED`] bytes
 //!   cannot be asked, nor the call it is in (ADR 0180).
 
@@ -25,8 +24,6 @@ pub const MAX_ASKED: usize = 8 << 10;
 pub const MAX_DESCRIBED: usize = 2 << 10;
 /// The most of a plan kept, in bytes.
 pub const MAX_PLAN: usize = 64 << 10;
-/// The most diff lines of an edit kept.
-pub const MAX_DIFF: usize = 200;
 
 /// One question an `AskUserQuestion` asks.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -99,44 +96,4 @@ pub fn plan(input: &Value) -> Option<(String, bool)> {
     let plan = input.get("plan")?.as_str()?;
     let (kept, cut) = capped(plan, MAX_PLAN);
     Some((kept.to_owned(), cut))
-}
-
-/// An edit's lines as a diff, each with `-` or `+`, from the `input` of `tool` (`Edit`,
-/// `MultiEdit` or `Write`), and whether more were left out. Empty for another tool.
-pub fn diff(tool: &str, input: &Value) -> (Vec<(char, String)>, bool) {
-    let text = |value: &Value, key: &str| {
-        value
-            .get(key)
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_owned()
-    };
-    let pairs: Vec<(String, String)> = match tool {
-        "Edit" => vec![(text(input, "old_string"), text(input, "new_string"))],
-        "MultiEdit" => (input.get("edits").and_then(Value::as_array))
-            .map(|edits| {
-                (edits.iter())
-                    .map(|edit| (text(edit, "old_string"), text(edit, "new_string")))
-                    .collect()
-            })
-            .unwrap_or_default(),
-        "Write" => vec![(String::new(), text(input, "content"))],
-        _ => Vec::new(),
-    };
-    let mut lines = Vec::new();
-    let mut cut = false;
-    for (old, new) in &pairs {
-        let removed = old.lines().map(|line| ('-', line));
-        let added = new.lines().map(|line| ('+', line));
-        for (mark, line) in removed.chain(added) {
-            if lines.len() == MAX_DIFF {
-                cut = true;
-                break;
-            }
-            let (kept, long) = capped(line, MAX_NAME);
-            cut |= long;
-            lines.push((mark, kept.to_owned()));
-        }
-    }
-    (lines, cut)
 }

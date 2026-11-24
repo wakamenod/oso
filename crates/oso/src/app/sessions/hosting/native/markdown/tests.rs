@@ -90,6 +90,7 @@ pub(in crate::app::sessions::hosting::native) fn native(buffer: BufferId) -> Nat
         composing: Composing::starting(false),
         state: NativeState::Running,
         card: None,
+        line: None,
         control: None,
         interrupt: Interrupt::new(SIGNALS),
         commands: SlashCommands::default(),

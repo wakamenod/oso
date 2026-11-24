@@ -141,7 +141,7 @@ impl App {
             return false;
         }
         let whole = (self.hosting.natives.permissions.asks.shown(key))
-            .and_then(|ask| ask.question.as_ref())
+            .and_then(|ask| ask.question())
             .is_some_and(|question| question.whole);
         // The whole view scrolls, its keys on its title row; the card shows from its start.
         let scroll = window.scroll();
@@ -163,7 +163,7 @@ impl App {
         let from = self.editor.window().buffer();
         let key = (self.card_session(from)).or_else(|| self.composer_session(from))?;
         // A card with no call shown takes no answer, as its keys say before this gate.
-        (self.hosting.natives.permissions.asks.shown(key)).and_then(|ask| ask.question.as_ref())?;
+        (self.hosting.natives.permissions.asks.shown(key)).and_then(|ask| ask.question())?;
         // The next key's key before is the last one now.
         let refusal = self.card_refusal(key, from, self.agent_person_typed(), Instant::now());
         Some(refusal.is_none())

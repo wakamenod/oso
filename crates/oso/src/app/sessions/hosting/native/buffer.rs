@@ -176,6 +176,7 @@ impl App {
             stream: None,
             state: NativeState::Starting,
             card: None,
+            line: None,
             first: first.is_some(),
             ended: None,
             result: None,

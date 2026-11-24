@@ -140,6 +140,7 @@ impl Offer {
             | Mode::SessionMove
             | Mode::NativeSession
             | Mode::Card
+            | Mode::Request
             | Mode::Plan
             | Mode::GitDiscarded
             | Mode::Sessions => None,

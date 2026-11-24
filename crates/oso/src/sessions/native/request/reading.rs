@@ -198,19 +198,31 @@ impl Reading {
     /// How many of the body's lines were read whole, and how many it has, those it does not show
     /// among them.
     pub fn lines(&self) -> (usize, usize) {
-        let (shown, more) = match self.hidden {
-            Hidden::Nothing => (self.ends.len(), 0),
-            // The last line says how many are not shown, as the only one of none shown does.
-            Hidden::Lines(lines) => (self.ends.len().saturating_sub(1), lines),
-            Hidden::All => (0, 0),
-        };
         let mut start = 0;
         let mut read = 0;
-        for &end in self.ends.iter().take(shown) {
+        for &end in self.ends.iter().take(self.shown()) {
             read += usize::from(self.covers(&(start..end)));
             start = end;
         }
-        (read, shown.saturating_add(more))
+        (read, self.count())
+    }
+
+    /// How many lines the body has, those it does not show among them.
+    pub fn count(&self) -> usize {
+        match self.hidden {
+            Hidden::Lines(lines) => self.shown().saturating_add(lines),
+            Hidden::Nothing | Hidden::All => self.shown(),
+        }
+    }
+
+    /// How many of its lines it shows.
+    fn shown(&self) -> usize {
+        match self.hidden {
+            Hidden::Nothing => self.ends.len(),
+            // The last line says how many are not shown, as the only one of none shown does.
+            Hidden::Lines(_) => self.ends.len().saturating_sub(1),
+            Hidden::All => 0,
+        }
     }
 
     /// Whether `y` allows the call, the wait aside: all of it was read, and a frame of what is in

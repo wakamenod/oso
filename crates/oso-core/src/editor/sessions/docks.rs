@@ -13,10 +13,11 @@
 //! - The composer is as many rows as its text wraps to, or its lines while it truncates them, 1
 //!   to [`MAX_COMPOSER`], and the strip at most [`MAX_STRIP`]; the card as many as its text has
 //!   lines, at most [`MAX_CARD`]: its host breaks its rows at its width, and it never wraps
-//!   (ADR 0180). The composer's rows are given first, the card's next.
+//!   (ADR 0180). The composer's rows are given first, the card's next. A request's line, in the
+//!   card's slot, gives up none of its rows, as its keys are all shown (ADR 0182).
 
 use super::super::Editor;
-use crate::buffer::BufferId;
+use crate::buffer::{BufferId, Mode};
 use crate::display_map::wrap_map;
 use crate::frame::docks::DockAsk;
 use crate::window::{DockSlot, Window, WindowId};
@@ -193,6 +194,11 @@ impl Editor {
             _ => wrap_map::rows_at_most(&buffer.display(), width, most),
         };
         let rows = rows.max(least);
+        // Its keys are all shown, or no dock is (ADR 0182).
+        let least = match buffer.mode() {
+            Mode::Request => rows,
+            _ => least,
+        };
         DockAsk {
             window: window.id(),
             rows,

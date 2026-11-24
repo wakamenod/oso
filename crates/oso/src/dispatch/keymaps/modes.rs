@@ -58,10 +58,11 @@ pub(super) struct Modes {
     session: Keymap,
     /// A native session's buffer's own keys and session mode's (ADR 0165).
     native: Keymap,
-    /// A native session's composer's keys, its permission card's (ADR 0165, step 2) and its
-    /// plan's edit's (part 3d).
+    /// A native session's composer's keys, its card's (ADR 0165, step 2), its request's line's (ADR
+    /// 0182) and its plan's edit's (part 3d).
     composer: Keymap,
     card: Keymap,
+    request: Keymap,
     plan: Keymap,
 }
 
@@ -94,13 +95,14 @@ impl Modes {
             native: bindings::native_session_keymap(registry),
             composer: bindings::composer_keymap(registry),
             card: bindings::card_keymap(registry),
+            request: bindings::request_keymap(registry),
             plan: bindings::plan_keymap(registry),
         }
     }
 
     /// Every major mode's keymap. Each field is named here, so that a keymap added to the
     /// struct cannot be left out of what `M-x` judges commands by.
-    pub(super) fn all(&self) -> [&Keymap; 28] {
+    pub(super) fn all(&self) -> [&Keymap; 29] {
         let Self {
             copy: [list, copy],
             markdown,
@@ -126,6 +128,7 @@ impl Modes {
             native,
             composer,
             card,
+            request,
             plan,
         } = self;
         [
@@ -156,6 +159,7 @@ impl Modes {
             native,
             composer,
             card,
+            request,
             plan,
         ]
     }
@@ -180,6 +184,7 @@ impl Modes {
             Mode::NativeSession => Some(&self.native),
             Mode::Composer => Some(&self.composer),
             Mode::Card => Some(&self.card),
+            Mode::Request => Some(&self.request),
             Mode::Plan => Some(&self.plan),
             Mode::Review => Some(&self.review),
             Mode::Directory => Some(&self.dired),
