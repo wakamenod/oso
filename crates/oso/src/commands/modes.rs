@@ -15,6 +15,9 @@ use oso_core::buffer::Mode;
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
 use oso_core::editor::Editor;
 
+/// The command that turns highlighting on and off in every buffer.
+pub const FONT_LOCK: &str = "global-font-lock-mode";
+
 /// The commands for modes and highlighting. They change how a buffer is shown, never its text.
 pub const COMMANDS: &[Command] = &[
     Command {
@@ -130,7 +133,7 @@ pub const COMMANDS: &[Command] = &[
         state: None,
     },
     Command {
-        name: "global-font-lock-mode",
+        name: FONT_LOCK,
         doc: "Toggle highlighting in every buffer.\n\nA positive prefix argument turns it on, zero or a negative one off.",
         args: ArgSpec::Count,
         reach: Reach::Look,

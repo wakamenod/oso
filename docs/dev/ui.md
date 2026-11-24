@@ -1409,8 +1409,9 @@ a switch made with its command stands until that setting changes in the file
   edits, `A` in auto, after a y-or-n question, as Claude Code's own dialog offers; `e` edits it
   in `*plan: NAME*`, in the session's window in place of the transcript, Markdown, withheld
   from agents, where `C-c C-c` approves the plan as edited, `C-c C-a` with accept edits and
-  `C-c C-A` with auto, after the same question, and `C-c C-k` gives the edit up, back to the
-  card, which waits.
+  `C-c C-A` with auto, and `C-c C-k` gives the edit up, back to the card, which waits. The
+  approvals there wait half a second from when the edit came in front; an edit that differs
+  from Claude's plan asks first, `(+2 −1 lines)`, and an unchanged one only for auto.
   While an edit that differs waits, the card's approvals say to use `C-c C-c` there. A plan
   holding secret text a yank brought, over 64 KiB, or empty is not approved, and a restart is
   refused while an edit the person changed waits. The plan's row then says ` · approved`,

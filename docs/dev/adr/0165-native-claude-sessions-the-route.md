@@ -655,6 +655,10 @@ As built:
   wrap could hide what it asks. A held answer key
   answers once (ADR 0072). Its other keys, as `C-c C-o` (`native-card-leave`) or `C-x o` to
   leave it, are any buffer's. Answered, the card goes and point goes to the composer.
+- **Amended 2026-11-24 (the author):** while a request waits in front of the person (its card,
+  composer, transcript or plan's edit selected), the agent channel's `open` shows no file, and
+  while any card waits an agent does not switch highlighting; a held key answers once, `RET` and
+  a plan's chords among them.
 - **Keys:** `y` allows once (or approves a plan), `n` denies (declines the questions, or keeps
   planning), `N` denies with a note read in the minibuffer, which the CLI is told; the call's
   row then says ` · denied: NOTE`, or ` · denied: by the person`. An allowed call gains no
@@ -1382,6 +1386,15 @@ As built:
   wait, the window showing all of it) are not run again on the `y`: the call is the one the
   person saw at `A`, bound by its id, whose input a repeated request may not change. A
   question closed otherwise is dropped after that event, so no later `y` approves.
+- **Amended 2026-11-24 (the author): an edit asks first, and its approvals wait.** An edit that
+  differs from Claude's plan asks y or n before every approval, `C-c C-c` and `C-c C-a` as
+  `C-c C-A`, saying how many lines differ: "Approve NAME's plan as you edited it (+2 −1 lines)?
+  (y or n)". The question is auto's, above, kept with the approval it asked of, and its `y`
+  approves the edit only as it was when asked. A plan the person did not change asks nothing
+  but auto's question. The approvals in the edit wait 500 ms from when the edit became the
+  selected buffer, as the card's keys do from when the card did, and longer after a prompt an
+  agent opened closed; not since the key before, as the person writes the edit and then
+  approves it.
 - **The edit (Q-D1 (a)):** `*plan: NAME*`, the person's draft as a composer is: an editable
   buffer withheld from agents, whose changes the agent channel refuses, in `Mode::Plan`,
   which it keeps, highlighted as Markdown, with keys of its own. `e` makes it from the

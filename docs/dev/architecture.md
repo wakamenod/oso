@@ -1280,7 +1280,9 @@ Full details are in [`security.md`](security.md).
     `sessions::native::card`'s, from what `sessions::native::wire::card` reads of the call. A key typed
     in the session's empty composer may answer it: the app judges it just before the dispatcher
     (`card/composer.rs`), which runs the card's command in place of typing it (`dispatch/card.rs`)
-    ([ADR 0180](adr/0180-a-permission-card-that-stands-out-and-is-read-as-it-is.md)).
+    ([ADR 0180](adr/0180-a-permission-card-that-stands-out-and-is-read-as-it-is.md)). A plan's
+    approval asks in `card/plan/ask.rs`, and `card/front.rs` tells the agent channel
+    (`app/agent/requests.rs`) whether a request waits.
   - `oso mcp` (`channel/mcp.rs`) is a subcommand of the oso binary that opens no window: MCP's
     JSON-RPC on stdin and stdout, with the tools `state`, `text`, `diagnostics`, `commands`, `look`,
     `change`, `open` and `cancel`, which takes back a question the agent's change opened

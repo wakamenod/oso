@@ -8,7 +8,7 @@
 use std::time::Instant;
 
 use oso_core::buffer::Mode;
-use oso_core::key::KeyPress;
+use oso_core::key::{Key, KeyPress, NamedKey};
 use oso_core::window::{WheelRemainder, WindowId};
 use oso_platform::window::{Held, KeyInput, Position, Wheel};
 
@@ -47,11 +47,18 @@ fn held_from_the_window(
 
 /// Whether `key` in a buffer of `mode`, or in a question, is an answer and not something to
 /// repeat. Where a letter answers, holding it must not go on through the rows, and some answers
-/// delete. The app also drops the repeats of a press this was true of, as an answer can move the
-/// window to a file, where the same letter would type, and a held `y` must answer once
-/// (ADR 0072).
-fn answers_once(mode: Mode, question: bool, key: KeyPress) -> bool {
-    (mode.shows_copies() || mode == Mode::Card || question) && key.text().is_some()
+/// delete; on a native session's card `RET` answers too, and in its plan's edit a chord does, while
+/// `sequence` says one is under way. The app also
+/// drops the repeats of a press this was true of, as an answer can move the window to a file,
+/// where the same letter would type, and a held `y` must answer once (ADR 0072).
+fn answers_once(mode: Mode, question: bool, sequence: bool, key: KeyPress) -> bool {
+    let letter = key.text().is_some();
+    (question && letter)
+        || match mode {
+            Mode::Card => letter || key.key == Key::Named(NamedKey::Return),
+            Mode::Plan => sequence,
+            mode => mode.shows_copies() && letter,
+        }
 }
 
 impl App {
@@ -68,12 +75,14 @@ impl App {
                 .editor
                 .prompt()
                 .is_some_and(|prompt| prompt.kind().is_question());
+            let sequence = self.dispatcher.keys_in_progress();
+            let once = answers_once(mode, question, sequence, key);
             if input.repeat {
-                if self.answering == Some(key) || answers_once(mode, question, key) {
+                if self.answering == Some(key) || once {
                     return;
                 }
             } else {
-                self.answering = answers_once(mode, question, key).then_some(key);
+                self.answering = once.then_some(key);
             }
             if self.note_key_for_agent(key) {
                 return;
@@ -266,24 +275,64 @@ mod tests {
     }
 
     #[test]
-    fn only_a_letter_among_the_copies_answers_once() {
-        assert!(answers_once(Mode::CopyList, false, key("d")));
-        assert!(answers_once(Mode::CopyView, false, key("r")));
-        // A held `y` on a native session's card answers once, and types nothing after it.
-        assert!(answers_once(Mode::Card, false, key("y")));
-        assert!(answers_once(Mode::Card, false, key("3")));
-        assert!(
-            !answers_once(Mode::CopyList, false, key("C-n")),
-            "motion repeats"
-        );
-        assert!(!answers_once(Mode::CopyList, false, key("<down>")));
-        assert!(
-            !answers_once(Mode::Fundamental, false, key("d")),
-            "typing repeats"
-        );
-        assert!(
-            answers_once(Mode::Fundamental, true, key("y")),
-            "a question"
-        );
+    fn a_held_answer_answers_once_and_what_moves_or_edits_repeats() {
+        let once = [
+            (Mode::CopyList, false, false, "d"),
+            (Mode::CopyView, false, false, "r"),
+            // A held `y` on a native session's card answers once, and types nothing after it.
+            (Mode::Card, false, false, "y"),
+            (Mode::Card, false, false, "3"),
+            // `RET` there gives a question's marked options.
+            (Mode::Card, false, false, "RET"),
+            (Mode::Card, false, false, "S-RET"),
+            // In a plan's edit, what comes in a chord.
+            (Mode::Plan, false, true, "C-c"),
+            (Mode::Plan, false, true, "C-A"),
+            // A question.
+            (Mode::Fundamental, true, false, "y"),
+            (Mode::Plan, true, false, "y"),
+        ];
+        for (mode, question, sequence, name) in once {
+            assert!(
+                answers_once(mode, question, sequence, key(name)),
+                "{mode:?} {name}"
+            );
+        }
+        let repeats = [
+            (Mode::CopyList, false, false, "C-n"),
+            (Mode::CopyList, false, false, "<down>"),
+            (Mode::Card, false, false, "C-n"),
+            (Mode::Card, false, false, "<down>"),
+            (Mode::Card, false, false, "DEL"),
+            (Mode::Plan, false, false, "x"),
+            (Mode::Plan, false, false, "RET"),
+            (Mode::Plan, false, false, "C-k"),
+            (Mode::Plan, false, false, "DEL"),
+            (Mode::Fundamental, false, false, "d"),
+            (Mode::Fundamental, false, true, "C-c"),
+        ];
+        for (mode, question, sequence, name) in repeats {
+            assert!(
+                !answers_once(mode, question, sequence, key(name)),
+                "{mode:?} {name}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_chord_in_a_plans_edit_is_answered_by_keys_pressed() {
+        use oso_core::buffer::Buffer;
+        use oso_core::editor::Editor;
+        let mut plan = Buffer::from_text("*plan: s*", "Do it\n");
+        assert!(plan.set_mode(Mode::Plan));
+        let mut editor = Editor::with_buffer(plan);
+        let mut dispatcher = crate::dispatch::Dispatcher::new();
+        dispatcher.handle_key(&mut editor, key("C-c"));
+        let sequence = dispatcher.keys_in_progress();
+        assert!(answers_once(Mode::Plan, false, sequence, key("C-c")));
+        // Pressed, it ends the chord.
+        dispatcher.handle_key(&mut editor, key("C-c"));
+        let asked = editor.take_session_requests();
+        assert_eq!(asked.len(), 1, "{asked:?}");
     }
 }

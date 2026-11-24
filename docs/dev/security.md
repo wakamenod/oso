@@ -835,7 +835,8 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     since the card became the selected buffer, however point came, or oso's window came in front
     again, or the card's came to show all of it (longer after a prompt an agent opened closed);
     never from a macro, nor from a window that shows less than all of
-    the card from its start, unwrapped, or is under 20 cells wide; a held key answers once. From the session's composer,
+    the card from its start, unwrapped, or is under 20 cells wide; a held key answers once, `RET`
+    and a plan's chords among them. From the session's composer,
     `y`, `n`, `N` and a question's `o` and digits answer only while it is empty and selected, with
     one cursor and no composition, under the same gate, measured since it was so, which looks at
     the card's window, as an agent's looks run there, and only as a
@@ -860,7 +861,10 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     without closing; a question closed otherwise is dropped.
     An edit of the plan, `*plan: NAME*`, is the person's draft: withheld from agents, which may
     not change it (`Mode::Plan`, kept as a composer's mode is), approved only by the person's
-    keys there, never from a macro, and only for the call it was made for; no agent command
+    keys there, after the same quiet wait as its card, since the edit became the selected buffer,
+    never from a macro, and only for the call it was made for. One that differs from Claude's
+    plan asks y or n first, saying how many lines differ; that question is as auto's, and its `y`
+    approves only the edit as it was when asked. No agent command
     runs while it is selected, a look included, as cursors or a region would steer the
     person's typing into what they approve. It is sent
     only if it differs from Claude's plan, never cut, and never once a yank made it secret.
@@ -893,6 +897,9 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     minute and 2 are open at once (a hosted session's bridge apart, below), and a refusal holds off new connections for 60 s. One let
     in sends at most 30 requests a second. The modeline shows `Agent` while it is on, and
     `*Agent*` lists each request without its text.
+  - While a native session's request waits in front of the person (its card, composer, transcript
+    or plan's edit selected), `open` shows no file, one it is loading among them, which is
+    dropped; and while any card waits, highlighting stays as it is.
   - It runs registered commands only, by name, with arguments checked against their spec, and
     no keys. Each command declares a reach: `Look`, `Change` or `Person`. The channel refuses
     `Person` commands: exiting, `M-x`, answering prompts, reading the clipboard, emergency
