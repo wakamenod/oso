@@ -295,9 +295,7 @@ impl App {
     /// restart, or, under `oso dev`'s order, which ends none first, those that run still,
     /// which the exit ends.
     pub(in crate::app) fn native_resumes(&self) -> Vec<NativeResume> {
-        let mut resumes: Vec<NativeResume> = (self.restart.ended.iter())
-            .map(|(_, resume)| resume.clone())
-            .collect();
+        let mut resumes = self.natives_ended(&self.restart.ended);
         if self.restart.under_way {
             return resumes;
         }

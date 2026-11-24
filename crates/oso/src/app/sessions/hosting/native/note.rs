@@ -68,16 +68,23 @@ impl App {
             NativeState::Running if interrupting => "interrupting",
             state => state.said(),
         };
-        let mut note = match (state, native.composing.queued()) {
-            (state, 0) => state.to_owned(),
-            ("", count) => format!("{count} queued"),
-            (state, count) => format!("{state}{SEPARATOR}{count} queued"),
+        // Remote Control's mark first, as a narrow modeline drops its parts from the right
+        // (ADR 0181), and with it a mode no key here gave, which decides what asks.
+        let strayed = native.mode.strayed().filter(|_| native.remote.marked());
+        let queued = match native.composing.queued() {
+            0 => String::new(),
+            count => format!("{count} queued"),
         };
+        let mark = native.remote.mark_with(strayed).unwrap_or_default();
+        let mut note = [mark.as_str(), state, &queued]
+            .into_iter()
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join(SEPARATOR);
         let effort = native.choice.effort();
-        native
-            .status
-            .line
-            .write(native.mode.shown(), effort, &mut note);
+        let said = strayed.is_some() && !native.remote_control.off();
+        let mode = native.mode.shown().filter(|_| !said);
+        native.status.line.write(mode, effort, &mut note);
         let buffer = native.buffer;
         let same = (self.editor.buffer(buffer)).is_some_and(|b| b.mode_note() == note);
         if !same {

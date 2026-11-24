@@ -132,16 +132,17 @@ pub struct Enable<'a> {
 }
 
 impl SessionUrl {
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "shown from ADR 0181's part RC-2 on")
-    )]
     pub fn as_str(&self) -> &str {
         &self.0
     }
 }
 
 impl RemoteId {
+    /// The id `text` is, of exactly its shape: one the parent's restart state carried.
+    pub fn read(text: &str) -> Option<Self> {
+        shaped(text, ID).then(|| Self(text.to_owned()))
+    }
+
     pub fn as_str(&self) -> &str {
         &self.0
     }

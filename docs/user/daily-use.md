@@ -739,8 +739,20 @@ with too many columns for the window stays as written);
 Long lines wrap there, in the composer and in the results; `C-x x t` in one of them cuts them at
 the window's edge instead.
 The `C-c` keys of a session's terminal work there too, except `C-c +` and `C-c -`. Claude
-Code's Remote Control is off in native sessions; in the TUI (`C-c a t`), your own settings decide.
-A note in the transcript says so if a claude says that it is available all the same.
+Code's Remote Control is off in native sessions until you turn it on for one; in the TUI
+(`C-c a t`), your own settings decide. A note in the transcript says so if a claude says that it is
+available all the same.
+
+`M-x native-remote-control`, in a native session's buffer or composer while it is idle, connects it
+to claude.ai, once you answered the question; the buffer beside it says what is sent. You then
+follow it, send it messages and stop it from a browser or your phone; Claude's questions are
+answered in oso alone. A mode set there can let calls run that oso would ask about: the modeline
+shows it, and no later start takes it. `⇄` marks the session in the modeline and in `*Spaces*`.
+The command again turns it off: claude ends and resumes, after a turn under way or 60 s at the
+latest, and at once at a second press. claude.ai keeps what it has. `M-x
+native-remote-control-address` copies the session's address there. `oso-restart` connects it again;
+nothing else does. Sessions an agent started, and orchestrators, are not connected, nor one whose
+git remote's address holds a password or a user name (but `git@`).
 
 You write the next messages in the composer under the conversation, between two lines, which agents cannot read.
 While it is empty it says in grey what it is and its keys. `i` goes there and `C-c C-o` back, `C-c C-c` sends, and `M-p` and `M-n` bring back what you

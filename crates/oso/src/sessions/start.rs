@@ -43,10 +43,11 @@ use oso_term::{Palette, Terminal};
 use super::command::{self, Line, SESSION_VARIABLE, Start};
 use super::identity::{self, SessionId};
 use super::launch::{self, Launch};
-use super::settings;
+use super::settings::{self, RemoteControl};
 use super::stream::{self, Stream};
 
 mod baseline;
+pub mod connect;
 mod extra;
 pub mod gone;
 mod live;
@@ -160,6 +161,15 @@ impl Runs {
     fn native(&self) -> bool {
         matches!(self, Self::Native(_))
     }
+
+    /// What its `--settings` says of Remote Control.
+    fn remote_control(&self) -> RemoteControl {
+        match self {
+            Self::Terminal(_) => RemoteControl::Own,
+            Self::Native(native) if native.remote.blocked() => RemoteControl::Off,
+            Self::Native(_) => RemoteControl::Asked,
+        }
+    }
 }
 
 /// A native session's start (ADR 0165), as the app gives it.
@@ -175,6 +185,8 @@ pub struct NativeOrder {
     /// Its gate in an issue space's own directory, which it runs in instead of a trusted
     /// project's root (ADR 0176): its line then reads the person's own settings alone.
     pub gate: space_gate::ByGate,
+    /// Whether Remote Control is blocked, which this alone decides (ADR 0181).
+    pub remote: connect::Leave,
     /// `[terminal]`'s settings: the shell, `-l` and the names passed on.
     pub settings: Settings,
     /// `[sessions] env`: more names passed on from oso's environment.
@@ -247,6 +259,8 @@ pub struct Ready {
     /// The directories it was given with `--add-dir`, for the row of a native orchestrator
     /// resumed with a repository added (ADR 0176, part O-2).
     pub added: Vec<PathBuf>,
+    /// How a native session's Remote Control was settled (ADR 0181).
+    pub remote: connect::Settled,
     /// A terminal's child's process id and when it started, as the system said just after
     /// the spawn, for a later native resume's wait (ADR 0165, part 4d-2).
     pub child_started: Option<(u32, std::time::SystemTime)>,
@@ -329,12 +343,14 @@ fn prepare(mut order: Order, send: &(dyn Fn(Report) + Sync)) {
         Ok(gate) => gate,
         Err(why) => return refuse(why),
     };
-    let launch = match launch_of(&order, &id, &found.executable, &extra, gate.is_some()) {
-        Ok(launch) => launch,
-        Err(why) => return refuse(why),
-    };
     let claim = match trusted_root(&mut order) {
         Ok(claim) => claim,
+        Err(why) => return refuse(why),
+    };
+    // Under the trust just judged, before the line it changes.
+    let remote = connect::settle(&mut order);
+    let launch = match launch_of(&order, &id, &found.executable, &extra, gate.is_some()) {
+        Ok(launch) => launch,
         Err(why) => return refuse(why),
     };
     // The baseline before `claude` runs, so that the review shows what the session changed.
@@ -367,6 +383,7 @@ fn prepare(mut order: Order, send: &(dyn Fn(Report) + Sync)) {
         buffer,
         started,
         child_started,
+        remote,
         shell: found.path,
         passed_over: found.passed_over,
         directory,
@@ -379,10 +396,15 @@ fn prepare(mut order: Order, send: &(dyn Fn(Report) + Sync)) {
         send(Report::Baseline { token, tree });
     }
     if resumed {
-        thread::sleep(RECHECK_AFTER);
-        if live_count(&id) > 1 {
-            send(Report::Twice { token });
-        }
+        look_again(token, &id, send);
+    }
+}
+
+/// The second look at the registry after a resume of `id`.
+fn look_again(token: u64, id: &SessionId, send: &(dyn Fn(Report) + Sync)) {
+    thread::sleep(RECHECK_AFTER);
+    if live_count(id) > 1 {
+        send(Report::Twice { token });
     }
 }
 
@@ -483,7 +505,8 @@ fn chosen_flags<'a>(
 
 /// The program and arguments that start the session `id` as `order` says, in `shell`: a
 /// native one in a space's directory, `gated`, with the person's own settings alone
-/// (ADR 0176). Every native one, and no terminal's, has Remote Control turned off (ADR 0165).
+/// (ADR 0176). Every native one, and no terminal's, has Remote Control turned off (ADR 0165), but
+/// one it connects (ADR 0181).
 fn launch_of(
     order: &Order,
     id: &SessionId,
@@ -503,7 +526,7 @@ fn launch_of(
         &oso,
         &settings::Parts {
             steer_worktrees: order.steer_worktrees,
-            disable_remote_control: order.runs.native(),
+            remote_control: order.runs.remote_control(),
         },
     )
     .map_err(|e| format!("The session did not start: {e}"))?;

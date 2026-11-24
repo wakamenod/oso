@@ -138,6 +138,7 @@ impl App {
             UserEvent::Sessions(out) => self.sessions_reported(out),
             UserEvent::SessionStart(report) => self.session_start_reported(report),
             UserEvent::NativeSession(key, out) => self.native_reported(key, out),
+            UserEvent::RemoteLooked(looked) => self.remote_looked(looked),
             UserEvent::ImageKept(key, kept) => self.image_kept(key, *kept),
             UserEvent::Adoptable(found) => self.adoptable_found(*found),
             UserEvent::MoveLooked(token, found) => self.move_looked(token, *found),

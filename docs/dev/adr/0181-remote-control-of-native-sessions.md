@@ -194,6 +194,97 @@ above are read strictly, and what they can come to is bounded by how oso started
 - **Not built:** a command, a question, a connection, a mark.
 - **New public items:** none in a library crate.
 
+## Part RC-2, as built
+
+The author answered on 2026-11-24, through the orchestrator session: the question (short, with a
+report), the mark (`⇄`), off during a turn, `git@`, `S-TAB`, and what is brought forward from RC-3.
+The orchestrator session chose the stricter side in three the security review raised: off's bound,
+the five calls that ask, and forks of an agent's session.
+
+- **Commands.** `native-remote-control` (on asks, off does not) and
+  `native-remote-control-address`, `Person`, `M-x` only. The question, "Connect NAME to claude.ai,
+  its conversation and tool output too? (y or n)", opens from the command (ADR 0072), with
+  `*Remote Control: NAME*` in the session's window, withheld from agents: what is sent, with the
+  git remotes' addresses, the branch and the directory, that it stays, and who drives the session
+  then. git is read on a thread meanwhile. Its `y` counts only with the report whole and all of it
+  in a window, a quiet moment after it was and after the key before, never from a macro, a held key
+  or held input; everything is judged again then. It closes as oso's window loses the front.
+- **Refused,** each in words: an agent's session and its forks (while oso runs, and over its
+  restart; after a plain restart of oso a fork reads as the person's, as ADR 0135 has it); an
+  orchestrator, an earlier one, and any session in a space's directory; no process, a start, a turn,
+  a request that waits, an interrupt, a mode's or TUI's switch, a repository being added, no
+  message yet, a resume held, secret text in the transcript or the composer, and a project not
+  trusted now.
+- **A remote's address.** "A remote whose address holds a user name or a password is refused", but
+  ssh's user `git` (`git@host:path`, `ssh://git@…`), a host's account for everyone, is let through.
+  Every address the configuration names is read, what a rewrite makes of it too, under the trust
+  judged by the start thread, just before the line is built; what is none of git's plain forms, a
+  git that does not answer, remotes kept as git once did, a directory in another repository, more
+  addresses than the report shows whole (12), and any other address or branch than it showed refuse. The start then goes on blocked, and says why, naming no address.
+- **The respawn.** Leave to connect is a value that cannot be copied, made at the `y` or from the
+  parent's restart state, held from the stop to that end alone and given to that resume; it alone
+  decides the block in the line and the state in the app. Such a line has
+  `"remoteControlAtStartup": false` too, so that only oso's request connects it (measured, below).
+  `keep_session_on_exit` is always asked, as coming back was measured only with it. An answer with
+  the id of another session oso has turns it off.
+- **Off** is told at once. Idle, the process ends and resumes blocked. During a turn it ends once
+  the turn is over, 60 s on at the latest, at a second press of the command, or at once if the
+  request was not written, was refused or was not answered in 5 s; until then the mark says
+  `⇄ going off` and a row says when it ends. A held resume keeps the session stopped, never
+  connected. Before any other end oso makes, the request is written, and an idle process has a
+  second to read it before `SIGTERM`; as oso exits, as far as it is still read. A fork turns its
+  source off first. The words are "claude.ai keeps what it has, and may still list this session":
+  whether it stays listed with `keep_session_on_exit` is not measured.
+- **The mark** is `⇄ connecting`, `⇄ claude.ai`, `⇄ dropped` or `⇄ going off`, first in the
+  modeline's note, with a mode no key here gave in it (`⇄ auto: claude.ai`), as a narrow modeline drops
+  the note's later parts and cuts the end; before the note's first part, a native session's modeline drops the
+  space's and the project's names, then the position and `Session`, and then shortens the name: at
+  44 columns it is whole. Going off, the mode is left out, as it would read as what goes off; in `*Spaces*`, `⇄` before the name, never cut, which no name or reason begins
+  with; also while its buffer is killed and its process ends. At most six rows a process say that
+  it is on or dropped, the latter "and may connect again by itself".
+- **Across `oso-restart`** a connected session is not told off. The state carries its id there, its
+  directory, and the device and inode of that and of its repository, which the start thread
+  compares; Windows has none, so nothing connects again there. It also names the forks of
+  agents' sessions (`native_agents`), or says that they are not known, and then none is connected. The mode is carried as it was once
+  its process ended; where the state is made while it runs (`oso dev`), one that asks less is not. A
+  restart that stays resumes it off.
+- **The transcript.** A line with `promptSource` `sdk` and an `origin`, or any with a
+  `clientPlatform`, came another way: a row "From claude.ai, not from oso: …", never a prompt or a
+  brief, and no later message is the conversation's first. One typed in the TUI has an `origin`
+  too, and stays the person's.
+- **Mode.** From a mode no key here gave, `S-TAB` goes to `default` first, so that one set just
+  before the key does not make it choose one that asks less. A first mode said by `system/status`
+  is one of these; `initialize`'s and `system/init`'s are the process's own.
+- **Brought forward from RC-3:** a row for such a mode, at most eight a process; and a connected
+  session's `session_start`, `start_worktree_session`, `session_resume`, `space_add_repo` and the
+  stop of `session_archive` ask, whatever the configuration lets go, by one rule
+  (`sessions::tools::CallerStanding`). `worktree_remove`, and an archive of a stopped session's row, ask
+  nothing until RC-3, for a connected session too.
+- **One-shot runs** (a space's name, a dictation's fix) are started with the block. Whether
+  `--safe-mode` heeds it is not measured.
+- **Tests** are fakes': none connects.
+- **Measured** by the third probe on 2026-11-24, CLI 2.1.331, Haiku, a scratch repository, the author
+  with their phone, whose own settings have `remoteControlAtStartup` true:
+  - Blocked, `initialize` said `remote_control_available` false and `remote_control_auto_enable`
+    true, and no `bridge_state` came in a turn.
+  - Unblocked, with `remoteControlAtStartup` false, it said available true and auto_enable false, and
+    the first `bridge_state` (`ready`, then `connected`) came after oso's request was written.
+  - Seven messages from the phone each had `command_lifecycle` `queued` and `started`, a replay with
+    `origin` `human`, and `completed` or, once, `cancelled`; in the transcript, `promptSource` `sdk`,
+    `origin` `human` and `clientPlatform` `ios`. Those looked at in oso were rows of their own.
+  - Two calls of a message's turns, in `default`, asked in oso alone and ran after its answer.
+  - The phone's Stop ended a turn after 2.1 s (`aborted_streaming`); the process stayed and the next
+    message ran.
+  - `@readme.md` in a message put the file in the conversation as an attachment: no call, and oso
+    was not asked. It is accepted below, measured for an ordinary file; none that may hold secrets
+    was tried.
+  - Turned off while idle, `enabled:false` was answered with success within about a second, and the
+    next process was blocked. oso's log and records held neither the address nor the id.
+- **Not measured:** a message during a turn, the modes the phone offers and a mode set there, what it
+  shows while a request waits in oso, whether the session is listed or archived after off, coming back
+  over `oso-restart`, a fork of a connected session, and whether `--safe-mode` heeds the block.
+- **New public items,** approved: `NativeAction::{RemoteControl, RemoteConfirmed, RemoteAddress}`.
+
 ## Changes to accepted ADRs
 
 - **ADR 0165, "The route":** "Nothing else of the protocol is written": also `remote_control`,
@@ -217,6 +308,8 @@ above are read strictly, and what they can come to is bounded by how oso started
 - **ADR 0165, part 4d:** Remote Control is turned off before the switch to the TUI.
 - **ADR 0121,** deferred, "anything cloud or remote": this one thing.
 - **ADR 0176,** "What runs natively there": an orchestrator can be connected, from RC-3 on.
+- **ADR 0165, "What is not"** blocked, "oso's one-shot runs … take none": they are started with it.
+- **ADR 0165, part 3b,** the next mode of `S-TAB`: as RC-2 has it.
 - **ADR 0135,** "What it covers" and "As built", and **ADR 0153,** "ADR 0135's rule decides whether it
   asks": a connected session's starts and resumes ask, whatever the setting.
 - **ADR 0121,** Q14 and step 6, `worktree_remove` asks nothing once its checks hold: a connected
@@ -232,7 +325,8 @@ above are read strictly, and what they can come to is bounded by how oso started
   - What the session reads or prints, secret files it was let read among it, is kept on
     Anthropic's servers, and turning it off deletes nothing. oso's withholding of secrets does
     not reach there.
-  - The remote side may read the session's files with no card of oso's (not measured).
+  - The remote side may read the session's files with no card of oso's (measured for `@` and an
+    ordinary file).
   - Whoever holds the account can send a connected orchestrator a message, and it has the session
     tools, which then ask the person at oso before they start, remove or archive.
 - oso has no network code still: `claude` connects, as it does for the model.

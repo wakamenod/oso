@@ -11,6 +11,8 @@ use crate::sessions::native::render::render;
 use crate::sessions::native::rows::{Kind, RowChange, Rows, ToolState};
 use crate::sessions::native::wire::transcript::said;
 
+mod remote;
+
 const RECORDED: &str = include_str!("../fixtures/2.1.330/transcript.jsonl");
 
 /// The index of `lines`, each at its offset.

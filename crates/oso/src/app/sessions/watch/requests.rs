@@ -439,6 +439,14 @@ impl App {
         sent
     }
 
+    /// Ends native session `key` for a restart that connects it again (ADR 0181): stopped, as
+    /// [`App::hang_up_session`] stops it, but not told that Remote Control is off.
+    pub(in crate::app) fn stop_for_restart(&mut self, key: SessionKey) {
+        if self.end_native_for_restart(key) {
+            self.watch.hung_up.insert(key);
+        }
+    }
+
     /// Sends the hang-up to session `key`'s terminal, if it has one that runs: whether it did.
     /// Not noted as a stop: [`App::hang_up_session`] notes it, a switch back to native does not
     /// (ADR 0165, part 4d-2).

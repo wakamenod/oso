@@ -34,6 +34,7 @@ fn session(key: u64, name: &str, state: State, dir: &str) -> Entry {
         pinned: false,
         archived: false,
         unasked: false,
+        remote: false,
         not_resumed: None,
         parent: None,
         dir: Some(PathBuf::from(dir)),

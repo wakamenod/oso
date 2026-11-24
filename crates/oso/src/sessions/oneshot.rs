@@ -41,11 +41,22 @@ const ISOLATED: [&str; 8] = [
     "--output-format=json",
 ];
 
-/// A run's arguments: [`ISOLATED`]'s, then the caller's `extra`, which are options too.
+/// The option that keeps a run off claude.ai, whatever the person's settings say: it is no
+/// session to follow there (ADR 0181).
+fn remote_control_off() -> OsString {
+    format!(
+        "--settings={}",
+        crate::sessions::settings::remote_control_off()
+    )
+    .into()
+}
+
+/// A run's arguments: [`ISOLATED`]'s, Remote Control off, then the caller's `extra`, which are options too.
 pub fn arguments(extra: impl IntoIterator<Item = OsString>) -> Vec<OsString> {
     ISOLATED
         .into_iter()
         .map(OsString::from)
+        .chain([remote_control_off()])
         .chain(extra)
         .collect()
 }
@@ -358,6 +369,7 @@ mod tests {
             "--tools=",
             "--strict-mcp-config",
             "--no-session-persistence",
+            r#"--settings={"disableRemoteControl":true}"#,
         ] {
             assert!(args.iter().any(|arg| arg == flag), "{flag}");
         }

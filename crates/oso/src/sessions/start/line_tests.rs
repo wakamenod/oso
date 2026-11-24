@@ -9,7 +9,7 @@ use oso_platform::process::Executable;
 use serde_json::Value;
 
 use super::tests::terminal_order;
-use super::{Chosen, Extra, Kind, NativeOrder, Order, Runs, launch_of, space_gate, trust};
+use super::{Chosen, Extra, Kind, NativeOrder, Order, Runs, connect, launch_of, space_gate, trust};
 use crate::sessions::identity::SessionId;
 use crate::terminal::shell::Settings;
 
@@ -24,12 +24,17 @@ fn kinds() -> [Kind; 3] {
 }
 
 fn native() -> Runs {
+    native_with(connect::Leave::Blocked)
+}
+
+pub(super) fn native_with(remote: connect::Leave) -> Runs {
     let mut editor = oso_core::editor::Editor::default();
     Runs::Native(NativeOrder {
         buffer: editor.add_terminal_buffer("*claude: test*"),
         trust: trust::ByRecord::No,
         by_claim: false,
         gate: space_gate::ByGate::No,
+        remote,
         settings: Settings::default(),
         env: Vec::new(),
         out: Box::new(|_| {}),
@@ -101,6 +106,19 @@ fn a_native_start_keeps_the_steering_hook_beside_it() {
             command.is_some_and(|c| c.ends_with(" hook deny-worktree")),
             "{said}"
         );
+    }
+}
+
+/// Only a start given leave to connect has no block, and then only oso's request connects it
+/// (ADR 0181).
+#[test]
+fn a_start_given_leave_to_connect_is_not_blocked_and_does_not_connect_by_itself() {
+    for kind in kinds() {
+        let remote = connect::Leave::Connect(connect::Connect::asked(connect::Sent::default()));
+        let said = settings(kind.clone(), native_with(remote), true, false).unwrap();
+        assert_eq!(said.get("disableRemoteControl"), None, "{kind:?}");
+        assert_eq!(said["remoteControlAtStartup"], false, "{kind:?}");
+        assert!(said.get("hooks").is_some());
     }
 }
 

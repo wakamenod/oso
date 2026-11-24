@@ -24,7 +24,7 @@ use std::sync::mpsc::Sender;
 use std::time::Instant;
 
 mod card;
-mod request;
+pub(in crate::app::sessions::hosting::native) mod request;
 mod sight;
 
 pub(in crate::app) use card::RequestWaits;

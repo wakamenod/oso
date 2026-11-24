@@ -5,6 +5,7 @@
 
 use oso_core::display_map::cell::{Clusters, classify};
 
+use super::row::REMOTE;
 use super::{GUIDES, MARKS};
 
 /// How many cells `text` takes as oso draws it, cluster by cluster, so that an emoji sequence
@@ -69,7 +70,11 @@ fn char_cells(c: char) -> usize {
 /// reads a row from the list's text skips blanks and guides, then reads a mark.
 pub fn unmarked(text: &str) -> &str {
     text.trim_start_matches(|c: char| {
-        c.is_whitespace() || GUIDES.contains(c) || MARKS.contains(c) || char_cells(c) == 0
+        c.is_whitespace()
+            || GUIDES.contains(c)
+            || MARKS.contains(c)
+            || REMOTE.contains(c)
+            || char_cells(c) == 0
     })
 }
 

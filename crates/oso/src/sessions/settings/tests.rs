@@ -8,7 +8,7 @@ use std::path::Path;
 
 use serde_json::{Value, json};
 
-use super::{Parts, settings};
+use super::{Parts, RemoteControl, remote_control_off, settings};
 
 #[test]
 fn settings_with_nothing_on_are_none() {
@@ -41,13 +41,27 @@ fn settings_turn_remote_control_off_whatever_osos_path() {
     use std::os::unix::ffi::OsStrExt;
     let path = Path::new(std::ffi::OsStr::from_bytes(b"/bin/\xffoso"));
     let parts = Parts {
-        disable_remote_control: true,
+        remote_control: RemoteControl::Off,
         ..Parts::default()
     };
     assert_eq!(
         settings(path, &parts),
         Ok(Some(r#"{"disableRemoteControl":true}"#.to_owned()))
     );
+}
+
+/// Not off, only oso's request connects it, whatever the person's own setting says.
+#[test]
+fn settings_that_leave_it_on_keep_it_from_connecting_by_itself() {
+    let parts = Parts {
+        remote_control: RemoteControl::Asked,
+        ..Parts::default()
+    };
+    assert_eq!(
+        settings(Path::new("/bin/oso"), &parts),
+        Ok(Some(r#"{"remoteControlAtStartup":false}"#.to_owned()))
+    );
+    assert_eq!(remote_control_off(), r#"{"disableRemoteControl":true}"#);
 }
 
 #[cfg(unix)]
@@ -57,7 +71,7 @@ fn settings_need_a_utf8_path() {
     let path = Path::new(std::ffi::OsStr::from_bytes(b"/bin/\xffoso"));
     let parts = Parts {
         steer_worktrees: true,
-        disable_remote_control: true,
+        remote_control: RemoteControl::Off,
     };
     assert_eq!(settings(path, &parts), Err(super::SettingsError::NotUtf8));
     assert_eq!(

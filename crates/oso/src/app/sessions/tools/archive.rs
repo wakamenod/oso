@@ -243,7 +243,7 @@ impl App {
         let in_sight = session
             .buffer
             .is_some_and(|b| b == self.editor.tiled().0.buffer());
-        if !in_sight && rules::stops_without_asking(self.agent_starts_allowed(), caller.origin) {
+        if !in_sight && rules::stops_without_asking(self.standing(&caller)) {
             pending.unasked = true;
             self.agent_log("session_archive: stopping without asking");
             return self.stop_and_archive(pending, &archiving, &caller);

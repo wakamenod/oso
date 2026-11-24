@@ -83,6 +83,7 @@ impl App {
         native.stream.is_some()
             && at.respawn_refusal().is_none()
             && !native.mode.switching()
+            && !native.remote_control.respawns()
             && !self.hosting.natives.switches.under_way(key)
     }
 
@@ -93,18 +94,15 @@ impl App {
             return false;
         }
         let natives = &mut self.hosting.natives;
-        let (Some(native), Some(adding)) = (natives.map.get(&key), natives.adding.get_mut(&key))
+        let (Some(native), Some(adding)) =
+            (natives.map.get_mut(&key), natives.adding.get_mut(&key))
         else {
             return false;
         };
-        let Some(stream) = native
-            .stream
-            .as_ref()
-            .filter(|_| adding.stage == Stage::Waits)
-        else {
+        if native.stream.is_none() || adding.stage != Stage::Waits {
             return false;
-        };
-        stream.stop();
+        }
+        super::remote::stop(native);
         adding.stage = Stage::Stopped;
         let row = format!(
             "Resuming with {} added: claude ends, and resumes its conversation with them.",

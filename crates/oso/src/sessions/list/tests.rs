@@ -28,6 +28,7 @@ pub(super) fn entry(key: u64, name: &str, state: State, since: Instant) -> Entry
         pinned: false,
         archived: false,
         unasked: false,
+        remote: false,
         not_resumed: None,
         parent: None,
         dir: Some(PathBuf::from("/w/oso")),

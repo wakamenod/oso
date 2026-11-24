@@ -8,6 +8,8 @@
 //!   or to be given a repository added to its space (ADR 0176, part O-2), ends as asked, and
 //!   resumes at once, as a resume does (step 2c), in the mode it was in or
 //!   is changed to; its queue waits as the interrupt left it.
+//! - One stopped to turn Remote Control on or off resumes so too, with leave to connect if it is
+//!   turned on (ADR 0181, `remote`).
 //! - A session never given a message left Claude Code no conversation, and `--resume` of it
 //!   fails ("No conversation found", a probe of 2026-11-22; step 2). It is forgotten, its line
 //!   dropped from the record, when it ends cleanly with nothing in its composer or queue, when
@@ -16,11 +18,13 @@
 
 use super::interrupting::SIGNALS;
 use super::note::NativeState;
-use super::{MAX_ERR_SHOWN, Native, draw};
+use super::{MAX_ERR_SHOWN, Native, draw, remote};
 use crate::app::App;
 use crate::app::sessions::hosting::now_ms;
+use crate::app::sessions::hosting::resume::How;
 use crate::sessions::native::interrupt::Interrupt;
 use crate::sessions::native::remote::Remote;
+use crate::sessions::start::connect::Connect;
 use crate::sessions::state::Exit;
 use crate::sessions::worker::{Job, SessionKey};
 
@@ -54,11 +58,16 @@ impl App {
         // Interrupted with a signal, or stopped to resume in another mode (part 3b), it ended
         // as asked, and resumes (step 2c): unless the person stopped it, or a resume is held.
         native.control = None;
-        // Only its process's end clears Remote Control's mark (ADR 0181).
+        // Only its process's end clears Remote Control's mark (ADR 0181), and what it was stopped
+        // for holds for this end alone.
+        let marked = native.remote.marked();
         native.remote = Remote::default();
+        let off = native.remote_control.off();
+        let respawns_for_remote = native.remote_control.respawns();
+        let connect = native.remote_control.ended();
         let interrupted =
             std::mem::replace(&mut native.interrupt, Interrupt::new(SIGNALS)).resumes();
-        let respawns = native.mode.respawns() || for_dir;
+        let respawns = native.mode.respawns() || for_dir || respawns_for_remote;
         let resumes = (interrupted || respawns) && native.spoke && !hung_up && !held;
         // Ended other than to resume at once: its conversation may go on elsewhere (part 5b).
         native.may_have_gone_on = !resumes;
@@ -70,6 +79,11 @@ impl App {
         let buffer = native.buffer;
         if !resumes {
             self.adding_over(key);
+        }
+        if marked {
+            self.remote_ended(key, resumes, off);
+        } else if connect.is_some() && !resumes {
+            self.remote_stays_off(key, "claude did not resume");
         }
         let Some(native) = self.hosting.natives.map.get_mut(&key) else {
             return;
@@ -110,7 +124,7 @@ impl App {
             return self.native_ended_for_tui(key, unreaped || held || stopped);
         }
         if resumes {
-            return self.resume_at_once(key);
+            return self.resume_at_once(key, connect);
         }
         self.replaced_orchestrator_ended(key, status.is_some());
     }
@@ -131,10 +145,15 @@ impl App {
     /// Native session `key`, interrupted with a signal or stopped to change its mode, ended: it
     /// resumes, in its buffer, as a resume does, under the trust judged now; or stays stopped,
     /// saying why.
-    fn resume_at_once(&mut self, key: SessionKey) {
+    fn resume_at_once(&mut self, key: SessionKey, connect: Option<Connect>) {
         // Its turn goes on: its to-do list stays (part 3e).
         self.keep_todo(key, true);
-        let resumed = self.resume_hosted(key, false);
+        let connects = connect.is_some();
+        let how = How {
+            connect,
+            ..How::BY_CLAIM
+        };
+        let resumed = self.resume_hosted_with(key, false, how);
         self.keep_todo(key, false);
         let Err(why) = resumed else {
             return;
@@ -142,6 +161,9 @@ impl App {
         self.composer_ended(key);
         self.adding_over(key);
         self.native_resume_failed(key, &why);
+        if connects {
+            self.remote_stays_off(key, "claude did not resume");
+        }
         // A switch it was stopped for is over (part 3b).
         if let Some(native) = self.hosting.natives.map.get_mut(&key)
             && native.mode.respawns()
@@ -192,9 +214,12 @@ impl App {
         self.sweep_aside();
         // Before the queue: a resume with a repository added goes once its session is idle.
         self.sweep_adding_dirs();
+        // Before the queue: one turned off ends once its turn is over.
+        self.sweep_remote_off();
         // After the sweep: no message goes to a session whose buffer was just killed.
         self.send_waiting_queues();
         self.sync_slash_commands();
+        self.sync_remote_question();
         // After the sweep: nothing is opened for a session that is gone.
         self.sync_reply_markdown();
         self.sync_todo_strips();
@@ -220,12 +245,14 @@ impl App {
             self.hosting.starting.remove(&key);
             // A switch to the TUI is over with it (part 4d).
             self.hosting.natives.switches.over(key);
-            let Some(native) = self.hosting.natives.map.remove(&key) else {
+            let Some(mut native) = self.hosting.natives.map.remove(&key) else {
                 continue;
             };
-            if let Some(stream) = &native.stream {
-                stream.stop();
+            // Marked until its process ended (ADR 0181).
+            if native.remote.marked() && native.stream.is_some() {
+                self.hosting.natives.remotes.ending.insert(key);
             }
+            remote::stop(&mut native);
             self.kill_native_buffers(&native);
             if native.spoke {
                 buffers.push(native.buffer);
@@ -239,11 +266,11 @@ impl App {
 
     /// Stops native session `key`'s process, as the session list's stop does. Whether it ran.
     pub(in crate::app) fn hang_up_native(&mut self, key: SessionKey) -> bool {
-        let Some(stream) = (self.hosting.natives.map.get(&key)).and_then(|n| n.stream.as_ref())
-        else {
+        let running = (self.hosting.natives.map.get_mut(&key)).filter(|n| n.stream.is_some());
+        let Some(native) = running else {
             return false;
         };
-        stream.stop();
+        remote::stop(native);
         true
     }
 
@@ -252,7 +279,8 @@ impl App {
     pub(in crate::app) fn kill_native_sessions(&mut self) {
         let mut unspoken = Vec::new();
         for (key, native) in &mut self.hosting.natives.map {
-            // Nothing resumes as oso exits.
+            // Nothing resumes as oso exits. Told as far as it is still read (ADR 0181).
+            remote::tell_off(native);
             native.control = None;
             native.interrupt = Interrupt::new(SIGNALS);
             if let Some(stream) = native.stream.take() {

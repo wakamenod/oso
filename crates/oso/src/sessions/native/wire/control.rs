@@ -5,7 +5,7 @@
 //!
 //! - Only `initialize`, `interrupt` (step 2c), `get_usage` (part 3a),
 //!   `set_permission_mode` (part 3b, with one of [`PermissionMode`]'s) and `remote_control`
-//!   (ADR 0181, which nothing asks yet) are written, each with an id of oso's, `oso-N`: an
+//!   (ADR 0181, at the person's command alone) are written, each with an id of oso's, `oso-N`: an
 //!   answer whose id is not one of these is no answer of oso's.
 //! - Of an answer only its id, whether it succeeded, its error, cut to [`super::MAX_NAME`],
 //!   the slash commands it lists (`commands`, step 2d), and what the status line reads (the
@@ -88,10 +88,6 @@ pub fn request(id: u64, request: Request) -> String {
 
 /// The line that asks to connect the session to claude.ai as `enable` says, for the request
 /// `asked`, ending in `\n` (ADR 0181).
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "nothing asks until ADR 0181's part RC-2")
-)]
 pub fn enable(asked: &Asked, enable: &Enable<'_>) -> String {
     line(asked.id(), &remote::request(Some(enable)))
 }

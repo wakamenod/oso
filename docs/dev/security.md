@@ -760,7 +760,7 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   answer only its id, its success, its error, cut to 256 bytes and logged escaped,
   `initialize`'s slash commands (below), its models, its permission mode and whether Remote
   Control is available, `get_usage`'s cost and two windows, and `remote_control`'s address and
-  id (ADR 0181, which nothing asks yet); it answers no request of the CLI's. `SIGINT` goes to the session's
+  id (ADR 0181), `remote_control` at the person's command alone; it answers no request of the CLI's. `SIGINT` goes to the session's
   process alone, never its group, and only on Unix: on Windows it would end the process at
   once and leave its tools running.
 - A native session's model and effort level (ADR 0165, part 3c) go on a later process's
@@ -978,16 +978,26 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)); no hook reports a session's state.
   The hook is `oso hook deny-worktree`: it reads at most 64 KiB of standard input, starts
   nothing, and allows what it cannot read. It steers Claude, and is no boundary.
-- Remote Control is off in every native session ([ADR 0165](adr/0165-native-claude-sessions-the-route.md),
-  as amended): each native start's `--settings` has `disableRemoteControl`, so the CLI refuses a
+- Remote Control is off in every native session the person did not connect
+  ([ADR 0165](adr/0165-native-claude-sessions-the-route.md), as amended,
+  [ADR 0181](adr/0181-remote-control-of-native-sessions.md)): each other native start's, and each
+  one-shot run's, `--settings` has `disableRemoteControl`, so the CLI refuses a
   request to connect it to claude.ai, whatever the project's settings or the person's
   `remoteControlAtStartup` say. Connected, the conversation would be stored there, and messages
   and mode changes would come from outside oso's window, past oso's rules on who makes them.
-  oso never asks for it: the request and the state are there
-  ([ADR 0181](adr/0181-remote-control-of-native-sessions.md), part RC-1), with nothing that
-  writes it. A terminal's `claude`, the TUI a native session is handed to among
+  A terminal's `claude`, the TUI a native session is handed to among
   them, follows the person's own settings. It is a setting of that one process: a `claude` the
   session runs reads its own, and it is no boundary against other processes of the same user.
+  - The person's command alone connects one, by a question with a report of what is sent, never an
+    agent, a project or the configuration; leave for it is for one resume, and is judged again
+    under the trust of that start, where the git remotes' addresses must hold no password and no
+    user name but ssh's `git`. Never an agent's session or an orchestrator. The session is marked
+    until its process ended. Whoever holds the account then drives it: its messages are no
+    person's at oso, its questions are answered in oso alone, its starts, resumes, added
+    repositories and archives' stops ask, and it may
+    set a mode in which calls run unasked. What the session read stays on Anthropic's servers.
+    `oso-restart` connects it again only where the session there, the directory, its repository
+    and the trust are the same.
   - What the stream says of it is read strictly, and a process started blocked is off whatever it
     says: no line turns it on, makes a message the person's, or answers a card. Where a process
     may be connected, a mode no key here chose is shown and never carried to a later process, and

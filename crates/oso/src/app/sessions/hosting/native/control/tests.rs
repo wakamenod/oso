@@ -71,7 +71,7 @@ fn an_answer_reaches_the_request_that_waits_and_a_message_is_marked() {
     let answer = format!(
         r#"{{"type":"control_response","response":{{"subtype":"success","request_id":"oso-{id}","response":{{"session_url":"https://claude.ai/code/session_a"}}}}}}"#
     );
-    assert_eq!(read(&mut native, &answer).1, Vec::new());
+    assert_eq!(read(&mut native, &answer).1, vec![Follow::Remote(false)]);
     let url = native.remote.enabled().url.as_ref();
     assert_eq!(
         url.map(|url| url.as_str()),

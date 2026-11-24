@@ -202,7 +202,8 @@ impl App {
             "takes_answer": self.card_takes_answer(),
             "plan_takes_answer": self.plan_takes_answer(),
             "question_takes_answer": (self.plan_question_takes_answer())
-                .or_else(|| self.unread_question_takes_answer()),
+                .or_else(|| self.unread_question_takes_answer())
+                .or_else(|| self.remote_question_takes_answer()),
         });
         // A call that waits (ADR 0182).
         state["request"] = json!(self.request_state());

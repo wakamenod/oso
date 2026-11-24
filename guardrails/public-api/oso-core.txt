@@ -2003,6 +2003,9 @@ pub oso_core::editor::NativeAction::Page(isize)
 pub oso_core::editor::NativeAction::Prompt(isize)
 pub oso_core::editor::NativeAction::Queue
 pub oso_core::editor::NativeAction::ReadOn(isize)
+pub oso_core::editor::NativeAction::RemoteAddress
+pub oso_core::editor::NativeAction::RemoteConfirmed
+pub oso_core::editor::NativeAction::RemoteControl
 pub oso_core::editor::NativeAction::Request
 pub oso_core::editor::NativeAction::Send
 pub oso_core::editor::NativeAction::SendNow
