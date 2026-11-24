@@ -1,12 +1,15 @@
 //! The cursor boxes, outlines and thin lines a pane draws: the primary cursor's box, or a hollow
 //! one's sides, the other cursors' outlines (ADR 0091), a masked prompt's cursor cell, the
-//! divider between side by side windows (ADR 0112) and a strike's line.
+//! divider between side by side windows (ADR 0112), a strike's line and the line under a link.
 //!
 //! Must not depend on: `capture`, `paint` or a font backend.
+
+use std::ops::Range;
 
 use oso_core::frame::{CellRect, PixelRect};
 use oso_platform::text::CellMetrics;
 
+use super::highlight::RowCells;
 use super::{Draws, panel};
 use crate::pane::{Face, Masked, TextView};
 use crate::text::Layout;
@@ -109,5 +112,46 @@ pub(super) fn through(rect: PixelRect, line: f32) -> PixelRect {
         y: (rect.y + (rect.height - line) / 2.0).round(),
         height: line,
         ..rect
+    }
+}
+
+/// Draws the lines under `links` of view row `row`, each its first column and cells, at the
+/// cells' bottom, below what tells letters apart, and behind the glyphs: in a link's colour, or where a fill in `plain` is, in the
+/// text's, as the glyphs are.
+pub(super) fn underline_links(
+    draws: &mut Draws,
+    (layout, row): (&Layout, usize),
+    links: &[(usize, usize)],
+    mut plain: RowCells<'_>,
+    metrics: CellMetrics,
+) {
+    let line = line_width(metrics);
+    let below = metrics.height - line;
+    let mut under = |columns: Range<usize>, face| {
+        let rect = layout.display_cells(row, columns.start, columns.len());
+        let rect = rect.map(|rect| PixelRect {
+            y: rect.y + below,
+            height: line,
+            ..rect
+        });
+        let ink = draws.theme.foreground(face);
+        draws.fill_color(rect, ink);
+    };
+    for &(column, cells) in links {
+        let [_, first] = layout.frame_cell(row, column);
+        let (mut start, mut face) = (0, Face::SessionLink);
+        for cell in 0..cells {
+            let at = first + i64::try_from(cell).unwrap_or(i64::MAX);
+            let now = if plain.meets(&(at..at + 1)) {
+                Face::Text
+            } else {
+                Face::SessionLink
+            };
+            if now != face {
+                under(column + start..column + cell, face);
+                (start, face) = (cell, now);
+            }
+        }
+        under(column + start..column + cells, face);
     }
 }

@@ -9,7 +9,9 @@
 //!
 //! Font fallback is CoreText's own: a `CTLine` splits text into runs, and a
 //! run whose characters the primary font lacks uses a font from the
-//! system's cascade list for the primary font (CJK, emoji and so on).
+//! system's cascade list for the primary font (CJK, emoji and so on). Text in a style is
+//! shaped with the family's font of that style, which has a cascade list of its own: bold
+//! Japanese comes in a bold font. A family without the style is shaped regular.
 //!
 //! Lines come from a `CTTypesetter` with a forced embedding level, so no
 //! character is shown as its mirrored form (ADR 0066). A row of both directions
@@ -38,8 +40,8 @@ mod direction;
 use direction::{DirectionRun, SEPARATOR, is_right_to_left, push_bytes};
 
 use super::{
-    CellMetrics, FontId, FontRequest, GlyphBitmap, GlyphFormat, GlyphId, GlyphKey, ShapedGlyph,
-    TextError, TextSystem,
+    CellMetrics, FontId, FontRequest, FontStyle, GlyphBitmap, GlyphFormat, GlyphId, GlyphKey,
+    ShapedGlyph, TextError, TextSystem,
 };
 
 /// Empty pixels around a glyph's bounds, so antialiased edges are not cut.
@@ -74,8 +76,11 @@ pub(super) struct CoreTextSystem {
     fonts: Vec<LoadedFont>,
     metrics: CellMetrics,
     /// What text is shaped with, kept since `shape` runs per piece: the
-    /// primary font, and the options of embedding level 0 and 1.
+    /// primary font, its bold and italic ones once they are asked for, and the
+    /// options of embedding level 0 and 1.
     attributes: CFRetained<CFDictionary<CFString, CFType>>,
+    bold: Option<CFRetained<CFDictionary<CFString, CFType>>>,
+    italic: Option<CFRetained<CFDictionary<CFString, CFType>>>,
     level_0: CFRetained<CFDictionary<CFString, CFType>>,
     level_1: CFRetained<CFDictionary<CFString, CFType>>,
     /// Scratch buffers reused across calls to `shape`. `bytes` maps UTF-16
@@ -112,10 +117,10 @@ impl CoreTextSystem {
             .find_map(|family| font_named(family, size))
             .ok_or(TextError::NoFont)?;
         let metrics = cell_metrics(&font, size);
-        let primary: &CFType = &font;
-        let attributes = CFDictionary::from_slices(&[font_attribute()], &[primary]);
         Ok(Self {
-            attributes,
+            attributes: font_attributes(&font),
+            bold: None,
+            italic: None,
             fonts: vec![LoadedFont::new(font)],
             metrics,
             level_0: typesetter_options(0),
@@ -221,15 +226,25 @@ impl CoreTextSystem {
     }
 
     /// Appends the glyphs of `text`, a row of one direction.
-    fn shape_direction(&mut self, text: &str, right_to_left: bool, out: &mut Vec<ShapedGlyph>) {
+    fn shape_direction(
+        &mut self,
+        text: &str,
+        (right_to_left, style): (bool, FontStyle),
+        out: &mut Vec<ShapedGlyph>,
+    ) {
         self.bytes.clear();
         push_bytes(&mut self.bytes, text, 0);
         let line = CFString::from_str(text);
-        self.shape_line(&line, right_to_left, out);
+        self.shape_line(&line, (right_to_left, style), out);
     }
 
     /// Appends the glyphs of the runs of `text` in one direction as one line.
-    fn shape_runs(&mut self, text: &str, right_to_left: bool, out: &mut Vec<ShapedGlyph>) {
+    fn shape_runs(
+        &mut self,
+        text: &str,
+        (right_to_left, style): (bool, FontStyle),
+        out: &mut Vec<ShapedGlyph>,
+    ) {
         direction::join(
             text,
             &self.runs,
@@ -239,13 +254,13 @@ impl CoreTextSystem {
         );
         if !self.line.is_empty() {
             let line = CFString::from_str(&self.line);
-            self.shape_line(&line, right_to_left, out);
+            self.shape_line(&line, (right_to_left, style), out);
         }
     }
 
     /// Appends the glyphs of each run of `text` as a line of its own: what a row
     /// whose joined lines did not come out whole is shaped as.
-    fn shape_apart(&mut self, text: &str, out: &mut Vec<ShapedGlyph>) {
+    fn shape_apart(&mut self, text: &str, style: FontStyle, out: &mut Vec<ShapedGlyph>) {
         for index in 0..self.runs.len() {
             let DirectionRun {
                 start,
@@ -256,17 +271,31 @@ impl CoreTextSystem {
             self.bytes.clear();
             push_bytes(&mut self.bytes, &text[start..end], start);
             let line = CFString::from_str(&text[start..end]);
-            self.shape_line(&line, right_to_left, out);
+            self.shape_line(&line, (right_to_left, style), out);
         }
     }
 
-    /// Appends the glyphs of `text` as one line at the embedding level of its
-    /// direction. `bytes` maps it to the row.
-    fn shape_line(&mut self, text: &CFString, right_to_left: bool, out: &mut Vec<ShapedGlyph>) {
+    /// Appends the glyphs of `text` as one line in `style`, whose font is made if it was not, at
+    /// the embedding level of its direction. `bytes` maps it to the row.
+    fn shape_line(
+        &mut self,
+        text: &CFString,
+        (right_to_left, style): (bool, FontStyle),
+        out: &mut Vec<ShapedGlyph>,
+    ) {
+        let primary = &self.fonts[0].font;
+        let attributes = match style {
+            FontStyle::Regular => &self.attributes,
+            FontStyle::Bold => {
+                (self.bold).get_or_insert_with(|| styled(primary, CTFontSymbolicTraits::TraitBold))
+            }
+            FontStyle::Italic => (self.italic)
+                .get_or_insert_with(|| styled(primary, CTFontSymbolicTraits::TraitItalic)),
+        };
         // SAFETY: the default allocator, a valid string, and attributes that
         // map the font attribute name to a font, as CoreText expects.
         let attributed =
-            unsafe { CFAttributedString::new(None, Some(text), Some(self.attributes.as_ref())) };
+            unsafe { CFAttributedString::new(None, Some(text), Some(attributes.as_ref())) };
         let Some(attributed) = attributed else {
             return;
         };
@@ -312,28 +341,28 @@ impl TextSystem for CoreTextSystem {
         self.metrics
     }
 
-    fn shape(&mut self, text: &str, out: &mut Vec<ShapedGlyph>) {
+    fn shape(&mut self, text: &str, style: FontStyle, out: &mut Vec<ShapedGlyph>) {
         out.clear();
         if text.is_empty() {
             return;
         }
         if text.is_ascii() || !text.chars().any(is_right_to_left) {
-            self.shape_direction(text, false, out);
+            self.shape_direction(text, (false, style), out);
             return;
         }
         direction::split(text, &mut self.runs);
         if let [run] = self.runs[..] {
-            self.shape_direction(text, run.right_to_left, out);
+            self.shape_direction(text, (run.right_to_left, style), out);
             return;
         }
         self.separator_drew = false;
-        self.shape_runs(text, false, out);
-        self.shape_runs(text, true, out);
+        self.shape_runs(text, (false, style), out);
+        self.shape_runs(text, (true, style), out);
         if self.separator_drew
             || !direction::every_run_drawn(text, &self.runs, out, &mut self.drawn)
         {
             out.clear();
-            self.shape_apart(text, out);
+            self.shape_apart(text, style, out);
         }
         direction::line_up(&mut self.runs, out);
     }
@@ -461,6 +490,24 @@ fn font_attribute() -> &'static CFString {
     unsafe { kCTFontAttributeName }
 }
 
+/// What text in `font` is shaped with.
+fn font_attributes(font: &CTFont) -> CFRetained<CFDictionary<CFString, CFType>> {
+    let font: &CFType = font;
+    CFDictionary::from_slices(&[font_attribute()], &[font])
+}
+
+/// What text is shaped with in the font of `font`'s family with `style`, its one trait of bold
+/// and italic, or in `font` if the family has none.
+fn styled(
+    font: &CTFont,
+    style: CTFontSymbolicTraits,
+) -> CFRetained<CFDictionary<CFString, CFType>> {
+    let both = CTFontSymbolicTraits::TraitBold | CTFontSymbolicTraits::TraitItalic;
+    // SAFETY: a size of 0 is documented to keep the font's, and a null matrix its own.
+    let found = unsafe { font.copy_with_symbolic_traits(0.0, ptr::null(), style, both) };
+    font_attributes(found.as_deref().unwrap_or(font))
+}
+
 /// A forced embedding `level`, so no bidirectional algorithm runs, and no limit
 /// on a line's length from CoreText: `oso-render` bounds what it shapes per row.
 fn typesetter_options(level: i32) -> CFRetained<CFDictionary<CFString, CFType>> {
@@ -544,6 +591,8 @@ mod tests {
         size_pt: 13.0,
     };
 
+    const STYLES: [FontStyle; 3] = [FontStyle::Regular, FontStyle::Bold, FontStyle::Italic];
+
     fn menlo(scale: f64) -> CoreTextSystem {
         CoreTextSystem::load(&REQUEST, scale).expect("Menlo ships with macOS")
     }
@@ -587,7 +636,7 @@ mod tests {
     fn fallback_fonts_draw_what_menlo_lacks() {
         let mut system = menlo(2.0);
         let mut out = Vec::new();
-        system.shape("a日🍣b", &mut out);
+        system.shape("a日🍣b", FontStyle::Regular, &mut out);
         let clusters: Vec<_> = out.iter().map(|g| g.cluster).collect();
         assert_eq!(clusters, [0, 1, 4, 8], "byte offsets, not UTF-16");
         // 日 and 🍣 come from fallback fonts.
@@ -601,31 +650,33 @@ mod tests {
     }
 
     /// The glyph `system` gives `c` shaped alone, where nothing can change it.
-    fn key_of(system: &mut CoreTextSystem, c: char) -> GlyphKey {
+    fn key_of(system: &mut CoreTextSystem, style: FontStyle, c: char) -> GlyphKey {
         let mut out = Vec::new();
-        system.shape(c.encode_utf8(&mut [0; 4]), &mut out);
+        system.shape(c.encode_utf8(&mut [0; 4]), style, &mut out);
         assert_eq!(out.len(), 1, "{c:?}");
         out[0].key
     }
 
     #[test]
     fn right_to_left_text_shows_no_mirrored_form() {
-        let mut system = menlo(1.0);
-        let mut out = Vec::new();
-        for s in ['\u{5d0}', '\u{5d1}', '\u{633}', '\u{644}'] {
-            for neutral in "<>()[]{}«»‹›≤≥".chars() {
-                let want = key_of(&mut system, neutral);
-                for text in [
-                    format!("{s}{neutral}{s} {neutral} {s}"),
-                    format!("{s}{s}{neutral}{s}{s}"),
-                    format!("{neutral}{s}"),
-                    format!("{s}{neutral}"),
-                ] {
-                    system.shape(&text, &mut out);
-                    for (byte, _) in text.match_indices(neutral) {
-                        let glyph = out.iter().find(|g| g.cluster == byte as u32);
-                        let glyph = glyph.unwrap_or_else(|| panic!("{text:?} {byte}"));
-                        assert_eq!(glyph.key, want, "{text:?}");
+        for style in STYLES {
+            let mut system = menlo(1.0);
+            let mut out = Vec::new();
+            for s in ['\u{5d0}', '\u{5d1}', '\u{633}', '\u{644}'] {
+                for neutral in "<>()[]{}«»‹›≤≥".chars() {
+                    let want = key_of(&mut system, style, neutral);
+                    for text in [
+                        format!("{s}{neutral}{s} {neutral} {s}"),
+                        format!("{s}{s}{neutral}{s}{s}"),
+                        format!("{neutral}{s}"),
+                        format!("{s}{neutral}"),
+                    ] {
+                        system.shape(&text, style, &mut out);
+                        for (byte, _) in text.match_indices(neutral) {
+                            let glyph = out.iter().find(|g| g.cluster == byte as u32);
+                            let glyph = glyph.unwrap_or_else(|| panic!("{text:?} {byte}"));
+                            assert_eq!(glyph.key, want, "{text:?}");
+                        }
                     }
                 }
             }
@@ -633,9 +684,14 @@ mod tests {
     }
 
     /// The pen positions of the glyphs of the characters `at` of `text`.
-    fn pens_at(system: &mut CoreTextSystem, text: &str, at: &[usize]) -> Vec<f32> {
+    fn pens_at(
+        system: &mut CoreTextSystem,
+        style: FontStyle,
+        text: &str,
+        at: &[usize],
+    ) -> Vec<f32> {
         let mut out = Vec::new();
-        system.shape(text, &mut out);
+        system.shape(text, style, &mut out);
         at.iter()
             .map(|&byte| {
                 let glyph = out.iter().find(|g| g.cluster == byte as u32);
@@ -648,33 +704,37 @@ mod tests {
 
     #[test]
     fn pens_follow_the_order_of_the_text_across_directions() {
-        let mut system = menlo(1.0);
-        // a, the Hebrew letter, <, the next Hebrew letter and b.
-        let pens = pens_at(&mut system, "a \u{5d0} <\u{5d1}b ", &[0, 2, 5, 6, 8]);
-        assert!(pens.is_sorted_by(|a, b| a < b), "{pens:?}");
+        for style in STYLES {
+            let mut system = menlo(1.0);
+            // a, the Hebrew letter, <, the next Hebrew letter and b.
+            let pens = pens_at(&mut system, style, "a \u{5d0} <\u{5d1}b ", &[0, 2, 5, 6, 8]);
+            assert!(pens.is_sorted_by(|a, b| a < b), "{pens:?}");
+        }
     }
 
     #[test]
     fn every_letter_with_marks_has_a_glyph_of_its_own() {
-        let mut system = menlo(1.0);
-        let mut out = Vec::new();
-        let marks = [
-            "\u{5b0}", "\u{5bc}", "\u{5c1}", "\u{596}", "\u{64e}", "\u{651}", "\u{301}",
-        ];
-        for letter in [
-            "\u{5d1}", "\u{5e8}", "\u{5e9}", "\u{633}", "\u{71d}", "a", "\u{3b1}",
-        ] {
-            for next in ["\u{5e8}", "\u{644}", "a"] {
-                for first in marks {
-                    for second in marks {
-                        let text = format!("{letter}{first}{second}{next}");
-                        let next = text.len() - next.len();
-                        system.shape(&text, &mut out);
-                        for byte in [0, next] {
-                            assert!(
-                                out.iter().any(|g| g.cluster == byte as u32),
-                                "{text:?} {byte}: {out:?}"
-                            );
+        for style in STYLES {
+            let mut system = menlo(1.0);
+            let mut out = Vec::new();
+            let marks = [
+                "\u{5b0}", "\u{5bc}", "\u{5c1}", "\u{596}", "\u{64e}", "\u{651}", "\u{301}",
+            ];
+            for letter in [
+                "\u{5d1}", "\u{5e8}", "\u{5e9}", "\u{633}", "\u{71d}", "a", "\u{3b1}",
+            ] {
+                for next in ["\u{5e8}", "\u{644}", "a"] {
+                    for first in marks {
+                        for second in marks {
+                            let text = format!("{letter}{first}{second}{next}");
+                            let next = text.len() - next.len();
+                            system.shape(&text, style, &mut out);
+                            for byte in [0, next] {
+                                assert!(
+                                    out.iter().any(|g| g.cluster == byte as u32),
+                                    "{text:?} {byte}: {out:?}"
+                                );
+                            }
                         }
                     }
                 }
@@ -701,27 +761,33 @@ mod tests {
 
     #[test]
     fn a_grapheme_is_never_split_by_direction() {
-        let mut system = menlo(1.0);
-        let (mut whole, mut split) = (Vec::new(), Vec::new());
-        let marks: Vec<char> = joining_after('a').collect();
-        assert!(marks.len() > 2000, "{}", marks.len());
-        for letter in ['\u{5d0}', '\u{633}', 'a', '\u{3b1}'] {
-            let right_to_left = is_right_to_left(letter);
-            for &mark in &marks {
-                let text = format!("{letter}{mark}");
-                system.shape(&text, &mut split);
-                whole.clear();
-                system.shape_direction(&text, right_to_left, &mut whole);
-                assert_eq!(split, whole, "{:?}", text.escape_unicode().to_string());
+        for style in STYLES {
+            let mut system = menlo(1.0);
+            let (mut whole, mut split) = (Vec::new(), Vec::new());
+            let marks: Vec<char> = joining_after('a').collect();
+            assert!(marks.len() > 2000, "{}", marks.len());
+            for letter in ['\u{5d0}', '\u{633}', 'a', '\u{3b1}'] {
+                let right_to_left = is_right_to_left(letter);
+                for &mark in &marks {
+                    let text = format!("{letter}{mark}");
+                    system.shape(&text, style, &mut split);
+                    whole.clear();
+                    system.shape_direction(&text, (right_to_left, style), &mut whole);
+                    assert_eq!(split, whole, "{:?}", text.escape_unicode().to_string());
+                }
             }
         }
     }
 
     /// The glyphs of `text` by cluster: their keys, offsets from the cluster's
     /// first glyph and advances, which is what placing them on the grid reads.
-    fn by_cluster(system: &mut CoreTextSystem, text: &str) -> Vec<(u32, GlyphKey, i32, i32, i32)> {
+    fn by_cluster(
+        system: &mut CoreTextSystem,
+        style: FontStyle,
+        text: &str,
+    ) -> Vec<(u32, GlyphKey, i32, i32, i32)> {
         let mut out = Vec::new();
-        system.shape(text, &mut out);
+        system.shape(text, style, &mut out);
         let mut glyphs: Vec<_> = out
             .iter()
             .map(|g| {
@@ -737,130 +803,143 @@ mod tests {
 
     #[test]
     fn runs_of_one_direction_shape_as_if_each_were_alone() {
-        let mut system = menlo(2.0);
-        let rows = [
-            "\u{644}a\u{627}",
-            "\u{628}a\u{628}a\u{628}",
-            "\u{633}\u{644}\u{627}\u{645} x \u{639}\u{644}\u{64a}\u{643}\u{645} (1) \u{645}\u{631}\u{62d}\u{628}\u{627}",
-            "\u{5e9}\u{5c1}\u{5b8}a\u{5d1}\u{5bc}\u{5b7}\u{5e8} 2024 \u{5e2}\u{5d5}\u{5dc}\u{5b8}\u{5dd}",
-            "f(\u{5d0}) <\u{5d1}> [\u{5d2}] fi\u{5d3}fl",
-            "\u{5d0}\u{5b4}a\u{5b4}\u{5d1}",
-            // What a shaper can build across graphemes, on both sides of a
-            // run of the other direction.
-            "\u{1f1ef}\u{5d0}\u{1f1f5}",
-            "\u{1f1ef}\u{1f1f5}\u{5d0}\u{1f1fa}\u{1f1f8}",
-            "\u{1f468}\u{200d}\u{5d0}\u{200d}\u{1f469}",
-            "\u{1f468}\u{5d0}\u{200d}\u{1f469}",
-            "\u{1100}\u{5d0}\u{1161}\u{11a8}",
-            "\u{915}\u{94d}\u{5d0}\u{937}",
-            "\u{915}\u{5d0}\u{94d}\u{937}",
-            "f\u{5d0}i \u{644}a\u{627} \u{5d0}\u{1f1ef}\u{5d1}\u{1f1f5}",
-            "\u{e01}\u{5d0}\u{e49}\u{e33}",
-        ];
-        for row in rows {
-            let mut want = Vec::new();
-            let mut start = 0;
-            let mut current = None;
-            for (byte, grapheme) in row.grapheme_indices(true) {
-                let direction = grapheme_direction(grapheme).or(current).unwrap_or(false);
-                if current.is_some_and(|c| c != direction) {
-                    want.extend(
-                        by_cluster(&mut system, &row[start..byte])
-                            .into_iter()
-                            .map(|(c, k, x, y, a)| (c + start as u32, k, x, y, a)),
-                    );
-                    start = byte;
+        for style in STYLES {
+            let mut system = menlo(2.0);
+            let rows = [
+                "\u{644}a\u{627}",
+                "\u{628}a\u{628}a\u{628}",
+                "\u{633}\u{644}\u{627}\u{645} x \u{639}\u{644}\u{64a}\u{643}\u{645} (1) \u{645}\u{631}\u{62d}\u{628}\u{627}",
+                "\u{5e9}\u{5c1}\u{5b8}a\u{5d1}\u{5bc}\u{5b7}\u{5e8} 2024 \u{5e2}\u{5d5}\u{5dc}\u{5b8}\u{5dd}",
+                "f(\u{5d0}) <\u{5d1}> [\u{5d2}] fi\u{5d3}fl",
+                "\u{5d0}\u{5b4}a\u{5b4}\u{5d1}",
+                // What a shaper can build across graphemes, on both sides of a
+                // run of the other direction.
+                "\u{1f1ef}\u{5d0}\u{1f1f5}",
+                "\u{1f1ef}\u{1f1f5}\u{5d0}\u{1f1fa}\u{1f1f8}",
+                "\u{1f468}\u{200d}\u{5d0}\u{200d}\u{1f469}",
+                "\u{1f468}\u{5d0}\u{200d}\u{1f469}",
+                "\u{1100}\u{5d0}\u{1161}\u{11a8}",
+                "\u{915}\u{94d}\u{5d0}\u{937}",
+                "\u{915}\u{5d0}\u{94d}\u{937}",
+                "f\u{5d0}i \u{644}a\u{627} \u{5d0}\u{1f1ef}\u{5d1}\u{1f1f5}",
+                "\u{e01}\u{5d0}\u{e49}\u{e33}",
+            ];
+            for row in rows {
+                let mut want = Vec::new();
+                let mut start = 0;
+                let mut current = None;
+                for (byte, grapheme) in row.grapheme_indices(true) {
+                    let direction = grapheme_direction(grapheme).or(current).unwrap_or(false);
+                    if current.is_some_and(|c| c != direction) {
+                        want.extend(
+                            by_cluster(&mut system, style, &row[start..byte])
+                                .into_iter()
+                                .map(|(c, k, x, y, a)| (c + start as u32, k, x, y, a)),
+                        );
+                        start = byte;
+                    }
+                    current = Some(direction);
                 }
-                current = Some(direction);
+                want.extend(
+                    by_cluster(&mut system, style, &row[start..])
+                        .into_iter()
+                        .map(|(c, k, x, y, a)| (c + start as u32, k, x, y, a)),
+                );
+                want.sort_by_key(|g| (g.0, g.1));
+                system.lines = 0;
+                assert_eq!(by_cluster(&mut system, style, row), want, "{row:?}");
+                assert!(system.lines <= 2, "joined, not apart: {row:?}");
             }
-            want.extend(
-                by_cluster(&mut system, &row[start..])
-                    .into_iter()
-                    .map(|(c, k, x, y, a)| (c + start as u32, k, x, y, a)),
-            );
-            want.sort_by_key(|g| (g.0, g.1));
-            system.lines = 0;
-            assert_eq!(by_cluster(&mut system, row), want, "{row:?}");
-            assert!(system.lines <= 2, "joined, not apart: {row:?}");
         }
     }
 
     #[test]
     fn a_row_whose_separator_draws_is_shaped_with_its_runs_apart() {
-        let mut system = menlo(2.0);
-        let row = "\u{644}a\u{627} \u{5d0}\u{5b8}b(\u{5d1})";
-        let joined = by_cluster(&mut system, row);
-        system.separator_draws = true;
-        system.lines = 0;
-        let apart = by_cluster(&mut system, row);
-        let mut runs = Vec::new();
-        direction::split(row, &mut runs);
-        assert_eq!(system.lines, 2 + runs.len(), "joined, then each run alone");
-        assert_eq!(apart, joined, "the same glyphs as each run alone");
+        for style in STYLES {
+            let mut system = menlo(2.0);
+            let row = "\u{644}a\u{627} \u{5d0}\u{5b8}b(\u{5d1})";
+            let joined = by_cluster(&mut system, style, row);
+            system.separator_draws = true;
+            system.lines = 0;
+            let apart = by_cluster(&mut system, style, row);
+            let mut runs = Vec::new();
+            direction::split(row, &mut runs);
+            assert_eq!(system.lines, 2 + runs.len(), "joined, then each run alone");
+            assert_eq!(apart, joined, "the same glyphs as each run alone");
+        }
     }
 
     #[test]
     fn a_row_makes_at_most_two_lines_however_often_it_changes_direction() {
-        let mut system = menlo(1.0);
-        let mut out = Vec::new();
-        for unit in ["\u{5d0}a", "\u{628}a", "\u{5d0}\u{5b8}(", "a \u{5d0} "] {
-            let row = unit.repeat(200);
-            system.lines = 0;
-            system.shape(&row, &mut out);
-            assert_eq!(system.lines, 2, "{unit:?}");
-            let starts: Vec<_> = row.grapheme_indices(true).map(|(b, _)| b as u32).collect();
-            let mut drawn: Vec<_> = out
-                .iter()
-                .map(|g| {
-                    assert!((g.cluster as usize) < row.len(), "no separator draws");
-                    starts.partition_point(|&s| s <= g.cluster) - 1
-                })
-                .collect();
-            drawn.sort_unstable();
-            drawn.dedup();
-            assert_eq!(drawn.len(), starts.len(), "every grapheme draws: {unit:?}");
+        for style in STYLES {
+            let mut system = menlo(1.0);
+            let mut out = Vec::new();
+            for unit in ["\u{5d0}a", "\u{628}a", "\u{5d0}\u{5b8}(", "a \u{5d0} "] {
+                let row = unit.repeat(200);
+                system.lines = 0;
+                system.shape(&row, style, &mut out);
+                assert_eq!(system.lines, 2, "{unit:?}");
+                let starts: Vec<_> = row.grapheme_indices(true).map(|(b, _)| b as u32).collect();
+                let mut drawn: Vec<_> = out
+                    .iter()
+                    .map(|g| {
+                        assert!((g.cluster as usize) < row.len(), "no separator draws");
+                        starts.partition_point(|&s| s <= g.cluster) - 1
+                    })
+                    .collect();
+                drawn.sort_unstable();
+                drawn.dedup();
+                assert_eq!(drawn.len(), starts.len(), "every grapheme draws: {unit:?}");
+            }
         }
     }
 
     #[test]
     fn a_prepended_character_keeps_a_mirrored_form_out_of_level_1() {
-        let mut system = menlo(1.0);
-        let mut out = Vec::new();
-        let want = key_of(&mut system, '(');
-        let mut count = 0;
-        for c in prepended() {
-            count += 1;
-            let text = format!("{c}(");
-            system.shape(&text, &mut out);
-            let glyph = out.iter().find(|g| g.cluster == c.len_utf8() as u32);
-            let glyph = glyph.unwrap_or_else(|| panic!("{text:?}: {out:?}"));
-            assert_eq!(glyph.key, want, "{:?}", text.escape_unicode().to_string());
+        for style in STYLES {
+            let mut system = menlo(1.0);
+            let mut out = Vec::new();
+            let want = key_of(&mut system, style, '(');
+            let mut count = 0;
+            for c in prepended() {
+                count += 1;
+                let text = format!("{c}(");
+                system.shape(&text, style, &mut out);
+                let glyph = out.iter().find(|g| g.cluster == c.len_utf8() as u32);
+                let glyph = glyph.unwrap_or_else(|| panic!("{text:?}: {out:?}"));
+                assert_eq!(glyph.key, want, "{:?}", text.escape_unicode().to_string());
+            }
+            assert!(count > 20, "{count}");
         }
-        assert!(count > 20, "{count}");
     }
 
     #[test]
     fn punctuation_with_no_mirrored_form_keeps_its_glyph_in_a_right_to_left_run() {
-        let mut system = menlo(1.0);
-        let mut out = Vec::new();
-        for punctuation in (' '..='~').filter(|&c| grapheme_direction(&c.to_string()).is_none()) {
-            let want = key_of(&mut system, punctuation);
-            for letter in ['\u{5d0}', '\u{633}'] {
-                let text = format!("{letter}{punctuation}{letter}");
-                system.shape(&text, &mut out);
-                let glyph = out.iter().find(|g| g.cluster == letter.len_utf8() as u32);
-                let glyph = glyph.unwrap_or_else(|| panic!("{text:?}: {out:?}"));
-                assert_eq!(glyph.key, want, "{text:?}");
+        for style in STYLES {
+            let mut system = menlo(1.0);
+            let mut out = Vec::new();
+            for punctuation in (' '..='~').filter(|&c| grapheme_direction(&c.to_string()).is_none())
+            {
+                let want = key_of(&mut system, style, punctuation);
+                for letter in ['\u{5d0}', '\u{633}'] {
+                    let text = format!("{letter}{punctuation}{letter}");
+                    system.shape(&text, style, &mut out);
+                    let glyph = out.iter().find(|g| g.cluster == letter.len_utf8() as u32);
+                    let glyph = glyph.unwrap_or_else(|| panic!("{text:?}: {out:?}"));
+                    assert_eq!(glyph.key, want, "{text:?}");
+                }
             }
         }
     }
 
     #[test]
     fn digits_stay_where_the_text_has_them_after_right_to_left_text() {
-        let mut system = menlo(1.0);
-        // The digits and the < of the text, in its order.
-        let pens = pens_at(&mut system, "\u{5d0} 12 < 34", &[3, 4, 6, 8, 9]);
-        assert!(pens.is_sorted_by(|a, b| a < b), "{pens:?}");
+        for style in STYLES {
+            let mut system = menlo(1.0);
+            // The digits and the < of the text, in its order.
+            let pens = pens_at(&mut system, style, "\u{5d0} 12 < 34", &[3, 4, 6, 8, 9]);
+            assert!(pens.is_sorted_by(|a, b| a < b), "{pens:?}");
+        }
     }
 
     #[test]
@@ -869,7 +948,7 @@ mod tests {
         let mut system = menlo(1.0);
         let mut out = Vec::new();
         for unit in ["a", "\u{5d0}"] {
-            system.shape(&unit.repeat(11_000), &mut out);
+            system.shape(&unit.repeat(11_000), FontStyle::Regular, &mut out);
             assert_eq!(out.len(), 11_000, "{unit:?}");
         }
     }
@@ -878,9 +957,9 @@ mod tests {
     fn fallback_fonts_are_reused() {
         let mut system = menlo(1.0);
         let mut out = Vec::new();
-        system.shape("日", &mut out);
+        system.shape("日", FontStyle::Regular, &mut out);
         let first = out[0].key.font;
-        system.shape("本", &mut out);
+        system.shape("本", FontStyle::Regular, &mut out);
         assert_eq!(out[0].key.font, first);
     }
 
@@ -888,7 +967,7 @@ mod tests {
     fn text_is_coverage_and_emoji_is_color() {
         let mut system = menlo(2.0);
         let mut out = Vec::new();
-        system.shape("M🍣", &mut out);
+        system.shape("M🍣", FontStyle::Regular, &mut out);
         let text = system.rasterize(out[0].key).unwrap();
         let emoji = system.rasterize(out[1].key).unwrap();
         assert_eq!(text.format, GlyphFormat::Coverage);
@@ -907,12 +986,109 @@ mod tests {
         );
     }
 
+    /// The fonts' PostScript names of `text`'s glyphs in `style`.
+    fn names(system: &mut CoreTextSystem, text: &str, style: FontStyle) -> Vec<String> {
+        let mut out = Vec::new();
+        system.shape(text, style, &mut out);
+        out.iter()
+            .map(|glyph| {
+                let font = &system.fonts[usize::from(glyph.key.font.0)].font;
+                // SAFETY: `font` is a valid font.
+                unsafe { font.post_script_name() }.to_string()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_style_shapes_with_the_familys_own_font() {
+        let mut system = menlo(2.0);
+        let [regular, bold, italic] = STYLES.map(|style| names(&mut system, "a", style));
+        assert_eq!(regular, ["Menlo-Regular"]);
+        assert_eq!(bold, ["Menlo-Bold"]);
+        assert_eq!(italic, ["Menlo-Italic"]);
+        assert_eq!(
+            names(&mut system, "a", FontStyle::Regular),
+            regular,
+            "a style stays with the text it was asked for"
+        );
+        assert_eq!(system.metrics(), menlo(2.0).metrics(), "the same cells");
+    }
+
+    #[test]
+    fn every_letter_has_ink_in_every_style() {
+        let mut system = menlo(1.0);
+        let mut out = Vec::new();
+        let letters = ('!'..='~')
+            .chain('\u{a1}'..='\u{17f}')
+            .chain("ịạḷ検証かカ한│─".chars());
+        for c in letters.filter(|c| *c != '\u{ad}') {
+            for style in STYLES {
+                system.shape(c.encode_utf8(&mut [0; 4]), style, &mut out);
+                assert_eq!(out.len(), 1, "{c:?} {style:?}");
+                assert_ne!(out[0].key.glyph, GlyphId(0), "{c:?} {style:?}");
+                assert!(system.rasterize(out[0].key).is_some(), "{c:?} {style:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn bold_japanese_is_in_a_bold_font_and_italic_japanese_upright() {
+        let mut system = menlo(2.0);
+        let [regular, bold, italic] = STYLES.map(|style| names(&mut system, "検証", style));
+        assert_ne!(bold, regular);
+        assert_eq!(italic, regular, "no style is synthesized");
+        // The same font, not a copy of it, so its glyphs are rasterized once.
+        let (mut upright, mut slanted) = (Vec::new(), Vec::new());
+        system.shape("検証", FontStyle::Regular, &mut upright);
+        system.shape("検証", FontStyle::Italic, &mut slanted);
+        assert_eq!(slanted, upright);
+        // SAFETY: the fonts are valid.
+        let traits = unsafe { system.fonts.last().unwrap().font.symbolic_traits() };
+        assert!(traits.contains(CTFontSymbolicTraits::TraitBold) || bold[0].contains("W6"));
+    }
+
+    #[test]
+    fn a_family_without_a_style_is_shaped_regular() {
+        let request = FontRequest {
+            families: &["Monaco"],
+            size_pt: 13.0,
+        };
+        let mut system = CoreTextSystem::load(&request, 1.0).expect("Monaco ships with macOS");
+        let mut regular = Vec::new();
+        system.shape("ab", FontStyle::Regular, &mut regular);
+        for style in STYLES {
+            let mut out = Vec::new();
+            system.shape("ab", style, &mut out);
+            assert_eq!(out, regular, "{style:?}");
+        }
+    }
+
+    #[test]
+    fn a_grapheme_has_glyphs_and_no_mirrored_form_in_every_style() {
+        let mut system = menlo(1.0);
+        let mut out = Vec::new();
+        let text = "ae\u{301}日本🍣\u{5d0}<\u{5d1}b";
+        for style in STYLES {
+            system.shape(text, style, &mut out);
+            for (byte, grapheme) in text.grapheme_indices(true) {
+                assert!(
+                    out.iter().any(|g| g.cluster == byte as u32),
+                    "{style:?} {grapheme:?}: {out:?}"
+                );
+            }
+            let byte = text.find('<').unwrap() as u32;
+            let got = out.iter().find(|g| g.cluster == byte).unwrap().key;
+            system.shape("<", style, &mut out);
+            assert_eq!(got, out[0].key, "{style:?}");
+        }
+    }
+
     #[test]
     fn rows_run_top_to_bottom() {
         // T has its bar at the top and its stem below.
         let mut system = menlo(2.0);
         let mut out = Vec::new();
-        system.shape("T", &mut out);
+        system.shape("T", FontStyle::Regular, &mut out);
         let t = system.rasterize(out[0].key).unwrap();
         let row_ink = |y: u32| -> u32 {
             let start = (y * t.width) as usize;
@@ -966,7 +1142,7 @@ mod tests {
     fn space_draws_nothing() {
         let mut system = menlo(1.0);
         let mut out = Vec::new();
-        system.shape(" ", &mut out);
+        system.shape(" ", FontStyle::Regular, &mut out);
         assert_eq!(out.len(), 1);
         assert_eq!(system.rasterize(out[0].key), None);
     }

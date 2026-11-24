@@ -1,6 +1,6 @@
 # 0068. Cut clusters, short pieces, the cursor box and lines by direction
 
-- Status: Accepted, amended by 0105
+- Status: Accepted, amended by 0105 and 0165
 - Date: 2026-11-07
 
 ## Context
@@ -42,6 +42,7 @@ over the same code. A later ADR can replace any one of them.
 - When a row is shaped in pieces, a piece of up to 64 bytes is kept by its text, up to
   1024 of them per pane, and shaped again only when the font changes. A shaper's output
   depends only on its text and the font, so a kept piece is what shaping it would give.
+  A piece in a font style is kept by its style too (ADR 0165, "The look: styles").
 - Kept pieces hold buffer text, so they go at each revision, when the pane shows another
   buffer, and when its cached rows are dropped ([ADR 0028](0028-secrets-handling.md)).
 - A row of one piece is shaped as before, and the rows themselves are still cached by

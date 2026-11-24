@@ -13,9 +13,11 @@ use oso_core::syntax::Highlights;
 use oso_core::window::Screen;
 
 pub use face::Face;
+pub(crate) use look::Look;
 
 mod face;
 mod highlights;
+mod look;
 
 /// Names a pane across frames, so that it keeps its own shaped rows. Each pane
 /// in a list needs its own. A pane missing from a frame's list loses them.
@@ -111,6 +113,9 @@ pub struct TextView<'a> {
     /// band, and under the flash, text keeps [`Face::Text`]'s colour, which meets its floor
     /// there.
     pub highlights: Option<&'a Highlights>,
+    /// Whether its highlights give its text bold, italic and underlines too: a native session's
+    /// transcript (ADR 0165). No other view has any, and none looks for them.
+    pub styled: bool,
     /// What a language server says of the text it shows (ADR 0138).
     pub marks: TextMarks<'a>,
 }
@@ -239,7 +244,7 @@ pub enum GridColor {
 pub struct GridStyle(u16);
 
 impl GridStyle {
-    /// Kept, and drawn regular: there are no font weights yet.
+    /// Kept, and drawn regular (ADR 0120).
     pub const BOLD: Self = Self(1);
     /// Kept, and drawn regular.
     pub const ITALIC: Self = Self(1 << 1);

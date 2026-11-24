@@ -13,6 +13,7 @@ use oso_core::window::Screen;
 use oso_render::{Bands, CursorStyle, Face, Layer, Pane, PaneContent, PaneId, TextMarks, TextView};
 
 use super::{Lines, Parts, Screens};
+use crate::app::draw::transcript::styled;
 
 /// The base of a preview pane's id: each previewed buffer's pane has its own, so that the rows
 /// shaped for it are kept while that buffer stays selected (ADR 0088).
@@ -71,7 +72,7 @@ pub(super) fn preview_panes<'a>(
             // Its rows are shaped in a pane of their own, so the prompt's id only names them.
             // An excerpt is not parsed, so it shows uncoloured.
             let shown = (prompt.buffer(), revision, cursor);
-            let view = hollow(display, screen, shown, (screens.preview_fills, None));
+            let view = hollow(display, screen, shown, (screens.preview_fills, None), false);
             pane(EXCERPT_PANE, preview, PaneContent::Text(view))
         }
         Some(Preview::Buffer { id, cursor, .. }) => {
@@ -84,7 +85,8 @@ pub(super) fn preview_panes<'a>(
             // buffer wraps (ADR 0100).
             let shown = (id, buffer.revision(), cursor);
             let fills = screens.preview_fills;
-            let view = hollow(display, screen, shown, (fills, buffer.highlights()));
+            let look = (fills, buffer.highlights());
+            let view = hollow(display, screen, shown, look, styled(buffer));
             let number = u32::try_from(id.get()).unwrap_or(u32::MAX);
             pane(
                 PREVIEW_PANES.saturating_add(number),
@@ -97,13 +99,15 @@ pub(super) fn preview_panes<'a>(
 }
 
 /// A preview's view of a buffer's `display` as `screen` shows it: the buffer, its revision and
-/// its cursor in `shown`, hollow and read-only, with `fills` behind its text and `highlights`.
+/// its cursor in `shown`, hollow and read-only, with `fills` behind its text, `highlights` and
+/// whether they give it styles.
 /// Floats have no visual aids (ADR 0097), and a preview no diagnostics.
 fn hollow<'a>(
     display: DisplaySnapshot,
     screen: &'a Screen,
     (buffer, revision, cursor): (BufferId, u64, DisplayPoint),
     (fills, highlights): (&'a [(Face, &'a [CellRect])], Option<&'a Highlights>),
+    styled: bool,
 ) -> TextView<'a> {
     TextView {
         display,
@@ -119,6 +123,7 @@ fn hollow<'a>(
         whitespace: false,
         flash: None,
         highlights,
+        styled,
         marks: TextMarks::NONE,
     }
 }

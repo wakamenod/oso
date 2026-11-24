@@ -42,6 +42,7 @@ fn view<'a>(
         whitespace: false,
         flash: None,
         highlights,
+        styled: false,
         marks,
     })
 }

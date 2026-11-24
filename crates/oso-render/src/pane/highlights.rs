@@ -11,6 +11,7 @@ use super::Face;
 
 impl Face {
     /// The face text that is `highlight` is drawn in (ADR 0111).
+    #[expect(clippy::too_many_lines, reason = "one line a class")]
     pub fn of_highlight(highlight: Highlight) -> Self {
         match highlight {
             Highlight::Comment => Self::SyntaxComment,
@@ -55,6 +56,12 @@ impl Face {
             Highlight::SessionCode => Self::SessionCode,
             Highlight::SessionBullet => Self::SessionBullet,
             Highlight::SessionTable => Self::SessionTable,
+            Highlight::SessionHeading => Self::SessionHeading,
+            Highlight::SessionStrong => Self::SessionStrong,
+            Highlight::SessionStrongCode => Self::SessionStrongCode,
+            Highlight::SessionEmphasis => Self::SessionEmphasis,
+            Highlight::SessionLink => Self::SessionLink,
+            Highlight::SessionThinking => Self::SessionThinking,
             Highlight::SessionRunning => Self::SessionRunning,
             Highlight::SessionIconRead => Self::SessionIconRead,
             Highlight::SessionIconWrite => Self::SessionIconWrite,

@@ -43,11 +43,16 @@ struct Cut {
     span: Option<(Span, bool)>,
 }
 
-#[derive(Clone, Copy, Debug)]
+/// How many kinds of [`Span`] there are.
+const SPANS: usize = 5;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Span {
     Code,
     Strong,
+    Emphasis,
     Link,
+    Target,
 }
 
 impl<'a> Marks<'a> {
@@ -162,8 +167,13 @@ impl<'a> Marks<'a> {
             while let Some((start, opened)) = self.open.pop() {
                 count[opened] -= 1;
                 if opened == len {
-                    self.cut(start..start + len, "", Some((Span::Strong, true)));
-                    self.cut(at..at + len, "", Some((Span::Strong, false)));
+                    let span = if len == 1 {
+                        Span::Emphasis
+                    } else {
+                        Span::Strong
+                    };
+                    self.cut(start..start + len, "", Some((span, true)));
+                    self.cut(at..at + len, "", Some((span, false)));
                     return;
                 }
             }
@@ -187,12 +197,18 @@ impl<'a> Marks<'a> {
         }
         let target = close + 2..close + 2 + len;
         let end = target.end + 1;
-        self.cut(open..open + 1, "", Some((Span::Link, true)));
-        if self.same(text, target.clone()) || self.hides(open, text, target.clone()) {
-            self.cut(close..end, "", Some((Span::Link, false)));
+        let words = if self.same(text, target.clone()) {
+            Span::Target
         } else {
-            self.cut(close..close + 2, " (", None);
-            self.cut(target.end..target.end, "", Some((Span::Link, false)));
+            Span::Link
+        };
+        self.cut(open..open + 1, "", Some((words, true)));
+        if words == Span::Target || self.hides(open, text, target.clone()) {
+            self.cut(close..end, "", Some((words, false)));
+        } else {
+            self.cut(close..close + 2, " (", Some((Span::Link, false)));
+            self.cut(target.start..target.start, "", Some((Span::Target, true)));
+            self.cut(target.end..target.end, "", Some((Span::Target, false)));
         }
         Some(end)
     }
@@ -222,7 +238,7 @@ impl<'a> Marks<'a> {
     {
         let mut at = self.from;
         let mut next = 0;
-        let mut depth = [0usize; 3];
+        let mut depth = [0usize; SPANS];
         let mut pending: Option<(Range<usize>, &'static str, Option<Style>)> = None;
         std::iter::from_fn(move || {
             if let Some((range, put, style)) = pending.take() {
@@ -254,16 +270,26 @@ impl<'a> Marks<'a> {
 }
 
 /// The style of text inside `depth` spans of each kind, `outside` any.
-fn style_of(depth: &[usize; 3], outside: Option<Style>) -> Option<Style> {
+fn style_of(depth: &[usize; SPANS], outside: Option<Style>) -> Option<Style> {
     let inside = |span: Span| depth[span as usize] > 0;
     if inside(Span::Code) {
-        Some(Style::Code)
+        let strong =
+            inside(Span::Strong) || matches!(outside, Some(Style::Heading | Style::Strong));
+        Some(if strong {
+            Style::StrongCode
+        } else {
+            Style::Code
+        })
     } else if inside(Span::Link) {
         Some(Style::Link)
+    } else if inside(Span::Target) {
+        Some(Style::Target)
     } else if outside.is_some() {
         outside
+    } else if inside(Span::Strong) {
+        Some(Style::Strong)
     } else {
-        inside(Span::Strong).then_some(Style::Strong)
+        inside(Span::Emphasis).then_some(Style::Emphasis)
     }
 }
 

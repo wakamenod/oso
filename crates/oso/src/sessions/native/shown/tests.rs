@@ -1,14 +1,15 @@
-//! A reply's Markdown as drawn: which marks go and what stays, the faces left, that a reply
-//! drawn as it streams is the one drawn whole, and what Claude writes passing for nothing.
+//! A reply's Markdown as drawn: which marks go and what stays, the faces left, and what Claude
+//! writes passing for nothing.
 //!
 //! Must not depend on: rows, the syntax threads or the theme.
 
 use oso_core::syntax::Highlight;
-use proptest::prelude::*;
 
 use super::signs::could_be_mark;
-use super::{LineStart, MAX_MARKED, MAX_QUOTES, MAX_RULES, Style, again, walk};
+use super::{LineStart, Style, walk};
 use crate::sessions::native::render::{Face, Icon};
+
+mod streams;
 
 /// A width no line of these tests needs.
 const WIDE: usize = 98;
@@ -51,12 +52,48 @@ fn marks_are_hidden_and_leave_a_face() {
         faces("# A `b` **c**\n**d `e`** *f*"),
         [
             ("A ", Style::Heading),
-            ("b", Style::Code),
+            ("b", Style::StrongCode),
             (" ", Style::Heading),
             ("c", Style::Heading),
             ("d ", Style::Strong),
-            ("e", Style::Code),
-            ("f", Style::Strong),
+            ("e", Style::StrongCode),
+            ("f", Style::Emphasis),
+        ]
+        .map(|(text, style)| (text.to_owned(), style))
+    );
+    assert_eq!(
+        faces("*a `b` **c** d* ***e*** **f *g* [h](https://i.j)** `k`\n- *l*\n> **m**"),
+        [
+            ("a ", Style::Emphasis),
+            ("b", Style::Code),
+            (" ", Style::Emphasis),
+            ("c", Style::Strong),
+            (" d", Style::Emphasis),
+            ("e", Style::Strong),
+            ("f ", Style::Strong),
+            ("g", Style::Strong),
+            (" ", Style::Strong),
+            ("h", Style::Link),
+            ("k", Style::Code),
+            ("• ", Style::Mark),
+            ("l", Style::Emphasis),
+            ("│ ", Style::Mark),
+            ("m", Style::Strong),
+        ]
+        .map(|(text, style)| (text.to_owned(), style))
+    );
+    // A line goes under a link's words, and under no address that shows.
+    assert_eq!(
+        faces("[a b](https://c.d) [e.f](https://g.h) [https://i.j](https://i.j) **[k](l)**"),
+        [
+            ("a b", Style::Link),
+            ("https://c.d", Style::Target),
+            ("e.f", Style::Link),
+            ("https://g.h", Style::Target),
+            ("https://i.j", Style::Target),
+            ("k", Style::Link),
+            ("l", Style::Target),
+            (")", Style::Strong),
         ]
         .map(|(text, style)| (text.to_owned(), style))
     );
@@ -347,7 +384,9 @@ fn nothing_in_a_reply_passes_for_a_row() {
 }
 
 /// Whether a reply's text can be in `highlight`: its Markdown's, or what a parser gives its
-/// code. With no wildcard, so that a new one does not compile until it is placed.
+/// code; what Claude thought is a row's. With no wildcard, so that a new one does not compile
+/// until it is placed.
+#[expect(clippy::too_many_lines, reason = "one line a class")]
 fn of_a_reply(highlight: Highlight) -> bool {
     match highlight {
         Highlight::Comment
@@ -363,7 +402,12 @@ fn of_a_reply(highlight: Highlight) -> bool {
         | Highlight::Markup
         | Highlight::SessionCode
         | Highlight::SessionBullet
-        | Highlight::SessionTable => true,
+        | Highlight::SessionTable
+        | Highlight::SessionHeading
+        | Highlight::SessionStrong
+        | Highlight::SessionStrongCode
+        | Highlight::SessionEmphasis
+        | Highlight::SessionLink => true,
         Highlight::DiffAdded
         | Highlight::DiffRemoved
         | Highlight::DiffFileHeader
@@ -391,6 +435,7 @@ fn of_a_reply(highlight: Highlight) -> bool {
         | Highlight::SessionBriefMark
         | Highlight::SessionTool
         | Highlight::SessionRunning
+        | Highlight::SessionThinking
         | Highlight::SessionIconRead
         | Highlight::SessionIconWrite
         | Highlight::SessionIconShell
@@ -435,7 +480,8 @@ fn next(face: Face) -> (Option<Face>, bool) {
         Face::Said => (Face::BriefMark, false),
         Face::BriefMark => (Face::Brief, false),
         Face::Brief => (Face::Dim, false),
-        Face::Dim => (Face::Tool, false),
+        Face::Dim => (Face::Thought, false),
+        Face::Thought => (Face::Tool, false),
         Face::Tool => (Face::Running, false),
         Face::Running => (Face::Added, false),
         Face::Added => (Face::Removed, false),
@@ -455,9 +501,12 @@ fn next(face: Face) -> (Option<Face>, bool) {
         // Of a card and a strip, which no reply is in: Claude's own words there.
         Face::Target => (Face::Reply(Style::Heading), true),
         Face::Reply(Style::Heading) => (Face::Reply(Style::Strong), true),
-        Face::Reply(Style::Strong) => (Face::Reply(Style::Code), true),
-        Face::Reply(Style::Code) => (Face::Reply(Style::Link), true),
-        Face::Reply(Style::Link) => (Face::Reply(Style::Mark), true),
+        Face::Reply(Style::Strong) => (Face::Reply(Style::Emphasis), true),
+        Face::Reply(Style::Emphasis) => (Face::Reply(Style::Code), true),
+        Face::Reply(Style::Code) => (Face::Reply(Style::StrongCode), true),
+        Face::Reply(Style::StrongCode) => (Face::Reply(Style::Link), true),
+        Face::Reply(Style::Link) => (Face::Reply(Style::Target), true),
+        Face::Reply(Style::Target) => (Face::Reply(Style::Mark), true),
         Face::Reply(Style::Mark) => (Face::Reply(Style::Rule), true),
         Face::Reply(Style::Rule) => return (None, true),
     };
@@ -476,112 +525,30 @@ fn no_text_of_a_reply_has_a_class_of_a_row_s_own() {
         face = after;
         seen += 1;
     }
-    assert_eq!(seen, 29);
+    assert_eq!(seen, 33);
 }
 
+/// What is drawn in bold, in italic or over a line is a reply's, or what Claude thought: nothing
+/// of oso's own has a style, so none of a reply's stands for a row.
 #[test]
-fn a_crafted_reply_draws_little_more_than_it_holds() {
-    // Of any one mark, a whole reply of it.
-    for unit in [
-        "\n---\n",
-        ">",
-        "> ",
-        "- ",
-        "\n- a",
-        "*",
-        "*a* ",
-        "**a",
-        "`",
-        "`` ` ",
-        "[a](",
-        "[a](b) ",
-        "[a](https://b) ",
-        "\\*",
-        "```\n",
-        "```\n▸\n",
-        "a\n```\nb\n```\n",
-        "|",
-        "# a\n",
-        "    ▸\n",
-    ] {
-        let text = unit.repeat((64 << 10) / unit.len());
-        let drawn = shown(&text);
-        let bound = 3 * text.len() + 96 * usize::from(MAX_RULES);
-        assert!(
-            drawn.len() <= bound,
-            "{unit:?}: {} of {}",
-            drawn.len(),
-            text.len()
-        );
-    }
-    let deep = format!("{} a", ">".repeat(MAX_QUOTES + 2));
-    assert_eq!(shown(&deep), format!("{}>> a\n", "│ ".repeat(MAX_QUOTES)));
-    // A long line is as written; those around it are not.
-    let long = "**a** ".repeat(MAX_MARKED / 6 + 1);
-    assert_eq!(
-        shown(&format!("*b*\n{long}\n*c*")),
-        format!("b\n{long}\nc\n")
-    );
-}
-
-/// The lines drawn of `text` from `at`, `width` cells wide, and where the next starts.
-fn from(text: &str, at: LineStart, streams: bool, width: usize) -> (Vec<String>, LineStart) {
-    let mut lines = Vec::new();
-    let mark = walk(text, at, streams, width, |pieces, _| {
-        lines.push(pieces.iter().map(|piece| piece.text).collect());
-    });
-    (lines, mark)
-}
-
-proptest! {
-    /// Drawn as it streams, cut anywhere, then whole: the same lines, each piece of the text
-    /// what it says it is, and the text's letters in order.
-    #[test]
-    fn a_reply_that_streamed_is_the_reply_whole(
-        parts in prop::collection::vec(prop::sample::select(vec![
-            "\n", "\n\n", "\r\n", " ", "  ", "    ", "a", "é", "字", "*", "**", "***", "`", "```", "```rust\n",
-            "```\n", "~~~\n", "# ", "- ", "1. ", "> ", "---", "[", "](", "](https://a.b)", ")", "|", "\\", "▸ ",
-            "<b>", "_", "\t", "| a | b |\n", "|---|:-:|\n", "|-|-|", "| é | 字", "\u{202e}", "\u{200b}", "\r", "\u{2028}", "\u{301}", "(", "\"", ",", ".", "x",
-        ]), 0..60),
-        width in 0usize..40,
-    ) {
-        let text: String = parts.concat();
-        let (whole, _) = from(&text, LineStart::default(), false, width);
-        let mut streamed = String::new();
-        let mut mark = LineStart::default();
-        let mut kept: Vec<String> = Vec::new();
-        for part in &parts {
-            streamed.push_str(part);
-            mark = again(&streamed, mark, true);
-            kept.truncate(mark.lines);
-            let (lines, next) = from(&streamed, mark, true, width);
-            kept.extend(lines);
-            prop_assert!(next.from >= mark.from && next.lines <= kept.len());
-            mark = next;
-            prop_assert_eq!(&kept, &from(&streamed, LineStart::default(), true, width).0);
+fn no_row_of_oso_s_has_a_style() {
+    let styled = [
+        Highlight::SessionHeading,
+        Highlight::SessionStrong,
+        Highlight::SessionStrongCode,
+        Highlight::SessionEmphasis,
+        Highlight::SessionLink,
+        Highlight::SessionThinking,
+    ];
+    let mut face = Some(Face::Prompt);
+    let mut seen = 0;
+    while let Some(at) = face {
+        let (after, reply) = next(at);
+        if styled.contains(&at.highlight()) {
+            assert!(reply || at == Face::Thought, "{at:?}");
+            seen += 1;
         }
-        mark = again(&text, mark, false);
-        kept.truncate(mark.lines);
-        kept.extend(from(&text, mark, false, width).0);
-        prop_assert_eq!(&kept, &whole);
-
-        let mut at = 0;
-        walk(&text, LineStart::default(), false, width, |pieces, _| {
-            for piece in pieces {
-                assert!(!piece.text.is_empty() && !piece.text.contains('\n'));
-                if let Some(from) = piece.from {
-                    assert_eq!(&text[from..from + piece.text.len()], piece.text);
-                    assert!(from >= at, "in order");
-                    at = from + piece.text.len();
-                }
-            }
-        });
-        // No letter, sign or invisible character is hidden: only marks, fences and targets.
-        for c in ['é', '字', '▸', '\u{202e}', '\u{200b}', '\u{2028}', '"', ','] {
-            let drawn: usize = whole.iter().map(|line| line.matches(c).count()).sum();
-            let written = text.matches(c).count();
-            // A blank line's are not drawn; none of these is blank.
-            prop_assert_eq!(drawn, written, "{}", c);
-        }
+        face = after;
     }
+    assert_eq!(seen, styled.len());
 }

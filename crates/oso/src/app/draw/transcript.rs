@@ -6,6 +6,7 @@
 //!
 //! Must not depend on: key presses or commands; a frame only reads the editor's state.
 
+use oso_core::buffer::Buffer;
 use oso_core::editor::Editor;
 use oso_core::frame::CellRect;
 use oso_core::syntax::{Highlight, Runs};
@@ -31,6 +32,12 @@ const BADGE_WITHIN: usize = 24;
 
 /// A chip's cells: the badge's and the space's after it.
 const CHIP: usize = 2;
+
+/// Whether the text of `buffer` has font styles and underlines: a session's transcript alone
+/// (ADR 0165, "The look: styles").
+pub(super) fn styled(buffer: &Buffer) -> bool {
+    buffer.is_native_session()
+}
 
 /// What a transcript fills behind its text, kept from frame to frame.
 #[derive(Default)]
@@ -114,7 +121,7 @@ fn badge(runs: Runs<'_>) -> Option<(usize, usize)> {
 
 #[cfg(test)]
 mod tests {
-    use oso_core::buffer::BufferId;
+    use oso_core::buffer::{BufferId, Mode};
     use oso_core::frame::FrameSize;
 
     use super::*;
@@ -181,6 +188,21 @@ mod tests {
             (self.fills.icons[icon].iter())
                 .map(|r| (r.row - text.row, r.column - text.column, r.columns))
                 .collect()
+        }
+    }
+
+    #[test]
+    fn only_a_transcript_has_styles() {
+        let mut setup = Setup::new();
+        let editor = &mut setup.editor;
+        assert!(styled(editor.buffer(setup.id).unwrap()));
+        let file = editor.add_buffer(Buffer::from_text("a.md", "# **a**"));
+        let others = [
+            file,
+            editor.add_internal_buffer("*Help*", Mode::Fundamental),
+        ];
+        for id in others {
+            assert!(!styled(editor.buffer(id).unwrap()));
         }
     }
 

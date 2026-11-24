@@ -64,6 +64,8 @@ pub enum Face {
     Brief,
     /// The marks before a row, and what is said less loudly.
     Dim,
+    /// What Claude thought, its words alone: the row's own line is oso's.
+    Thought,
     /// A tool's badge, by what its tool does, on a chip.
     Icon(Icon),
     /// A tool's name.
@@ -206,7 +208,7 @@ pub fn render(row: &Row, directory: &Path, width: usize) -> Rendered {
                     text,
                     &format!("{indent}    "),
                     Some(Face::Dim),
-                    Some(Face::Dim),
+                    Some(Face::Thought),
                 );
             }
         }

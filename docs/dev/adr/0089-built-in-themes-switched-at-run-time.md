@@ -1,6 +1,6 @@
 # 0089. Built-in themes, switched at run time
 
-- Status: Accepted, amended by 0097, 0108 and 0111
+- Status: Accepted, amended by 0097, 0108, 0111 and 0165
 - Date: 2026-11-08
 
 ## Context
@@ -98,6 +98,8 @@ file format would also use:
   text's colour.
 - A completion keeps one match face for every component. A face per component waits until it is
   needed.
+- A face's font style and underline are no theme's: they are the same in each
+  ([ADR 0165](0165-native-claude-sessions-the-route.md), "The look: styles").
 - Syntax faces join the table, and its contrast rules, when syntax highlighting comes (M3).
 
 ### Contrast, in CI for every theme

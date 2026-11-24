@@ -189,6 +189,18 @@ pub enum Face {
     SessionBullet,
     /// The box rules of a table in a reply.
     SessionTable,
+    /// A heading in a reply, in bold (ADR 0165, "The look: styles").
+    SessionHeading,
+    /// Strong text in a reply and a table's header, in bold.
+    SessionStrong,
+    /// Inline code in strong text or a heading, in bold.
+    SessionStrongCode,
+    /// Emphasis in a reply, in italic.
+    SessionEmphasis,
+    /// A link in a reply, underlined.
+    SessionLink,
+    /// What Claude thought, in italic.
+    SessionThinking,
     /// The mark of a call or of thinking under way.
     SessionRunning,
     /// The badge of a tool that reads, and the chip behind it, as the 7 below.

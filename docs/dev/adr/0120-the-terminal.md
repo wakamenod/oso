@@ -176,7 +176,9 @@ the coordinator with it. The steps are under [Steps](#steps).
   Only rows marked changed are shaped, through the shaped-row cache text views use. Colors come from
   the theme: 16 new faces, `terminal-color-0` to `terminal-color-15`, in each built-in theme
   ([ADR 0089](0089-built-in-themes-switched-at-run-time.md)). 256-color and true color cells are drawn
-  as given. Cells are drawn in grid order, with no reordering
+  as given. Bold and italic cells are drawn regular: a native session's transcript has font styles since
+  [ADR 0165](0165-native-claude-sessions-the-route.md), "The look: styles", but a terminal's would
+  change how every program in one looks, a question of its own. Cells are drawn in grid order, with no reordering
   ([ADR 0066](0066-text-stays-in-logical-order.md)).
 
 ### A terminal as a buffer (Q5, Q11)

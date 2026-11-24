@@ -7,7 +7,7 @@ use super::palettes::Name;
 use crate::pane::Face;
 
 /// Every face, in the order of [`index`], so that a theme keeps a table of them.
-pub(super) const FACES: [Face; 137] = [
+pub(super) const FACES: [Face; 143] = [
     Face::Text,
     Face::Escape,
     Face::Boxed,
@@ -145,6 +145,12 @@ pub(super) const FACES: [Face; 137] = [
     Face::SessionBrief,
     Face::SessionBriefMark,
     Face::SessionTable,
+    Face::SessionHeading,
+    Face::SessionStrong,
+    Face::SessionStrongCode,
+    Face::SessionEmphasis,
+    Face::SessionLink,
+    Face::SessionThinking,
 ];
 
 /// Where `face` is in [`FACES`]. A match with no wildcard, so that a new face does not
@@ -292,6 +298,12 @@ pub(super) const fn index(face: Face) -> usize {
         Face::SessionBrief => 134,
         Face::SessionBriefMark => 135,
         Face::SessionTable => 136,
+        Face::SessionHeading => 137,
+        Face::SessionStrong => 138,
+        Face::SessionStrongCode => 139,
+        Face::SessionEmphasis => 140,
+        Face::SessionLink => 141,
+        Face::SessionThinking => 142,
     }
 }
 
@@ -429,6 +441,13 @@ pub(super) fn faces(face: Face) -> (Name, Name) {
         Face::SessionBullet => (FgBullet, BgMain),
         // A grid's lines, as quiet as a gutter's numbers.
         Face::SessionTable => (FgLineNumber, BgMain),
+        // A reply's styles (ADR 0165): bold text is in the text's colour, and italic in a colour
+        // that tells it where a script has no italic.
+        Face::SessionHeading | Face::SessionStrong => (FgMain, BgMain),
+        Face::SessionStrongCode => (FgInlineCode, BgMain),
+        Face::SessionEmphasis => (SynMarkup, BgMain),
+        Face::SessionLink => (SynLink, BgMain),
+        Face::SessionThinking => (FgPrompt, BgMain),
         Face::SessionRunning => (FgRunning, BgMain),
         Face::SessionIconRead => (FgIconRead, BgIconRead),
         Face::SessionIconWrite => (FgIconWrite, BgIconWrite),

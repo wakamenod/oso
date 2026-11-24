@@ -58,7 +58,7 @@ fn faces_are_laid_again_for_what_shows_at_once_and_the_rest_in_slices() {
     // Each row but the first has a blank line before it.
     let width = setup.text().len().div_ceil(replies);
     let heading = |setup: &Setup, row: usize| setup.at(row * width + 2);
-    let marked = Some(Highlight::Heading);
+    let marked = Some(Highlight::SessionHeading);
 
     assert!(setup.sync(true), "a frame is due");
     assert_eq!(heading(&setup, 0), marked, "what shows");

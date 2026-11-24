@@ -156,7 +156,9 @@ mod tests {
     use crate::pane::{Bands, Layer, PaneContent, PaneId, Panel, Span};
     use crate::theme::TextGamma;
     use oso_core::frame::CellRect;
-    use oso_platform::text::{CellMetrics, FontId, GlyphBitmap, GlyphFormat, GlyphId, ShapedGlyph};
+    use oso_platform::text::{
+        CellMetrics, FontId, FontStyle, GlyphBitmap, GlyphFormat, GlyphId, ShapedGlyph,
+    };
 
     const WIDTH: u32 = 128;
     const HEIGHT: u32 = 128;
@@ -175,7 +177,7 @@ mod tests {
             }
         }
 
-        fn shape(&mut self, text: &str, out: &mut Vec<ShapedGlyph>) {
+        fn shape(&mut self, text: &str, _style: FontStyle, out: &mut Vec<ShapedGlyph>) {
             out.clear();
             for (i, (byte, _)) in text.char_indices().enumerate() {
                 out.push(ShapedGlyph {
@@ -821,6 +823,7 @@ mod tests {
                 flash: None,
                 highlights: None,
                 marks: crate::pane::TextMarks::NONE,
+                styled: false,
             }),
             ..pane(0, (0, 0, 3, 6), 0, Some(Face::Text), &[])
         }];
@@ -886,6 +889,7 @@ mod tests {
                 whitespace: false,
                 flash: None,
                 highlights: None,
+                styled: false,
                 marks: crate::pane::TextMarks {
                     underlines: &underlines,
                     ..crate::pane::TextMarks::NONE

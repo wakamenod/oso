@@ -158,6 +158,7 @@ places them, highest first:
   shaped, the buffer offsets they cover and the buffer's revision. It is
   reused without looking at the buffer while the revision holds, and
   after a change while the offsets match; text loaded there changes them.
+  In a view of styles (ADR 0165) its style runs are compared too, each frame.
   Switching buffers or fonts drops the cache, and rows far from the view
   are evicted.
 - A row is shaped from the left edge rounded down to a multiple of 64 to
