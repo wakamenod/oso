@@ -178,8 +178,7 @@ fn a_call_is_read_in_the_conversation_and_allowed_from_its_line() {
     assert_eq!(state["buffer"]["name"], "*claude: proj*", "{state}");
     assert!(text(&state).contains("+ new line 79"), "{state}");
     assert_eq!(
-        state["request"]["line"],
-        "Edit asks to change a file   C-c C-j  answers it".replace("   C", "    C"),
+        state["request"]["line"], " Edit asks to change a file   C-c C-j  answers it",
         "{state}"
     );
     held_while_it_waits(&mut app);

@@ -415,10 +415,9 @@ fn a_native_sessions_calls_are_asked_of_the_person_with_the_agent_channel_off() 
     assert!(shown.ends_with("\n$ rm -rf build\n"), "{shown}");
     request::go(&mut app);
     request::allow(&mut app);
-    // Answered, the call that waits behind it has its own block, with point on its line.
-    app.wait_for("the second block", |state| {
-        state["buffer"]["name"] == "*request: proj*" && state["request"]["of"] == 1
-    });
+    // Answered, the next call the bridge asks about has its own block.
+    request::request(&mut app, "the second block");
+    request::go(&mut app);
     request::answer(&mut app, "n");
 
     // `y` gives the CLI its own input back; `n` and a call the stream lacks deny.
