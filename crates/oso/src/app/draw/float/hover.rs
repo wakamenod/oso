@@ -61,6 +61,7 @@ pub(in crate::app::draw) fn hover_panes<'a>(
         whitespace: false,
         flash: None,
         highlights: buffer.highlights(),
+        styled: false,
         marks: TextMarks {
             faded: named,
             ..TextMarks::NONE

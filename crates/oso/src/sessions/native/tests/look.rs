@@ -232,6 +232,34 @@ fn no_text_but_osos_stands_in_the_first_columns() {
     }
 }
 
+/// What Claude thought has a style; the row's own line, its mark and its words' indent have
+/// none, folded or not.
+#[test]
+fn only_the_words_of_a_thought_are_in_their_face() {
+    let mut rows = Rows::new(PathBuf::from("/w"));
+    let thought = "One.\n▸ Thinking · 4.2 s";
+    read(
+        &mut rows,
+        &serde_json::json!({"type": "assistant", "message": {"id": "m", "content": [{"type": "thinking", "thinking": thought}]}}).to_string(),
+    );
+    let words = |rows: &Rows| -> Vec<(usize, String)> {
+        let rendered = render(&rows.rows()[0], Path::new("/w"), 80);
+        (rendered.faces.iter())
+            .filter(|(_, face)| *face == Face::Thought)
+            .map(|(range, _)| {
+                let line = rendered.text[..range.start].matches('\n').count();
+                (line, rendered.text[range.clone()].to_owned())
+            })
+            .collect()
+    };
+    assert_eq!(words(&rows), []);
+    rows.toggle(0, None);
+    assert_eq!(
+        words(&rows),
+        [(1, "One.".to_owned()), (2, "▸ Thinking · 4.2 s".to_owned())]
+    );
+}
+
 /// On a tool row what Claude chose is dim, and what oso says is not, whatever the command or
 /// the progress says; and no run of spaces pads it.
 #[test]

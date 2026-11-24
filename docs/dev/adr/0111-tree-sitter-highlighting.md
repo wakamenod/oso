@@ -1,6 +1,6 @@
 # 0111. Tree-sitter highlighting
 
-- Status: Accepted, amended by 0115, 0122, 0147, 0157 and 0172
+- Status: Accepted, amended by 0115, 0122, 0147, 0157, 0165 and 0172
 - Date: 2026-11-12
 
 ## Context
@@ -202,6 +202,9 @@ question (Q1–Q13), listed under the author's choices with the options not take
   to its end, beside the glyphs. A glyph of `Face::Text` takes its cluster's highlight face; an
   escape, a box, a whitespace mark, the preedit and the glyph under the cursor keep theirs. A
   ligature takes its first cluster's.
+- **A native session's own classes have font styles too** (ADR 0165, "The look: styles"): in a
+  view of a transcript, a row is shaped again when where its styles change does. Every other view
+  has none, and the next point holds there.
 - **Nothing is shaped again** when highlights change, and the shaping cache needs no new key or
   invalidation. A report costs one frame of instance building.
 - **The expected cost per frame** is one seek per row in view and one step per run: tens of
@@ -387,7 +390,8 @@ decision above. The options not taken are listed with their trade-offs.
   highlighting path, tokens and no tree.
 - **Q4. Syntax faces:** colour only, applied after shaping. Not taken: bold and italic (needs
   those fonts loaded, and a face change would split shaping and reshape rows as highlights
-  arrive).
+  arrive). A native session's transcript has them since ADR 0165, "The look: styles"; what a
+  parser gives stays colour only.
 - **Q5. Highlight classes:** the eleven in the table. Not taken: five (Markdown would show only
   headings), and about 25 as Helix's and Neovim's capture names (many more colours to check at
   7:1 in three themes).

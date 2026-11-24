@@ -163,6 +163,7 @@ fn only_oso_is_in_its_faces(row: &Row, rendered: &Rendered) -> bool {
                 && before.chars().count() == 2
                 && rendered.text[range.clone()].chars().count() == 2
         }
+        Face::Thought => matches!(row.kind, Kind::Thinking { .. }),
         Face::Reply(_) => matches!(row.kind, Kind::Reply { .. }),
         Face::Dim | Face::Error => true,
         Face::Prompt | Face::Target | Face::CardTitle | Face::CardKey | Face::RequestBody => false,

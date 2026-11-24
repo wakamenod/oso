@@ -16,7 +16,7 @@ use std::ops::Range;
 
 use oso_core::frame::{CellRect, PixelRect};
 use oso_core::window::ViewTop;
-use oso_platform::text::{CellMetrics, ShapedGlyph, TextSystem};
+use oso_platform::text::{CellMetrics, FontStyle, ShapedGlyph, TextSystem};
 
 use super::{Draws, GlyphSource, LayerDraw};
 use crate::grid::{Grapheme, PlacedGlyph, Placer};
@@ -146,7 +146,11 @@ impl Keys {
             return Some(start as usize..end as usize);
         }
         let mut text = [0; 4];
-        system.shape(key.encode_utf8(&mut text), &mut self.shaped);
+        system.shape(
+            key.encode_utf8(&mut text),
+            FontStyle::Regular,
+            &mut self.shaped,
+        );
         let one = [Grapheme {
             byte: 0,
             column: 0,
@@ -154,7 +158,8 @@ impl Keys {
             face: Face::JumpLabel,
         }];
         let width = system.metrics().width;
-        self.placer.place(&one, &self.shaped, width, &mut self.one);
+        self.placer
+            .place((&one, &[]), &self.shaped, width, &mut self.one);
         let start = self.glyphs.len();
         self.glyphs.extend_from_slice(&self.one);
         let end = self.glyphs.len();

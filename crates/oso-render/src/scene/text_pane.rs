@@ -1,5 +1,5 @@
 //! What a pane shows of a buffer: its screen rows, each from its own line's column, with the
-//! wrap mark on those that continue, the cursor box's cells and a preedit's underlines on each
+//! wrap mark on those that continue and the lines under their links, the cursor box's cells and a preedit's underlines on each
 //! row it takes (ADR 0069, ADR 0100, ADR 0104), and its text faded where a server says it is
 //! unnecessary (ADR 0138).
 //!
@@ -11,6 +11,7 @@ use oso_core::frame::{self, CellRect, PixelRect};
 use oso_core::motion;
 use oso_platform::text::{CellMetrics, TextSystem};
 
+use super::boxes::underline_links;
 use super::marks::draw_marks;
 use super::{Covered, Draws, Fade, GlyphSource, RowFaces, line_width};
 use crate::pane::{CursorStyle, Face, Pane, PaneContent, TextView};
@@ -121,6 +122,7 @@ pub(super) fn draw_text<G: GlyphSource>(
     glyphs: &mut G,
 ) {
     let display = &view.display;
+    let metrics = system.metrics();
     rows.set_whitespace(view.whitespace);
     rows.begin(view.buffer, view.revision);
     let screen = view.screen;
@@ -138,6 +140,7 @@ pub(super) fn draw_text<G: GlyphSource>(
     let mut plain = std::mem::take(&mut draws.plain);
     let mut faded = std::mem::take(&mut draws.faded);
     faded.read_cells(view.marks.faded.iter(), pane.region);
+    let styles = view.highlights.filter(|_| view.styled);
     if view.highlights.is_some() || !faded.is_empty() {
         plain.read(view, pane.region);
     }
@@ -151,7 +154,13 @@ pub(super) fn draw_text<G: GlyphSource>(
             .filter(|(at, _)| at.0.row == row.line)
             .map(|((at, _), preedit)| (at.column, preedit));
         let line = (row.line, columns);
-        let shaped_row = rows.view_row(display, line, (mark, Some(index)), spliced, system);
+        let shaped_row = rows.view_row(
+            display,
+            line,
+            (mark, Some(index)),
+            (spliced, styles),
+            system,
+        );
         // Its columns count from its first cluster's.
         let row_layout = layout
             .indented(indent)
@@ -167,6 +176,16 @@ pub(super) fn draw_text<G: GlyphSource>(
                 .map(|cells| cells.column as i64..(cells.column + cells.columns) as i64),
         });
         let faces = (faces, Covered::on(view.labels, frame_row), fade);
+        if !shaped_row.underlines().is_empty() {
+            let row = (&row_layout, index);
+            underline_links(
+                draws,
+                row,
+                shaped_row.underlines(),
+                plain.on(frame_row),
+                metrics,
+            );
+        }
         if !draws.row((&row_layout, index), shaped_row, faces, system, glyphs) {
             break;
         }

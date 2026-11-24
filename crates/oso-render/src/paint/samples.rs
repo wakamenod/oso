@@ -105,6 +105,7 @@ fn text_pane<'a>(
             flash,
             highlights: None,
             marks: crate::pane::TextMarks::NONE,
+            styled: false,
         }),
     }
 }
@@ -373,6 +374,7 @@ fn split_frame(theme: Theme) -> Option<(u32, u32, Vec<u8>)> {
             flash: None,
             highlights: None,
             marks: crate::pane::TextMarks::NONE,
+            styled: false,
         })
     };
     let active: [&[Span<'_>]; 1] = [&[

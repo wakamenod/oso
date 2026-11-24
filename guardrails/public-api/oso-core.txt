@@ -6657,7 +6657,9 @@ pub oso_core::syntax::Highlight::SessionBriefMark
 pub oso_core::syntax::Highlight::SessionBullet
 pub oso_core::syntax::Highlight::SessionCode
 pub oso_core::syntax::Highlight::SessionDone
+pub oso_core::syntax::Highlight::SessionEmphasis
 pub oso_core::syntax::Highlight::SessionFront
+pub oso_core::syntax::Highlight::SessionHeading
 pub oso_core::syntax::Highlight::SessionIconAgent
 pub oso_core::syntax::Highlight::SessionIconOther
 pub oso_core::syntax::Highlight::SessionIconRead
@@ -6666,13 +6668,17 @@ pub oso_core::syntax::Highlight::SessionIconShell
 pub oso_core::syntax::Highlight::SessionIconTask
 pub oso_core::syntax::Highlight::SessionIconWeb
 pub oso_core::syntax::Highlight::SessionIconWrite
+pub oso_core::syntax::Highlight::SessionLink
 pub oso_core::syntax::Highlight::SessionPrompt
 pub oso_core::syntax::Highlight::SessionPromptMark
 pub oso_core::syntax::Highlight::SessionQuiet
 pub oso_core::syntax::Highlight::SessionRepository
 pub oso_core::syntax::Highlight::SessionRunning
 pub oso_core::syntax::Highlight::SessionSpace
+pub oso_core::syntax::Highlight::SessionStrong
+pub oso_core::syntax::Highlight::SessionStrongCode
 pub oso_core::syntax::Highlight::SessionTable
+pub oso_core::syntax::Highlight::SessionThinking
 pub oso_core::syntax::Highlight::SessionTool
 pub oso_core::syntax::Highlight::SessionWorking
 pub oso_core::syntax::Highlight::String

@@ -559,6 +559,21 @@ pub fn oso_platform::process::terminate_parent(u32) -> std::io::error::Result<()
 pub mod oso_platform::random
 pub fn oso_platform::random::fill(&mut [u8]) -> std::io::error::Result<()>
 pub mod oso_platform::text
+pub enum oso_platform::text::FontStyle
+pub oso_platform::text::FontStyle::Bold
+pub oso_platform::text::FontStyle::Italic
+pub oso_platform::text::FontStyle::Regular
+impl core::clone::Clone for oso_platform::text::FontStyle
+pub fn oso_platform::text::FontStyle::clone(&self) -> oso_platform::text::FontStyle
+impl core::cmp::Eq for oso_platform::text::FontStyle
+impl core::cmp::PartialEq for oso_platform::text::FontStyle
+pub fn oso_platform::text::FontStyle::eq(&self, &oso_platform::text::FontStyle) -> bool
+impl core::default::Default for oso_platform::text::FontStyle
+pub fn oso_platform::text::FontStyle::default() -> oso_platform::text::FontStyle
+impl core::fmt::Debug for oso_platform::text::FontStyle
+pub fn oso_platform::text::FontStyle::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_platform::text::FontStyle
+impl core::marker::StructuralPartialEq for oso_platform::text::FontStyle
 pub enum oso_platform::text::GlyphFormat
 pub oso_platform::text::GlyphFormat::Color
 pub oso_platform::text::GlyphFormat::Coverage
@@ -691,7 +706,7 @@ impl core::marker::Copy for oso_platform::text::NullTextSystem
 impl oso_platform::text::TextSystem for oso_platform::text::NullTextSystem
 pub fn oso_platform::text::NullTextSystem::metrics(&self) -> oso_platform::text::CellMetrics
 pub fn oso_platform::text::NullTextSystem::rasterize(&mut self, oso_platform::text::GlyphKey) -> core::option::Option<oso_platform::text::GlyphBitmap>
-pub fn oso_platform::text::NullTextSystem::shape(&mut self, &str, &mut alloc::vec::Vec<oso_platform::text::ShapedGlyph>)
+pub fn oso_platform::text::NullTextSystem::shape(&mut self, &str, oso_platform::text::FontStyle, &mut alloc::vec::Vec<oso_platform::text::ShapedGlyph>)
 pub struct oso_platform::text::ShapedGlyph
 pub oso_platform::text::ShapedGlyph::advance: f32
 pub oso_platform::text::ShapedGlyph::cluster: u32
@@ -710,11 +725,11 @@ pub const oso_platform::text::FONT_SIZES: core::ops::range::RangeInclusive<f32>
 pub trait oso_platform::text::TextSystem
 pub fn oso_platform::text::TextSystem::metrics(&self) -> oso_platform::text::CellMetrics
 pub fn oso_platform::text::TextSystem::rasterize(&mut self, oso_platform::text::GlyphKey) -> core::option::Option<oso_platform::text::GlyphBitmap>
-pub fn oso_platform::text::TextSystem::shape(&mut self, &str, &mut alloc::vec::Vec<oso_platform::text::ShapedGlyph>)
+pub fn oso_platform::text::TextSystem::shape(&mut self, &str, oso_platform::text::FontStyle, &mut alloc::vec::Vec<oso_platform::text::ShapedGlyph>)
 impl oso_platform::text::TextSystem for oso_platform::text::NullTextSystem
 pub fn oso_platform::text::NullTextSystem::metrics(&self) -> oso_platform::text::CellMetrics
 pub fn oso_platform::text::NullTextSystem::rasterize(&mut self, oso_platform::text::GlyphKey) -> core::option::Option<oso_platform::text::GlyphBitmap>
-pub fn oso_platform::text::NullTextSystem::shape(&mut self, &str, &mut alloc::vec::Vec<oso_platform::text::ShapedGlyph>)
+pub fn oso_platform::text::NullTextSystem::shape(&mut self, &str, oso_platform::text::FontStyle, &mut alloc::vec::Vec<oso_platform::text::ShapedGlyph>)
 pub fn oso_platform::text::load(&oso_platform::text::FontRequest<'_>, f64) -> core::result::Result<alloc::boxed::Box<dyn oso_platform::text::TextSystem>, oso_platform::text::TextError>
 pub mod oso_platform::thread_time
 pub fn oso_platform::thread_time::now() -> core::option::Option<core::time::Duration>

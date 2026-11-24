@@ -1,6 +1,6 @@
 # 0036. Text system, glyph atlas and the default font
 
-- Status: Accepted, amended by 0089
+- Status: Accepted, amended by 0089 and 0165
 - Date: 2026-11-03
 
 ## Context
@@ -35,8 +35,12 @@ builds the macOS backend, and needs concrete answers for:
 - `oso_platform::text::TextSystem`:
   - `metrics()`: the cell width and height, ascent and descent, in whole
     physical pixels
-  - `shape(row)`: glyphs in visual order, each with its font and glyph id,
-    the byte offset of its cluster, and its pen position and advance
+  - `shape(row, style)`: glyphs in visual order, each with its font and glyph id,
+    the byte offset of its cluster, and its pen position and advance. A style,
+    bold or italic, is the primary family's own font
+    ([ADR 0165](0165-native-claude-sessions-the-route.md), "The look: styles"),
+    made when it is first asked for; none is synthesized, and the cells are the
+    regular font's
   - `rasterize(glyph)`: a coverage bitmap (one byte per pixel) for text, or
     premultiplied RGBA for color fonts (emoji)
 - `oso_platform::text::load(families, size, scale)` loads the first
@@ -44,7 +48,7 @@ builds the macOS backend, and needs concrete answers for:
   pixels and glyphs are rasterized at the resolution they are shown at. A
   scale factor change loads the font again.
 - Font fallback is the OS's: on macOS, `CTLine` runs use the system cascade
-  list for the primary font.
+  list for the primary font, and for text in a style that style's font's.
 - Systems without a backend return `Unsupported`. The app then uses
   `NullTextSystem`: a grid with cells estimated from the font size, and no
   text. Linux and Windows build, run and pass CI this way (Tier 2,

@@ -1,6 +1,6 @@
 # 0051. M2 plan: scope, safety and display decisions
 
-- Status: Accepted, amended by 0087 and 0115
+- Status: Accepted, amended by 0087, 0115 and 0165
 - Date: 2026-11-04
 
 ## Context
@@ -38,7 +38,9 @@ as written:
 - **Shaped rows are compared by content.** A cached row is reused when the bytes
   it covers and its start column match. Work stays bounded by the screen, and
   undo, reload and several panes need nothing more. This replaces the edit-range
-  invalidation in [ADR 0040](0040-buffers-loading-motion-and-scrolling.md).
+  invalidation in [ADR 0040](0040-buffers-loading-motion-and-scrolling.md). In a
+  view of styles, where its font style changes is compared beside the bytes
+  ([ADR 0165](0165-native-claude-sessions-the-route.md), "The look: styles").
 - **Text input is a default binding on a keymap.** It fires for a character key
   without Control, Meta or Super, and runs `self-insert-command`, which reads
   `ctx.input()`, so the command signature does not change. Text of several
