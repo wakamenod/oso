@@ -1334,7 +1334,8 @@ a switch made with its command stands until that setting changes in the file
   messages and `]`/`[` between tool rows; session mode's `C-c` keys work there too, but
   `C-c +` and `C-c -`, as it has no screen for an agent to read. Its next messages are
   written in its composer (step 2, ADR 0170), `*compose: NAME*`, docked under the transcript
-  and withheld from agents, between two thin lines in its own rows (ADR 0170, as amended): `i` goes
+  and withheld from agents, between two thin lines, each along the middle of a row of its own (in
+  the composer's rows where the window is too short for them; ADR 0170, as amended): `i` goes
   there and `C-c C-o` back, `C-c C-c` sends (at most
   64 KiB), and `M-p`/`M-n` walk the messages sent. While it is empty, a placeholder drawn over
   it names its keys (ADR 0170, as amended). Once a turn ends, the CLI's suggestion of
@@ -1441,9 +1442,14 @@ a switch made with its command stands until that setting changes in the file
   its effort level once noted), the permission mode, the context used, what the session cost
   and how much of the rate limit's window is used, each once known; a resumed session shows
   its cost and window before its first turn, where the CLI answers `get_usage`. A narrow
-  window drops them from the right. `S-TAB` in the transcript or the composer switches the
+  window drops them from the right. A window that shows the session's footer leaves the model and the
+  mode to it: a row under the composer (ADR 0165, "The footer, as built"), `▶▶ accept edits on
+  (S-TAB to cycle)` in the mode's colour, dim after it, and the model at the right edge. It says
+  what the running `claude` said: `mode not known` before, `⚠ mode not shown` of one it cannot show, `(changing…)` from `S-TAB` until it says
+  the new one, `set by no key here` of one from elsewhere. It is drawn, no window and no buffer, and
+  a short window gives it up first. `S-TAB` in the transcript or the composer switches the
   permission mode to the next (part 3b): `default`, `acceptEdits`, `plan`, `auto`, and round,
-  as Claude Code's terminal does, and from any other mode to `default`; the modeline changes
+  as Claude Code's terminal does, and from any other mode to `default`; the footer and the modeline change
   once the CLI says the mode changed. Where the CLI takes `set_permission_mode`, the process
   stays; else, or when the request goes unanswered (2 s) or is refused, an idle session's
   `claude` ends and resumes its conversation in the new mode, and during a turn the mode can

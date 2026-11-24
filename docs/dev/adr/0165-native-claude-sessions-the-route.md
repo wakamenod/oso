@@ -1,6 +1,6 @@
 # 0165. Native Claude sessions: the route
 
-- Status: Accepted, amended by 0170, 0173, 0176, 0180, 0181 and 0182; "Worktrees' resumes", "Following the end, as amended", "Remote Control is off, as amended" and part 3f's suggestion (2026-11-24)
+- Status: Accepted, amended by 0170, 0173, 0176, 0180, 0181 and 0182; "Worktrees' resumes", "Following the end, as amended", "Remote Control is off, as amended", part 3f's suggestion and "The footer, as built" (2026-11-24)
 - Date: 2026-11-21
 
 ## Context
@@ -1315,6 +1315,8 @@ As built:
     `get_usage`'s, if more than nothing.
   - The window is the last `rate_limit_event`'s, `5h` or `7d`; before one, the more used of
     `get_usage`'s two. Other windows are not shown.
+  - Amended 2026-11-24 ("The footer, as built"): a window that shows the session's footer says the
+    note without the model, the effort and the mode.
 - **What reads as itself:** a part holds ASCII alone: a model's id letters, digits and
   `._:/@[]-`, a mode or an effort level letters, digits, `-` and `_`, a listed model's name
   printable ASCII with its words one space apart. One that holds anything else, or is longer
@@ -1372,7 +1374,9 @@ As built:
   layer takes no later one, for its commands and models either; one after a refusal or a wait
   that ended is still taken, as step 2c has it), held to what reads as itself as part 3a's
   parts are; a mode oso does not send is shown as the CLI says it. It is the one copy:
-  the status line is given it to write (part 3a, amended).
+  the status line is given it to write (part 3a, amended). Amended 2026-11-24 ("The footer, as
+  built"): what is shown is the word of the process that runs now alone, and nothing until it says
+  one; what the next process is given is as before.
 - **The key** (Q-B1 (a)): `S-TAB` in the transcript and the composer,
   `native-session-cycle-mode` (`Person`), switches to the next, in the CLI's terminal's order:
   `default`, `acceptEdits`, `plan`, `auto`, and round (the author kept the terminal's order
@@ -1382,7 +1386,7 @@ As built:
   known yet. There is no oso
   setting: a new session starts as Claude Code's settings say.
 - **Tier 2:** the `set_permission_mode` request, over the control layer, as `interrupt` is. A
-  success changes nothing shown: the modeline waits for the CLI's `system/status`. With no
+  success changes nothing shown: the footer and the modeline wait for the CLI's `system/status`. With no
   answer within 2 s, an error, or the request not written, it falls back to tier 1, and why is
   logged.
 - **Tier 1** (Q-B3 (a)): an idle process is stopped and resumed at once with `--resume
@@ -2597,6 +2601,54 @@ own, in its three themes; none is ECC's.
   `oso_render::Face`, each with `SessionPrompt`, `SessionPromptMark`, `SessionTool`, `SessionCode`,
   `SessionBullet`, `SessionRunning`, `SessionBrief`, `SessionBriefMark` and `SessionIcon{Read,
   Write, Shell, Search, Agent, Web, Task, Other}`.
+
+### The footer, as built
+
+The plan's part G2, the author's wish of 2026-11-24, with a picture of Claude Code's terminal; the
+words and colours are its, and the answers to what was left open the author's and the space's
+orchestrator's. Where the row is and when it gives way is
+[ADR 0170](0170-docked-windows-under-a-sessions-transcript.md)'s.
+
+- **At the left, the permission mode** in oso's own words, as the terminal of CLI 2.1.331 has them:
+  `⏸ manual mode on` (`default`), `▶▶ accept edits on`, `⏸ plan mode on`, `▶▶ auto mode on`,
+  `▶▶ bypass permissions on`, `▶▶ don't ask on`; of any other, `⚠ mode NAME`, its name cut to 24 cells;
+  and of one said that cannot be shown, `⚠ mode not shown`. Each kind has a colour: dim, the violet of
+  inline code, the blue of a server's information, the amber of a warning, and the red of an error for
+  the last four. All else in the row is dim.
+- **Then the key,** `(S-TAB to cycle)`, read from the composer's keymaps as its placeholder's are, while
+  the composer is there; a request's line in its place has no such key, and none is named.
+- **At the right, a column from the edge, the model** and its effort level, as part 3a has them, cut to
+  24 cells with `…`.
+- **In a narrow window** the key goes first, then the model, then where the mode was set, so that no
+  name the stream gives takes that one's place (the security review); the mode's words never, which
+  the window's edge cuts at worst. At 44 columns the mode, the key and a short model are all there.
+- **What it says is what the process that runs now said** (`ModeState::in_force`): `initialize`'s
+  answer, `system/init`, `system/status`. The modeline says it from the same value. An earlier
+  process's word is not it: the modeline kept that until now, so a session resumed in another mode
+  said the old one. With none said it says `mode not known`, dim; one said that cannot be shown is in
+  the red above, so that it does not fail towards calm (the security review).
+- **From `S-TAB` until the CLI says the new mode,** the one in force stays, in its colour, and
+  `(changing…)` is in the key's place; the echo area says `Changing the mode to …` as before. So it is
+  while a mode a plan was approved with is not said yet.
+- **A mode no key here gave** (ADR 0181): `▶▶ auto mode on · set by no key here`.
+- **A stopped or failed session** keeps the row, with no mode and the model, so that no row moves as it
+  resumes. One handed to the TUI has none: its modeline says `in the TUI`.
+- **The modeline beside it** says `⇄`'s mark, the state, what is queued, `ctx N%`, the cost and the
+  window; of them a window of 44 or 54 columns keeps the first. While a prompt's float covers the
+  footer, that modeline says the whole note.
+- **No text of Claude's reads as a mode:** what the stream gives is the model, dim, at the right, and a
+  mode's name that oso does not know, behind oso's `⚠ mode`. Both are ASCII (`readable`), and every
+  mode's words start with a mark that is not; `mode not known` has none. A quiet mode is dim as the
+  model is: its mark and its place tell it. Where no process runs the model stands alone.
+- **Its colours** are existing faces; `Prompt` is held to 4.5:1 on the text's background too.
+- **Costs:** its words are made, cut and measured when the note is, and a frame finds them by its windows' buffers; a
+  window with no docks costs a look. Measured (release, one Mac, three runs each way in turn): key to
+  photon in a composer under 10,000 rows p50 0.85 to 0.98 and 0.85 to 0.94 ms, p99 1.19 to 1.48 and
+  1.25 to 1.53 ms, before and after; a frame's panes with three docks p50 51 to 53 and 49 to 50 µs, with
+  none the same.
+- **Built with** `sessions::native::footer` (pure: the words, what a width leaves out) and
+  `app/draw/tiled/footer.rs`; the dev socket's state has `footer`, withheld as the modelines are.
+- **New public items:** none here; ADR 0170's.
 
 ## Long lines, as built
 

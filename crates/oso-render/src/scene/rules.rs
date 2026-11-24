@@ -1,16 +1,17 @@
 //! The lines along a pane's edges (ADR 0170): where they are, and where the pane's text may be
-//! drawn beside them.
+//! drawn beside them; and the pane that is a line along its middle.
 //!
 //! Must not depend on: `capture`, `paint` or a font backend.
 //!
 //! - A line is a rectangle in the pane's own cells, so it is cut to the pane as all it draws is
 //!   (ADR 0061), and a frame costs two a ruled pane at most.
 
-use oso_core::frame::PixelRect;
+use oso_core::frame::{CellRect, PixelRect};
 use oso_platform::text::CellMetrics;
 
+use super::boxes::through;
 use super::{Draws, line_width};
-use crate::pane::{Pane, Rules};
+use crate::pane::{Face, Pane, Rules};
 use crate::text::Layout;
 
 /// How much of a pane each of its `rules` takes, above and below, in whole pixels.
@@ -50,6 +51,35 @@ pub(super) fn draw_rules(
             draws.fill_color(Some(PixelRect { y, height, ..rect }), ink);
         }
     }
+}
+
+/// Draws a thin line along the middle of `region` in `layout`, in the middle one of `faces`, with the
+/// first one's background over it and the last one's under it.
+pub(super) fn draw_rule(
+    draws: &mut Draws,
+    layout: &Layout,
+    region: CellRect,
+    [above, ink, below]: [Face; 3],
+    metrics: CellMetrics,
+) {
+    let Some(rect) = layout.frame_cells(region) else {
+        return;
+    };
+    let line = through(rect, line_width(metrics).min(rect.height));
+    let (top, end) = (line.y, line.y + line.height);
+    let over = PixelRect {
+        height: top - rect.y,
+        ..rect
+    };
+    let under = PixelRect {
+        y: end,
+        height: rect.y + rect.height - end,
+        ..rect
+    };
+    draws.fill(Some(over), above);
+    draws.fill(Some(under), below);
+    let ink = draws.theme.foreground(ink);
+    draws.fill_color(Some(line), ink);
 }
 
 #[cfg(test)]

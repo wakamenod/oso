@@ -1,12 +1,13 @@
 //! A native session's permission mode (ADR 0165, Q4; part 3b): the mode the CLI says it is in,
-//! which the modeline shows, the mode each new process of the session starts in, and the
+//! which the footer and the modeline show, the mode each new process of the session starts in, and the
 //! person's switch to the next, from its request to its fallback. These are the rules, at the
 //! instants the caller gives; the caller writes the request, and stops and resumes the process.
 //!
 //! Must not depend on: threads, the stream or the UI; the clock is the caller's.
 //!
-//! - The mode shown is the one the CLI said last: `system/init`, `system/status`, or the first
-//!   `initialize` answer. A switch changes nothing shown until the CLI says so.
+//! - The mode shown is the one the process that runs now said last ([`ModeState::in_force`]):
+//!   `system/init`, `system/status`, or the first `initialize` answer. A switch changes nothing
+//!   shown until it says so.
 //! - The next mode follows the CLI's terminal: `default`, `acceptEdits`, `plan`, `auto`, and
 //!   round, from the mode oso last put the process in while it has not said one, else from
 //!   the one shown. From a mode the CLI says that oso never sends (`bypassPermissions`,
@@ -138,6 +139,8 @@ impl Process {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ModeState {
     said: Option<Said>,
+    /// The process that runs now said a mode: `said` is its, and no earlier process's.
+    heard: bool,
     switch: Option<Switch>,
     /// The mode oso last put the process in, by its command line or a request answered, until
     /// the process says one.
@@ -153,8 +156,8 @@ pub struct ModeState {
     stray_rows: usize,
 }
 
-/// The most rows a session's strayed modes give, so that no line floods them: the modeline says
-/// the mode.
+/// The most rows a session's strayed modes give, so that no line floods them: the footer and the
+/// modeline say the mode.
 const MAX_STRAY_ROWS: usize = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -189,17 +192,18 @@ impl ModeState {
         }
         // The process said a mode: what oso put it in is settled.
         self.pending = None;
+        let first_heard = !std::mem::replace(&mut self.heard, true);
         let same = match &self.said {
             Some(Said::Mode(mode)) => mode.name() == text,
             Some(Said::Other(other)) => other == text,
             None => false,
         };
         if same {
-            return false;
+            return first_heard;
         }
         let readable = readable(text, Kind::Word);
         if !readable && self.said.is_none() {
-            return false;
+            return first_heard;
         }
         self.said = readable.then(|| match PermissionMode::named(text) {
             Some(mode) => Said::Mode(mode),
@@ -263,11 +267,33 @@ impl ModeState {
 
     /// The mode in force, if no key here gave it and it is shown (ADR 0181).
     pub fn strayed(&self) -> Option<&str> {
-        self.strayed.and_then(|_| self.shown())
+        self.strayed.and_then(|_| self.in_force())
     }
 
-    /// The mode shown, as the CLI said it.
-    pub fn shown(&self) -> Option<&str> {
+    /// The mode the process that runs now said it is in, as it said it: the one the footer and the
+    /// modeline say. None before it said one, and once it ended.
+    pub fn in_force(&self) -> Option<&str> {
+        self.shown().filter(|_| self.heard)
+    }
+
+    /// Whether the process that runs now said a mode that cannot be shown.
+    pub fn unshown(&self) -> bool {
+        self.heard && self.said.is_none()
+    }
+
+    /// Whether no key here gave the mode in force, one that cannot be shown too (ADR 0181).
+    pub fn strays_now(&self) -> bool {
+        self.heard && self.strayed.is_some()
+    }
+
+    /// Whether a change of the mode in force is under way: asked for, or made and not said yet.
+    pub fn changing(&self) -> bool {
+        let made = self.pending.map(PermissionMode::name);
+        self.switch.is_some() || (self.heard && made.is_some() && made != self.in_force())
+    }
+
+    /// The mode the CLI said last, as it said it, of an earlier process too.
+    fn shown(&self) -> Option<&str> {
         match self.said.as_ref()? {
             Said::Mode(mode) => Some(mode.name()),
             Said::Other(text) => Some(text),
@@ -339,6 +365,7 @@ impl ModeState {
     /// the person's choice, and a request's was the old process's.
     pub fn for_start(&mut self) -> Option<PermissionMode> {
         let mode = self.carried();
+        self.heard = false;
         if let Some(Switch::Respawn(chosen)) = self.switch.take() {
             self.chosen = Some(chosen);
         }
@@ -363,6 +390,7 @@ impl ModeState {
     /// so is a tier-1 switch that does not resume. Returns whether such a switch came to
     /// nothing.
     pub fn ended(&mut self, resumes: bool) -> bool {
+        self.heard = false;
         match self.switch {
             Some(Switch::Respawn(_)) if resumes => false,
             Some(Switch::Respawn(_)) => {
@@ -499,6 +527,8 @@ impl ModeState {
     }
 }
 
+#[cfg(test)]
+mod in_force_tests;
 #[cfg(test)]
 mod stray_tests;
 #[cfg(test)]

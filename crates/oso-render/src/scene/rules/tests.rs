@@ -264,3 +264,63 @@ fn a_links_line_is_inside() {
     assert_eq!(under(2), [(67.0, 1.0), (86.0, 1.0)]);
     assert_eq!(under(1), [(66.0, 1.0)]);
 }
+
+/// A pane that is a line, in rows from 2 and columns 3 to 12.
+fn rule(rows: usize) -> Pane<'static> {
+    let (ink, above, below) = (Face::Prompt, Face::Text, Face::Float);
+    pane(
+        0,
+        rect(2, 3, rows, 10),
+        0,
+        PaneContent::Rule { ink, above, below },
+    )
+}
+
+#[test]
+fn a_rule_is_along_its_panes_middle_between_its_two_backgrounds() {
+    let scene = scene_of(&[rule(1)]);
+    let half = |y, height, face| ([38.0, y], [100.0, height], theme().background(face));
+    // 20 px from 48: the line is on a whole pixel, and every pixel is one of theirs.
+    assert_eq!(
+        rects(&scene),
+        [
+            half(48.0, 10.0, Face::Text),
+            half(59.0, 9.0, Face::Float),
+            line(58.0, Face::Prompt),
+        ]
+    );
+    assert!(scene.quads().is_empty());
+    // Nothing in no cells.
+    assert_eq!(rects(&scene_of(&[rule(0)])), []);
+}
+
+/// No glyph of the panes above and below it reaches the line: theirs are cut to their own rows.
+#[test]
+fn no_text_of_the_panes_beside_a_rule_is_drawn_on_it() {
+    let buffer = Buffer::from_text("t", "xxxx");
+    let spans = [Span {
+        text: "xxxx",
+        face: Face::Text,
+    }];
+    let rows: [&[Span<'_>]; 1] = [&spans];
+    let text = Pane {
+        background: Some(Face::Float),
+        ..pane(1, rect(3, 3, 1, 10), 0, PaneContent::Text(view(&buffer)))
+    };
+    // A footer's row keeps its band above, within the half under the line.
+    let footer = pane(2, rect(5, 3, 1, 10), 0, PaneContent::Lines(&rows));
+    let under = Pane {
+        id: crate::pane::PaneId(3),
+        region: rect(4, 3, 1, 10),
+        ..rule(1)
+    };
+    let scene = scene_of(&[rule(1), text, under, footer]);
+    let lines = [58.0, 98.0];
+    assert!(!scene.quads().is_empty());
+    for glyph in scene.quads() {
+        let [top, height] = [glyph.position()[1], glyph.size()[1]];
+        for y in lines {
+            assert!(top >= y + 1.0 || top + height <= y, "{top} {height} at {y}");
+        }
+    }
+}

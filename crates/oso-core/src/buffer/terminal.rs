@@ -1,7 +1,8 @@
 //! A terminal's buffer (ADR 0120): a buffer of kind `Terminal`, which holds nothing of the
 //! grid. The tip crate maps its id to the terminal; the buffer only says what it is, whether
 //! a program runs in it, whether that program reads a password, whether the person let the
-//! agent channel read it, and what the modeline says of it.
+//! agent channel read it, and what the modeline says of it, which a native session's buffer and a
+//! list's have too.
 //!
 //! Must not depend on: `window`, `editor` or `command`.
 //!
@@ -12,6 +13,14 @@
 
 use super::{Buffer, Mode};
 use crate::secret::Verdict;
+
+/// What a buffer's modeline says after its mode, as its host sets it.
+#[derive(Clone, Debug, Default)]
+pub(super) struct Notes {
+    mode: String,
+    /// In place of that in a window that shows the buffer's footer, if it has one (ADR 0170).
+    beside_footer: Option<String>,
+}
 
 impl Buffer {
     /// An empty terminal's buffer called `name`.
@@ -38,7 +47,7 @@ impl Buffer {
     /// What the modeline says after the mode, as the host set it: a terminal's title, its
     /// input mode, or how its program ended. Empty for most buffers.
     pub fn mode_note(&self) -> &str {
-        &self.mode_note
+        &self.notes.mode
     }
 
     pub(crate) fn set_running(&mut self, running: bool) {
@@ -67,7 +76,18 @@ impl Buffer {
     }
 
     pub(crate) fn set_mode_note(&mut self, note: String) {
-        self.mode_note = note;
+        self.notes.mode = note;
+    }
+
+    /// What its modeline says in place of its mode's note in the window that shows its footer, if the
+    /// host draws one for it (ADR 0170).
+    pub(crate) fn beside_footer(&self) -> Option<&str> {
+        self.notes.beside_footer.as_deref()
+    }
+
+    /// Sets what [`Buffer::beside_footer`] says.
+    pub(crate) fn set_beside_footer(&mut self, note: Option<String>) {
+        self.notes.beside_footer = note;
     }
 
     /// Whether the person let the agent channel read this terminal's rows, until its buffer

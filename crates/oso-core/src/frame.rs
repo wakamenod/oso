@@ -142,7 +142,8 @@ impl WindowRegions {
     }
 
     /// All its cells: its gutter, text, modeline and divider, and the rows it gives the
-    /// windows docked in it, which lie between its text and its modeline (ADR 0170).
+    /// windows docked in it, their padding and its footer, which lie between its text and its
+    /// modeline (ADR 0170).
     pub(crate) fn outer(&self) -> CellRect {
         CellRect {
             rows: (self.modeline.row + self.modeline.rows).saturating_sub(self.text.row),
@@ -161,6 +162,10 @@ pub(crate) enum Part {
     Gutter,
     Modeline,
     Divider,
+    /// The rows a docked window has around its text (ADR 0170).
+    Padding,
+    /// The row under the windows docked in it.
+    Footer,
 }
 
 /// A cell of the tiled area: the window and the part of it it is in.
@@ -184,6 +189,8 @@ pub struct FrameLayout {
     docks_hidden: Vec<WindowId>,
     /// Each docked window laid out, with its host, top to bottom.
     docked_in: Vec<(WindowId, WindowId)>,
+    /// The rows docked windows have around their text, and the footers under them (ADR 0170).
+    around: docks::Around,
 }
 
 impl FrameLayout {
@@ -245,7 +252,8 @@ impl FrameLayout {
                 (Part::Divider, regions.divider),
             ]
             .into_iter()
-            .find_map(|(part, rect)| rect.filter(|r| r.contains(row, column)).map(|_| part))?;
+            .find_map(|(part, rect)| rect.filter(|r| r.contains(row, column)).map(|_| part))
+            .or_else(|| self.around_docks(*window, row, column))?;
             Some(Hit {
                 window: *window,
                 part,
@@ -315,6 +323,7 @@ pub(crate) fn layout(
         by_id: Vec::new(),
         docks_hidden: Vec::new(),
         docked_in: Vec::new(),
+        around: docks::Around::default(),
         echo: CellRect::EMPTY,
     };
     layout_into(&mut frame, size, (splits, None), keep, gutter);
@@ -369,6 +378,7 @@ pub(crate) fn layout_into(
     splits.lay_out(tree, keep, &gutter, &mut frame.windows);
     frame.docks_hidden.clear();
     frame.docked_in.clear();
+    frame.around.clear();
     frame.index();
 }
 

@@ -1,8 +1,8 @@
 //! A native session's status line (ADR 0165, part 3a), with a fake `claude -p` that answers
 //! `initialize` with its models and `get_usage` with a cost and two windows: before its first
-//! turn the transcript's modeline says the cost and the more used window, after it the model
-//! that answered, the mode, the context used, the cost and the event's window; a narrow window
-//! drops them from the right. Each line is read with `*Spaces*` hidden, the transcript's window
+//! turn the transcript's modeline says the cost and the more used window, after it the context
+//! used, the cost and the event's window, and the footer the model that answered and the mode; a
+//! narrow window drops the modeline's from the right. Each line is read with `*Spaces*` hidden, the transcript's window
 //! the surface's 100 columns: beside the list it is too narrow for the line.
 //!
 //! Must not depend on: the app's internals; the line's rules have their own tests.
@@ -45,8 +45,8 @@ while IFS= read -r line; do
 done
 "#;
 
-/// What the line says once the turn ended.
-const AFTER: &str = "Haiku 5.5 · plan · ctx 5% · $1.20 · 7d 8%";
+/// What the line says beside the footer once the turn ended.
+const AFTER: &str = "ctx 5% · $1.20 · 7d 8%";
 
 /// The modeline's text, or nothing.
 fn modeline(state: &Value) -> &str {
@@ -111,13 +111,19 @@ fn the_transcripts_modeline_says_the_sessions_model_mode_context_cost_and_limit(
     app.call("focus", Some(json!({ "focused": true })));
     let state = transcript_says(&mut app, AFTER);
     assert!(modeline(&state).ends_with(AFTER), "{}", modeline(&state));
+    // The footer says the model and the mode, and the modeline neither.
+    let footer = state["footer"].as_str().unwrap_or_default();
+    assert_eq!(footer, "⏸ plan mode on (S-TAB to cycle)  Haiku 5.5");
+    for said in ["Haiku", "plan ·"] {
+        assert!(!modeline(&state).contains(said), "{}", modeline(&state));
+    }
     narrow_windows_drop_parts_from_the_right(&mut app);
     let _ = app.exchange("exit", None);
     app.wait_for_exit();
 }
 
 /// Splits the transcript's window until it is too narrow for the whole line: the parts go
-/// from the right, the model first stays.
+/// from the right, the context's first stays.
 fn narrow_windows_drop_parts_from_the_right(app: &mut App) {
     let wide = app.state();
     let cells = modeline(&wide).chars().count();
@@ -131,7 +137,7 @@ fn narrow_windows_drop_parts_from_the_right(app: &mut App) {
         state["window"]["columns"].as_u64().unwrap_or(0) < cells as u64
     });
     let narrow = modeline(&state);
-    assert!(narrow.contains("Haiku 5.5"), "{narrow}");
+    assert!(narrow.contains("ctx 5%"), "{narrow}");
     assert!(!narrow.contains("7d 8%"), "{narrow}");
     let shown = AFTER.split(" · ").filter(|part| narrow.contains(part));
     let kept: Vec<&str> = shown.collect();

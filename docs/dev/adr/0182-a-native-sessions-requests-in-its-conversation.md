@@ -1,6 +1,6 @@
 # 0182. A native session's requests in its conversation
 
-- Status: Accepted
+- Status: Accepted, amended by 0170 ("The line", 2026-11-24)
 - Date: 2026-11-24
 
 ## Context
@@ -88,6 +88,10 @@ written.
   and the composer is empty, the composer is undocked, its buffer kept, until the request goes, `i`,
   or something put into it. Otherwise, with a draft, while the person writes after `i`, or while point
   has not gone to it, the line stands above the composer.
+  Amended 2026-11-24 (ADR 0170, "The composer's padding and the footer"): the rows around an empty
+  composer's text go with it, so the transcript is 3 rows taller while the line has its place, and the
+  session's footer stays under the line, with no key in it. What was read stays read, and a tall
+  block's head where it is.
 - **What it says:** ` y  allow   n  deny   N  deny, saying why   RET  its input   i  write`, and at
   the right `Bash · all read`. Oso's words and the tool's name only, as in the title, never a target
   or a header. Keys are chips. Where they do not fit, they take fewer words, then more rows, so that

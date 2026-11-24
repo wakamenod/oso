@@ -78,7 +78,8 @@ fn the_line_stands_where_the_composer_was_and_the_composer_is_kept() {
     assert!(!given(&s.editor, &s.native));
     give(&mut s.editor, s.transcript, s.line, s.composer);
     assert!(given(&s.editor, &s.native));
-    assert_eq!(bottom(&s), (rows + 1, row + 1));
+    // Its row, and the rows around it: the line stands right over the footer's or the modeline.
+    assert_eq!(bottom(&s), (rows + 3, row + 3));
     assert_eq!(s.rows(DockSlot::Composer), None);
     assert!(s.editor.buffer(s.composer).is_some());
     take(&mut s.editor, s.transcript, s.line, s.composer);

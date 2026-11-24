@@ -68,7 +68,8 @@ fn fold(line: &mut Line, event: Event) {
 
 fn shown(line: &Line) -> String {
     let mut out = String::new();
-    line.status.write(line.modes.shown(), line.effort, &mut out);
+    line.status
+        .write(line.modes.in_force(), line.effort, &mut out);
     out
 }
 
@@ -370,4 +371,25 @@ proptest! {
         // A model's, its effort's and a mode's names of at most 256 bytes, and short parts.
         prop_assert!(out.len() <= 3 * 256 + 64, "{}", out.len());
     }
+}
+
+/// The note beside a footer is the whole note's parts but the model and the mode, with the parts
+/// before them, once each is known.
+#[test]
+fn the_note_beside_the_footer_is_the_whole_without_the_model_and_the_mode() {
+    let mut line = StatusLine::default();
+    assert_eq!(line.notes("", None, None), ["", ""]);
+    let mark = "⇄ claude.ai · 2 queued";
+    assert_eq!(line.notes(mark, None, None), [mark, mark]);
+    let said = |line: &StatusLine, front| line.notes(front, Some("auto"), Some("high"));
+    assert_eq!(said(&line, ""), ["auto", ""]);
+    line.init_model = Some("claude-opus-5-5".to_owned());
+    line.cost = Some(0.82);
+    assert_eq!(said(&line, ""), ["opus-5-5 high · auto · $0.82", "$0.82"]);
+    let [whole, beside] = said(&line, mark);
+    assert_eq!(whole, format!("{mark} · opus-5-5 high · auto · $0.82"));
+    assert_eq!(beside, format!("{mark} · $0.82"));
+    let mut model = String::new();
+    line.write_model(Some("high"), &mut model);
+    assert_eq!(model, "opus-5-5 high");
 }

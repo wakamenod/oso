@@ -22,8 +22,8 @@ use oso_core::editor::{
 use oso_core::frame::{CellRect, WindowRegions};
 use oso_core::window::{Screen, WindowId};
 use oso_render::{
-    Bands, CursorStyle, Face, FlashFill, GridRow, GridView, Layer, Pane, PaneContent, PaneId,
-    Rules, Span, TextMarks, TextView,
+    Bands, CursorStyle, Face, FlashFill, GridRow, GridView, Layer, Pane, PaneContent, Rules, Span,
+    TextMarks, TextView,
 };
 
 use super::card::CardFills;
@@ -34,41 +34,17 @@ use crate::sessions::list::SpaceBands;
 use crate::terminal::hosted::Terminals;
 
 mod composer;
+pub(super) mod footer;
+mod ids;
 mod labels;
 mod modeline;
 pub(super) mod placeholder;
 pub(in crate::app) use modeline::{statuses_into, tiled_status};
 
-use composer::rules_of;
+use composer::{rule_panes, rules_of};
+pub(super) use ids::{Part, pane_id};
 use labels::{label_runs, labels_of};
 use modeline::{MODELINE_SPANS, modeline_face, modeline_spans};
-
-/// The first pane id of the windows': the echo area's and the floats' are below it.
-const FIRST: u32 = 16;
-/// The panes a window may draw: its text, gutter, modeline, divider, sign column and a
-/// composer's placeholder.
-const PER_WINDOW: u32 = 6;
-
-/// Which of a window's panes.
-#[derive(Clone, Copy)]
-pub(super) enum Part {
-    Text = 0,
-    Gutter = 1,
-    Modeline = 2,
-    Divider = 3,
-    Signs = 4,
-    Placeholder = 5,
-}
-
-/// The id of a window's pane, from the window's id, so that a window keeps its shaped rows
-/// when another is split or deleted (ADR 0112). Ids come round again only after 700 million
-/// windows have been made, as `WindowId`s are never reused; two shown together would have to
-/// be that far apart to share one, which no session reaches.
-pub(super) fn pane_id(window: WindowId, part: Part) -> PaneId {
-    let slots = (u32::MAX - FIRST) / PER_WINDOW;
-    let slot = u32::try_from(window.get() % u64::from(slots)).unwrap_or(0);
-    PaneId(FIRST + slot * PER_WINDOW + part as u32)
-}
 
 /// What a window's text fills and draws besides its rows, kept from frame to frame so that
 /// none of it is allocated again: the regions' (ADR 0071), isearch's matches' (ADR 0082), the
@@ -242,6 +218,8 @@ pub(super) struct Room {
     labels: Vec<(CellRect, Span<'static>)>,
     /// For the empty composers' placeholders.
     pub(super) hints: placeholder::Room,
+    /// For the sessions' footers.
+    pub(super) feet: footer::Room,
 }
 
 /// The status of the window `id`, the `index`th in the tree, among `statuses`, by its id so
@@ -372,6 +350,8 @@ pub(super) struct Drawn<'a> {
     pub(super) statuses: &'a [(WindowId, Status)],
     /// The empty composers' placeholders, and the line of each (ADR 0170).
     pub(super) placeholders: (&'a [placeholder::Row<'a>], &'a [placeholder::Line<'a>]),
+    /// The sessions' footers, and the lines of each (ADR 0170).
+    pub(super) footers: (&'a [footer::Row<'a>], &'a [footer::Lines<'a>]),
     /// The native sessions, whose requests' blocks mark white space (ADR 0182).
     pub(super) natives: Option<&'a NativeSessions>,
     /// The cursor flash's strength in this frame, from the app's clock (ADR 0097).
@@ -447,9 +427,14 @@ pub(super) fn panes<'a>(editor: &'a Editor, drawn: &Drawn<'a>, list: &mut Vec<Pa
         // background.
         let content = PaneContent::Lines(gutter);
         let its = (pane_id(*id, Part::Gutter), rules(*id));
-        let background = docked_face(*id).filter(|_| its.1 != Rules::NONE);
+        let composer = docked.contains(id) && composer::is_composer(editor, *id);
+        let background = docked_face(*id).filter(|_| composer);
         list.push(ruled(its, numbers, background, content));
     }
+    // What is around the docks (ADR 0170).
+    docked.iter().for_each(|id| rule_panes(editor, *id, list));
+    let (rows, lines) = drawn.footers;
+    footer::panes(rows, lines, list);
     // A docked window has no modeline: its host's is under it (ADR 0170).
     for (index, ((id, regions), _)) in shown().filter(|(_, ((id, _), _))| !docked.contains(id)) {
         let modeline = drawn.modelines.get(index).map_or(&[][..], |row| &row[..]);

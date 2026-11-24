@@ -8,7 +8,7 @@ use oso_core::editor::Editor;
 use oso_core::frame::{CellRect, FrameSize, Way};
 
 use oso_core::window::{DockSlot, WindowId};
-use oso_render::{Face, PaneId, Rules};
+use oso_render::{Face, PaneContent, PaneId, Rules};
 
 use super::RULES;
 use crate::app::draw::tiled::{Part, pane_id, statuses_into};
@@ -54,29 +54,66 @@ fn ruled(editor: &Editor) -> Vec<(PaneId, CellRect, Option<Face>, Rules)> {
     })
 }
 
-/// Whether `window`'s panes alone have rules, its text's and its gutter's, both on the float's
-/// background, and its placeholder's if it is `empty`.
+/// The panes of a frame that are a rule, in the order they are drawn: which, where, and their faces.
+fn rules(editor: &Editor) -> Vec<(PaneId, CellRect, [Face; 3])> {
+    let (terminals, bands) = (Terminals::default(), SpaceBands::default());
+    let mut statuses = Vec::new();
+    statuses_into(editor, &mut statuses);
+    let shown = (editor, &terminals, &bands, None);
+    with_frame(shown, None, &statuses, &mut Cells::default(), |panes| {
+        (panes.iter())
+            .filter_map(|pane| match pane.content {
+                PaneContent::Rule { ink, above, below } => {
+                    Some((pane.id, pane.region, [above, ink, below]))
+                }
+                _ => None,
+            })
+            .collect()
+    })
+}
+
+/// Whether `window`, a composer's, is ruled: in the rows around its text, from its window's edge to
+/// its edge, or, with none, in its own rows, where its text's and its gutter's panes have rules, and
+/// its placeholder's if it is `empty`. No other pane is.
 fn assert_ruled(editor: &Editor, window: WindowId, empty: bool) {
     let regions = *editor.regions(window).unwrap();
     let id = |part| pane_id(window, part);
     let float = Some(Face::Float);
-    let mut wanted = vec![(id(Part::Text), regions.text, float, RULES)];
-    if empty {
-        let region = CellRect {
-            column: regions.text.column + 1,
-            columns: regions.text.columns - 1,
-            ..regions.text
-        };
-        wanted.push((id(Part::Placeholder), region, None, RULES));
+    let across = (regions.gutter.column, regions.area().columns);
+    if let Some([above, below]) = editor.frame().padding(window) {
+        assert!(ruled(editor).is_empty(), "none in its own rows too");
+        let [text, ink, float] = [Face::Text, Face::Prompt, Face::Float];
+        assert_eq!(
+            rules(editor),
+            [
+                (id(Part::RuleAbove), above, [text, ink, float]),
+                (id(Part::RuleBelow), below, [float, ink, text]),
+            ]
+        );
+        let last = regions.text.row + regions.text.rows;
+        assert_eq!((above.row + 1, below.row), (regions.text.row, last));
+        for rect in [above, below] {
+            assert_eq!((rect.rows, (rect.column, rect.columns)), (1, across));
+        }
+    } else {
+        assert!(rules(editor).is_empty());
+        let mut wanted = vec![(id(Part::Text), regions.text, float, RULES)];
+        if empty {
+            let region = CellRect {
+                column: regions.text.column + 1,
+                columns: regions.text.columns - 1,
+                ..regions.text
+            };
+            wanted.push((id(Part::Placeholder), region, None, RULES));
+        }
+        wanted.push((id(Part::Gutter), regions.gutter, float, RULES));
+        assert_eq!(ruled(editor), wanted);
     }
-    wanted.push((id(Part::Gutter), regions.gutter, float, RULES));
-    assert_eq!(ruled(editor), wanted);
     // Side by side from its window's edge to its edge.
     assert_eq!(
         regions.gutter.column + regions.gutter.columns,
         regions.text.column
     );
-    let across = (regions.gutter.column, regions.area().columns);
     let host = (editor.windows())
         .filter(|window| window.docked().is_none())
         .filter_map(|window| editor.regions(window.id()))
@@ -84,11 +121,16 @@ fn assert_ruled(editor: &Editor, window: WindowId, empty: bool) {
     assert!(host.into_iter().any(|host| host == across), "{across:?}");
 }
 
+/// Whether a frame of `editor` has no rule.
+fn bare(editor: &Editor) -> bool {
+    ruled(editor).is_empty() && rules(editor).is_empty()
+}
+
 #[test]
 fn a_composer_has_rules_over_its_gutter_and_its_text_at_every_width() {
     for columns in [20, 60, 100, 120] {
         let (mut editor, host) = session(24, columns);
-        assert!(ruled(&editor).is_empty(), "no composer");
+        assert!(bare(&editor), "no composer");
         let composer = dock(&mut editor, (host, DockSlot::Composer), Mode::Composer, "");
         assert_ruled(&editor, composer, true);
         editor.select_window(composer);
@@ -101,13 +143,29 @@ fn a_composer_has_rules_over_its_gutter_and_its_text_at_every_width() {
     }
 }
 
+/// An empty composer takes three rows, one of them its text's, with a footer four; its cursor, its
+/// placeholder and its current line's band are in its text's row alone.
 #[test]
-fn a_composer_has_its_rows_as_before() {
+fn a_composers_text_is_in_its_own_row_between_its_rules() {
     let (mut editor, host) = session(24, 80);
     let tree = editor.window().id();
     let before = editor.regions(tree).unwrap().text.rows;
-    dock(&mut editor, (host, DockSlot::Composer), Mode::Composer, "");
-    assert_eq!(editor.regions(tree).unwrap().text.rows, before - 1);
+    let composer = dock(&mut editor, (host, DockSlot::Composer), Mode::Composer, "");
+    assert_eq!(editor.regions(tree).unwrap().text.rows, before - 3);
+    editor.set_footer(host, Some(String::new()));
+    assert_eq!(editor.regions(tree).unwrap().text.rows, before - 4);
+    editor.select_window(composer);
+    let text = editor.regions(composer).unwrap().text;
+    let [above, below] = editor.frame().padding(composer).unwrap();
+    let mut screen = oso_core::window::Screen::default();
+    editor.screen_of(composer, &mut screen);
+    let band = editor.current_line_cells(composer, &screen).unwrap();
+    assert_eq!((band.row, band.rows), (text.row, 1));
+    // The wheel over the rules is over the composer, and over the footer over the transcript.
+    let footer = editor.frame().footer(tree).unwrap();
+    let wheel = |row| editor.wheel_window(Some((row, 40)));
+    assert_eq!([above.row, text.row, below.row].map(wheel), [composer; 3]);
+    assert_eq!(wheel(footer.row), tree);
 }
 
 #[test]
@@ -121,7 +179,7 @@ fn a_card_a_line_and_the_strip_have_none_beside_the_composers() {
             Mode::Fundamental,
             "▸ Tasks (1/2)",
         );
-        assert!(ruled(&editor).is_empty(), "no composer");
+        assert!(bare(&editor), "no composer");
         let composer = dock(&mut editor, (host, DockSlot::Composer), Mode::Composer, "");
         assert_ruled(&editor, composer, true);
     }
@@ -142,7 +200,7 @@ fn a_line_in_the_composers_place_has_none_and_the_composer_has_them_again() {
     // As `request::place` gives it, and takes it back.
     editor.set_dock(host, DockSlot::Composer, None);
     editor.set_dock(line, DockSlot::Composer, Some(buffer));
-    assert!(ruled(&editor).is_empty());
+    assert!(bare(&editor));
     editor.set_dock(line, DockSlot::Composer, None);
     editor.set_dock(host, DockSlot::Composer, Some(buffer));
     let back = editor.dock_window(host, DockSlot::Composer).unwrap();
@@ -154,7 +212,7 @@ fn another_buffer_in_the_composers_place_has_none() {
     for mode in [Mode::Request, Mode::Card, Mode::Fundamental] {
         let (mut editor, host) = session(24, 80);
         dock(&mut editor, (host, DockSlot::Composer), mode, "");
-        assert!(ruled(&editor).is_empty(), "{mode:?}");
+        assert!(bare(&editor), "{mode:?}");
     }
 }
 
@@ -191,7 +249,7 @@ fn only_the_window_that_carries_the_docks_has_them_and_a_short_one_none() {
         columns: 120,
     });
     assert!(editor.regions(composer).is_none(), "hidden");
-    assert!(ruled(&editor).is_empty());
+    assert!(bare(&editor));
 }
 
 /// A host that gives its composer fewer rows than its text: the rules are at the rows that show.
@@ -205,5 +263,6 @@ fn a_composer_cut_by_a_short_host_is_ruled_at_the_rows_that_show() {
         "1\n2\n3\n4\n5\n6\n7\n8\n9",
     );
     assert!(editor.regions(composer).unwrap().text.rows < 9);
+    assert_eq!(editor.frame().padding(composer), None);
     assert_ruled(&editor, composer, false);
 }

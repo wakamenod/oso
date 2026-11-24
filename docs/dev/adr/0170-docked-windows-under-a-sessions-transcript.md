@@ -1,6 +1,6 @@
 # 0170. Docked windows under a session's transcript
 
-- Status: Accepted, amended by 0180 and 0182; "An empty composer's placeholder, as amended" (2026-11-24); "The composer's rules, as amended" (2026-11-24)
+- Status: Accepted, amended by 0180 and 0182; "An empty composer's placeholder, as amended" (2026-11-24); "The composer's rules, as amended" (2026-11-24); "The composer's padding and the footer, as amended" (2026-11-24)
 - Date: 2026-11-22
 
 ## Context
@@ -73,16 +73,17 @@ The facts it builds on (`frame`, `window`, `draw`):
   - The card and the strip are as many rows as their text has, at most 12 and 6
     (native-sessions-ux.md's card, and U3's opened strip).
   - Each is measured again as its text changes, and the host's layout is redone at once.
-- **No row of their own:** a docked window has no modeline and no divider (D3). The composer's two
-  rules (amended, below) are drawn in its own rows.
+- **No modeline and no divider** (D3). A composer has a row above and below its text, which its
+  rules are drawn in, and the window that carries the docks a footer row under them (amended,
+  below).
   - The composer's gutter shows `›` on its first row, in the gutter's face, and nothing on the
     rows below.
   - The card draws its own frame as text, and the strip is one line.
   - The host's modeline stays its own last row, under the docks.
 - **When the host is short** (D2):
   - The host keeps at least two rows of text, and the composer at least one.
-  - The card and the strip give up rows first, from their ends. A cut card says so on its
-    last row.
+  - The footer is given up first, then the composer's padding, both rows of it, then the strip
+    and the card, from their ends (amended, below). A cut card says so on its last row.
   - A host with less room than that hides its docks. Its modeline then says `docked hidden`,
     and the composer can be reached by making the window taller.
   - A frame that grows gives the rows back.
@@ -179,8 +180,8 @@ kept as they were put.
 3. **D3: a row between the transcript and the docks.**
    (a) None: the composer's `›` in its gutter and the faces tell them apart.
    (b) A one-row rule in the divider's face above the first dock, which costs a row.
-   (a) was chosen; the rules drawn inside the composer's rows, which cost none, are neither option
-   (amended 2026-11-24).
+   (a) was chosen. The rules, drawn inside the composer's rows and then in rows of their own around
+   its text, are neither option (amended 2026-11-24).
 
 ## Changes to accepted ADRs
 
@@ -270,6 +271,8 @@ Amended on 2026-11-24, the author's wish (ADR 0165, the look).
 - **A composer has a rule above and below it:** a thin line in the prompt's dim colour along its
   first row's top and its last row's bottom, from its window's edge to its edge, its gutter among
   it, which is on the float's background as its text is. It is drawn in the composer's rows and takes none; heights, wraps and presses are as before.
+  So it is where a host has no room for the composer's padding; with it, each is in a row of its own
+  (amended, below).
 - **It is the composer's alone:** a card, the strip, a request's line and any other buffer docked in
   the composer's place have none; a question's answer written there (ADR 0182, R2) will.
 - **It is oso's alone:** the composer's text, its escapes, a text being composed and the placeholder
@@ -288,3 +291,49 @@ Amended on 2026-11-24, the author's wish (ADR 0165, the look).
   [ADR 0063](0063-modeline-echo-area-and-internal-buffers.md): such a pane keeps no band past a line.
   The modeline's band, which is kept, may still reach the rule below the composer over it, with an
   accent of the modeline's text.
+
+## The composer's padding and the footer, as amended
+
+Amended on 2026-11-24, the author's wish: the composer was far too low, and the mode and the model
+belong under its lower line, as Claude Code's terminal has them (ADR 0165, the look, part G2). Of half
+a row of pixels, a blank row each, one blank row below and the terminal's own way, the author chose
+the last, from shots of the app.
+
+- **A composer has a row above and below its text,** its padding, over its window's whole width. Each
+  holds one of its rules along its middle: half a row of the float's background within it, half a row
+  of the text's beyond it. The rows are the window's and hold no text: its text, wraps, scrolling,
+  cursor, presses, band, placeholder and preedit are in its text's cells as before, and a wheel over
+  them scrolls the composer. They are not among its 10 rows. An empty composer takes 3 rows, and 4
+  with the footer, as the terminal's does.
+- **It is the composer's alone,** as its rules are: no card, strip, request's line nor any other
+  buffer docked in its place has it; a question's answer written there (ADR 0182, R2) will.
+- **The footer:** a host whose buffer has one has a row under its docks, above its modeline, in the
+  one window that carries them. The host draws it on the text's background; it is no window and no
+  buffer, so nothing that goes to a window, reads, copies or searches a buffer meets it, nor does the
+  agent channel. A wheel over it scrolls the host. What it says is ADR 0165's, part G2.
+- **The modeline of a window that shows a footer** says a note of its own, without what the footer
+  says; every other window of the buffer says the whole, and so does that one while a prompt's float
+  covers its footer.
+- **A short host** gives up the footer first, then the padding, both rows or none, then the strip and
+  the card as before: the footer and the padding are given from what every dock's rows leave over,
+  past the host's two. So a tall draft takes their rows before it scrolls. Where there is no padding,
+  the rules are in the composer's own rows, as above. What hides the docks is as before. With a strip
+  of one row and an empty composer, a host of 7 rows has all, 6 no footer, 5 no padding, and 3 no
+  strip. A host of 7 then keeps 2 rows of its own.
+- **A card that grows** (ADR 0180) leaves the padding and the footer their rows, whether they show or
+  not, so that its room does not depend on its own rows.
+- **A request's line in the composer's place** has neither padding nor rules: the transcript grows by
+  3 rows as point goes to the line, and shrinks by them as the composer has its place back.
+- **Public items,** which the author approved on 2026-11-24: `Editor::set_footer(host, note)`,
+  `FrameLayout::footer(host)`, `FrameLayout::padding(docked)`, and
+  `oso_render::PaneContent::Rule { ink, above, below }`.
+- **What it changes:** [ADR 0061](0061-panes-clipping-and-layers.md): a pane may be one line along its
+  middle between two backgrounds. [ADR 0063](0063-modeline-echo-area-and-internal-buffers.md): the
+  footer, a pane of one row, keeps its band on the lower rule's row, below its line. [ADR 0165](0165-native-claude-sessions-the-route.md), parts 3a and
+  3b; [ADR 0181](0181-remote-control-of-native-sessions.md), "The mark";
+  [ADR 0182](0182-a-native-sessions-requests-in-its-conversation.md), "The line".
+- **Erratum:** `set_dock` with another buffer in a slot left its window docked nowhere, where it is to
+  show that buffer in the same window. It stays docked now.
+- **Not chosen:** a footer as a dock of its own (`DockSlot::Footer`), which would be a window that
+  `C-x o` goes to and every state lists, with a buffer and a mode. Text drawn half a cell off the
+  grid, which would cost one row less, and an offset in every place that turns a cell into pixels.

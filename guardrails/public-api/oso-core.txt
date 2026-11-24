@@ -3394,6 +3394,7 @@ pub fn oso_core::editor::Editor::directory_answer_waits(&self) -> bool
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::dock_window(&self, oso_core::buffer::BufferId, oso_core::window::DockSlot) -> core::option::Option<oso_core::window::WindowId>
 pub fn oso_core::editor::Editor::set_dock(&mut self, oso_core::buffer::BufferId, oso_core::window::DockSlot, core::option::Option<oso_core::buffer::BufferId>)
+pub fn oso_core::editor::Editor::set_footer(&mut self, oso_core::buffer::BufferId, core::option::Option<alloc::string::String>)
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::draft(&self) -> core::option::Option<(oso_core::editor::ReviewId, &oso_core::editor::DraftFor)>
 pub fn oso_core::editor::Editor::kill_review_comment(&mut self, oso_core::editor::ReviewId, oso_core::review::CommentId) -> core::result::Result<usize, oso_core::review::CommentError>
@@ -4547,6 +4548,9 @@ impl core::marker::Copy for oso_core::frame::FloatRegions
 impl core::marker::StructuralPartialEq for oso_core::frame::FloatRegions
 pub struct oso_core::frame::FrameLayout
 pub oso_core::frame::FrameLayout::echo: oso_core::frame::CellRect
+impl oso_core::frame::FrameLayout
+pub fn oso_core::frame::FrameLayout::footer(&self, oso_core::window::WindowId) -> core::option::Option<oso_core::frame::CellRect>
+pub fn oso_core::frame::FrameLayout::padding(&self, oso_core::window::WindowId) -> core::option::Option<[oso_core::frame::CellRect; 2]>
 impl oso_core::frame::FrameLayout
 pub fn oso_core::frame::FrameLayout::regions(&self, oso_core::window::WindowId) -> core::option::Option<&oso_core::frame::WindowRegions>
 pub fn oso_core::frame::FrameLayout::size(&self) -> oso_core::frame::FrameSize

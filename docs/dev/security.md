@@ -1273,6 +1273,10 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   one whose buffer is withheld from agents is not listed in the channel's state, where its host
   gives its whole rect so that the composer's height says nothing of what was typed. A docked
   window's buffer changes only by its host's dock, never by a command that shows a buffer.
+- A session's footer (ADR 0165, "The footer, as built") says the permission mode in oso's own words,
+  and only what the running process said. The stream is not authenticated, as before: a line can make
+  it say another mode until the CLI says one again. Of the stream's text it shows a model's name and
+  an unknown mode's, ASCII and cut, dim or behind oso's `⚠ mode`. No agent reads it.
 
 ### Denial of service (T8)
 

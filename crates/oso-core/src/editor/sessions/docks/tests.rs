@@ -110,6 +110,27 @@ fn a_dock_goes_with_its_host_and_its_own_buffer() {
     assert_eq!(editor.dock_window(host, DockSlot::Composer), None);
 }
 
+/// A slot that shows another buffer shows it in the same window, docked there still, and shows the
+/// one before again where it was.
+#[test]
+fn another_buffer_in_a_slot_takes_the_same_window() {
+    let (mut editor, host, input) = docked(30, "one\ntwo\nthree");
+    let composer = editor.dock_window(host, DockSlot::Composer).unwrap();
+    editor.select_window(composer);
+    editor.current_mut().0.selections.move_primary(6);
+    let answer = editor.add_buffer(Buffer::from_text("answer", ""));
+    for (buffer, at, its_rows) in [(answer, 0, 1), (input, 6, 3)] {
+        editor.set_dock(host, DockSlot::Composer, Some(buffer));
+        assert_eq!(editor.dock_window(host, DockSlot::Composer), Some(composer));
+        let window = editor.window();
+        assert_eq!((window.id(), window.buffer()), (composer, buffer));
+        assert_eq!(window.docked(), Some((host, DockSlot::Composer)));
+        assert_eq!(window.selections.primary().cursor, at);
+        assert_eq!(rows(&editor, composer), its_rows);
+        assert_eq!(editor.windows().count(), 2);
+    }
+}
+
 #[test]
 fn the_strip_and_the_card_stack_above_the_composer() {
     let (mut editor, host, _) = docked(30, "");
@@ -312,4 +333,97 @@ fn a_docks_buffer_is_never_listed_and_selecting_the_dock_raises_its_host() {
     assert_eq!(editor.buffer_named("*compose: s*"), None);
     // `C-x b` to its name is refused, never a second buffer of that name.
     assert!(editor.switch_to_named("*compose: s*").is_err());
+}
+
+/// A native session's composer, `*compose: s*`, `rows` by `columns`, with a strip of one row over it.
+fn native(rows: usize, columns: usize) -> (Editor, BufferId, BufferId) {
+    let mut editor = Editor::with_buffer(Buffer::from_text("*claude: s*", "one\ntwo\n"));
+    editor.set_frame_size(FrameSize { rows, columns });
+    let host = editor.window().buffer();
+    let input = editor.add_internal_buffer("*compose: s*".to_owned(), Mode::Composer);
+    editor.set_wraps(input, true);
+    editor.set_dock(host, DockSlot::Composer, Some(input));
+    let strip = editor.add_internal_buffer("*todo: s*".to_owned(), Mode::Todo);
+    editor.set_internal_text(strip, "Tasks");
+    editor.set_dock(host, DockSlot::Strip, Some(strip));
+    editor.set_footer(host, Some(String::new()));
+    (editor, host, input)
+}
+
+/// The rows of the host, the strip and the composer, whether the composer is padded, and whether the
+/// host shows its footer.
+fn heights(editor: &Editor, host: BufferId) -> (usize, usize, usize, bool, bool) {
+    let composer = editor.dock_window(host, DockSlot::Composer).unwrap();
+    let strip = editor.dock_window(host, DockSlot::Strip).unwrap();
+    let carrier = editor.window().id();
+    (
+        rows(editor, carrier),
+        rows(editor, strip),
+        rows(editor, composer),
+        editor.frame().padding(composer).is_some(),
+        editor.frame().footer(carrier).is_some(),
+    )
+}
+
+/// A host of each number of rows, at 20 columns as at 80: the footer is given up first, then the
+/// padding, then the strip, and the composer's text last.
+#[test]
+fn a_hosts_rows_go_by_their_order_at_any_width() {
+    for columns in [20, 80] {
+        let (mut editor, host, _) = native(30, columns);
+        // The host's whole text area, less its modeline and the echo area.
+        let mut at = |whole: usize| {
+            editor.set_frame_size(FrameSize {
+                rows: whole + 2,
+                columns,
+            });
+            heights(&editor, host)
+        };
+        assert_eq!(at(28), (23, 1, 1, true, true));
+        assert_eq!(at(7), (2, 1, 1, true, true));
+        assert_eq!(at(6), (2, 1, 1, true, false));
+        assert_eq!(at(5), (3, 1, 1, false, false));
+        assert_eq!(at(4), (2, 1, 1, false, false));
+        assert_eq!(at(3), (2, 0, 1, false, false));
+        assert_eq!(at(2), (2, 0, 0, false, false));
+        assert_eq!(at(1), (1, 0, 0, false, false));
+        assert_eq!(
+            at(28),
+            (23, 1, 1, true, true),
+            "a frame that grows gives them back"
+        );
+    }
+}
+
+/// A draft's rows come before what is around them, and its padding is none of its ten.
+#[test]
+fn a_tall_draft_takes_the_paddings_rows_only_where_there_are_no_others() {
+    for (whole, expected) in [
+        (28, (14, 1, 10, true, true)),
+        (16, (2, 1, 10, true, true)),
+        (15, (2, 1, 10, true, false)),
+        (14, (3, 1, 10, false, false)),
+        (12, (2, 0, 10, false, false)),
+        (6, (2, 0, 4, false, false)),
+    ] {
+        let (mut editor, host, input) = native(whole + 2, 20);
+        let typed = "word ".repeat(200);
+        editor.set_internal_text(input, &typed);
+        assert_eq!(heights(&editor, host), expected, "{whole}");
+    }
+}
+
+/// The padding is the composer's alone: no other buffer docked in its place, and no other dock, has it.
+#[test]
+fn only_a_composer_is_padded() {
+    let (mut editor, host, _) = native(30, 80);
+    let composer = editor.dock_window(host, DockSlot::Composer).unwrap();
+    let strip = editor.dock_window(host, DockSlot::Strip).unwrap();
+    assert_eq!(editor.frame().padding(strip), None);
+    let other = editor.add_buffer(Buffer::from_text("other", ""));
+    editor.set_dock(host, DockSlot::Composer, Some(other));
+    assert_eq!(editor.dock_window(host, DockSlot::Composer), Some(composer));
+    assert_eq!(rows(&editor, composer), 1);
+    assert_eq!(editor.frame().padding(composer), None);
+    assert!(editor.frame().footer(editor.window().id()).is_some());
 }

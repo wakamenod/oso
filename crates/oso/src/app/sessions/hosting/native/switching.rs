@@ -142,6 +142,7 @@ impl App {
             .rename_terminal_buffer(native.buffer, &aside_name(&name));
         self.editor
             .set_mode_note(native.buffer, "in the TUI".to_owned());
+        self.editor.set_footer(native.buffer, None);
         // One set aside before, whose session came back natively in a buffer of its own,
         // goes: a session keeps one transcript aside.
         if let Some(old) = self.hosting.natives.aside.insert(key, native) {
