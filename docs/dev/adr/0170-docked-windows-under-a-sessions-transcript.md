@@ -1,6 +1,6 @@
 # 0170. Docked windows under a session's transcript
 
-- Status: Accepted, amended by 0180; "An empty composer's placeholder, as amended" (2026-11-24)
+- Status: Accepted, amended by 0180 and 0182; "An empty composer's placeholder, as amended" (2026-11-24)
 - Date: 2026-11-22
 
 ## Context

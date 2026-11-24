@@ -1,6 +1,6 @@
 # 0097. Visual aids: whitespace, the current line, a cursor flash and line numbers
 
-- Status: Accepted, amended by 0105, 0108 and 0112
+- Status: Accepted, amended by 0105, 0108, 0112 and 0182
 - Date: 2026-11-09
 
 ## Context
