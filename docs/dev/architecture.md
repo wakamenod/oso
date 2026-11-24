@@ -885,7 +885,7 @@ The UI thread never blocks on I/O or parsing:
   through `gh` and a fetch on the review's own thread (`review/pr.rs`, step 12b), and its
   comments go to the session of the worktree its head branch is checked out in. ADR 0127's
   drafts take the same path, and so does `session-yank-image` (`C-c C-y`, ADR 0142), which
-  checks the same refusals first (`paste_target`), has the clipboard's worker read the image, and keeps it on
+  checks the same refusals first (`paste_target`, or a native composer's `composer_takes`), has the clipboard's worker read the image, and keeps it on
   `sessions::images`' one `oso-images` thread, which also removes a session's images when the
   person archives it (an agent's archive keeps them, ADR 0179) and sweeps old ones (`app/sessions/watch/images.rs`). The dispatcher notes whether
   each run came through the dev socket. The worker finds message lines' senders with `[[message]]` rules

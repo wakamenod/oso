@@ -126,6 +126,14 @@ impl App {
         put_at_end(&mut self.editor, (transcript, id), &text)
     }
 
+    /// Why native session `key`'s composer takes no text of oso's now, if it takes none. One the
+    /// person killed is docked again as text goes in.
+    pub(in crate::app) fn composer_takes(&self, key: SessionKey) -> Result<(), String> {
+        let id = (self.hosting.natives.map.get(&key)).and_then(|native| native.composing.buffer);
+        id.and_then(|id| self.editor.buffer(id))
+            .map_or(Ok(()), refuses)
+    }
+
     /// Puts `text` into native session `key`'s composer at its point, escaped as it says;
     /// with `show`, the session is shown first, point in its composer after the text. The
     /// composer's buffer, or why nothing was put in.
@@ -258,6 +266,15 @@ mod tests {
         assert!(at_end(&composer("see @\"a "), "b\" c").is_err());
         // One escaped takes it.
         assert_eq!(at_end(&composer(" /review"), "x").as_deref(), Ok(" x"));
+    }
+
+    #[test]
+    fn a_composer_takes_text_but_not_one_that_is_secret_or_none() {
+        assert_eq!(refuses(&composer("a draft")), Ok(()));
+        let mut secret = Buffer::visiting(std::path::PathBuf::from("/tmp/.env"));
+        secret.set_mode(Mode::Composer);
+        assert!(refuses(&secret).is_err());
+        assert!(refuses(&Buffer::from_text("plain", "")).is_err());
     }
 
     #[test]

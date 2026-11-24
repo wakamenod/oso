@@ -28,12 +28,16 @@ impl App {
         self.watch.sending.reading_image_for == Some(key)
     }
 
-    /// `session-yank-image` in the terminal `buffer`: starts reading the clipboard's image for
-    /// its session, unless the session could not take the paste now, or an image is being read
-    /// already. `from_socket` says whether the command came through the dev socket, as the
-    /// dispatcher noted when it ran.
+    /// `session-yank-image` in `buffer`, a session's terminal, or a native one's transcript or
+    /// composer: starts reading the clipboard's image for its session, unless the session could
+    /// not take the paste now, or an image is being read already. `from_socket` says whether the
+    /// command came through the dev socket, as the dispatcher noted when it ran.
     pub(in crate::app) fn yank_image(&mut self, buffer: BufferId, from_socket: bool) {
-        if let Err(why) = self.start_image_read(buffer, from_socket) {
+        // A transcript set aside while its session runs in the TUI, or its composer, takes nothing
+        // (ADR 0165, part 4d).
+        if !self.refuse_aside_key(buffer)
+            && let Err(why) = self.start_image_read(buffer, from_socket)
+        {
             self.editor.message(why);
         }
         self.request_redraw();
@@ -49,8 +53,9 @@ impl App {
         }
         // Checked first, so that no file is kept for a paste that would be refused; a native
         // session's composer takes it (ADR 0165, step 2f).
-        if !self.hosting.natives.has(key) {
-            self.paste_target(key)?;
+        match self.hosting.natives.has(key) {
+            true => self.composer_takes(key)?,
+            false => self.paste_target(key).map(|_| ())?,
         }
         let clipboard = self
             .clipboard
