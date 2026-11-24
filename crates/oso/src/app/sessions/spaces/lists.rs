@@ -1,5 +1,6 @@
 //! The lists the space prompts complete over (ADR 0136, step 1b): the repositories oso knows,
-//! the space in front's, and the closed spaces, made when the sessions or the spaces change.
+//! the space in front's, and the closed spaces, made when the sessions or the spaces change,
+//! or another space comes in front.
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 

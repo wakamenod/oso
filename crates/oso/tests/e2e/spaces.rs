@@ -700,6 +700,52 @@ fn line_starting(state: &Value, start: &str) -> Option<usize> {
 
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
+fn the_space_prompts_complete_over_the_space_just_switched_to() {
+    let flow = Flow::new("spaces-lists", "");
+    let other = flow.scratch.path().join("other");
+    fs::create_dir(&other).unwrap();
+    flow.git(&other, &["init", "-q", "-b", "main"]);
+    let (mut app, _) = flow.start();
+    app.send_keys("C-c a O");
+    answer(&mut app, "Describe the space:", "Fix login");
+    app.wait_for("the space", |state| space(state, "fix-login").is_some());
+    space_menu(&mut app, "a");
+    answer(&mut app, "Add repository:", other.to_str().unwrap());
+    app.wait_for("its second repository", |state| {
+        space(state, "fix-login")
+            .is_some_and(|s| s["members"].as_array().is_some_and(|m| m.len() == 2))
+    });
+    show_readme(&mut app);
+    app.send_keys("C-c a O");
+    answer(&mut app, "Describe the space:", "Second");
+    // Settled, so that nothing but the switch makes the lists again.
+    app.wait_for("the second space, its sessions idle", |state| {
+        let sessions = state["sessions"]["sessions"].as_array();
+        state["sessions"]["space"] == "second"
+            && sessions
+                .is_some_and(|all| all.len() == 2 && all.iter().all(|s| s["state"] == "idle"))
+    });
+    app.send_keys(&format!("C-c a j {} RET", keys("Fix login")));
+    app.wait_for("the first space", |state| {
+        state["sessions"]["space"] == "fix-login"
+    });
+    for (key, label) in [("r", "Remove repository:"), ("u", "Use repository:")] {
+        space_menu(&mut app, key);
+        let state = app.wait_for(label, |state| {
+            super::worktrees::asks(state).is_some_and(|prompt| prompt.starts_with(label))
+        });
+        let rows = state["prompts"][0]["completion"]["rows"].as_array();
+        let mut rows: Vec<&str> = rows.unwrap().iter().filter_map(Value::as_str).collect();
+        rows.sort_unstable();
+        assert_eq!(rows, ["other", "repo"], "{label}");
+        app.send_keys("C-g");
+        app.wait_for("no prompt", |state| super::worktrees::asks(state).is_none());
+    }
+    flow.exit_with(0);
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
 fn the_pane_shows_spaces_their_repositories_worktrees_and_sessions() {
     let flow = Flow::new("spaces-pane", "");
     let other = flow.scratch.path().join("other");

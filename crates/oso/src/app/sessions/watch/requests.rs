@@ -72,6 +72,7 @@ impl App {
                 line,
                 action,
             } => self.native_key(buffer, line, action),
+            SessionRequest::Spaces(request) => self.space_request(request),
             SessionRequest::Regroup => self.watch.list.regroup(),
             SessionRequest::CycleFolds => {
                 if !self.watch.list.cycle_folds(self.watch.view.open_to) {
@@ -221,8 +222,9 @@ impl App {
         if self.watch.spaces.enter(&mut self.editor, at) == Err(Refused) {
             self.editor.message(PROMPT_OPEN);
         }
-        // The modeline names the space in front (ADR 0159).
-        self.watch.stale = true;
+        // The modeline names the space in front (ADR 0159), and the space prompts' lists are its
+        // or begin with it.
+        self.sessions_touched();
     }
 
     /// `RET` on the row of the worktree at `path` (ADR 0131, step 2b): the session there, in
