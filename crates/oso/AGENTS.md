@@ -116,7 +116,7 @@ often, so it must rebuild within 2 s.
   oso's marks stand in a row's first two columns. Its composer and
   queue are `app/sessions/hosting/native/composer.rs`, over the queue's rules in
   `sessions/native/queue.rs`, what oso composed put in or sent there `composer/composed.rs`
-  (part 2f), what its placeholder says, the suggestion among it, `composer/placeholder.rs`, drawn by `app/draw/tiled/placeholder.rs` (ADR 0170), escaped by `sessions/send/escape.rs` as every send is, its interrupt `native/interrupting.rs`, over the control layer's
+  (part 2f), what its placeholder says, the suggestion among it, `composer/placeholder.rs`, drawn by `app/draw/tiled/placeholder.rs`, between the rules of `app/draw/tiled/composer.rs` (ADR 0170), escaped by `sessions/send/escape.rs` as every send is, its interrupt `native/interrupting.rs`, over the control layer's
   rules in `sessions/native/control.rs` and the interrupt's in `sessions/native/interrupt.rs`,
   its slash commands `native/slash.rs`, over `sessions/native/slash.rs`, its status line
   `native/status.rs`, over `sessions/native/status.rs` and `get_usage`'s `sessions/native/usage.rs`

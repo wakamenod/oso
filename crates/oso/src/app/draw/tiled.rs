@@ -39,7 +39,7 @@ mod modeline;
 pub(super) mod placeholder;
 pub(in crate::app) use modeline::{statuses_into, tiled_status};
 
-use composer::{first_row_rules, gutter_background, rules_of};
+use composer::rules_of;
 use labels::{label_runs, labels_of};
 use modeline::{MODELINE_SPANS, modeline_face, modeline_spans};
 
@@ -409,6 +409,10 @@ pub(super) fn panes<'a>(editor: &'a Editor, drawn: &Drawn<'a>, list: &mut Vec<Pa
         .map(oso_core::window::Window::id)
         .collect();
     let docked_face = |id: WindowId| super::card::dock_face(editor, id);
+    let rules = |id: WindowId| match docked.contains(&id) {
+        true => rules_of(editor, id),
+        false => Rules::NONE,
+    };
     // The selected window's text last, or the text of the one beneath the prompts.
     let tiled = editor.tiled().0.id();
     for last in [false, true] {
@@ -419,16 +423,15 @@ pub(super) fn panes<'a>(editor: &'a Editor, drawn: &Drawn<'a>, list: &mut Vec<Pa
             if (*id == tiled) == last {
                 let content = text(editor, (*id, *id == selected), cells, drawn, labels);
                 let background = docked_face(*id);
-                let pane = (pane_id(*id, Part::Text), rules_of(editor, *id));
-                list.push(ruled(pane, regions.text, background, content));
+                let its = (pane_id(*id, Part::Text), rules(*id));
+                list.push(ruled(its, regions.text, background, content));
             }
         }
     }
     let (rows, lines) = drawn.placeholders;
-    list.extend((rows.iter().zip(lines)).map(|(row, line)| {
-        let rules = first_row_rules(editor, row.0);
-        placeholder::pane(row, line, rules)
-    }));
+    // An empty composer is one row, its placeholder's.
+    let hints = rows.iter().zip(lines);
+    list.extend(hints.map(|(row, line)| placeholder::pane(row, line, rules(row.0))));
     let mut at = 0;
     for ((id, regions), cells) in windows.iter().zip(drawn.cells) {
         let rows = cells.gutter.rows().count();
@@ -440,11 +443,12 @@ pub(super) fn panes<'a>(editor: &'a Editor, drawn: &Drawn<'a>, list: &mut Vec<Pa
             let content = PaneContent::Signs(&cells.signs);
             list.push(pane(pane_id(*id, Part::Signs), signs, None, content));
         }
-        // No band and no fill: the current line's number marks the line there.
+        // No band: the current line's number marks the line there. A composer's is on its text's
+        // background.
         let content = PaneContent::Lines(gutter);
-        let rules = rules_of(editor, *id);
-        let pane = (pane_id(*id, Part::Gutter), rules);
-        list.push(ruled(pane, numbers, gutter_background(rules), content));
+        let its = (pane_id(*id, Part::Gutter), rules(*id));
+        let background = docked_face(*id).filter(|_| its.1 != Rules::NONE);
+        list.push(ruled(its, numbers, background, content));
     }
     // A docked window has no modeline: its host's is under it (ADR 0170).
     for (index, ((id, regions), _)) in shown().filter(|(_, ((id, _), _))| !docked.contains(id)) {

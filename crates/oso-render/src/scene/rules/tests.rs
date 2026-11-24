@@ -8,6 +8,7 @@ use oso_core::display_map::{DisplayPoint, Preedit};
 use oso_core::editor::Editor;
 use oso_core::frame::CellRect;
 use oso_core::selection::SelectionSet;
+use oso_core::syntax::{Highlight, Highlights};
 use oso_core::window::{Screen, ViewSize, ViewTop};
 
 use crate::pane::{
@@ -201,6 +202,7 @@ fn no_text_is_drawn_where_a_line_is() {
         (49.0, 67.0),
     );
     let banded = Pane {
+        layer: crate::pane::Layer(1),
         bands: Bands {
             above: true,
             below: true,
@@ -239,4 +241,26 @@ fn a_preedits_underlines_are_above_the_line_under_them() {
         .map(|rect| (rect.0[1], rect.1[1]))
         .collect();
     assert_eq!(under, [(66.0, 1.0), (65.0, 2.0)]);
+}
+
+/// A line under a link, in a view that has styles, stays inside too, on the first row and the last.
+#[test]
+fn a_links_line_is_inside() {
+    let buffer = Buffer::from_text("t", "ab\ncd");
+    let mut highlights = Highlights::new(5);
+    highlights.replace(0..5, [(5, Some(Highlight::SessionLink))]);
+    let content = || TextView {
+        highlights: Some(&highlights),
+        styled: true,
+        ..view(&buffer)
+    };
+    let under = |rows| {
+        let scene = scene_of(&[ruled(PaneContent::Text(content()), rows)]);
+        (rects(&scene).into_iter())
+            .filter(|rect| rect.2 == theme().foreground(Face::SessionLink))
+            .map(|rect| (rect.0[1], rect.1[1]))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(under(2), [(67.0, 1.0), (86.0, 1.0)]);
+    assert_eq!(under(1), [(66.0, 1.0)]);
 }

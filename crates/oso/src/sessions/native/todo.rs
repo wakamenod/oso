@@ -13,10 +13,9 @@
 //!   then the list goes. Nothing is read of the CLI's own task files: a session resumed shows
 //!   no list until its next to-do call (the author's Q-E2 (a)).
 //! - oso's words (`▸ Tasks (2/5)`, `… 4 more`, `C-c C-t list`) are in faces no item has; each
-//!   item's text, which is Claude's, is after its mark (`[x]`, `[/]`, `[ ]`), in the mark's face
-//!   and columns oso's words never have, its control characters as spaces, and cut to the strip's
-//!   width with `…`, so none of it runs past the strip's edge, wraps, or stands where oso's keys
-//!   are (ADR 0170).
+//!   item's text, which is Claude's, is after its mark (`[x]`, `[/]`, `[ ]`), in the mark's face,
+//!   on cells of its own, its control characters as spaces, and cut to the strip's width with `…`,
+//!   so none of it runs past the strip's edge, wraps, or stands where oso's keys show (ADR 0170).
 
 use std::ops::Range;
 
@@ -409,7 +408,10 @@ fn cut(text: &str, room: usize) -> (&str, &'static str) {
         if apart {
             break;
         }
-        kept = &kept[..kept.floor_char_boundary(kept.len() - 1)];
+        // The cluster the `…` went in, or with a limit between them, the last character.
+        let last = (text_clusters(&joined, 0).last()).map_or(0, |last| last.offset);
+        let before = kept.floor_char_boundary(kept.len() - 1);
+        kept = &kept[..last.min(before)];
         cut = "…";
     }
     (kept, cut)

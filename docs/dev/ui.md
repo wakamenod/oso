@@ -1334,7 +1334,8 @@ a switch made with its command stands until that setting changes in the file
   messages and `]`/`[` between tool rows; session mode's `C-c` keys work there too, but
   `C-c +` and `C-c -`, as it has no screen for an agent to read. Its next messages are
   written in its composer (step 2, ADR 0170), `*compose: NAME*`, docked under the transcript
-  and withheld from agents: `i` goes there and `C-c C-o` back, `C-c C-c` sends (at most
+  and withheld from agents, between two thin lines in its own rows (ADR 0170, as amended): `i` goes
+  there and `C-c C-o` back, `C-c C-c` sends (at most
   64 KiB), and `M-p`/`M-n` walk the messages sent. While it is empty, a placeholder drawn over
   it names its keys (ADR 0170, as amended). Once a turn ends, the CLI's suggestion of
   the next message shows there instead, with the key that takes it, until a turn starts, the

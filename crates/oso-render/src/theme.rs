@@ -575,7 +575,7 @@ pub(crate) mod tests {
                 &[(LIST[0], LABEL), (LIST[1], LABEL)]
             }
             Face::CompletionPrompt => &[(Face::Text, LABEL)],
-            // The gutter has no band and no fill, and a menu's titles are on the text's background.
+            // The gutter has no band, and a menu's titles are on the text's background.
             // A composer's mark is in a line number's face, on the float's background (ADR 0170).
             Face::LineNumber => &[(Face::Text, LABEL), (Face::Float, MARK)],
             Face::MenuTitle => &[(Face::Text, LABEL)],
@@ -612,7 +612,11 @@ pub(crate) mod tests {
             Face::DiffRemoved => &[(Face::DiffRemoved, READ), (Face::Card, READ)],
             Face::DiffHunkHeader | Face::DiffFileHeader => &[(Face::DiffFileHeader, READ)],
             // The to-do strip's keys too, on a float's background (ADR 0165).
-            Face::ReviewCommentPerson => &[(Face::ReviewCommentPerson, READ), (Face::Float, LABEL)],
+            Face::ReviewCommentPerson => &[
+                (Face::ReviewCommentPerson, READ),
+                (Face::Float, LABEL),
+                (Face::CurrentLine, LABEL),
+            ],
             Face::ReviewCommentAgent => &[(Face::ReviewCommentPerson, READ)],
             Face::ReviewOutdated => &[(Face::ReviewCommentPerson, LABEL), (Face::Text, LABEL)],
             // A sent comment's text is still read on its card, dimmed as a label is.

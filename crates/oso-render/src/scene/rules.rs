@@ -21,6 +21,9 @@ fn taken(rules: Rules, metrics: CellMetrics) -> [f32; 2] {
 
 /// `layout` with `rules`' lines out of where the pane's text goes, its bands past them too.
 pub(super) fn between(layout: Layout, rules: Rules, metrics: CellMetrics) -> Layout {
+    if rules == Rules::NONE {
+        return layout;
+    }
     let [above, below] = taken(rules, metrics);
     layout.with_rules(above, below)
 }
@@ -33,7 +36,7 @@ pub(super) fn draw_rules(
     metrics: CellMetrics,
 ) {
     let Rules { above, below } = pane.rules;
-    if above.is_none() && below.is_none() {
+    if pane.rules == Rules::NONE {
         return;
     }
     let Some(rect) = layout.frame_cells(pane.region) else {

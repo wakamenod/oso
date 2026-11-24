@@ -144,7 +144,9 @@ font's letter wider than its cells
 ([ADR 0052](adr/0052-glyphs-stay-in-their-cells.md)). These bands stop at a pane's
 edges, but for the band above the frame's top row
 ([ADR 0061](adr/0061-panes-clipping-and-layers.md)) and above the modeline and the echo
-row ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)).
+row ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)). A pane with a line along an
+edge, as a composer's is, keeps none past it, and its text is cut to inside it
+([ADR 0170](adr/0170-docked-windows-under-a-sessions-transcript.md)).
 
 ## Row heights
 

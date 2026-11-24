@@ -487,7 +487,8 @@ glyphs:
 
 ```
 for each layer, back to front:
-  rectangles: backgrounds, boxes, cursors, selections   (shape renderer)
+  rectangles: backgrounds, boxes, cursors, selections,
+    lines along a pane's edges                          (shape renderer)
   wavy lines: diagnostics under text                    (shape renderer, one quad a run)
   rounded boxes: a float's panel, field and key chips   (shape renderer, one quad each)
   glyphs from the atlas                                 (text renderer)

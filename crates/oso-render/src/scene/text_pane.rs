@@ -15,7 +15,7 @@ use super::boxes::underline_links;
 use super::marks::draw_marks;
 use super::rules::draw_rules;
 use super::{Covered, Draws, Fade, GlyphSource, RowFaces, line_width};
-use crate::pane::{CursorStyle, Face, Pane, PaneContent, TextView};
+use crate::pane::{CursorStyle, Face, Pane, PaneContent, Rules, TextView};
 use crate::rows::Rows;
 use crate::text::Layout;
 use oso_core::window::ScreenRow;
@@ -100,7 +100,10 @@ pub(super) fn draw_fills(
     (layout, cursor): (&Layout, Option<CellRect>),
     metrics: CellMetrics,
 ) {
-    let band = (view.fills.iter()).rposition(|(face, _)| *face == Face::CurrentLine);
+    // Only a ruled pane's are looked through.
+    let band = (pane.rules != Rules::NONE)
+        .then(|| (view.fills.iter()).rposition(|(face, _)| *face == Face::CurrentLine))
+        .flatten();
     let (behind, over) = view.fills.split_at(band.map_or(0, |band| band + 1));
     let fill = |draws: &mut Draws, fills: &[(Face, &[CellRect])]| {
         for &(face, cells) in fills {

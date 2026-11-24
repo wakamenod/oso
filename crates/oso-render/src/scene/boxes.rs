@@ -126,11 +126,11 @@ pub(super) fn underline_links(
     metrics: CellMetrics,
 ) {
     let line = line_width(metrics);
-    let below = metrics.height - line;
     let mut under = |columns: Range<usize>, face| {
         let rect = layout.display_cells(row, columns.start, columns.len());
         let rect = rect.map(|rect| PixelRect {
-            y: rect.y + below,
+            // Of what shows of the cells, as a ruled pane's text ends above its line.
+            y: rect.y + rect.height - line,
             height: line,
             ..rect
         });

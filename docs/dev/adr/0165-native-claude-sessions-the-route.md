@@ -1634,7 +1634,7 @@ As built:
   completed and `… N more`), and folds it back. It shows while an item is not completed, and
   once all are until the turn ends; then the list goes, and the strip with it, point going
   to the composer if it was there.
-- **Claude's text, fenced (ADR 0170):** oso's marks and keys are in faces of oso's own, and
+- **Claude's text, fenced (ADR 0170; its faces as amended below):** oso's marks and keys are in faces of oso's own, and
   each item's text, after them, in a face of its own, its control characters as spaces, cut
   to the strip's width with `…`, measured as the display draws it: none of it runs past the
   strip's edge, wraps, or stands where oso's keys are. The strip's width is its window's
@@ -1672,8 +1672,11 @@ As built:
   - The head is plain text, not bold (Q-F7). A mark and its item are one: in progress in the amber
     of a state at work, completed quiet, not started as a target. oso's keys, its `…` and
     `… N more` are in a face no item has. Claude's text is still after oso's mark, on cells of its
-    own: an item's face is its state's, so what tells it from oso's words is its place and that
-    none of them has its face.
+    own: an item's face is its state's, so what tells it from oso's words is first its place, after
+    its mark, then its face. Some of these colours are near or the same: dusk's string colour is its
+    text's, a completed item is in the placeholder's and the rules' dim colour, and the amber is the
+    one a call that waits for the person has in the transcript. An item too narrow for the keys may
+    reach the cells they would have.
 
 ### Part 3f, as built: prompt suggestions and the recap
 

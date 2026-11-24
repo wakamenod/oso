@@ -375,3 +375,65 @@ fn the_same_list_written_again_changes_nothing() {
     let again = json!({"task": {"id": "0", "subject": "One"}});
     assert!(!todo.apply(&result("c", &again, false)));
 }
+
+/// An item that says what oso says is never where oso's words show.
+#[test]
+fn an_item_in_osos_words_is_after_its_mark_and_before_the_keys() {
+    let mut todo = Todo::default();
+    create(
+        &mut todo,
+        1,
+        "▸ Tasks (9/9)  … 4 more  C-c C-t list C-c C-t fold",
+    );
+    status(&mut todo, 1, "in_progress");
+    for width in 24..=120 {
+        for (strip, keys) in [
+            (todo.folded(width), KEYS_LIST),
+            (todo.opened(width), KEYS_FOLD),
+        ] {
+            let head = strip.text.lines().next().unwrap();
+            assert!(head[4..].starts_with("Tasks (0/1)"), "{width}: {head}");
+            let item = in_face(&strip, Face::Waiting);
+            assert_eq!(item[0], "[/]", "{width}");
+            let shown = in_face(&strip, Face::Prompt);
+            if shown.contains(&keys) {
+                let last = head.trim_end().len() - keys.len();
+                let claudes = (strip.faces.iter())
+                    .filter(|(_, face)| *face == Face::Waiting)
+                    .all(|(range, _)| range.end + APART <= last || range.start > head.len());
+                assert!(claudes, "{width}: {head}");
+            }
+        }
+    }
+}
+
+proptest::proptest! {
+    /// Whatever an item says and however wide the strip, each row of it fits, and each stretch of
+    /// an item's is clusters of its own.
+    #[test]
+    fn prop_a_strip_fits_whatever_its_items_say(
+        texts in proptest::collection::vec(
+            proptest::collection::vec(
+                proptest::sample::select(vec![
+                    'a', ' ', 'あ', '\u{301}', '\u{600}', '\u{200d}', '\u{fe0f}', '🍣', '🇯', '🇵',
+                    '\u{202e}', '\u{200b}', '\t', '\u{2028}', '\u{1b}', 'ก', '\u{e33}', '\u{903}',
+                ]),
+                1..60,
+            ),
+            1..8,
+        ),
+        done in 0usize..8,
+        width in 0usize..130,
+    ) {
+        let mut todo = Todo::default();
+        for (n, text) in (1u32..).zip(&texts) {
+            create(&mut todo, n, &text.iter().collect::<String>());
+            if n as usize <= done {
+                status(&mut todo, n, "completed");
+            }
+        }
+        for strip in [todo.folded(width), todo.opened(width)] {
+            proptest::prop_assert!(fits(&strip, width), "{width}: {:?}", strip.text);
+        }
+    }
+}

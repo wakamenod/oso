@@ -193,7 +193,7 @@ The status line, as the session window's modeline:
  *claude: fix-login*  Session  ● working   Opus 5.5 · auto · ctx 41% · $0.82 · 5h 63%
 ```
 
-The to-do strip, folded and opened:
+The to-do strip, folded and opened, as it is drawn now (ADR 0165, part 3e as amended):
 
 ```text
  ▸ Tasks (2/5)  [/] Run the auth tests                           C-c C-t list

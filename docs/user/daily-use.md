@@ -754,7 +754,7 @@ native-remote-control-address` copies the session's address there. `oso-restart`
 nothing else does. Sessions an agent started, and orchestrators, are not connected, nor one whose
 git remote's address holds a password or a user name (but `git@`).
 
-You write the next messages in the composer under the conversation, between two lines, which agents cannot read.
+You write the next messages in the composer under the conversation, which agents cannot read; a thin line is above and below it.
 While it is empty it says in grey what it is and its keys. `i` goes there and `C-c C-o` back, `C-c C-c` sends, and `M-p` and `M-n` bring back what you
 sent. After a turn, Claude's guess at your next message shows there in grey instead, with
 `(C-c C-s takes it)` after it. `C-c C-s`, in the composer or the conversation, puts it at the
