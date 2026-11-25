@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use super::{Core, MAX_EXPLAIN_BYTES};
+use crate::sessions::engine::UNHURRIED;
 use crate::sessions::rules::{RuleSet, Source, parse};
 use crate::sessions::screen::Evidence;
 use crate::sessions::state::{Exit, GRACE, State};
@@ -29,7 +30,10 @@ fn ms(n: u64) -> Duration {
 
 fn core() -> Core {
     let parsed = parse(RULES, Source::Bundled);
-    Core::new(Arc::new(RuleSet::merged(parsed, Default::default())))
+    Core::with_budget(
+        Arc::new(RuleSet::merged(parsed, Default::default())),
+        UNHURRIED,
+    )
 }
 
 fn screen(text: &str) -> Job {
@@ -190,7 +194,15 @@ fn a_saved_screen_is_explained_and_odd_files_are_refused() {
     let saved = dir.join("screen.txt");
     fs::write(&saved, b"out \xff\n  esc to interrupt\n").unwrap();
     let mut core = core();
-    let found = core.handle(Job::ExplainFile(saved.clone(), true), Instant::now());
+    // It is judged within the rules' own budget, which a slow machine can run past: asked again.
+    let mut found = Vec::new();
+    for _ in 0..1000 {
+        found = core.handle(Job::ExplainFile(saved.clone(), true), Instant::now());
+        let late = |out: &Out| matches!(out, Out::Explained(_, text, _) if text.contains("rules took too long"));
+        if !found.iter().any(late) {
+            break;
+        }
+    }
     let [Out::Explained(None, text, true)] = found.as_slice() else {
         panic!("{found:?}");
     };
@@ -330,7 +342,10 @@ fn a_recap_is_told_only_when_it_changes() {
                  recap = '^(\\S+) · '\n";
     let parsed = parse(rules, Source::Bundled);
     assert!(parsed.problems.is_empty(), "{:?}", parsed.problems);
-    let mut core = Core::new(Arc::new(RuleSet::merged(parsed, Default::default())));
+    let mut core = Core::with_budget(
+        Arc::new(RuleSet::merged(parsed, Default::default())),
+        UNHURRIED,
+    );
     let recaps = |found: Vec<Out>| -> Vec<String> {
         found
             .into_iter()
@@ -359,7 +374,10 @@ fn the_first_look_in_time_and_each_change_of_hold_are_told() {
                  region = \"bottom(1)\"\ncontains = [\"showing detailed transcript\"]\n";
     let parsed = parse(rules, Source::Bundled);
     assert!(parsed.problems.is_empty(), "{:?}", parsed.problems);
-    let mut core = Core::new(Arc::new(RuleSet::merged(parsed, Default::default())));
+    let mut core = Core::with_budget(
+        Arc::new(RuleSet::merged(parsed, Default::default())),
+        UNHURRIED,
+    );
     let judged = |found: Vec<Out>| -> Vec<bool> {
         found
             .into_iter()

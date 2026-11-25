@@ -7,6 +7,7 @@
 use std::time::Duration;
 
 use super::{MAX_FROM_BYTES, MAX_SENDERS, Seen, senders};
+use crate::sessions::engine::UNHURRIED;
 use crate::sessions::rules::{Deadline, Late, Parsed, RuleSet, Source, parse};
 use crate::sessions::screen::{Evidence, Region};
 
@@ -26,7 +27,7 @@ fn rules(text: &str) -> RuleSet {
 
 fn look(rules: &RuleSet, seen: &mut Seen, screen: &str) -> Vec<String> {
     let evidence = Evidence::new(screen.lines(), "", None);
-    let deadline = Deadline::after(Duration::from_secs(1));
+    let deadline = Deadline::after(UNHURRIED);
     senders(rules.messages(), &evidence, seen, &deadline).unwrap()
 }
 

@@ -10,7 +10,7 @@
 //! their rules read. Its title stayed `✳ …` throughout, so the title's spinner is not what
 //! these screens are told by.
 
-use super::engine::evaluate;
+use super::engine::evaluate_unhurried;
 use super::rules::RuleSet;
 use super::screen::Evidence;
 use super::state::{Reason, Target};
@@ -149,7 +149,7 @@ fn each_recorded_screen_gives_its_state() {
     let rules = RuleSet::bundled();
     for &(name, text, title, target, rule) in SCREENS {
         let evidence = Evidence::new(text.lines(), title, None);
-        let verdict = evaluate(&rules, &evidence);
+        let verdict = evaluate_unhurried(&rules, &evidence);
         assert_eq!(verdict.target, target, "{name}");
         let matched = verdict.by.unwrap_or_else(|why| panic!("{name}: {why:?}"));
         assert_eq!(matched.name, rule, "{name}");
@@ -160,7 +160,7 @@ fn each_recorded_screen_gives_its_state() {
 fn the_working_screen_is_told_by_its_status_line_without_its_footer() {
     let rules = RuleSet::bundled();
     let text = include_str!("screens/working.txt").replace("· esc to interrupt", "");
-    let verdict = evaluate(&rules, &Evidence::from_text(&text));
+    let verdict = evaluate_unhurried(&rules, &Evidence::from_text(&text));
     assert_eq!(verdict.target, Target::Working);
     assert_eq!(verdict.by.unwrap().name, "status-line");
 }
@@ -169,10 +169,13 @@ fn the_working_screen_is_told_by_its_status_line_without_its_footer() {
 fn the_title_spinner_and_progress_tell_work_and_its_end() {
     let rules = RuleSet::bundled();
     let spinning = Evidence::new(std::iter::empty(), "⠂ Claude Code", None);
-    assert_eq!(evaluate(&rules, &spinning).target, Target::Working);
+    assert_eq!(
+        evaluate_unhurried(&rules, &spinning).target,
+        Target::Working
+    );
     let progress = |state, value| {
         let progress = super::screen::Progress::new(state, value);
-        evaluate(
+        evaluate_unhurried(
             &rules,
             &Evidence::new(std::iter::empty(), "✳ Claude Code", progress),
         )
@@ -194,7 +197,7 @@ fn an_mcp_elicitation_needs_input() {
    Decline
  Esc to cancel
 ";
-    let verdict = evaluate(&RuleSet::bundled(), &Evidence::from_text(text));
+    let verdict = evaluate_unhurried(&RuleSet::bundled(), &Evidence::from_text(text));
     assert_eq!(verdict.target, Target::NeedsInput(Reason::Elicitation));
 }
 
@@ -206,7 +209,7 @@ fn an_unknown_prompt_is_idle_never_needs_input() {
  ❯ 1. Sure
    2. Nope
 ";
-    let verdict = evaluate(&RuleSet::bundled(), &Evidence::from_text(text));
+    let verdict = evaluate_unhurried(&RuleSet::bundled(), &Evidence::from_text(text));
     assert_eq!(verdict.target, Target::Idle { visible: false });
     assert!(verdict.by.is_err());
 }
@@ -214,7 +217,7 @@ fn an_unknown_prompt_is_idle_never_needs_input() {
 #[test]
 fn the_transcript_viewer_with_no_dialog_behind_it_holds() {
     let text = include_str!("screens/transcript-viewer.txt").replace("dialog waiting · ", "");
-    let verdict = evaluate(&RuleSet::bundled(), &Evidence::from_text(&text));
+    let verdict = evaluate_unhurried(&RuleSet::bundled(), &Evidence::from_text(&text));
     assert_eq!(verdict.target, Target::Hold);
     assert_eq!(verdict.by.unwrap().name, "transcript-viewer");
 }
@@ -230,7 +233,7 @@ fn a_dialog_that_quotes_the_viewers_footer_is_still_the_dialog() {
         " date > now.txt",
         " echo 'dialog waiting · Showing detailed transcript · ctrl+o'",
     );
-    let verdict = evaluate(&RuleSet::bundled(), &Evidence::from_text(&text));
+    let verdict = evaluate_unhurried(&RuleSet::bundled(), &Evidence::from_text(&text));
     assert_eq!(verdict.target, Target::NeedsInput(Reason::Permission));
     assert_eq!(verdict.by.unwrap().name, "permission");
 }
@@ -245,7 +248,7 @@ fn dialog_text_with_no_rule_row_above_it_is_no_dialog() {
  Enter to confirm · Esc to cancel
  Esc to cancel · Tab to amend
 ";
-    let verdict = evaluate(&RuleSet::bundled(), &Evidence::from_text(text));
+    let verdict = evaluate_unhurried(&RuleSet::bundled(), &Evidence::from_text(text));
     assert!(
         !matches!(verdict.target, Target::NeedsInput(_)),
         "{:?}",
@@ -262,13 +265,13 @@ fn an_unknown_dialog_with_an_esc_footer_is_idle_never_held() {
    2. Nope
  Enter to confirm · Esc to cancel
 ";
-    let verdict = evaluate(&RuleSet::bundled(), &Evidence::from_text(text));
+    let verdict = evaluate_unhurried(&RuleSet::bundled(), &Evidence::from_text(text));
     assert_eq!(verdict.target, IDLE, "{:?}", verdict.by);
     let reworded = include_str!("screens/question.txt").replace(
         "Enter to select · ↑/↓ to navigate · Esc to cancel",
         "Press enter to pick · Esc to cancel",
     );
-    let verdict = evaluate(&RuleSet::bundled(), &Evidence::from_text(&reworded));
+    let verdict = evaluate_unhurried(&RuleSet::bundled(), &Evidence::from_text(&reworded));
     assert!(
         matches!(verdict.target, Target::Idle { .. }),
         "{:?}",

@@ -20,7 +20,7 @@ use serde_json::{Value, json};
 
 use super::harness::{App, sockets};
 use super::session_tools::{Bridge, Run, answer, run_in, runs};
-use super::spaces::{PrivateRoot, trust_restricted};
+use super::spaces::{PrivateRoot, in_project, trust_restricted};
 use super::worktrees::{DEADLINE, Flow, asks, keys, text_until};
 
 /// The fake: where it runs and its arguments, as `session_tools`' fake writes them, and the
@@ -280,9 +280,7 @@ fn one_whose_repository_was_untrusted_stays_stopped_until_it_is_trusted_again() 
     trust_restricted(&mut new, "repo");
     // By the modeline: a message of oso's own may take the echo area.
     until(&mut new, "project trusted", |state| {
-        (state["modeline"].as_str()).is_some_and(|modeline| {
-            modeline.contains("  repo  ") && !modeline.contains("restricted")
-        })
+        in_project(state, "repo")
     });
     select(&mut new, WORKTREE);
     new.run_command("session-resume", None).unwrap();
