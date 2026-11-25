@@ -171,6 +171,10 @@ coordinator.
 - **query-replace works in a buffer that may hold secrets,** as isearch does. Its strings then
   enter no history, its messages go to the echo area only, and `get-state` leaves out the prompts'
   text and the session's strings, as ADR 0072 and ADR 0082 do.
+- **A string that a secret was yanked into is refused** in a buffer that does not count as secret
+  (amended 2026-11-25): nothing is replaced and the pair is not kept, as a text that a secret was
+  put in stays marked. Yanked into the buffer first, it marks the buffer, and the replace then
+  runs.
 - **Nothing logs the strings.** The worker reports offsets and replacement text only to the UI
   thread. `Debug` of the session prints no string.
 - **`get-state` gains `replace`:** `null`, or `regexp`, `searching`, `count` and `replaced`, and
