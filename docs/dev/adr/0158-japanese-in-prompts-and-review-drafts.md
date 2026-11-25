@@ -217,8 +217,9 @@ measured with a trial of it, not with the code as merged.
   close before one frame switch nothing. A close and an open keep the ASCII source, with none
   selected, unless the person chose another meanwhile; ASCII is then chosen again, and theirs is the
   one given back.
-- **A key handed to the input method has the source given back first,** so it is typed as it was
-  when the switch came before the frame. A key oso takes itself does not wait for it, nor does a
+- **A key handed to the input method has the source given back first.** The switch then comes
+  once AppKit has the key, where before it came as the event before ended; a key typed so soon with
+  a real input method is for the hand check. A key oso takes itself does not wait for it, nor does a
   macro's.
 - **A notice that comes while a switch waits is looked at after it.** One of oso's own, come late,
   would otherwise be read as a Japanese source chosen in the search or prompt just opened.
@@ -226,7 +227,7 @@ measured with a trial of it, not with the code as merged.
   hold secrets is selected; one is still given back. A terminal that begins to read a password in a
   search has the source given back then, and no longer at the next event.
 - **Every way out gives the source back at once, as before:** oso goes behind, ends, or the loop
-  stops after a panic. Coming to the front chooses ASCII at once too.
+  stops after a panic. Coming to the front chooses ASCII at once too, but not with secrets.
 - **What a person may feel:** the loop stands still while the source is given back, about 35 ms and
   at worst 70 in what was measured, with the frame already shown. A key pressed in that time waits
   for it; none is lost.

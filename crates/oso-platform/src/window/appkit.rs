@@ -217,6 +217,8 @@ struct State {
     in_event: Cell<bool>,
     /// The input source, as the handler was told of it and as oso chose it (ADR 0106).
     input: RefCell<input_source::SystemTracker>,
+    /// A notice of the input source came while one was being switched, and is still to be looked at.
+    notice_refused: Cell<bool>,
     /// The handler's answer to the last request to end, while it is being asked.
     quit_answer: Cell<Option<QuitAnswer>>,
     /// AppKit holds an end for the app's answer (`NSTerminateLater`).
@@ -247,6 +249,7 @@ impl State {
             live_resize: Cell::new(gate::LiveResize::default()),
             in_event: Cell::new(false),
             input: RefCell::new(input_source::Tracker::default()),
+            notice_refused: Cell::new(false),
             quit_answer: Cell::new(None),
             quit_held: Cell::new(false),
         }

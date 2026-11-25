@@ -345,7 +345,7 @@ impl AsciiInput {
     /// What to do now that the app wants ASCII or not (`wanted`, what it last asked if `None`),
     /// and oso is in front or not (`active`). Nothing waits after. While secure input is wanted
     /// (`secure`), as a buffer that may hold secrets is selected, nothing is chosen, only given
-    /// back; the app asks again once it is not.
+    /// back. A search asks again once it is not; a prompt with a secret yanked into it does not.
     pub(super) fn step(&mut self, wanted: Option<bool>, active: bool, secure: bool) -> AsciiStep {
         let waiting = self.waiting.take();
         let asked = waiting.map(|waiting| waiting.wanted);

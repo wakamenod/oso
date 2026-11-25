@@ -42,7 +42,13 @@ impl State {
             return;
         }
         let active = NSApplication::sharedApplication(self.mtm).isActive();
-        let report = self.input.borrow_mut().chosen(&Tis(self.mtm), active);
+        // Refused only in a run loop of the input method's own, nested in a switch.
+        let Ok(mut input) = self.input.try_borrow_mut() else {
+            self.notice_refused.set(true);
+            return;
+        };
+        let report = input.chosen(&Tis(self.mtm), active);
+        drop(input);
         self.tell_input_source(report);
     }
 
@@ -73,14 +79,20 @@ impl State {
     /// Does what `ask_ascii` was told last, if that waits: once the frame is drawn, or before a key
     /// goes to the input method, which then has the person's source.
     pub(super) fn settle_ascii(&self) {
-        if self.input.borrow().waits() {
+        // Refused in a run loop nested in a switch: what waits is done at the next turn.
+        if self.input.try_borrow_mut().is_ok_and(|input| input.waits()) {
             self.update_ascii(None);
         }
     }
 
     /// Looks at the source if a notice came while `settle_ascii` was due, and it is done.
     pub(super) fn look_at_held_notice(&'static self) {
-        if self.input.borrow_mut().take_held() {
+        let Ok(mut input) = self.input.try_borrow_mut() else {
+            return;
+        };
+        let due = input.take_held() || (!input.waits() && self.notice_refused.take());
+        drop(input);
+        if due {
             self.input_source_changed();
         }
     }
