@@ -429,7 +429,7 @@ impl Dispatcher {
                 self.prefix = reading.prefix;
                 self.open_menu_named(editor, text)
             }
-            Then::Replace(stage) => self.replace_answered(editor, reading, stage, text),
+            Then::Replace(stage) => self.replace_answered(editor, reading, stage, (text, secret)),
             Then::Directory(project) => self.directory_answered(editor, reading, *project, text),
             Then::DirectoryThenText(then) => {
                 self.open_text_after(editor, reading, *then, text.to_owned())
@@ -441,6 +441,7 @@ impl Dispatcher {
                 let invocation = Invocation {
                     answer: Some(first),
                     second: Some(text),
+                    answer_secret: secret,
                     ..Invocation::default()
                 };
                 self.execute(editor, reading.id, args, invocation, Step::MayJoin)

@@ -12,6 +12,7 @@ use oso_core::buffer::Buffer;
 use oso_core::command::Reach;
 use oso_core::complete::Candidate;
 use oso_core::editor::{Editor, SendExcerpt, SendPart, SendTo, SessionRequest};
+use oso_core::kill::FromClipboard;
 
 use super::Dispatcher;
 use super::args::Given;
@@ -96,6 +97,22 @@ fn with_no_region_a_note_is_read_and_sent() {
             vec![SendPart::Note("why not?".to_owned())]
         )]
     );
+}
+
+#[test]
+fn a_note_that_holds_a_secret_is_not_sent() {
+    for keys in ["C-c a m RET", "C-u C-c a m RET"] {
+        let (mut d, mut editor) = (Dispatcher::new(), notes());
+        editor.kill_new("hunter2", true);
+        send(&mut d, &mut editor, keys);
+        assert!(editor.prompt().unwrap().label().starts_with("Note:"));
+        send(&mut d, &mut editor, "C-y");
+        assert!(d.take_clipboard_request().is_some());
+        d.clipboard_answered(&mut editor, &FromClipboard::Own);
+        send(&mut d, &mut editor, "RET");
+        assert!(editor.take_session_requests().is_empty(), "{keys}");
+        assert!(!messages(&editor).contains("hunter2"));
+    }
 }
 
 #[test]

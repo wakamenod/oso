@@ -7,6 +7,8 @@ use oso_core::command::{Args, CommandId, Effects, ExecuteError, Invocation, Pref
 use oso_core::editor::Editor;
 use oso_core::minibuffer::{self, Kind};
 
+use crate::commands::replace::refuse_secret;
+
 use super::super::{Dispatcher, Step};
 use super::{Reading, Then};
 
@@ -15,8 +17,12 @@ use super::{Reading, Then};
 pub(super) enum ReplaceStage {
     /// The string to replace.
     From { regexp: bool },
-    /// Its replacement, after this string.
-    To { regexp: bool, from: String },
+    /// Its replacement, after this string, which a secret was yanked into if `secret`.
+    To {
+        regexp: bool,
+        from: String,
+        secret: bool,
+    },
 }
 
 /// The most cells of the string to replace that the second prompt's label shows.
@@ -95,35 +101,48 @@ impl Dispatcher {
     }
 
     /// Takes the answer of one of query-replace's prompts: the string opens the second, and
-    /// the replacement, or an empty string, runs the command.
+    /// the replacement, or an empty string, runs the command. An answer a secret was yanked
+    /// into is refused unless the buffer counts as secret, the string before the second
+    /// prompt's label shows it.
     pub(super) fn replace_answered(
         &mut self,
         editor: &mut Editor,
         reading: &Reading,
         stage: &ReplaceStage,
-        text: &str,
+        (text, secret): (&str, bool),
     ) -> Effects {
-        let (from, to) = match stage {
+        let (from, to, secret) = match stage {
             ReplaceStage::From { regexp } if !text.is_empty() => {
+                let redraw = Effects {
+                    redraw: true,
+                    ..Effects::default()
+                };
+                if let Err(refused) = refuse_secret(editor, secret) {
+                    editor.message(refused.to_string());
+                    return redraw;
+                }
                 let kind = if *regexp { " regexp" } else { "" };
                 let (shown, cut) = minibuffer::cut_to(text, REPLACE_LABEL_CELLS);
                 let label = format!("Query replace{kind} {shown}{cut} with: ");
                 let stage = ReplaceStage::To {
                     regexp: *regexp,
                     from: text.to_owned(),
+                    secret,
                 };
                 self.open_replace_prompt(editor, reading.id, reading.prefix, label, stage);
-                return Effects {
-                    redraw: true,
-                    ..Effects::default()
-                };
+                return redraw;
             }
-            ReplaceStage::From { .. } => ("", ""),
-            ReplaceStage::To { from, .. } => (from.as_str(), text),
+            ReplaceStage::From { .. } => ("", "", secret),
+            ReplaceStage::To {
+                from,
+                secret: before,
+                ..
+            } => (from.as_str(), text, secret || *before),
         };
         let invocation = Invocation {
             answer: Some(from),
             second: Some(to),
+            answer_secret: secret,
             ..Invocation::default()
         };
         let args = Args::with_prefix(reading.prefix);

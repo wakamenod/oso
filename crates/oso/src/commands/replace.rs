@@ -3,8 +3,9 @@
 //!
 //! Must not depend on: winit, the GPU or `bindings`.
 
+use oso_core::buffer::Verdict;
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
-use oso_core::editor::ReplaceAnswer;
+use oso_core::editor::{Editor, ReplaceAnswer};
 
 /// An answer's command: what it does, at a match of a query-replace under way.
 macro_rules! answer {
@@ -24,7 +25,7 @@ macro_rules! answer {
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "query-replace",
-        doc: "Replace a string, asking at each match.\n\nReads the string and its replacement, and an empty string takes the last pair. It searches from the cursor to the end of the buffer, or within the regions shown, with smart case: case-sensitive once the string holds an uppercase letter. While case folds, the replacement takes the match's case. At each match, `y` or `SPC` replaces it, `n` or `DEL` skips it, `!` replaces the rest, `.` replaces it and ends, `,` replaces it and stays, `^` goes back, `u` undoes the last replacement, `q` or `RET` ends, and `?` shows the keys. Any other key ends it and runs. The whole session undoes as one step.",
+        doc: "Replace a string, asking at each match.\n\nReads the string and its replacement, and an empty string takes the last pair. It searches from the cursor to the end of the buffer, or within the regions shown, with smart case: case-sensitive once the string holds an uppercase letter. While case folds, the replacement takes the match's case. At each match, `y` or `SPC` replaces it, `n` or `DEL` skips it, `!` replaces the rest, `.` replaces it and ends, `,` replaces it and stays, `^` goes back, `u` undoes the last replacement, `q` or `RET` ends, and `?` shows the keys. Any other key ends it and runs. The whole session undoes as one step. A string that a secret was yanked into is refused unless the buffer counts as secret.",
         args: ArgSpec::Replace { regexp: false },
         reach: Reach::Person,
         run: query_replace,
@@ -94,10 +95,27 @@ pub const COMMANDS: &[Command] = &[
     ),
 ];
 
+/// Refuses strings that a secret was yanked into, if `secret`, in a buffer that does not count
+/// as secret itself, so that a text that a secret was put in stays marked (ADR 0113). One not
+/// judged, or that cannot be, does not count: a yank would mark it.
+pub(crate) fn refuse_secret(editor: &Editor, secret: bool) -> Result<(), CommandError> {
+    let counts = matches!(
+        editor.current().1.verdict(),
+        Verdict::SecretName | Verdict::Yanked
+    );
+    if secret && !counts {
+        return Err(CommandError::new(
+            "The text holds what may be secret: yank it into the buffer first, which marks it",
+        ));
+    }
+    Ok(())
+}
+
 fn query_replace(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     let (from, to) = ctx
         .replace_pair()
         .ok_or_else(|| CommandError::new("No string to replace"))?;
+    refuse_secret(ctx.editor, ctx.answer_secret())?;
     ctx.editor
         .replace_begin(from, to, false)
         .map_err(|refused| CommandError::new(refused.to_string()))?;
@@ -109,6 +127,7 @@ fn query_replace_regexp(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> 
     let (from, to) = ctx
         .replace_pair()
         .ok_or_else(|| CommandError::new("No regexp to replace"))?;
+    refuse_secret(ctx.editor, ctx.answer_secret())?;
     ctx.editor
         .replace_begin(from, to, true)
         .map_err(|refused| CommandError::new(refused.to_string()))?;
