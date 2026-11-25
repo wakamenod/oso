@@ -78,12 +78,16 @@ pub(super) struct Syntax {
 }
 
 /// The buffers the worker may have: every buffer of the user's, and a server's description
-/// at point while it shows, the one internal buffer highlighted (ADR 0138).
+/// at point while it shows (ADR 0138) and a review's sides windows show (ADR 0122), the only
+/// internal buffers highlighted.
 fn highlightable(editor: &Editor) -> impl Iterator<Item = (BufferId, &Buffer)> {
     let described = editor
         .hover()
         .and_then(|shown| Some((shown.buffer(), editor.buffer(shown.buffer())?)));
-    editor.buffers().chain(described)
+    let sides = (editor.windows())
+        .filter_map(|window| Some((window.buffer(), editor.buffer(window.buffer())?)))
+        .filter(|(_, buffer)| buffer.is_internal() && buffer.can_highlight());
+    editor.buffers().chain(described).chain(sides)
 }
 
 /// The description shown at point and its revision, as `shown` follows it.
@@ -169,7 +173,12 @@ impl Syntax {
             }
             keep
         });
-        self.stopped.retain(|id, _| present.contains_key(id));
+        // A side no window shows keeps its place, so that hiding it is no way to try it again.
+        let kept = |id: &BufferId| {
+            (editor.buffer(*id)).is_some_and(|it| it.is_internal() && it.can_highlight())
+        };
+        self.stopped
+            .retain(|id, _| present.contains_key(id) || kept(id));
         self.whole.retain(|id, _| present.contains_key(id));
         drops
     }
@@ -531,6 +540,8 @@ impl App {
     }
 }
 
+#[cfg(test)]
+mod side_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

@@ -61,7 +61,7 @@ pub(super) struct Running {
     /// The latest jump to the source asked of its thread (step 3, part three).
     pub(super) jumping: Option<super::visit::Jumping>,
     /// The buffers showing its sides read-only (step 3, part three).
-    pub(super) sides: Vec<oso_core::buffer::BufferId>,
+    pub(super) sides: Vec<super::visit::SideBuffer>,
     /// The files of the open buffers that may hold secrets its view was last told of (step 13).
     pub(super) held: Arc<std::collections::HashSet<std::path::PathBuf>>,
     /// A pull request's commits, as its thread listed them (ADR 0167).

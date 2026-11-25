@@ -56,15 +56,26 @@ pub(super) struct Jumping {
     to: To,
 }
 
+/// A buffer showing a side of a file of the review, found again by the path and the side: its
+/// name is cut, so two paths may share one.
+pub(super) struct SideBuffer {
+    id: BufferId,
+    path: Box<[u8]>,
+    side: Side,
+}
+
 /// Where a jump's answer goes.
 enum To {
     /// The work tree's file at `place`, at the line the answer gives; `line` is the line as the
     /// review read it.
     File { place: PathBuf, line: u32 },
-    /// A buffer named `name`, of `mode`, holding a side of the file at `place`, at `line`.
+    /// A buffer named `name`, of `mode`, holding `side` of the file at `path`, which is at
+    /// `place`, at `line`.
     Side {
         name: String,
         mode: Mode,
+        path: Box<[u8]>,
+        side: Side,
         line: u32,
         place: PathBuf,
     },
@@ -80,6 +91,22 @@ fn side_name(path: &[u8], side: Side, scope: &Scope) -> String {
     };
     let scope = crate::vcs::agent::one_line(&scope_label(scope), MAX_NAME);
     format!("*{side}: {path} \u{b7} {scope}*")
+}
+
+/// The mode of `side` of the file at `path`, which came from `old_path` if that is named.
+fn side_mode(path: &[u8], old_path: Option<&[u8]>, side: Side) -> Mode {
+    let named = match side {
+        Side::Old => old_path.unwrap_or(path),
+        Side::New => path,
+    };
+    crate::git::os_path(named).map_or(Mode::Fundamental, |name| Mode::for_path(Path::new(name)))
+}
+
+/// The buffer of `sides` showing `side` of the file at `path`.
+fn side_shown(sides: &[SideBuffer], path: &[u8], side: Side) -> Option<BufferId> {
+    (sides.iter())
+        .find(|shown| shown.side == side && *shown.path == *path)
+        .map(|shown| shown.id)
 }
 
 impl App {
@@ -177,7 +204,9 @@ impl App {
         let bytes = Arc::clone(if old_side { old } else { new });
         let to = To::Side {
             name: side_name(path, want, &running.scope),
-            mode: Mode::for_path(&place),
+            mode: side_mode(path, reading.entry.old_path.as_deref(), want),
+            path: path.into(),
+            side: want,
             line,
             place,
         };
@@ -253,18 +282,16 @@ impl App {
             }
             (
                 To::Side {
-                    name, mode, line, ..
+                    name,
+                    mode,
+                    path,
+                    side,
+                    line,
+                    ..
                 },
                 Landed::Side(text),
             ) => {
-                let buffer = self.side_buffer(index, &name, mode);
-                // Kept, at O(1), so that the text it replaces is freed off the UI thread.
-                let before = (self.editor.buffer(buffer))
-                    .map(|shown| (shown.text().clone(), shown.display()));
-                let left = self.editor.set_internal_reloaded(buffer, *text);
-                self.freer.free((before, left));
-                let window = self.editor.window().id();
-                self.editor.show_in(window, buffer);
+                self.show_side(index, (&path, side), name, mode, *text);
                 put_cursor_on_line(&mut self.editor, line);
                 (self.editor).message("Read-only: a side as the review read it");
             }
@@ -273,41 +300,68 @@ impl App {
         self.request_redraw();
     }
 
-    /// The review at `index`'s side buffer named `name`, or a new one of `mode`. Its other side
-    /// buffers that no window shows go, freed off the UI thread, so a review holds the sides
-    /// shown and the one asked for.
-    fn side_buffer(&mut self, index: usize, name: &str, mode: Mode) -> BufferId {
-        let kept = self.drop_unshown_sides(index, Some(name));
-        let found = (kept.iter().copied())
-            .find(|id| (self.editor.buffer(*id)).is_some_and(|buffer| buffer.name() == name));
-        let id = found.unwrap_or_else(|| self.editor.add_internal_buffer(name, mode));
-        let sides = &mut self.reviews.open[index].sides;
-        *sides = kept;
-        if found.is_none() {
-            sides.push(id);
+    /// Shows `text`, `side` of the file at `path`, in the selected window.
+    fn show_side(
+        &mut self,
+        index: usize,
+        of: (&[u8], Side),
+        name: String,
+        mode: Mode,
+        text: oso_core::load::Reloaded,
+    ) {
+        let buffer = self.side_buffer(index, of, name, mode);
+        // Kept, at O(1), so that the text it replaces is freed off the UI thread.
+        let before =
+            (self.editor.buffer(buffer)).map(|shown| (shown.text().clone(), shown.display()));
+        let left = self.editor.set_internal_reloaded(buffer, text);
+        self.freer.free((before, left));
+        let window = self.editor.window().id();
+        self.editor.show_in(window, buffer);
+    }
+
+    /// The review at `index`'s buffer of `side` of the file at `path`, or a new one named
+    /// `name`, of `mode`. Its other side buffers that no window shows go, freed off the UI
+    /// thread, so a review holds the sides shown and the one asked for.
+    fn side_buffer(
+        &mut self,
+        index: usize,
+        (path, side): (&[u8], Side),
+        name: String,
+        mode: Mode,
+    ) -> BufferId {
+        self.drop_unshown_sides(index, Some((path, side)));
+        let sides = &self.reviews.open[index].sides;
+        if let Some(id) = side_shown(sides, path, side) {
+            return id;
         }
+        let id = self.editor.add_side_buffer(name, mode);
+        self.reviews.open[index].sides.push(SideBuffer {
+            id,
+            path: path.into(),
+            side,
+        });
         id
     }
 
-    /// Removes the review at `index`'s side buffers that no window shows, but the one named
-    /// `keep`, and returns those left.
-    pub(super) fn drop_unshown_sides(&mut self, index: usize, keep: Option<&str>) -> Vec<BufferId> {
+    /// Removes the review at `index`'s side buffers that no window shows, but the one of `keep`,
+    /// a path and a side.
+    pub(super) fn drop_unshown_sides(&mut self, index: usize, keep: Option<(&[u8], Side)>) {
         let mut shown = Vec::new();
         self.editor.shown_ranges(&mut shown);
         let sides = std::mem::take(&mut self.reviews.open[index].sides);
         let mut kept = Vec::with_capacity(sides.len());
-        for id in sides {
-            let Some(buffer) = self.editor.buffer(id) else {
+        for side in sides {
+            if self.editor.buffer(side.id).is_none() {
                 continue;
-            };
-            let wanted = keep.is_some_and(|keep| buffer.name() == keep);
-            if wanted || shown.iter().any(|(shown, _)| *shown == id) {
-                kept.push(id);
-            } else if let Some(gone) = self.editor.remove_internal_buffer(id) {
+            }
+            let wanted = keep.is_some_and(|(path, of)| *side.path == *path && side.side == of);
+            if wanted || shown.iter().any(|(shown, _)| *shown == side.id) {
+                kept.push(side);
+            } else if let Some(gone) = self.editor.remove_internal_buffer(side.id) {
                 self.freer.free(gone);
             }
         }
-        kept
+        self.reviews.open[index].sides = kept;
     }
 }
 

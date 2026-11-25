@@ -236,7 +236,7 @@ impl Buffer {
 
     /// Whether the buffer can be highlighted at some length: a language mode, not an internal
     /// buffer unless made to be highlighted as its mode says, as a server's description at
-    /// point is (ADR 0138), and not one that may hold secrets.
+    /// point (ADR 0138) and a review's side (ADR 0122) are, and not one that may hold secrets.
     fn may_highlight(&self) -> bool {
         // A commit's message is highlighted by the host as it changes, not parsed (ADR 0127).
         let language = match self.mode {

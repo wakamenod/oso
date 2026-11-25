@@ -48,7 +48,7 @@ pub(super) fn edit(editor: &mut Editor, id: BufferId, at: usize, text: &str) {
         .unwrap();
 }
 
-fn job_ids(orders: &Orders) -> Vec<BufferId> {
+pub(super) fn job_ids(orders: &Orders) -> Vec<BufferId> {
     orders.jobs.iter().map(|job| job.buffer).collect()
 }
 

@@ -1142,8 +1142,10 @@ the author approved one more item (Q-H (a)): `Editor::set_internal_reloaded`. Wh
 - **Read-only sides (Q4):** `C-u RET`, and `RET` in a review whose new side is a commit (a
   commit's, a range's, or a pull request's whose head is not checked out here), show that side
   as the review read it in an internal buffer `*old: <path> · <scope>*` or `*new: …*`, of the
-  path's mode and highlighted by no one, at the line, its name's bidirectional and invisible
-  characters escaped. Its text is built on the review's thread with the loader's decoder, so
+  path's mode (an old side's from its old path), found again by path and side, at the line, its
+  name's bidirectional and invisible characters escaped. The syntax worker highlights it while a
+  window shows it, within a buffer's limits and while font-lock is on. No language server gets
+  it. Its text is built on the review's thread with the loader's decoder, so
   invalid bytes show as `\xNN`, and put in with `set_internal_reloaded`; the text it replaces is
   freed off the UI thread. A review keeps the side buffers a window shows and the one asked for:
   the others go at each new side, and those no window shows go with the review.

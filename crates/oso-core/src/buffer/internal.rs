@@ -37,6 +37,15 @@ impl Buffer {
         }
     }
 
+    /// An empty internal buffer for a side of a file a review shows (ADR 0122): read-only, and
+    /// highlighted as the mode it is given says.
+    pub(crate) fn review_side(name: impl Into<String>) -> Self {
+        Self {
+            highlights_as_mode: true,
+            ..Self::internal(name)
+        }
+    }
+
     /// An empty internal buffer for a prompt, which takes typing. One that reads a
     /// passphrase may hold secrets and keeps no undo record (ADR 0072).
     pub(crate) fn prompt(name: impl Into<String>, passphrase: bool) -> Self {

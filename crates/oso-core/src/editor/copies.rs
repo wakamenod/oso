@@ -74,6 +74,15 @@ impl Editor {
         self.add_buffer(buffer)
     }
 
+    /// Adds an internal buffer for a side of a file a review shows read-only (ADR 0122, step 3),
+    /// shown in no window yet: unlike other internal buffers it is highlighted, as `mode` says,
+    /// so its text must be none that may hold secrets.
+    pub fn add_side_buffer(&mut self, name: impl Into<String>, mode: Mode) -> BufferId {
+        let mut buffer = Buffer::review_side(name);
+        buffer.set_internal_mode(mode);
+        self.add_buffer(buffer)
+    }
+
     /// Replaces the whole text of the internal buffer `id` with `text`, with no undo record,
     /// and puts the cursors of the windows showing it at its start. Nothing happens to a buffer
     /// that is not internal. It costs one pass over the old text and the new: a report the host

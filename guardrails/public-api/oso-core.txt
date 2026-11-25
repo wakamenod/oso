@@ -3032,6 +3032,7 @@ pub fn oso_core::editor::Editor::set_git_text(&mut self, oso_core::buffer::Buffe
 pub fn oso_core::editor::Editor::take_git_requests(&mut self) -> alloc::vec::Vec<oso_core::editor::GitRequest>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::add_internal_buffer(&mut self, impl core::convert::Into<alloc::string::String>, oso_core::buffer::Mode) -> oso_core::buffer::BufferId
+pub fn oso_core::editor::Editor::add_side_buffer(&mut self, impl core::convert::Into<alloc::string::String>, oso_core::buffer::Mode) -> oso_core::buffer::BufferId
 pub fn oso_core::editor::Editor::copies_back(&mut self)
 pub fn oso_core::editor::Editor::cursor_line(&self) -> usize
 pub fn oso_core::editor::Editor::has_copies_list(&self) -> bool
