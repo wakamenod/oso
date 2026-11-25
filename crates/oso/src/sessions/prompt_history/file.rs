@@ -10,7 +10,8 @@
 //! - A line that holds no whole entry is left out, and only how many were is logged. A file
 //!   that may not be read, or of another version, is not replaced: only a clear takes it out.
 //! - A write reads the file first and merges it, under `prompt-history.lock`, so that no
-//!   instance loses another's messages or brings back what one cleared.
+//!   instance loses another's messages or brings back what one cleared. Where the lock cannot be
+//!   had at all, as on some file systems, it goes on without.
 
 use std::fmt::Write as _;
 use std::fs::{self, File, OpenOptions, TryLockError};
@@ -23,7 +24,7 @@ use oso_platform::file_meta;
 use oso_platform::privacy::PrivateDir;
 use serde_json::{Value, json};
 
-use super::{Entry, History, MAX_ENTRIES};
+use super::{Entry, History, MAX_ENTRIES, MAX_STAMP};
 use crate::sessions::native::queue::MAX_MESSAGE;
 use crate::sessions::record::{read_file, replace_file};
 
@@ -51,12 +52,13 @@ pub fn read(directory: &Path) -> io::Result<History> {
 }
 
 /// Merges `ours` with what the file in `directory`, made private if it is missing, holds, and
-/// replaces it with that, which it gives. `clears`: a file that may not be read goes.
+/// replaces it with that, which it gives. `clears`: all the file holds goes, and a file that may
+/// not be read.
 ///
 /// # Errors
 ///
-/// If the file may not be read or replaced, or another instance holds it.
-pub fn write(directory: &Path, ours: &History, clears: bool, now: u64) -> io::Result<History> {
+/// If the file may not be read or replaced, or, as `WouldBlock`, another instance holds it.
+pub fn write(directory: &Path, ours: &History, clears: bool) -> io::Result<History> {
     let private = PrivateDir::open(directory)?;
     let _lock = lock(&private)?;
     let theirs = match read(directory) {
@@ -70,31 +72,34 @@ pub fn write(directory: &Path, ours: &History, clears: bool, now: u64) -> io::Re
         theirs => theirs?,
     };
     let mut merged = ours.clone();
-    merged.merge(&theirs, now);
+    // A clear takes out all the file has, also what was stamped by a clock ahead.
+    match clears {
+        true => merged.clear_all_of(&theirs),
+        false => merged.merge(&theirs),
+    }
     replace_file(&private, FILE, PART, &text(&merged))?;
     Ok(merged)
 }
 
 /// Holds the lock in `directory` until the file given is dropped, waiting at most
-/// [`LOCK_WAIT`] for another instance.
-fn lock(directory: &PrivateDir) -> io::Result<File> {
+/// [`LOCK_WAIT`] for another instance; none if it cannot be had at all.
+fn lock(directory: &PrivateDir) -> io::Result<Option<File>> {
     let path = directory.path().join(LOCK);
     let mut options = OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    match options.open(&path) {
-        Err(e) if e.kind() != io::ErrorKind::AlreadyExists => return Err(e),
-        _ => {}
-    }
-    let (file, _) = file_meta::open_regular_here(&path)?
-        .ok_or_else(|| io::Error::other("the lock is not a regular file"))?;
+    // There already, or not to be had, which the opening says.
+    let _ = options.open(&path);
+    let Ok(Some((file, _))) = file_meta::open_regular_here(&path) else {
+        return Ok(None);
+    };
     let until = Instant::now() + LOCK_WAIT;
     loop {
         match file.try_lock() {
-            Ok(()) => return Ok(file),
+            Ok(()) => return Ok(Some(file)),
             Err(TryLockError::WouldBlock) if Instant::now() < until => {
-                thread::sleep(Duration::from_millis(10));
+                thread::sleep(Duration::from_millis(20));
             }
             Err(TryLockError::WouldBlock) => {
                 return Err(io::Error::new(
@@ -102,7 +107,7 @@ fn lock(directory: &PrivateDir) -> io::Result<File> {
                     "another oso holds it",
                 ));
             }
-            Err(TryLockError::Error(e)) => return Err(e),
+            Err(TryLockError::Error(_)) => return Ok(None),
         }
     }
 }
@@ -134,6 +139,7 @@ fn parse(bytes: &[u8]) -> io::Result<History> {
         Some(version) if version.as_u64() == Some(VERSION) => {
             history.cleared = (head.as_ref())
                 .and_then(|head| head.get("cleared")?.as_u64())
+                .filter(|cleared| *cleared <= MAX_STAMP)
                 .unwrap_or(0);
             lines.next();
         }
@@ -160,7 +166,7 @@ fn parse_line(line: &[u8]) -> Option<Entry> {
     let value: Value = serde_json::from_slice(line).ok()?;
     let text = value.get("text")?.as_str()?;
     let sent = value.get("sent")?.as_u64()?;
-    let kept = text.len() <= MAX_MESSAGE && !text.trim().is_empty();
+    let kept = text.len() <= MAX_MESSAGE && !text.trim().is_empty() && sent <= MAX_STAMP;
     kept.then(|| Entry {
         text: text.into(),
         sent,

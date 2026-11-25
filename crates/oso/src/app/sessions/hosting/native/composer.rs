@@ -128,7 +128,6 @@ impl App {
             return Some(id);
         }
         native.composing.queue.give_up_edit();
-        native.composing.walk = None;
         let transcript = native.buffer;
         let name = self.hosting.table.get(key)?.name.clone();
         self.dock_composer(key, transcript, &name);
@@ -474,7 +473,6 @@ impl App {
             return self.person_interrupts(key);
         }
         native.composing.queue.give_up_edit();
-        native.composing.walk = None;
         self.set_composer_text(key, "");
         self.draw_queue(key);
     }

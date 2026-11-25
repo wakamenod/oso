@@ -5,13 +5,13 @@
 //! Must not depend on: key presses or how a frame is drawn.
 //!
 //! - A walk keeps the draft it started from, which `M-n` past the newest gives back. It ends
-//!   there, and as what is in the composer goes another way: sent, a queued message's edit in
-//!   it, or the composer gone.
+//!   there, and as the composer's text changes another way: the next step then starts a walk
+//!   from that text, so that nothing written or put in meanwhile is lost.
 //! - A composer a yank turned secret takes no part: no draft of it is kept.
 
 use std::sync::Arc;
 
-use oso_core::buffer::{BufferId, Replacement};
+use oso_core::buffer::{Buffer, BufferId, Replacement};
 
 use super::composed::{refuses, too_much};
 use crate::app::App;
@@ -19,10 +19,12 @@ use crate::sessions::native::queue::MAX_MESSAGE;
 use crate::sessions::prompt_history::Step;
 use crate::sessions::worker::SessionKey;
 
-/// Where `M-p` is: when the message shown was sent, and the draft the walk started from.
-#[derive(Default)]
+/// Where `M-p` is: when the message shown was sent, the composer and its revision as it was put
+/// in, and the draft the walk started from.
 pub(super) struct Walk {
     shown: u64,
+    buffer: BufferId,
+    revision: u64,
     draft: String,
 }
 
@@ -37,15 +39,10 @@ impl App {
     /// composer is empty, `text` goes first in the history, and a walk there ends.
     pub(super) fn sent_from_composer(&mut self, key: SessionKey, text: &str) {
         self.set_composer_text(key, "");
-        self.end_walk(key);
-        self.note_prompt(text);
-    }
-
-    /// Native session `key`'s walk ends, its draft let go.
-    pub(super) fn end_walk(&mut self, key: SessionKey) {
         if let Some(native) = self.hosting.natives.map.get_mut(&key) {
             native.composing.walk = None;
         }
+        self.note_prompt(text);
     }
 
     /// Native session `key`'s composer, if it may take the person's past words.
@@ -59,16 +56,25 @@ impl App {
     /// any native session; past the newest, the draft the walk started from. `M-n` in an empty
     /// composer that walks nowhere puts the suggestion in (part 3f).
     pub(super) fn composer_history(&mut self, key: SessionKey, count: isize) {
-        let Some(native) = self.hosting.natives.map.get(&key) else {
-            return;
-        };
-        let from = native.composing.walk.as_ref().map(|walk| walk.shown);
+        let from = self.walks(key);
         if count < 0 && from.is_none() && self.take_suggestion(key) {
             return;
         }
         if let Err(why) = self.walk(key, from, count) {
             self.editor.message(why);
         }
+    }
+
+    /// When the message native session `key`'s walk shows was sent, if it walks and the composer
+    /// holds it as it was put in; a walk whose composer changed since ends.
+    fn walks(&mut self, key: SessionKey) -> Option<u64> {
+        let walk = &mut self.hosting.natives.map.get_mut(&key)?.composing.walk;
+        let at = walk.as_ref()?;
+        let now = self.editor.buffer(at.buffer).map(Buffer::revision);
+        if now != Some(at.revision) {
+            *walk = None;
+        }
+        walk.as_ref().map(|walk| walk.shown)
     }
 
     /// A step of the walk of native session `key`, which is at `from`; or why none.
@@ -81,30 +87,33 @@ impl App {
             Step::Entry(entry) => Some((entry.sent, Arc::clone(&entry.text))),
             Step::Start => None,
         };
-        let walk = (self.hosting.natives.map.get_mut(&key)).map(|n| &mut n.composing.walk);
-        let Some(walk) = walk else {
+        let walk = (self.hosting.natives.map.get_mut(&key)).and_then(|n| n.composing.walk.take());
+        let Some((shown, text)) = to else {
+            if let Some(Walk { draft, .. }) = walk {
+                self.set_composer_text(key, &draft);
+            }
             return Ok(());
         };
-        match (to, walk) {
-            (Some((sent, text)), Some(walk)) => {
-                walk.shown = sent;
-                self.set_composer_text(key, &text);
-            }
-            (Some((sent, text)), walk) => {
-                let draft = self.editor.buffer(id).map(|buffer| buffer.text());
+        let draft = match walk {
+            Some(walk) => walk.draft,
+            None => {
+                let draft = self.editor.buffer(id).map(Buffer::text);
                 // Measured before it is copied.
                 if draft.is_some_and(|draft| draft.len() > MAX_MESSAGE) {
                     return Err("The message is over 64 KiB: it would not be kept".to_owned());
                 }
-                let draft = draft.map(|draft| draft.to_string()).unwrap_or_default();
-                *walk = Some(Walk { shown: sent, draft });
-                self.set_composer_text(key, &text);
+                draft.map(ToString::to_string).unwrap_or_default()
             }
-            (None, walk) => {
-                if let Some(Walk { draft, .. }) = walk.take() {
-                    self.set_composer_text(key, &draft);
-                }
-            }
+        };
+        self.set_composer_text(key, &text);
+        let revision = self.editor.buffer(id).map_or(0, Buffer::revision);
+        if let Some(native) = self.hosting.natives.map.get_mut(&key) {
+            native.composing.walk = Some(Walk {
+                shown,
+                buffer: id,
+                revision,
+                draft,
+            });
         }
         Ok(())
     }

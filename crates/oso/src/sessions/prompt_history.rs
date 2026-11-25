@@ -6,8 +6,9 @@
 //!
 //! - Each text is in it once, at its newest; at most [`MAX_ENTRIES`] of them and [`MAX_TEXT`]
 //!   bytes of text, the oldest going first.
-//! - Each entry has a stamp, in milliseconds since the epoch, later than every one this
-//!   instance knows, so a place in a walk is a stamp and another send does not move it.
+//! - Each entry has a stamp, in milliseconds since the epoch but always later than every one
+//!   this instance knows, whatever the clock does meanwhile, so a place in a walk is a stamp and
+//!   another send does not move it.
 //! - What was sent up to the last clear is not in it, whichever instance sent it.
 //! - `Debug` gives counts and stamps, never a text.
 
@@ -22,6 +23,9 @@ use std::sync::Arc;
 pub const MAX_ENTRIES: usize = 200;
 /// The most bytes of text it keeps.
 pub const MAX_TEXT: usize = 512 * 1024;
+
+/// The latest stamp there may be: the end of the year 9999. A file's later one is corrupt.
+pub const MAX_STAMP: u64 = 253_402_300_799_999;
 
 /// A message, and when it was sent.
 #[derive(Clone, PartialEq, Eq)]
@@ -101,16 +105,23 @@ impl History {
         std::mem::take(&mut self.entries).len()
     }
 
-    /// Takes in what another instance, or the file, has. A stamp after `now`, as of a clock set
-    /// back, counts as `now`.
-    pub fn merge(&mut self, other: &Self, now: u64) {
-        self.cleared = self.cleared.max(other.cleared.min(now));
-        let theirs = other.entries.iter().map(|entry| Entry {
-            text: Arc::clone(&entry.text),
-            sent: entry.sent.min(now),
-        });
-        self.entries.extend(theirs);
+    /// Takes in what another instance, or the file, has.
+    pub fn merge(&mut self, other: &Self) {
+        self.cleared = self.cleared.max(other.cleared);
+        self.entries.extend(other.entries.iter().cloned());
         self.settle();
+    }
+
+    /// Clears what `other` has too, whatever its stamps.
+    fn clear_all_of(&mut self, other: &Self) {
+        let newest = other.entries.first().map_or(0, |entry| entry.sent);
+        self.cleared = self.cleared.max(other.cleared).max(newest);
+        self.settle();
+    }
+
+    /// Lets the messages go, the last clear kept.
+    pub fn forget(&mut self) {
+        self.entries.clear();
     }
 
     /// Sorts the entries and drops those that may not stay, as the module says.
@@ -222,11 +233,11 @@ mod tests {
         let mut ours = history(&[("a", 1), ("b", 4)]);
         assert_eq!(ours.clear(6), 2);
         assert!(ours.is_empty());
-        ours.merge(&history(&[("a", 1), ("theirs", 5), ("later", 9)]), 20);
+        ours.merge(&history(&[("a", 1), ("theirs", 5), ("later", 9)]));
         assert_eq!(texts(&ours), ["later"]);
         // And the other takes the clear in.
         let mut theirs = history(&[("old", 3), ("new", 8)]);
-        theirs.merge(&ours, 20);
+        theirs.merge(&ours);
         assert_eq!(texts(&theirs), ["later", "new"]);
         // What is sent right after a clear stays.
         ours.note("c", 6);
@@ -234,18 +245,30 @@ mod tests {
     }
 
     #[test]
-    fn a_merge_keeps_each_text_at_its_newest_and_takes_no_future() {
+    fn a_merge_keeps_each_text_at_its_newest() {
         let mut ours = history(&[("a", 1), ("b", 4)]);
-        ours.merge(&history(&[("c", 3), ("a", 5), ("far", u64::MAX - 1)]), 10);
-        assert_eq!(texts(&ours), ["far", "a", "b", "c"]);
-        assert_eq!(ours.entries()[0].sent, 10);
-        ours.note("now", 11);
-        assert_eq!(texts(&ours)[0], "now");
-        // A clear from the future is one now.
-        let mut other = History::default();
-        other.clear(u64::MAX - 1);
-        ours.merge(&other, 10);
-        assert_eq!(texts(&ours), ["now"]);
+        ours.merge(&history(&[("c", 3), ("a", 5)]));
+        assert_eq!(texts(&ours), ["a", "b", "c"]);
+    }
+
+    #[test]
+    fn what_is_sent_after_a_merge_is_newest_and_kept_though_the_clock_went_back() {
+        // Another instance's clock was ahead as it sent and cleared.
+        let mut ahead = history(&[("x", 900)]);
+        ahead.clear(1000);
+        ahead.note("y", 1000);
+        ahead.note("z", 1000);
+        let mut ours = History::default();
+        ours.merge(&ahead);
+        ours.note("now", 10);
+        ours.merge(&ahead);
+        assert_eq!(texts(&ours), ["now", "z", "y"]);
+        // Each has a stamp of its own, so a walk passes each.
+        assert_eq!(step(&ours, Some(ours.entries()[1].sent), 1), "y");
+        // And a clear takes them all.
+        assert_eq!(ours.clear(11), 3);
+        ours.merge(&ahead);
+        assert!(ours.is_empty());
     }
 
     #[test]

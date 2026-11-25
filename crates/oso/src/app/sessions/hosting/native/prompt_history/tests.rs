@@ -67,10 +67,11 @@ impl Thread {
         self.send(Job::Write { history, clears });
     }
 
+    /// Whether all it was handed is written.
     fn flush(&self) {
         let (done, answer) = mpsc::sync_channel(1);
         self.send(Job::Flush(done));
-        answer.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(answer.recv_timeout(Duration::from_secs(5)).unwrap());
     }
 
     fn texts(&self) -> Vec<String> {
@@ -136,8 +137,32 @@ fn a_file_that_may_not_be_read_is_told_and_a_clear_starts_it_again() {
     assert!(matches!(events(), PromptHistoryEvent::NotRead(_)));
     assert!(matches!(events(), PromptHistoryEvent::NotWritten(_)));
     thread.write(&[], true);
-    assert!(matches!(events(), PromptHistoryEvent::Known(_)));
+    assert!(matches!(events(), PromptHistoryEvent::Cleared(_)));
     thread.write(&["b"], false);
     thread.flush();
     assert!(thread.texts().is_empty(), "sent before the clear");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_clear_another_instance_holds_up_is_told_and_takes_no_message_with_it_once_off() {
+    let thread = Thread::start();
+    let lock = thread.directory.join("prompt-history.lock");
+    let held = std::fs::File::create(&lock).unwrap();
+    held.lock().unwrap();
+    thread.write(&[], true);
+    let event = thread.events.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert!(matches!(event, PromptHistoryEvent::NotCleared(_)));
+    thread.send(Job::Write {
+        history: {
+            let mut history = History::default();
+            history.note("b", now() + 9999);
+            history
+        },
+        clears: false,
+    });
+    thread.send(Job::Drop);
+    drop(held);
+    thread.flush();
+    assert!(thread.texts().is_empty());
 }

@@ -101,10 +101,11 @@ impl Configuration {
     }
 
     /// `[sessions] prompt_history` in force: whether the prompt history is kept in its file
-    /// (ADR 0165, step 2); `None` until a look applied the file, or there is none.
+    /// (ADR 0165, step 2); `None` until a look applied the file, as with no configuration read
+    /// at all, which may say not to.
     pub(super) fn prompt_history(&self) -> Option<bool> {
-        let known = self.applied || (self.looked && self.reader.is_none());
-        known.then_some(!self.in_force.sessions.no_prompt_history)
+        self.applied
+            .then_some(!self.in_force.sessions.no_prompt_history)
     }
 
     /// `[sessions] steer_worktrees` in force: whether a session oso starts gets the hook that

@@ -194,7 +194,6 @@ impl App {
                     return;
                 };
                 self.set_composer_text(key, &text);
-                self.end_walk(key);
                 self.draw_queue(key);
                 self.composer_go(key, true);
             }

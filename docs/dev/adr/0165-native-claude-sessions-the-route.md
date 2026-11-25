@@ -2865,8 +2865,8 @@ and queued messages are kept, and that the clear asks nothing.
   shared by all native sessions and kept in `prompt-history` in oso's state directory, at most
   200 messages and 512 KiB; each text once. It goes over projects and spaces too.
 - **A walk gives its draft back** past the newest. It keeps its place by when the message shown
-  was sent, so another session's send does not move it. It ends as the composer's text goes
-  another way: sent, a queued message's edit, the composer killed.
+  was sent, so another session's send does not move it. It ends as the composer's text changes
+  another way (sent, edited, put in): the next step then starts one from that text.
 - **What goes in:** a composer's text once its send is taken, in one place, after the secret
   check: sent now once it is written; queued or put ahead as it is queued, so one dropped or
   interrupted later stays; an edited queued message as it is put back. `/model` and other
@@ -2887,7 +2887,7 @@ and queued messages are kept, and that the clear asks nothing.
 - **Off and cleared:** `[sessions] prompt_history = false` reads and writes nothing, and `M-p`
   walks what was sent since the start; anything but `true` is off, and once off it is on again
   only from the next start, so that nothing sent meanwhile is written. Before the configuration
-  is read, or while it cannot be, nothing is. `native-prompt-history-clear` (no key, `Person`)
+  is read, while it cannot be, or with none read at all (`--no-config`), nothing is. `native-prompt-history-clear` (no key, `Person`)
   empties it in memory and in the file, also one that could not be read.
 
 Approved public items: `ArgSpec::PastPrompt`, `Editor::set_past_prompts`, `open_past_prompts` and

@@ -245,7 +245,7 @@ impl App {
             log::warn!("the recent files were not written within {FLUSH_WAIT:?}");
         }
         let left = FLUSH_WAIT.saturating_sub(started.elapsed());
-        if prompts.is_some_and(|written| written.recv_timeout(left).is_err()) {
+        if prompts.is_some_and(|written| written.recv_timeout(left) != Ok(true)) {
             log::warn!("the prompt history was not written within {FLUSH_WAIT:?}");
         }
         self.wait_review_saves(FLUSH_WAIT.saturating_sub(started.elapsed()));

@@ -51,7 +51,7 @@ fn texts(history: &History) -> Vec<&str> {
 fn what_is_written_reads_back_in_a_private_file() {
     let scratch = Scratch::new();
     let ours = history(&[("a", 1), ("日本語\nand \"more\"\u{7}", 2)]);
-    let merged = write(&scratch.0, &ours, false, 9).unwrap();
+    let merged = write(&scratch.0, &ours, false).unwrap();
     assert_eq!(read(&scratch.0).unwrap().entries(), merged.entries());
     assert_eq!(
         texts(&read(&scratch.0).unwrap()),
@@ -76,22 +76,31 @@ fn two_instances_lose_none_of_each_others_nor_bring_back_what_one_cleared() {
     let scratch = Scratch::new();
     let one = history(&[("one", 1)]);
     let two = history(&[("two", 2)]);
-    write(&scratch.0, &one, false, 9).unwrap();
+    write(&scratch.0, &one, false).unwrap();
     assert_eq!(
-        texts(&write(&scratch.0, &two, false, 9).unwrap()),
+        texts(&write(&scratch.0, &two, false).unwrap()),
         ["two", "one"]
     );
     let mut cleared = one.clone();
     cleared.clear(5);
-    write(&scratch.0, &cleared, true, 9).unwrap();
+    write(&scratch.0, &cleared, true).unwrap();
     assert!(read(&scratch.0).unwrap().is_empty());
     let mut later = two;
     later.note("later", 7);
-    assert_eq!(
-        texts(&write(&scratch.0, &later, false, 9).unwrap()),
-        ["later"]
-    );
+    assert_eq!(texts(&write(&scratch.0, &later, false).unwrap()), ["later"]);
     assert_eq!(read(&scratch.0).unwrap().cleared(), 5);
+}
+
+#[test]
+fn a_clear_takes_out_what_a_clock_ahead_stamped_also_where_another_instance_holds_it() {
+    let scratch = Scratch::new();
+    let ahead = history(&[("x", 500)]);
+    write(&scratch.0, &ahead, false).unwrap();
+    let mut cleared = History::default();
+    cleared.clear(5);
+    write(&scratch.0, &cleared, true).unwrap();
+    assert!(read(&scratch.0).unwrap().is_empty());
+    assert!(write(&scratch.0, &ahead, false).unwrap().is_empty());
 }
 
 #[test]
@@ -102,7 +111,7 @@ fn many_instances_at_once_lose_nothing() {
             let directory = scratch.0.clone();
             thread::spawn(move || {
                 let ours = history(&[(&format!("from {n}"), n + 1)]);
-                write(&directory, &ours, false, 99).unwrap();
+                write(&directory, &ours, false).unwrap();
             })
         })
         .collect();
@@ -117,13 +126,14 @@ fn bad_lines_are_left_out() {
     let scratch = Scratch::new();
     let long = "x".repeat(MAX_MESSAGE + 1);
     let text = format!(
-        "{}\nnot json\n{}\n{}\n{}\n{}\n\n{}",
+        "{}\nnot json\n{}\n{}\n{}\n{}\n\n{}\n{}",
         json!({ "version": 1, "cleared": 2 }),
         json!({ "text": "a", "sent": 3 }),
         json!({ "text": "no stamp" }),
         json!({ "text": " \n", "sent": 4 }),
         json!({ "text": long, "sent": 4 }),
         json!({ "text": "before the clear", "sent": 1 }),
+        json!({ "text": "never", "sent": u64::MAX }),
     );
     scratch.put(text.as_bytes());
     assert_eq!(texts(&read(&scratch.0).unwrap()), ["a"]);
@@ -143,9 +153,9 @@ fn a_file_that_may_not_be_read_is_left_until_a_clear() {
     for bytes in [&newer[..], &large] {
         scratch.put(bytes);
         assert!(read(&scratch.0).is_err());
-        assert!(write(&scratch.0, &ours, false, 9).is_err());
+        assert!(write(&scratch.0, &ours, false).is_err());
         assert_eq!(fs::read(scratch.0.join(FILE)).unwrap(), bytes);
-        write(&scratch.0, &History::default(), true, 9).unwrap();
+        write(&scratch.0, &History::default(), true).unwrap();
         assert!(read(&scratch.0).unwrap().is_empty());
     }
     // A link, and a file with two names: never read nor written through, and a clear takes
@@ -160,8 +170,8 @@ fn a_file_that_may_not_be_read_is_left_until_a_clear() {
             false => std::os::unix::fs::symlink(&elsewhere, &file).unwrap(),
         }
         assert!(read(&scratch.0).is_err());
-        assert!(write(&scratch.0, &ours, false, 9).is_err());
-        write(&scratch.0, &History::default(), true, 9).unwrap();
+        assert!(write(&scratch.0, &ours, false).is_err());
+        write(&scratch.0, &History::default(), true).unwrap();
         assert_eq!(
             fs::read_to_string(&elsewhere).unwrap(),
             "{\"text\":\"a\",\"sent\":1}\n"
@@ -174,10 +184,10 @@ fn a_lock_another_holds_is_not_waited_for_long() {
     let scratch = Scratch::new();
     let private = PrivateDir::open(&scratch.0).unwrap();
     let held = lock(&private).unwrap();
-    let refused = write(&scratch.0, &history(&[("a", 1)]), false, 9);
+    let refused = write(&scratch.0, &history(&[("a", 1)]), false);
     assert_eq!(refused.unwrap_err().kind(), io::ErrorKind::WouldBlock);
     drop(held);
-    write(&scratch.0, &history(&[("a", 1)]), false, 9).unwrap();
+    write(&scratch.0, &history(&[("a", 1)]), false).unwrap();
 }
 
 #[test]
@@ -185,7 +195,7 @@ fn a_directory_others_can_reach_is_not_used() {
     let scratch = Scratch::new();
     fs::set_permissions(&scratch.0, fs::Permissions::from_mode(0o755)).unwrap();
     assert!(read(&scratch.0).is_err());
-    assert!(write(&scratch.0, &history(&[("a", 1)]), false, 9).is_err());
+    assert!(write(&scratch.0, &history(&[("a", 1)]), false).is_err());
 }
 
 #[test]
@@ -195,7 +205,7 @@ fn texts_that_escape_long_still_fit_what_is_read() {
     for n in 0..8 {
         ours.note(&format!("{n}{}", "\u{1}".repeat(MAX_MESSAGE - 1)), n + 1);
     }
-    write(&scratch.0, &ours, false, 99).unwrap();
+    write(&scratch.0, &ours, false).unwrap();
     let kept = read(&scratch.0).unwrap();
     assert!(!kept.is_empty() && kept.entries().len() < 8);
     assert!(kept.entries()[0].text.starts_with('7'));

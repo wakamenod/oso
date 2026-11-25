@@ -37,8 +37,8 @@ enum Job {
     },
     /// What waits is not written.
     Drop,
-    /// Answer once what was handed over before is written.
-    Flush(SyncSender<()>),
+    /// Answer once what was handed over before is written, or could not be: whether it was.
+    Flush(SyncSender<bool>),
 }
 
 /// What the thread did.
@@ -46,6 +46,8 @@ enum Job {
 pub enum PromptHistoryEvent {
     /// The file as read, or as a write left it.
     Known(History),
+    /// The file as a clear left it.
+    Cleared(History),
     NotRead(String),
     NotWritten(String),
     NotCleared(String),
@@ -80,6 +82,8 @@ pub(super) struct Prompts {
     kept: Kept,
     /// Something was sent since the thread was last handed the history.
     unsaved: bool,
+    /// How many messages the clear under way took out.
+    clearing: usize,
     /// That it is not written was said once.
     said: bool,
     jobs: Option<Sender<Job>>,
@@ -114,14 +118,28 @@ impl App {
     /// `native-prompt-history-clear`: takes every message out, here and in the file, which other
     /// instances' next writes follow.
     pub(in crate::app) fn clear_prompt_history(&mut self) {
-        let count = self.hosting.natives.prompts.history.clear(now());
-        self.hosting.natives.prompts.unsaved = false;
+        let prompts = &mut self.hosting.natives.prompts;
+        prompts.clearing += prompts.history.clear(now());
+        prompts.unsaved = false;
         self.list_past_prompts();
         let job = Job::Write {
             history: self.hosting.natives.prompts.history.clone(),
             clears: true,
         };
-        self.send_prompts(job);
+        // With no directory there is no file.
+        if !self.send_prompts(job) {
+            match self.hosting.directory {
+                None => self.prompts_cleared(),
+                Some(_) => self.editor.message(
+                    "The prompt history's file is not cleared: its thread could not start",
+                ),
+            }
+        }
+    }
+
+    /// Says that a clear is done, in memory and in the file, if there is one.
+    fn prompts_cleared(&mut self) {
+        let count = std::mem::take(&mut self.hosting.natives.prompts.clearing);
         let s = if count == 1 { "" } else { "s" };
         self.editor
             .message(format!("Cleared {count} past prompt{s}"));
@@ -133,8 +151,8 @@ impl App {
         let was = self.hosting.natives.prompts.kept;
         self.hosting.natives.prompts.kept = was.after(self.configuration.prompt_history());
         match (was, self.hosting.natives.prompts.kept) {
-            (Kept::Unknown, Kept::Yes) => self.send_prompts(Job::Read),
-            (Kept::Yes, Kept::No) => self.send_prompts(Job::Drop),
+            (Kept::Unknown, Kept::Yes) => _ = self.send_prompts(Job::Read),
+            (Kept::Yes, Kept::No) => _ = self.send_prompts(Job::Drop),
             _ => {}
         }
         if self.hosting.natives.prompts.kept == Kept::Yes
@@ -148,10 +166,11 @@ impl App {
         }
     }
 
-    /// Hands `job` to the thread, started at the first; with no directory, to none.
-    fn send_prompts(&mut self, job: Job) {
+    /// Hands `job` to the thread, started at the first; with no directory, to none. Whether a
+    /// thread has it.
+    fn send_prompts(&mut self, job: Job) -> bool {
         let Some(directory) = self.hosting.directory.clone() else {
-            return;
+            return false;
         };
         if self.hosting.natives.prompts.jobs.is_none() {
             let (jobs, waiting) = mpsc::channel();
@@ -168,26 +187,27 @@ impl App {
                 Err(e) => log::warn!("the prompt history will not be kept: {e}"),
             }
         }
-        if let Some(jobs) = &self.hosting.natives.prompts.jobs {
-            let _ = jobs.send(job);
-        }
+        let jobs = &self.hosting.natives.prompts.jobs;
+        jobs.as_ref().is_some_and(|jobs| jobs.send(job).is_ok())
     }
 
     /// The thread did something.
     pub(in crate::app) fn prompt_history_event(&mut self, event: PromptHistoryEvent) {
+        if let PromptHistoryEvent::Known(history) | PromptHistoryEvent::Cleared(history) = &event
+            && self.hosting.natives.prompts.kept == Kept::Yes
+        {
+            self.hosting.natives.prompts.history.merge(history);
+            self.list_past_prompts();
+        }
         match event {
-            PromptHistoryEvent::Known(history) => {
-                if self.hosting.natives.prompts.kept == Kept::Yes {
-                    self.hosting.natives.prompts.history.merge(&history, now());
-                    self.list_past_prompts();
-                }
-            }
+            PromptHistoryEvent::Known(_) => {}
+            PromptHistoryEvent::Cleared(_) => self.prompts_cleared(),
             PromptHistoryEvent::NotRead(why) => self
                 .editor
                 .message(format!("The prompt history is not read: {why}")),
-            PromptHistoryEvent::NotCleared(why) => self
-                .editor
-                .message(format!("The prompt history's file is not cleared: {why}")),
+            PromptHistoryEvent::NotCleared(why) => self.editor.message(format!(
+                "The prompt history's file is not cleared yet: {why}"
+            )),
             PromptHistoryEvent::NotWritten(why) => {
                 if !std::mem::replace(&mut self.hosting.natives.prompts.said, true) {
                     self.editor
@@ -197,9 +217,9 @@ impl App {
         }
     }
 
-    /// Asks the thread to say once all it was handed is written, what is unsaved among it, if
-    /// there is something to wait for.
-    pub(in crate::app) fn flush_prompt_history(&mut self) -> Option<Receiver<()>> {
+    /// Asks the thread to say whether all it was handed is written, what is unsaved among it, if
+    /// it was handed any.
+    pub(in crate::app) fn flush_prompt_history(&mut self) -> Option<Receiver<bool>> {
         self.sync_prompt_history();
         let (done, answer) = mpsc::sync_channel(1);
         let jobs = self.hosting.natives.prompts.jobs.as_ref()?;
@@ -219,6 +239,8 @@ impl App {
 struct Waiting {
     history: History,
     clears: bool,
+    /// That another instance holds it up was told.
+    told: bool,
 }
 
 /// The thread: reads the file as asked, and writes the newest history once [`QUIET`] has passed
@@ -251,16 +273,22 @@ fn run(directory: &Path, jobs: &Receiver<Job>, report: impl Fn(PromptHistoryEven
                 waiting = Some(Waiting {
                     history,
                     clears: clears || cleared,
+                    told: false,
                 });
                 if clears {
                     write_waiting(directory, &mut waiting, &report);
                 }
             }
             // A clear that waits still goes, with nothing to write beside it.
-            Some(Job::Drop) => waiting = waiting.filter(|waiting| waiting.clears),
+            Some(Job::Drop) => {
+                waiting = waiting.filter(|waiting| waiting.clears);
+                if let Some(waiting) = &mut waiting {
+                    waiting.history.forget();
+                }
+            }
             Some(Job::Flush(done)) => {
                 write_waiting(directory, &mut waiting, &report);
-                let _ = done.send(());
+                let _ = done.send(waiting.is_none());
             }
             None => write_waiting(directory, &mut waiting, &report),
         }
@@ -273,21 +301,32 @@ fn write_waiting(
     waiting: &mut Option<Waiting>,
     report: &impl Fn(PromptHistoryEvent),
 ) {
-    let Some(Waiting { history, clears }) = waiting.take() else {
+    let Some(Waiting {
+        history,
+        clears,
+        told,
+    }) = waiting.take()
+    else {
         return;
     };
-    match file::write(directory, &history, clears, now()) {
-        Ok(known) => report(PromptHistoryEvent::Known(known)),
-        Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-            *waiting = Some(Waiting { history, clears });
-        }
-        Err(e) => {
-            log::warn!("could not write the prompt history: {e}");
-            report(match clears {
-                true => PromptHistoryEvent::NotCleared(e.to_string()),
-                false => PromptHistoryEvent::NotWritten(e.to_string()),
-            });
-        }
+    let failed = match file::write(directory, &history, clears) {
+        Ok(known) if clears => return report(PromptHistoryEvent::Cleared(known)),
+        Ok(known) => return report(PromptHistoryEvent::Known(known)),
+        Err(e) => e,
+    };
+    if !told {
+        log::warn!("could not write the prompt history: {failed}");
+        report(match clears {
+            true => PromptHistoryEvent::NotCleared(failed.to_string()),
+            false => PromptHistoryEvent::NotWritten(failed.to_string()),
+        });
+    }
+    if failed.kind() == io::ErrorKind::WouldBlock {
+        *waiting = Some(Waiting {
+            history,
+            clears,
+            told: true,
+        });
     }
 }
 

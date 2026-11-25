@@ -35,7 +35,14 @@ struct PastList {
 
 impl Editor {
     /// Sets what [`Editor::open_past_prompts`] lists from its next opening, the newest first.
+    /// With none, a list open picks nothing either, as they are gone.
     pub fn set_past_prompts(&mut self, texts: Arc<[Arc<str>]>) {
+        if let Some(list) = &mut self.past_prompts.list
+            && texts.is_empty()
+        {
+            list.texts = Arc::clone(&texts);
+            list.picked = None;
+        }
         self.past_prompts.texts = texts;
     }
 
@@ -115,12 +122,11 @@ impl Editor {
 
     /// Forgets the list as `closed` closes, all of it unless it was answered.
     pub(super) fn forget_past_list(&mut self, closed: PromptId) {
-        let list = &mut self.past_prompts.list;
-        if list
-            .as_ref()
-            .is_some_and(|list| list.prompt == closed && list.picked.is_none())
-        {
-            *list = None;
+        let kept = &mut self.past_prompts.list;
+        match kept {
+            Some(list) if list.prompt != closed => {}
+            Some(list) if list.picked.is_some() => list.texts = Arc::from([]),
+            _ => *kept = None,
         }
     }
 }
@@ -194,7 +200,11 @@ mod tests {
         editor.open_past_prompts("Past prompt:").unwrap();
         editor.quit();
         assert_eq!(editor.take_past_prompt(), None);
+        // Cleared while it is listed.
+        editor.open_past_prompts("Past prompt:").unwrap();
         editor.set_past_prompts(Arc::from([]));
+        answer(&mut editor);
+        assert_eq!(editor.take_past_prompt(), None);
         assert_eq!(
             editor.open_past_prompts("Past prompt:"),
             Err(PromptError::Invalid)

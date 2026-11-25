@@ -292,6 +292,8 @@ pub(super) fn search(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Search 
 pub(super) fn sessions(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Sessions {
     let mut sessions = Sessions::default();
     let Some(entries) = table(value, "[sessions]", found) else {
+        // It may say to keep nothing.
+        sessions.no_prompt_history = true;
         return sessions;
     };
     for (name, value) in entries {

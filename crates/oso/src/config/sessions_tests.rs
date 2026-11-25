@@ -143,6 +143,7 @@ fn the_prompt_history_is_kept_unless_prompt_history_is_not_true() {
     assert_eq!(kept("[sessions]\nprompt_history = true\n"), (true, 0));
     assert_eq!(kept("[sessions]\nprompt_history = false\n"), (false, 0));
     assert_eq!(kept("[sessions]\nprompt_history = \"no\"\n"), (false, 1));
+    assert_eq!(kept("[[sessions]]\nprompt_history = false\n"), (false, 1));
 }
 
 #[test]
