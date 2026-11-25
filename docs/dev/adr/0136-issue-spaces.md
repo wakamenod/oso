@@ -325,6 +325,8 @@ space's orchestrator and its workers.
 - **A restart that keeps terminals** (ADR 0120 step 11, ADR 0133) carries each space's id with its
   window tree; live orchestrators and workers stay live, as any session does. The `spaces` file
   is written before the handoff, as `sessions` is.
+- **The frame's tree is the space's of the session its selected window shows** once the restart's
+  windows are in, unless a space was entered before (ADR 0165, part 4c-2).
 - **An exit and a restart's start wait for the records' writes,** at most 1 s: see ADR 0121, "The
   record at an exit, as built".
 

@@ -19,7 +19,7 @@ fn id(n: u8) -> SpaceId {
 }
 
 /// A space of the one repository at `root`, recalled.
-fn add(spaces: &mut Spaces, root: &str) -> usize {
+pub(super) fn add(spaces: &mut Spaces, root: &str) -> usize {
     let n = u8::try_from(spaces.iter().count()).unwrap() + 1;
     let name = Path::new(root)
         .file_name()
@@ -39,7 +39,7 @@ fn recalled(ids: u8) -> Spaces {
     spaces
 }
 
-fn editor() -> Editor {
+pub(super) fn editor() -> Editor {
     let text: String = (0..200).map(|i| format!("line {i}\n")).collect();
     let mut editor = Editor::with_buffer(Buffer::from_text("a.rs", &text));
     editor.set_frame_size(FrameSize {
@@ -53,7 +53,7 @@ fn ids(editor: &Editor) -> Vec<WindowId> {
     editor.frame().windows().iter().map(|(id, _)| *id).collect()
 }
 
-fn shown(editor: &Editor) -> Vec<String> {
+pub(super) fn shown(editor: &Editor) -> Vec<String> {
     editor
         .frame()
         .windows()

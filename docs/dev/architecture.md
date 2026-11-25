@@ -1170,6 +1170,8 @@ waits for each end as an event, and names the sessions in the state (`carry::nat
 new instance resumes them once the instance going has gone, which `import-terminals` says
 with no terminal too, and a restart that stays resumes them here (part 4c,
 `app/sessions/hosting/native/restarting.rs`); how each went is said by its `resumed.rs`.
+The state names the windows that showed a transcript too (`carry::native_windows`), which show it
+again within the import, or once the record of sessions is read (part 4c-2, `windows.rs`).
 
 When the window gains focus, a thread of `carry::notice` looks at the binary's path off the UI
 thread. Once the file there is not the one this instance started from (device, inode,
