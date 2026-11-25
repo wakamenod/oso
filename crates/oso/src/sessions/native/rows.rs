@@ -51,10 +51,10 @@ mod changes;
 mod past;
 mod sent;
 
-use sent::Sent;
-
 use calls::new_call;
 pub use changes::{Changes, RowChange};
+pub use sent::Sending;
+use sent::Sent;
 
 /// The tools whose calls one after another share a row: they read or search, and change
 /// nothing.
@@ -164,7 +164,7 @@ pub struct Rows {
     /// Each tool call's row and place in it, by its id.
     calls: HashMap<String, (usize, usize)>,
     /// The texts oso sent that the CLI has not replayed yet, oldest first.
-    sent: VecDeque<Sent>,
+    sent: Sent,
     /// Whose the session's first message is, read from its transcript, when an agent's tool
     /// started it.
     started_by: Option<String>,
@@ -196,7 +196,7 @@ impl Rows {
             directory,
             open: Vec::new(),
             calls: HashMap::new(),
-            sent: VecDeque::new(),
+            sent: Sent::default(),
             started_by: None,
             turn: Vec::new(),
             kept: VecDeque::new(),
@@ -308,15 +308,14 @@ impl Rows {
     fn push(&mut self, kind: Kind, depth: u8, folded: bool) -> RowChange {
         let joins = matches!(
             (self.rows.last().map(|row| &row.kind), &kind),
-            (None | Some(Kind::Result(_)), _)
-                | (Some(Kind::Tools(_)), Kind::Tools(_))
-                | (_, Kind::Result(_))
+            (Some(Kind::Tools(_)), Kind::Tools(_)) | (_, Kind::Result(_))
         );
+        let gap = !joins && self.gap_next();
         self.rows.push(Row {
             kind,
             depth,
             folded,
-            gap: !joins,
+            gap,
         });
         RowChange::Added(self.rows.len() - 1)
     }
@@ -526,8 +525,8 @@ impl Rows {
             changes.extend(match message.came {
                 Came::AsSaid => self.replayed(text),
                 // Not oso's, whatever its text: what oso sent still waits for its own replay.
-                Came::Elsewhere => self.not_sent(text),
-                Came::Remote => Some(self.remote(&text)),
+                Came::Elsewhere => self.not_sent(text).into_iter().collect(),
+                Came::Remote => vec![self.remote(&text)],
             });
         }
         changes
@@ -550,6 +549,7 @@ impl Rows {
             }
         }
         changes.extend(self.unfinish_turn());
+        self.sending_turn_ended();
         changes.push(self.push(Kind::Result(result), 0, false));
         changes
     }

@@ -403,7 +403,8 @@ reviews' findings:
   on its own; never a call that names a path outside the session's directory or one that may
   hold secrets (ADR 0044), which keeps a row of its own (the author's choice).
 - **The person's messages:** a replayed message is shown as the person's only when oso sent its
-  text; any other replay is a note, or nothing when a command or a hook wrapped it.
+  text; any other replay is a note, or nothing when a command or a hook wrapped it. Until its
+  replay it shows as being sent ("Being sent, as built").
 - **Cost:** a reply that grows is drawn again from its last line only; a result shows at most
   64 KiB (8 KiB since "The rows' look, as built"), walking only what it shows; a diff keeps at most 1 MiB; a folded row that shows
   nothing new reports no change.
@@ -910,7 +911,8 @@ As built:
 - **A command sent:** a text runs a command only when it starts with `/` itself and its first
   word, ended by whitespace or U+FEFF as the CLI ends it, is a listed name or alias; its row is
   the person's at once, as no replay comes. A first message given before the list is known (a
-  brief) shows no row of its own when it is a command.
+  brief) shows no row of its own when it is a command (since "Being sent, as built", it is its
+  row once the list is known).
 - **`/clear` (Q2 (a)):** refused at each write, the queue's included, saying to start a new
   session instead, and left out of completion: oso's record would keep the old session id,
   and a resume or a fork would reach the conversation before the clear. Once the list says
@@ -2887,6 +2889,58 @@ selected cursor in a row drawn again went to that row's end. What holds now:
   one flag. In release, a row added with three windows on the transcript and the composer
   selected takes 4 µs at 100, 10,000 and 100,000 rows, and wrapped 13 µs at 100 and 10,000 (p50,
   with the tests' small wrap budget).
+
+## Being sent, as built
+
+The author's choice of 2026-11-25: a message shows at once as it is sent, as being sent, a normal
+prompt once confirmed, and it goes back to the composer if it fails. Their answers of the same day
+to the questions below are (a) to each; the rest is the space's orchestrator's. Before, the
+composer was emptied and nothing showed until the replay.
+
+- **Measured** (oso-2's probe, CLI 2.1.331, haiku, no tools, three turns in one process): after the
+  write, `system/init` and `status: requesting` come at 0.00 to 0.03 s, and the message's replay at
+  1.02 to 1.09 s, with the first delta. oso's own part, from the write to a batch with the replay of
+  a fake that replays at once, is 0.20 ms at p50 and 0.26 ms at most. So the wait is the model's time to its first
+  token. Not measured: a message during a turn, a long context, another model, hooks, slash commands.
+- **Where** (Q1 (a)): the message stands first in the transcript's tail (ADR 0182), before the
+  queue and a request's block, which stays last. It is no row: the rule above ("The person's
+  messages") alone makes the row, which takes its place in one change, so rows that come meanwhile
+  go above it, and no key, recap or move knows it. Only a text oso wrote to this process is there,
+  and only its own replay takes it out: not one that came another way (ADR 0181), nor a synthetic or
+  a subagent's message, nor `status: requesting`, which does not say what the process started on.
+  A queued message shows there once it is written; a listed command is its row at once, as before.
+- **The look** (Q2 (a)): `…` where `〉` will stand, the text in the quiet face and no band; the
+  columns are the prompt's, so nothing moves once it is confirmed. A brief starts with
+  `…@ from` and whose it is, its `@` where no message's words stand. `〉` and the band stay a
+  confirmed prompt's alone. The band from the first frame, with the sign alone to tell them apart,
+  was not chosen.
+- **A turn that ends with no replay** (Q3 (a)), as after a hook that blocked or rewrote it or an
+  interrupt before it was read: it reads `✗`, with a line under it that claude did not say it took
+  this and, of the person's, that `M-p` brings it back. It may have run, so it does not go back. It
+  is the text's own state from its turn's result on, whatever turn runs after; a late replay still
+  makes its row. Of two alike, a replay is of the one whose turn may be under way, then of the oldest.
+  A later message's replay passes it over: then it is a note, "Not confirmed by claude: …", before
+  that message. At most 8 wait; past that the oldest is such a note.
+- **The process's end** (Q4 and Q5 (a)), whatever ended it: each that waits is a note that says
+  so, a brief's with whose it is. The person's newest, if its own turn was under way, goes back to
+  their composer, if that is free as a request's line finds it (ADR 0182): empty, still a composer,
+  with no secret, queued message's edit, held send, dictation or image under way; else `M-p` has it. Never one whose turn had ended, which a mode's respawn or `oso-restart` would bring
+  back stale; so an idle session's end, as a restart's or a switch to the TUI's, puts nothing
+  back. Never what a start sent (a worktree's brief, a takeover), nor an agent's brief.
+- **A command sent before the list is known** (Q6 (a)), as a brief or while the session
+  starts, is never replayed: once the list says it is one, in its own turn, it is its row, the person's or an agent's brief's. A
+  text whose turn ended stays as it is, whatever a later list says. That amends part
+  2d's "shows no row of its own when it is a command".
+- **Cost** (release, 5000 rows above, 120 columns, 30 runs): a send's draw is 0.03 ms at p50 for
+  1 KiB and at most 0.97 ms for 64 KiB, the confirmation at most 1.04 ms, and a reply's delta the
+  same with one waiting as with none, 0.02 to 0.05 ms. With none waiting, a draw compares a count. What waits is
+  looked up in the commands once a version of their list: a delta with 1 and 8 texts of 64 KiB waiting that start with `/` and have
+  no space is 25 and 27 µs at p50 and 0.03 and 0.77 ms at p99 (57 and 277 µs at p50 looked up at each).
+- **Accepted:** a message Claude Code kept in its transcript but had not replayed when its process
+  ended is in the conversation and may be back in the composer too. `oso dev`'s restart drops what waits, as
+  it does the rows.
+- **Not tested:** the app's own steps, past when a composer takes a text back, at an end during an interrupt, a stop, a switch and a restart;
+  the e2e flow ends the process by itself.
 
 ## Changes to accepted ADRs
 

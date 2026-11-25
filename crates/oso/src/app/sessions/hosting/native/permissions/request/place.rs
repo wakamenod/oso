@@ -69,8 +69,8 @@ fn given(editor: &Editor, native: &Native) -> bool {
 
 impl App {
     /// Whether session `key`'s composer holds nothing, and nothing is under way there, so that point
-    /// may go from it by itself and the line may take its place.
-    pub(super) fn composer_free(&self, key: SessionKey) -> bool {
+    /// may go from it by itself and the line may take its place, and that a text not sent may go back.
+    pub(in crate::app::sessions::hosting::native) fn composer_free(&self, key: SessionKey) -> bool {
         !self.dictation_under_way()
             && !self.reads_image_for(key)
             && (self.hosting.natives.map.get(&key)).is_some_and(|native| free(&self.editor, native))

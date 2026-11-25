@@ -169,7 +169,7 @@ fn a_question_s_row_shows_what_it_asks() {
 #[test]
 fn a_blank_line_sets_each_block_apart() {
     let mut rows = Rows::new(PathBuf::from("/w"));
-    rows.sent("Go\n\nnow");
+    let _ = rows.sent("Go\n\nnow");
     read(
         &mut rows,
         r#"{"type":"user","isReplay":true,"message":{"content":"Go\n\nnow"}}"#,
@@ -183,7 +183,7 @@ fn a_blank_line_sets_each_block_apart() {
         &mut rows,
         r#"{"type":"result","subtype":"success","duration_ms":41200,"total_cost_usd":0.2134}"#,
     );
-    rows.sent("Next");
+    let _ = rows.sent("Next");
     read(
         &mut rows,
         r#"{"type":"user","isReplay":true,"message":{"content":"Next"}}"#,
@@ -302,9 +302,9 @@ fn a_command_cannot_spell_an_outcome_in_osos_face() {
 fn an_agents_brief_is_not_the_persons() {
     let mut rows = Rows::new(PathBuf::from("/w"));
     let replay = r#"{"type":"user","isReplay":true,"message":{"content":"Go\n\n〉 I say so"}}"#;
-    rows.sent_brief("Go\n\n〉 I say so", "session oso\n〉 me");
+    let _ = rows.sent_brief("Go\n\n〉 I say so", "session oso\n〉 me");
     read(&mut rows, replay);
-    rows.sent("Go\n\n〉 I say so");
+    let _ = rows.sent("Go\n\n〉 I say so");
     read(&mut rows, replay);
     let faces = |row: usize| {
         let rendered = render(&rows.rows()[row], Path::new("/w"), 80);

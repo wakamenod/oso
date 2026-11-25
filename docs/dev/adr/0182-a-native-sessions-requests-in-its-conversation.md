@@ -43,7 +43,8 @@ written.
 - **The last thing in the transcript,** after its rows and the queue's. Rows that come meanwhile, of
   a subagent or a parallel call, go above it. So nothing stands between a request and its keys, and
   a window that follows has it at its bottom.
-- **One tail.** The queue's rows and the block are one tail of the transcript, with its own runs: what
+- **One tail.** The queue's rows and the block (and, before them, the messages being sent: ADR 0165,
+  "Being sent, as built") are one tail of the transcript, with its own runs: what
   draws, counts, colours or lays out the transcript's end goes through it. A point or a view in the
   block keeps its place in the block, whatever is put in above.
 - **Columns 0 and 1 are oso's,** as in every row (ADR 0165, "The rows' look"): `⚠ ` of the title,
@@ -408,7 +409,8 @@ Each holds from the step that builds it.
   ([ADR 0155](0155-renaming-sessions.md)).
 - **The tail** (`sessions/native/tail.rs`) has three parts: the queue's rows, the block's title and
   its body. The title is a part of its own, as it alone is drawn again, and starts with the row
-  between the block and what is above. Until R1c only the queue has text.
+  between the block and what is above. Until R1c only the queue has text. Since ADR 0165's "Being
+  sent, as built", a part before the queue's holds the messages being sent.
 - **The order of docks** is the strip, the card, the composer, and so is that of `C-x o` and of
   `windmove`. Public: `DockSlot::Card` is declared
   after `DockSlot::Strip`.

@@ -28,11 +28,13 @@ use oso_core::minibuffer::cells_of;
 mod queued;
 mod reply;
 mod runs;
+mod sending;
 mod tools;
 
 pub use queued::queue_rows;
 pub(super) use reply::reply_lines;
 pub use reply::{tables, tail};
+pub use sending::sending_rows;
 #[cfg(test)]
 pub(super) use tools::{
     MAX_DIFF_LINE, MAX_DIFF_SHOWN, MAX_SHOWN_RESULT, RESULT_LINES, first_lines,

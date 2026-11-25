@@ -32,10 +32,23 @@ use crate::sessions::native::wire::slash::SlashCommand;
 use crate::sessions::native::wire::status_line::Model;
 use crate::sessions::worker::SessionKey;
 
+/// Notes what `event` of a native session says of its slash commands and its conversation's id
+/// (`listed`): the rows of the messages sent before its commands were known that are commands, as
+/// none is replayed, and the one that says it moved.
+pub(super) fn commands_event(native: &mut Native, event: &mut Event) -> Vec<RowChange> {
+    let moved = listed(native, event);
+    let commands = &native.commands;
+    let mut changes = native
+        .rows
+        .sending_commands(commands.version(), |text| commands.runs(text));
+    changes.extend(moved);
+    changes
+}
+
 /// Notes what `event` of a native session's `system/init` lists of its slash commands, and
 /// whether its conversation moved to another session id, as `system/init` and `result` say it;
 /// the control layer gives `initialize`'s commands. The row that says it moved, once.
-pub(super) fn commands_event(native: &mut Native, event: &mut Event) -> Option<RowChange> {
+fn listed(native: &mut Native, event: &mut Event) -> Option<RowChange> {
     let id = match event {
         Event::Init(init) => {
             let names = std::mem::take(&mut init.slash_commands);

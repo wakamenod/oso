@@ -759,7 +759,9 @@ You write the next messages in the composer under the conversation, which agents
 The row under it says the permission mode, with the key that changes it, and the model. It changes
 once `claude` says that it did. In a window too short for the row, the modeline says both.
 While the composer is empty it says in grey what it is and its keys. `i` goes there and `C-c C-o` back, `C-c C-c` sends, and `M-p` and `M-n` bring back what you
-sent. After a turn, Claude's guess at your next message shows there in grey instead, with
+sent. A message shows at once at the end of the conversation, grey after `…`, until Claude says it has
+it. If Claude's turn ends without that, it stays grey after `✗`; if `claude` itself ends first, the
+conversation says so and the message is back in your composer if that is empty. After a turn, Claude's guess at your next message shows there in grey instead, with
 `(C-c C-s takes it)` after it. `C-c C-s`, in the composer or the conversation, puts it at the
 end of what you have written there, for you to edit or send, with a leading `/` or an `@`
 escaped as below; after a command (`/`, `!` or `#` first), or an `@"` not closed, it puts nothing. `M-n` in an empty

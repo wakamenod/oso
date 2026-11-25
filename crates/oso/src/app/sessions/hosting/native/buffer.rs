@@ -170,19 +170,21 @@ impl App {
         let buffer = new_transcript(&mut self.editor, name);
         self.mark_session_buffer(key, buffer);
         let mut rows = Rows::new(directory);
-        match first {
-            Some(First { text, from: None }) => rows.sent(text),
+        // The first that waits: it passes none over.
+        let _ = match first {
+            Some(First { text, from: None }) => rows.sent_first(text),
             Some(First {
                 text,
                 from: Some(from),
             }) => rows.sent_brief(text, from),
-            None => {}
-        }
+            None => None,
+        };
         let native = Native {
             buffer,
             rows,
             placed: Placed::default(),
             tail: Tail::default(),
+            sending: super::sending::Drawn::default(),
             widths: Widths::default(),
             stream: None,
             state: NativeState::Starting,

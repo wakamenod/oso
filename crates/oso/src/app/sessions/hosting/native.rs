@@ -23,8 +23,8 @@
 //!   `markdown`'s (part 2g); its status line, `status`'s (part 3a); its permission mode,
 //!   `mode`'s (part 3b); its `/model` and `/effort` completion, `slash`'s (part 3c); its
 //!   to-do strip, `todo`'s (part 3e).
-//! - What stands after its rows, the queue's and the block of the call that waits, is one tail
-//!   (`put_tail`, ADR 0182).
+//! - A row is drawn, and what stands after the rows put, by `drawing`; the messages being sent,
+//!   which stand there first, are `sending`'s.
 //! - Its turns' results stand at its window's right edge, and its replies' tables are drawn for
 //!   its width, by `widths`.
 //! - Its prompt suggestion is `suggesting`'s, and the recap of a turn that ended out of sight
@@ -51,6 +51,7 @@ mod buffer;
 mod carrier;
 mod composer;
 mod control;
+mod drawing;
 mod end;
 mod holds;
 mod interrupting;
@@ -65,6 +66,7 @@ mod remote;
 mod restarting;
 mod resume;
 mod resumed;
+mod sending;
 mod slash;
 mod status;
 mod suggesting;
@@ -79,10 +81,11 @@ pub(super) use resumed::runs_elsewhere;
 use std::collections::HashMap;
 use std::ops::Range;
 
-use oso_core::buffer::{Buffer, BufferId};
+use oso_core::buffer::BufferId;
 use oso_core::project::ProjectId;
 
 pub(in crate::app) use self::composer::Placeholder;
+use self::drawing::{draw, put_tail};
 use self::note::NativeState;
 pub(in crate::app) use self::permissions::{RequestWaits, Typing};
 pub(in crate::app) use self::windows::with_transcripts_shown;
@@ -96,10 +99,9 @@ use crate::sessions::native::interrupt::Interrupt;
 use crate::sessions::native::mode::ModeState;
 use crate::sessions::native::placed::Placed;
 use crate::sessions::native::remote::Remote;
-use crate::sessions::native::render;
 use crate::sessions::native::rows::{Changes, RowChange, Rows, UNSHOWN_WIDTH};
 use crate::sessions::native::slash::SlashCommands;
-use crate::sessions::native::tail::{Part, Run, Tail};
+use crate::sessions::native::tail::{Part, Tail};
 use crate::sessions::native::turns;
 use crate::sessions::native::wire::Event;
 use crate::sessions::start::connect::Settled;
@@ -143,8 +145,11 @@ struct Native {
     buffer: BufferId,
     rows: Rows,
     placed: Placed,
-    /// What stands after its rows: the queue's, and the block of the call that waits (ADR 0182).
+    /// What stands after its rows: the messages being sent, the queue's, and the block of the
+    /// call that waits (ADR 0182).
     tail: Tail,
+    /// Of which messages being sent it is.
+    sending: sending::Drawn,
     /// Its rows that a window's width changes, and the width each was drawn for last.
     widths: widths::Widths,
     stream: Option<Stream>,
@@ -347,6 +352,9 @@ impl App {
             return false;
         };
         native.stream = Some(stream);
+        // Its first message was written: it is being sent.
+        self.editor.refill_wraps();
+        let sent = sending::sync(&mut self.editor, native);
         // Its first message was written: a turn is under way.
         if native.first
             && let Some(worker) = &self.sessions
@@ -356,6 +364,9 @@ impl App {
         // It ended before its start was said: it is said now.
         if let Some((status, stderr)) = native.ended.take() {
             self.native_ended(key, status, &stderr);
+        }
+        if sent && (self.editor.windows()).any(|window| window.buffer() == buffer) {
+            self.request_redraw();
         }
         // Its `initialize` may have been answered before its stream was here (part 3a).
         self.ask_usage(key, None);
@@ -450,7 +461,7 @@ impl App {
             let (changed, ask) = status::status_event(native, &event);
             noted |= changed;
             usage_id = usage_id.or(ask);
-            if let Some(change) = slash::commands_event(native, &mut event) {
+            for change in slash::commands_event(native, &mut event) {
                 changes.add(change);
             }
             if let Some(target) = turns::target(&event) {
@@ -466,11 +477,11 @@ impl App {
         let buffer = native.buffer;
         let changed = !changes.is_empty();
         // The rows in view wrap within a budget a batch, as within a command's (ADR 0103).
-        if changed {
+        if changed || native.rows.sending().len() > 0 {
             self.editor.refill_wraps();
         }
         let noted = noted || was_under_way != under_way(native);
-        draw(&mut self.editor, native, changes);
+        let changed = draw(&mut self.editor, native, changes) || changed;
         // A turn that ended lets the queue's first go, after the event (`send_waiting_queues`).
         for target in targets {
             self.tell_tracker(key, target);
@@ -520,77 +531,6 @@ impl App {
             worker.send(Job::Stream(key, target));
         }
     }
-}
-
-/// Draws each of `changes` in the session's buffer, in their rows' order, where `Placed` says
-/// each row is.
-fn draw(
-    editor: &mut oso_core::editor::Editor,
-    native: &mut Native,
-    changes: impl IntoIterator<Item = RowChange>,
-) {
-    for change in changes {
-        let at = change.row();
-        let Some(row) = native.rows.rows().get(at) else {
-            continue;
-        };
-        let Some(text) = editor.buffer(native.buffer).map(Buffer::text) else {
-            return;
-        };
-        let range = native.placed.range(change, |start, lines| {
-            let first = text.offset_to_point(start).row;
-            text.line_start(first + lines)
-        });
-        let Some(range) = range else {
-            continue;
-        };
-        let rendered = match change {
-            RowChange::Grew { at, .. } => render::tail(row, at, native.rows.width()),
-            RowChange::Added(_) | RowChange::Changed(_) => {
-                render::render(row, native.rows.directory(), native.rows.width())
-            }
-        };
-        let grew = matches!(change, RowChange::Grew { .. });
-        if !grew {
-            if rendered.calls.is_empty() {
-                native.calls.remove(&at);
-            } else {
-                native.calls.insert(at, rendered.calls.clone());
-            }
-        }
-        (native.widths).drawn(at, row, &rendered, grew, native.rows.width());
-        let runs = rendered.runs();
-        // Drawn again: a whole reply is highlighted again (part 2g).
-        native.markdown.drawn(at);
-        editor.replace_native_rows(native.buffer, range.clone(), &rendered.text, &runs);
-        native.placed.put(at, range, rendered.text.len());
-        debug_assert_eq!(
-            editor.buffer(native.buffer).map(|b| b.text().len()),
-            Some(native.placed.end() + native.tail.len())
-        );
-    }
-}
-
-/// Puts `text`, in `runs`, as `part` of what stands after the session's rows. Whether it changed.
-fn put_tail(
-    editor: &mut oso_core::editor::Editor,
-    native: &mut Native,
-    part: Part,
-    text: String,
-    runs: Vec<Run>,
-) -> bool {
-    let start = native.placed.end();
-    let Some(place) = native.tail.put(part, text, runs) else {
-        return false;
-    };
-    let (text, runs) = native.tail.text(part);
-    let range = start + place.start..start + place.end;
-    editor.replace_native_rows(native.buffer, range, text, runs);
-    debug_assert_eq!(
-        editor.buffer(native.buffer).map(|b| b.text().len()),
-        Some(start + native.tail.len())
-    );
-    true
 }
 
 /// Whether `brief` says anything: a blank one is none, and starts nothing natively on its own.

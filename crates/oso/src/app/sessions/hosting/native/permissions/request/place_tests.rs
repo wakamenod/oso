@@ -2,7 +2,7 @@
 //!
 //! Must not depend on: the app; the tests lay out an editor's windows.
 
-use oso_core::buffer::{BufferId, Mode, Replacement};
+use oso_core::buffer::{Buffer, BufferId, Mode, Replacement};
 use oso_core::editor::Editor;
 use oso_core::frame::{FrameSize, Way};
 use oso_core::window::DockSlot;
@@ -129,6 +129,15 @@ fn only_a_composer_with_nothing_in_it_is_free() {
     s.native.composing = Default::default();
     s.native.composing.buffer = Some(s.composer);
     assert!(free(&s.editor, &s.native));
+    // A buffer in another mode, and one that holds secrets.
+    let other = Buffer::from_text("*compose: s*", "");
+    s.native.composing.buffer = Some(s.editor.add_buffer(other));
+    assert!(!free(&s.editor, &s.native));
+    let mut secret = Buffer::visiting("/tmp/.env".into());
+    secret.set_mode(Mode::Composer);
+    assert!(secret.is_secret() && secret.text().is_empty());
+    s.native.composing.buffer = Some(s.editor.add_buffer(secret));
+    assert!(!free(&s.editor, &s.native));
     // Killed by the person.
     s.native.composing.buffer = None;
     assert!(!free(&s.editor, &s.native));

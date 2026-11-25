@@ -348,7 +348,7 @@ fn the_ids_that_come_are_bounded() {
 fn a_message_from_claude_ai_is_never_the_persons_row_and_takes_no_replay_of_osos() {
     let mut remote = connected(Instant::now());
     let mut rows = Rows::new(PathBuf::from("/work/probe"));
-    rows.sent("Go on");
+    let _ = rows.sent("Go on");
     let last = |rows: &Rows| rows.rows().last().map(|row| row.kind.clone());
     // Nor is it oso's note, the CLI's output, or nothing, whatever it holds.
     for text in [

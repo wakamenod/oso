@@ -64,6 +64,22 @@ fn stay_on_row(
 }
 
 impl App {
+    /// Refuses a restart while a native session's queue holds messages, which it would lose
+    /// (ADR 0165, step 2, the author's choice): the composer's own text is the carry's to
+    /// refuse.
+    pub(in crate::app) fn refuse_unsent_queues(&self) -> Result<(), String> {
+        let waiting =
+            (self.hosting.natives.map.values()).find(|native| !native.composing.queue.is_empty());
+        let Some(native) = waiting else {
+            return Ok(());
+        };
+        let name = self.editor.buffer(native.buffer).map_or("", Buffer::name);
+        let count = native.composing.queued();
+        Err(format!(
+            "cannot hand over {name}: {count} queued message(s) not sent; send or drop them"
+        ))
+    }
+
     /// Draws native session `key`'s queue as grey rows at its transcript's end, when they
     /// changed, and says how many wait in its modeline.
     pub(in crate::app::sessions::hosting::native) fn draw_queue(&mut self, key: SessionKey) {

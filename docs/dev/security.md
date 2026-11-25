@@ -736,6 +736,10 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   baseline. Until its start thread reports, the UI takes the gate back once the space closed,
   its directory changed, the session is no longer the space's (a new orchestrator's start no
   longer its space's) or its buffer is gone, and the look before the spawn refuses it.
+- A message oso wrote to a native session shows before the CLI replays it (ADR 0165, "Being
+  sent, as built") in a part of the transcript's tail, with no face or mark of a prompt: only the
+  replay of its own text, or the CLI's list saying that it is a command, makes it one, and nothing that came another way takes it out. What goes
+  back to the composer at the process's end is only a text the person sent whose turn was under way.
 - A native session's earlier turns (ADR 0165, part 5a) are read from Claude Code's transcript
   of its conversation once its process is spawned, before its stream: only a regular file of
   this user's with one name under the transcripts' directory, in a project directory that is
