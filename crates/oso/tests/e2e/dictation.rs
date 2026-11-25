@@ -99,10 +99,12 @@ impl Fake {
         fake
     }
 
-    /// The requests it was asked, as `METHOD path` with whether they carried the token.
+    /// The requests it was asked, as `METHOD path` with whether they carried the token. A line
+    /// not ended yet is still being written, and left out.
     fn requests(&self) -> Vec<(String, bool, String)> {
         let text = fs::read_to_string(&self.requests).unwrap_or_default();
-        text.lines()
+        text.split_inclusive('\n')
+            .filter(|line| line.ends_with('\n'))
             .map(|line| {
                 let value: Value = serde_json::from_str(line).unwrap();
                 (
