@@ -94,7 +94,12 @@ impl Editor {
 
     /// The tree's window the tree's commands act on: the selected tiled window, or, while the
     /// side window is, the tree's window selected last; while a docked window is, the window
-    /// it is laid out in (ADR 0170).
+    /// it is laid out in (ADR 0170). Beneath a prompt, as if none were open.
+    pub fn tree_window(&self) -> WindowId {
+        self.tree_id()
+    }
+
+    /// [`Editor::tree_window`].
     pub(in crate::editor) fn tree_id(&self) -> WindowId {
         if self.dock_selected()
             && let Some(host) = self.dock_host(self.tiled_id())

@@ -71,6 +71,7 @@ mod suggesting;
 mod switching;
 mod todo;
 mod widths;
+mod windows;
 
 pub(crate) use remote::Looked;
 pub(super) use resumed::runs_elsewhere;
@@ -84,6 +85,7 @@ use oso_core::project::ProjectId;
 pub(in crate::app) use self::composer::Placeholder;
 use self::note::NativeState;
 pub(in crate::app) use self::permissions::{RequestWaits, Typing};
+pub(in crate::app) use self::windows::with_transcripts_shown;
 use super::Begin;
 use super::trust::starts_natively_in;
 use crate::app::App;

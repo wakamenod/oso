@@ -28,11 +28,12 @@ often, so it must rebuild within 2 s.
   holds it while native sessions are busy, as `sessions/hosting/native/holds.rs` judges them
   (ADR 0165, part 4b); `sessions/hosting/native/restarting.rs` stops them before the restart
   and resumes them in the new instance, or here if it stays (part 4c), and
-  `sessions/hosting/native/resumed.rs` says how each resume went.
+  `sessions/hosting/native/resumed.rs` says how each resume went; `windows.rs` there shows each
+  transcript again in the windows that showed it (part 4c-2).
 - `src/carry.rs` and `src/carry/` are the state a restart carries and both its transports'
   shared parts: the state's format, its texts in pieces, the terminals' entries, the
   descriptors (`fds`), the requests (`op`) and the native sessions it resumes (`natives`,
-  ADR 0165, part 4c). `oso dev`'s supervisor asks them over the dev
+  ADR 0165, part 4c) and the windows that showed them (`native_windows`, part 4c-2). `oso dev`'s supervisor asks them over the dev
   socket; `oso-restart`'s thread (`going`) plays the supervisor over a socket pair with the
   instance it starts (`pair`), whose own thread (`coming`) answers, after the binary's check
   (`binary`). `notice`'s thread looks at the binary again on focus. A dev build's

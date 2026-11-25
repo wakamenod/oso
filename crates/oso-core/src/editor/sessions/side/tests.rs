@@ -109,6 +109,20 @@ fn other_window_skips_it_and_windmove_and_select_reach_it() {
 }
 
 #[test]
+fn the_trees_window_is_the_one_selected_last_while_the_side_window_is() {
+    let (mut editor, list) = editor(120);
+    let left = selected(&editor);
+    let right = editor.split_window(Way::Across, true).unwrap();
+    assert_eq!(editor.tree_window(), right);
+    let side = editor.show_side_window(list, 32);
+    editor.select_window(side);
+    assert_eq!((selected(&editor), editor.tree_window()), (side, right));
+    editor.select_window(left);
+    editor.select_window(side);
+    assert_eq!(editor.tree_window(), left);
+}
+
+#[test]
 fn delete_other_windows_keeps_it_and_delete_window_in_it_hides_it() {
     let (mut editor, list) = editor(120);
     let first = selected(&editor);

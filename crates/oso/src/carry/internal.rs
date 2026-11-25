@@ -1,7 +1,8 @@
 //! Internal buffers in the state a restart hands over: where a window on one goes back to
 //! (ADR 0051), and the directory editor's listings, which come back themselves, each by its
 //! directory, its order, whether it shows details and its cursor's line, listed again
-//! (ADR 0134).
+//! (ADR 0134). A native session's transcript shows again beside that (`native_windows`,
+//! ADR 0165, part 4c-2).
 //!
 //! Must not depend on: `app`, `server`, winit or sockets.
 

@@ -233,7 +233,7 @@ impl App {
 
     /// Whether the person is in the middle of what a move of point would break: the next key,
     /// or the button's release, is meant for where point is.
-    pub(in super::super) fn person_in_the_middle(&self) -> bool {
+    pub(in crate::app::sessions::hosting::native) fn person_in_the_middle(&self) -> bool {
         let editor = &self.editor;
         editor.prompt().is_some()
             || self.dispatcher.reads_keys()

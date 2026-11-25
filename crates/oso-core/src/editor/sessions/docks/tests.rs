@@ -273,6 +273,7 @@ fn of_two_windows_on_the_session_the_one_selected_last_carries_the_docks() {
     assert!(inside(&editor, second), "it went with the selection");
     // Up from the composer is its host; down from the host, the composer.
     editor.select_window(composer);
+    assert_eq!(editor.tree_window(), second);
     editor.windmove(crate::frame::Side::Up).unwrap();
     assert_eq!(editor.window().id(), second);
     editor.windmove(crate::frame::Side::Down).unwrap();

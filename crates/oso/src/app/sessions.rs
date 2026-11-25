@@ -20,7 +20,9 @@ mod watch;
 mod worktrees;
 pub(super) use conversations::conversations;
 pub(crate) use hosting::RemoteLooked;
-pub(super) use hosting::{Hosting, NativeSessions, Placeholder, RequestWaits, Typing};
+pub(super) use hosting::{
+    Hosting, NativeSessions, Placeholder, RequestWaits, Typing, with_transcripts_shown,
+};
 pub(super) use spaces::Orchestrator;
 pub(super) use watch::Watch;
 pub(in crate::app) use watch::sending::{Outgoing, Shown};
@@ -209,6 +211,8 @@ impl App {
                 // Once oso knows its own, the others it may adopt.
                 self.hosting.adopting.recalled = true;
                 self.list_adoptable();
+                // Those a restart's windows showed, before a space is in front (part 4c-2).
+                self.show_native_windows_carried();
                 // Those a restart resumes, if the instance before has gone (ADR 0165, part 4c).
                 self.resume_natives_carried();
             }

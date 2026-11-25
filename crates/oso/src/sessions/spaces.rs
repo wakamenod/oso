@@ -15,6 +15,7 @@
 
 pub mod dir;
 pub mod edit;
+mod front;
 pub mod kept;
 pub mod migrate;
 pub mod orchestrator;

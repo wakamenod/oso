@@ -237,7 +237,9 @@ The new commands are in `crates/oso/src/commands/windows.rs`, bound in `bindings
 - **A reader takes version 4 and version 3** (ADR 0090), a version 3 state as one window. As
   built, it also keeps reading version 2, as it did before (the author's choice, 2026-11-12).
 - Places stay out of the handoff, as ADR 0088 has it. Each window's internal buffer falls back
-  as the one window's does (ADR 0063, ADR 0079).
+  as the one window's does (ADR 0063, ADR 0079); a native session's transcript comes back itself
+  (ADR 0165, part 4c-2). `selected` is the tree's window: a selected docked window's host, and with
+  the side window selected the one selected last.
 - A state that does not fit its line, with many windows of many cursors, is refused as one too
   large is today, and the restart waits.
 

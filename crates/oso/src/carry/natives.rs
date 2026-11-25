@@ -31,7 +31,7 @@ const MAX_MODE: usize = 16;
 /// A native session the new instance resumes, once the instance going has gone.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeResume {
-    /// Its session id, which the app reads as one: 36 ASCII characters here.
+    /// Its session id, which the app reads as one: 36 hexadecimal digits and dashes here.
     pub id: String,
     /// The permission mode its next process starts in, if it is given one (part 3b).
     pub mode: Option<PermissionMode>,
@@ -163,12 +163,15 @@ pub(super) fn parse_agents(state: &Map<String, Value>) -> Agents {
     }
 }
 
+/// A session's id, 36 hexadecimal digits and dashes (ADR 0121), which the app reads as one.
+pub(super) fn session_id(value: &Value) -> Option<String> {
+    let id = value.as_str()?;
+    (id.len() == 36 && id.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-'))
+        .then(|| id.to_owned())
+}
+
 fn parse_entry(entry: &Map<String, Value>) -> Option<NativeResume> {
-    // A session's id is 36 hexadecimal digits and dashes (ADR 0121); the app reads it as one.
-    let id = entry.get("id")?.as_str()?;
-    if id.len() != 36 || !id.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-') {
-        return None;
-    }
+    let id = session_id(entry.get("id")?)?;
     // A field that is there is a string that reads, or null.
     let text = |name: &str, longest: usize| match entry.get(name) {
         None | Some(Value::Null) => Some(None),
@@ -182,7 +185,7 @@ fn parse_entry(entry: &Map<String, Value>) -> Option<NativeResume> {
         None => None,
     };
     Some(NativeResume {
-        id: id.to_owned(),
+        id,
         mode,
         model: text("model", MAX_MODEL)?,
         effort: text("effort", MAX_EFFORT)?,

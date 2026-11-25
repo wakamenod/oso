@@ -91,7 +91,8 @@ as written:
   everything. It would make the handoff much larger, and it only matters during
   development.
 - Internal buffers (`*Messages*`, the minibuffer's) are not exported, and do not
-  count as unsaved work.
+  count as unsaved work. A window on a native session's transcript shows it again
+  ([ADR 0165](0165-native-claude-sessions-the-route.md), part 4c-2).
 
 ### Control socket
 

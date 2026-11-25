@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use serde_json::{Value, json};
 
 use super::super::super::harness::{App, sockets};
-use super::restart::{idle_in_accept_edits, session_id, show_transcript, transcript_says};
+use super::restart::{idle_in_accept_edits, session_id, shown_again, transcript_says};
 use super::resume::spoken_and_stopped;
 use super::switch::{in_the_tui, switch_back, taken_back};
 use super::{Flow, in_composer, text};
@@ -110,7 +110,7 @@ fn a_session_resumed_after_a_restart_shows_its_turns_first() {
     assert!(old.wait_for_exit().success(), "the instance going exits");
     new.wait_until_ready();
     flow.wait_for_file("run.2");
-    show_transcript(&mut new);
+    shown_again(&mut new);
     transcript_says(&mut new, "Resumed after oso-restart.");
     // Its last turn at the end, then the rest above it.
     new.wait_for("the earlier turns, at their end", |state| {
