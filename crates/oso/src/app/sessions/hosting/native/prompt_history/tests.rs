@@ -2,8 +2,6 @@
 //!
 //! Must not depend on: the window.
 
-use std::path::PathBuf;
-
 use super::*;
 
 #[test]
@@ -19,7 +17,7 @@ fn it_is_kept_once_the_configuration_says_so_and_stays_off_once_off() {
 /// The thread over a directory of its own.
 #[cfg(unix)]
 struct Thread {
-    directory: PathBuf,
+    directory: std::path::PathBuf,
     jobs: Option<Sender<Job>>,
     events: Receiver<PromptHistoryEvent>,
     thread: Option<thread::JoinHandle<()>>,
