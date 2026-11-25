@@ -3320,13 +3320,21 @@ pub fn oso_core::editor::Editor::trailing_cells(&self, oso_core::window::WindowI
 pub fn oso_core::editor::Editor::visual_aids(&self) -> oso_core::editor::VisualAids
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::cursor_area(&self, oso_core::frame::PixelGrid) -> core::option::Option<oso_core::frame::PixelRect>
+pub fn oso_core::editor::Editor::preedit(&self) -> core::option::Option<&oso_core::display_map::Preedit>
+pub fn oso_core::editor::Editor::preedit_layout(&self, oso_core::frame::PixelGrid, &mut alloc::vec::Vec<f32>) -> core::option::Option<oso_core::frame::PixelRect>
+pub fn oso_core::editor::Editor::preedit_withheld(&self) -> bool
+pub fn oso_core::editor::Editor::set_preedit(&mut self, core::option::Option<oso_core::display_map::Preedit>) -> bool
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::cursor_excerpt(&self, &mut alloc::string::String) -> core::option::Option<usize>
+pub fn oso_core::editor::Editor::excerpt_stamp(&self) -> core::option::Option<(oso_core::buffer::BufferId, u64, usize)>
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::cursor_search_waits(&self) -> bool
+pub fn oso_core::editor::Editor::drop_cursor_search(&mut self)
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::deactivate_mark(&mut self) -> bool
 pub fn oso_core::editor::Editor::follow_cursor(&mut self) -> bool
 pub fn oso_core::editor::Editor::frame(&self) -> &oso_core::frame::FrameLayout
 pub fn oso_core::editor::Editor::other_cursor_cells(&self, oso_core::window::WindowId, &oso_core::window::Screen, &mut alloc::vec::Vec<oso_core::frame::CellRect>)
-pub fn oso_core::editor::Editor::preedit(&self) -> core::option::Option<&oso_core::display_map::Preedit>
-pub fn oso_core::editor::Editor::preedit_layout(&self, oso_core::frame::PixelGrid, &mut alloc::vec::Vec<f32>) -> core::option::Option<oso_core::frame::PixelRect>
-pub fn oso_core::editor::Editor::preedit_withheld(&self) -> bool
 pub fn oso_core::editor::Editor::prompt_region_cells(&self, &oso_core::window::Screen, &mut alloc::vec::Vec<oso_core::frame::CellRect>)
 pub fn oso_core::editor::Editor::recenter(&mut self, oso_core::window::Recenter) -> bool
 pub fn oso_core::editor::Editor::region_cells(&self, oso_core::window::WindowId, &oso_core::window::Screen, &mut alloc::vec::Vec<oso_core::frame::CellRect>)
@@ -3337,16 +3345,9 @@ pub fn oso_core::editor::Editor::scroll_lines(&mut self, isize) -> core::result:
 pub fn oso_core::editor::Editor::scroll_view(&mut self, oso_core::window::WindowId, isize) -> bool
 pub fn oso_core::editor::Editor::scroll_view_sideways(&mut self, oso_core::window::WindowId, isize) -> bool
 pub fn oso_core::editor::Editor::set_frame_size(&mut self, oso_core::frame::FrameSize) -> bool
-pub fn oso_core::editor::Editor::set_preedit(&mut self, core::option::Option<oso_core::display_map::Preedit>) -> bool
 pub fn oso_core::editor::Editor::set_view_size(&mut self, oso_core::window::ViewSize) -> bool
 pub fn oso_core::editor::Editor::tiled_regions(&self) -> oso_core::frame::WindowRegions
 pub fn oso_core::editor::Editor::top_row(&self) -> usize
-impl oso_core::editor::Editor
-pub fn oso_core::editor::Editor::cursor_excerpt(&self, &mut alloc::string::String) -> core::option::Option<usize>
-pub fn oso_core::editor::Editor::excerpt_stamp(&self) -> core::option::Option<(oso_core::buffer::BufferId, u64, usize)>
-impl oso_core::editor::Editor
-pub fn oso_core::editor::Editor::cursor_search_waits(&self) -> bool
-pub fn oso_core::editor::Editor::drop_cursor_search(&mut self)
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::default_directory(&self, oso_core::buffer::BufferId) -> std::path::PathBuf
 pub fn oso_core::editor::Editor::set_buffer_directory(&mut self, oso_core::buffer::BufferId, std::path::PathBuf)
@@ -4192,6 +4193,7 @@ impl core::marker::StructuralPartialEq for oso_core::editor::SoleWindow
 pub struct oso_core::editor::Status
 pub oso_core::editor::Status::agent: &'static str
 pub oso_core::editor::Status::agent_connected: bool
+pub oso_core::editor::Status::composed: core::option::Option<core::ops::range::Range<usize>>
 pub oso_core::editor::Status::counts: oso_core::diagnostic::Counts
 pub oso_core::editor::Status::dictation: &'static str
 pub oso_core::editor::Status::echo: alloc::string::String

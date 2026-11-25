@@ -63,6 +63,7 @@ mod messages;
 mod migemo;
 mod order;
 mod pairs;
+mod preedit;
 mod project_search;
 mod projects;
 mod prompts;
@@ -1068,6 +1069,8 @@ mod edit_tests;
 mod highlight_tests;
 #[cfg(test)]
 mod isearch_migemo_tests;
+#[cfg(test)]
+mod isearch_preedit_tests;
 #[cfg(test)]
 mod isearch_regexp_tests;
 #[cfg(test)]

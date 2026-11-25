@@ -16,6 +16,7 @@
 //! do (ADR 0051), and the warnings remain for the person at the screen.
 
 use std::fmt::Write;
+use std::ops::Range;
 
 use self::state::push_state;
 use super::Editor;
@@ -128,6 +129,10 @@ pub struct Status {
     pub state: String,
     /// The echo area's line, as it comes from a message.
     pub echo: String,
+    /// Where in [`Self::echo`] text is composed in isearch, in bytes: what an input method is
+    /// composing, after the search string, or empty while it composes nothing (ADR 0158).
+    /// `None` while the line is not isearch's.
+    pub composed: Option<Range<usize>>,
     /// Its modeline is drawn active (ADR 0112): the window is the selected one, or the host of
     /// the docked one that is (ADR 0170), and no prompt is open.
     pub selected: bool,
@@ -295,6 +300,24 @@ fn push_cut(out: &mut String, name: &str, cells: usize) {
     out.push_str(name);
 }
 
+/// Cuts the start of `out` and puts [`CUT`] there if it takes more than `cells` cells, so that
+/// its end shows; a cluster stays whole.
+pub(super) fn keep_end(out: &mut String, cells: usize) {
+    let all = text_cells(out);
+    if all <= cells {
+        return;
+    }
+    // One cell is the mark's.
+    let over = all + 1 - cells;
+    let kept = text_clusters(out, 0)
+        .find(|cluster| cluster.column >= over)
+        .map_or(out.len(), |cluster| cluster.offset);
+    out.replace_range(..kept, "");
+    if cells > 0 {
+        out.insert(0, CUT);
+    }
+}
+
 /// The cells `text` takes: its bytes when they are all printable ASCII, each a cell.
 fn text_cells(text: &str) -> usize {
     if text.bytes().all(|byte| (b' '..=b'~').contains(&byte)) {
@@ -339,9 +362,10 @@ impl Editor {
         let Some((window, buffer, regions)) = self.window_in_tree(id) else {
             let mut echo = std::mem::take(&mut status.echo);
             echo.clear();
-            self.write_echo_line(&mut echo);
+            let composed = self.write_echo_line(self.frame.echo.columns, &mut echo);
             *status = Status {
                 echo,
+                composed,
                 ..Status::default()
             };
             return;
@@ -411,11 +435,17 @@ impl Editor {
         let cells = note::name_cells(status, note, others, columns);
         push_name(&mut status.name, buffer, marker, cells);
 
-        status.echo.clear();
-        self.write_echo_line(&mut status.echo);
         status.warnings_on_echo_row = regions.modeline.rows == 0 && window.docked().is_none();
+        self.echo_into(status);
         status.messages_in_view =
             (window.buffer() == self.messages_buffer).then(|| buffer.revision());
+    }
+
+    /// Fills in the echo area's line, after the warnings that go first on its row.
+    fn echo_into(&self, status: &mut Status) {
+        let columns = (self.frame.echo.columns).saturating_sub(text_cells(status.echo_warnings()));
+        status.echo.clear();
+        status.composed = self.write_echo_line(columns, &mut status.echo);
     }
 
     /// Writes the name of the space in front, cut, with a gap after it, into `out` when the
@@ -468,8 +498,13 @@ impl Editor {
     }
 
     /// What the echo area says: a message, or a jump's line or isearch's until a message
-    /// takes its place for a key (ADR 0082, ADR 0116), into `out`.
-    fn write_echo_line(&self, out: &mut String) {
+    /// takes its place for a key (ADR 0082, ADR 0116), into `out`, in `columns` cells. While
+    /// text is composed in isearch, its line comes first, as it shows the composition. Returns
+    /// where in it that is, as [`Status::composed`].
+    fn write_echo_line(&self, columns: usize, out: &mut String) -> Option<Range<usize>> {
+        if self.preedit.is_some() && self.isearch.is_some() {
+            return self.write_isearch_line(columns, out);
+        }
         // An undo's progress comes first while it goes on: what its command said shows once it
         // ends (ADR 0119).
         self.write_crossing_line(out);
@@ -479,10 +514,28 @@ impl Editor {
         if out.is_empty() {
             self.write_jump_line(out);
         }
-        if out.is_empty() {
-            self.write_isearch_line(out);
-            self.write_replace_line(out);
+        if !out.is_empty() {
+            return None;
         }
+        let composed = self.write_isearch_line(columns, out);
+        self.write_replace_line(out);
+        composed
+    }
+
+    /// The echo row's cell where text is composed in isearch: after the search string, or the
+    /// row's last one past it. `None` while the echo line is not isearch's.
+    pub(super) fn search_cell(&self) -> Option<CellRect> {
+        let mut status = Status::default();
+        self.status_into(self.tiled_id(), &mut status);
+        let before = status.echo.get(..status.composed.as_ref()?.start)?;
+        let echo = self.frame.echo;
+        let column = text_cells(status.echo_warnings()) + text_cells(before);
+        (echo.rows > 0 && echo.columns > 0).then(|| CellRect {
+            column: echo.column + column.min(echo.columns - 1),
+            rows: 1,
+            columns: 1,
+            ..echo
+        })
     }
 }
 

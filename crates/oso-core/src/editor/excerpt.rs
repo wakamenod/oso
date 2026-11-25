@@ -10,7 +10,7 @@
 //!   never past the line's ends. Its ends are found through the display map, never by
 //!   walking back to the start of the line, so a long line costs no more than a short one.
 //! - Only a buffer whose verdict is `Ordinary`, and not an internal one, gives it, and none
-//!   comes while a prompt is selected. Nothing is read from any other.
+//!   comes while a prompt is selected or isearch is on, whose string is in no buffer (ADR 0158). Nothing is read from any other.
 
 use super::Editor;
 use crate::buffer::BufferId;
@@ -30,7 +30,7 @@ impl Editor {
     pub fn excerpt_stamp(&self) -> Option<(BufferId, u64, usize)> {
         let (window, buffer) = self.current();
         let gives = buffer.verdict() == Verdict::Ordinary && !buffer.is_internal();
-        (gives && self.prompt().is_none()).then(|| {
+        (gives && self.prompt().is_none() && self.isearch().is_none()).then(|| {
             let cursor = window.selections.primary().cursor;
             (window.buffer(), buffer.revision(), cursor)
         })

@@ -331,13 +331,15 @@ impl App {
     }
 
     /// The person's input source is a Japanese mode, or not, whatever the window system says of it from
-    /// then on (ADR 0182).
+    /// then on (ADR 0182), and what follows the input source takes Japanese, or not, as if the person
+    /// chose it there (ADR 0158).
     fn dev_input_source(&mut self, japanese: bool) -> serde_json::Value {
         let source = match japanese {
             true => InputSource::Japanese,
             false => InputSource::Other,
         };
         self.ime.source.pin(source, Instant::now());
+        self.note_source(source);
         self.point_back_if_japanese();
         json!({ "japanese": japanese })
     }

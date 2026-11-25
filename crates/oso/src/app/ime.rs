@@ -19,7 +19,7 @@
 use oso_core::buffer::{Buffer, BufferId};
 use oso_core::display_map::Preedit;
 use oso_core::frame::PixelRect;
-use oso_core::minibuffer::{Kind, Prompt, PromptId};
+use oso_core::minibuffer::{Kind, PromptId};
 use oso_core::window::WindowId;
 use oso_platform::window::{ImeEvent, InputSource};
 
@@ -34,7 +34,8 @@ use super::shell::{ANSWERS_INPUT_METHOD, COMMITS_WHEN_TURNED_OFF, Loop};
 /// Whether oso wants the IME on in `buffer`: unless the next letter is a key, which
 /// `reads_keys` says, an open menu included (ADR 0117), or cannot type (ADR 0069), or a
 /// prompt that takes no Japanese now is selected (ADR 0072, ADR 0158) or isearch is on
-/// (ADR 0082), which `reads_input` says.
+/// (ADR 0082), which `reads_input` says. Isearch that takes Japanese is not asked of here, as
+/// its text goes into no buffer.
 fn wants_ime(buffer: &Buffer, reads_keys: bool, reads_input: bool) -> bool {
     // Letters answer among the copies (ADR 0064).
     let answers = buffer.mode().shows_copies();
@@ -67,7 +68,34 @@ fn follows_input_source(kind: Kind) -> bool {
     matches!(kind, Kind::Complete { .. } | Kind::Text { .. })
 }
 
-/// The prompt a choice of `source` marks as taking Japanese: the selected one, for a
+/// What has the input source type ASCII while it is open, and takes Japanese once the person
+/// chooses it there (ADR 0106, ADR 0158).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Reads {
+    /// A prompt that reads text or completes one.
+    Prompt(PromptId),
+    /// Isearch, where the buffer searched may hold no secrets.
+    Search,
+}
+
+/// What to ask the window about ASCII, in order, as what it was last asked for goes from
+/// `before` to `now`, with Japanese chosen in `noted`. What opens in the event that closes one
+/// with Japanese chosen has the ASCII source chosen again, so that it starts without Japanese
+/// and the menu bar says so.
+fn ascii_asks<I: PartialEq + Copy>(
+    before: Option<I>,
+    now: Option<I>,
+    noted: Option<I>,
+) -> &'static [bool] {
+    match (before, now) {
+        (None, Some(_)) => &[true],
+        (Some(_), None) => &[false],
+        (Some(_), Some(_)) if before != now && noted == before => &[false, true],
+        _ => &[],
+    }
+}
+
+/// What a choice of `source` marks as taking Japanese: the selected prompt or the search, for a
 /// Japanese input mode, and none otherwise. oso's own switch to ASCII reads as `Other`, and its
 /// giving the person's source back comes after the prompt has closed, so neither marks one.
 fn marked<I>(source: InputSource, selected: Option<I>) -> Option<I> {
@@ -82,6 +110,21 @@ fn marked<I>(source: InputSource, selected: Option<I>) -> Option<I> {
 /// composition to end, as the OS keeps it (ADR 0069).
 fn next_allowed(allowed: bool, wanted: bool, composing: bool, commits: bool) -> Option<bool> {
     (wanted != allowed && (wanted || !composing || commits)).then_some(wanted)
+}
+
+/// Whether the composition open, or the one whose commit comes next, as an empty preedit comes
+/// before it, was made in isearch (ADR 0158).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct MadeIn {
+    search: bool,
+}
+
+impl MadeIn {
+    /// Whether a report is of one whose search is gone, as one that ended between events, so
+    /// that its text goes nowhere.
+    fn lost(self, searching: bool) -> bool {
+        self.search && !searching
+    }
 }
 
 /// What oso has told the OS about the input method.
@@ -105,12 +148,15 @@ pub(super) struct ImeState {
     /// What the excerpt last given was worked out from ([`Editor::excerpt_stamp`]), or none
     /// while the IME is off.
     excerpt_for: Option<(BufferId, u64, usize)>,
-    /// The prompt following the input source in which the person chose a Japanese input
-    /// mode, which then takes Japanese until it closes or the person chooses another
+    /// The prompt or search following the input source in which the person chose a Japanese
+    /// input mode, which then takes Japanese until it closes or the person chooses another
     /// (ADR 0106, ADR 0158).
-    japanese_prompt: Option<PromptId>,
-    /// Whether the window was last asked for an ASCII input source (ADR 0106, ADR 0158).
-    ascii: bool,
+    japanese: Option<Reads>,
+    /// What the window was last asked for an ASCII input source for (ADR 0106, ADR 0158).
+    ascii: Option<Reads>,
+    /// Whether isearch was on after the last event, as a composition made in it goes with it.
+    searched: bool,
+    made_in: MadeIn,
     /// The kind of input source the person types with (ADR 0182).
     pub(super) source: source::Source,
     /// The tiled window selected after the last event, or the one beneath the prompts, so
@@ -128,6 +174,10 @@ impl App {
             ImeEvent::Commit(_) => "a commit",
             ImeEvent::Disabled => "the IME's end",
         });
+        let searching = self.editor.isearch().is_some();
+        if self.ime.made_in.lost(searching) {
+            return self.lost_composition(&event);
+        }
         // Typed as point came to a request's line, it goes to the composer (ADR 0182).
         let types = match &event {
             ImeEvent::Preedit(text, _) | ImeEvent::Commit(text) => !text.is_empty(),
@@ -151,6 +201,7 @@ impl App {
         match event {
             ImeEvent::Preedit(text, range) if !text.is_empty() => {
                 if self.editor.preedit().is_none() {
+                    self.ime.made_in.search = searching;
                     self.dispatcher.begin_composition(&mut self.editor);
                 }
                 self.editor.set_preedit(Some(Preedit::new(text, range)));
@@ -160,25 +211,45 @@ impl App {
             ImeEvent::Preedit(..) | ImeEvent::Disabled => self.end_composition(),
             ImeEvent::Commit(text) => {
                 let ended = self.end_composition();
+                self.ime.made_in = MadeIn::default();
                 let redraw = self.commit(event_loop, &text);
                 ended || redraw
             }
         }
     }
 
+    /// A report of a composition whose search ended under it: what it holds goes nowhere.
+    fn lost_composition(&mut self, event: &ImeEvent) -> bool {
+        let shown = self.end_composition();
+        let text = match event {
+            ImeEvent::Preedit(text, _) | ImeEvent::Commit(text) => !text.is_empty(),
+            ImeEvent::Disabled => false,
+        };
+        // An empty preedit comes just before its commit, so the mark stays for that.
+        if text {
+            self.ime.made_in = MadeIn::default();
+            if let Some(view) = &self.view {
+                view.window.discard_composition();
+            }
+        }
+        shown
+    }
+
+    /// The person pressed a key, so no commit of an ended composition is still to come.
+    pub(super) fn key_after_composition(&mut self) {
+        if !self.composing() {
+            self.ime.made_in = MadeIn::default();
+        }
+    }
+
     /// The input method's part of what follows every event, before the next is read, as the
     /// window system hands a key to the input method before it reaches oso (ADR 0069): a
     /// composition ends if a buffer that may hold secrets is selected, or another window,
-    /// whatever selected it (ADR 0112), then the IME is allowed as
+    /// whatever selected it (ADR 0112), or if isearch ended under it (ADR 0158), then the IME is allowed as
     /// wanted, and the window gets the cursor's cell if it changed, so that a composition
     /// started by the next key opens its candidate window there, and where each character of
     /// a composition is drawn.
     pub(super) fn sync_ime_after_event(&mut self, event_loop: &Loop<'_>) {
-        // Japanese chosen in a prompt goes with it: none is kept for the next (ADR 0106).
-        let selected = self.editor.prompt().map(Prompt::id);
-        if self.ime.japanese_prompt.is_some() && self.ime.japanese_prompt != selected {
-            self.ime.japanese_prompt = None;
-        }
         // What follows logs, and the event may have brought a secret buffer into view.
         self.note_logging();
         // The tiled window, so that a prompt opened over a composition keeps it, as it waits
@@ -189,8 +260,12 @@ impl App {
             .selected
             .replace(window)
             .is_some_and(|last| last != window);
-        if self.composing() && (moved || self.editor.current().1.is_secret()) {
+        // What was being composed for a search never goes into the buffer.
+        let searching = self.editor.isearch().is_some();
+        let left = std::mem::replace(&mut self.ime.searched, searching) && !searching;
+        if self.composing() && (moved || left || self.editor.current().1.is_secret()) {
             self.end_composition();
+            self.ime.made_in = MadeIn::default();
             // The window's input method too, so that nothing of it is committed later.
             if let Some(view) = &self.view {
                 view.window.discard_composition();
@@ -243,17 +318,30 @@ impl App {
     }
 
     /// Asks the window for an ASCII input source while a prompt that follows the input source
-    /// is selected, and for the person's own once none is, when that changes (ADR 0106,
-    /// ADR 0158).
+    /// is selected or isearch is on, and for the person's own once neither is, when that
+    /// changes (ADR 0106, ADR 0158). Japanese chosen in one goes with it: none is kept for the
+    /// next.
     fn sync_ascii_input(&mut self) {
-        let wanted = self
-            .editor
-            .prompt()
-            .is_some_and(|prompt| follows_input_source(prompt.kind()));
-        if let Some(view) = self.view.as_ref().filter(|_| wanted != self.ime.ascii) {
-            view.window.set_ascii_input(wanted);
-            self.ime.ascii = wanted;
-            self.ime.source.ascii(wanted, Instant::now());
+        let now = self.reads();
+        if let Some(view) = &self.view {
+            for &wanted in ascii_asks(self.ime.ascii, now, self.ime.japanese) {
+                view.window.set_ascii_input(wanted);
+                self.ime.source.ascii(wanted, Instant::now());
+            }
+            self.ime.ascii = now;
+        }
+        self.ime.japanese = self.ime.japanese.filter(|&noted| now == Some(noted));
+    }
+
+    /// What follows the input source now: the selected prompt, if it does, or isearch, but in a
+    /// buffer that may hold secrets, where it takes no Japanese (ADR 0158).
+    fn reads(&self) -> Option<Reads> {
+        match self.editor.prompt() {
+            Some(prompt) => follows_input_source(prompt.kind()).then(|| Reads::Prompt(prompt.id())),
+            None => {
+                let searching = self.editor.isearch().is_some();
+                (searching && !self.editor.current().1.is_secret()).then_some(Reads::Search)
+            }
         }
     }
 
@@ -285,14 +373,20 @@ impl App {
     }
 
     /// The person chose another kind of input source while oso was in front (ADR 0106). A
-    /// Japanese input mode marks the selected prompt as taking Japanese, if it follows the
-    /// input source (ADR 0158); anything else unmarks it. `after_event` then allows the IME or
-    /// not.
+    /// Japanese input mode marks the selected prompt, if it follows the input source, or the
+    /// search as taking Japanese (ADR 0158); anything else unmarks it. `after_event` then allows
+    /// the IME or not.
     pub(super) fn input_source_chosen(&mut self, source: InputSource) {
-        self.ime.japanese_prompt = marked(source, self.editor.prompt().map(Prompt::id));
-        self.ime.source.told(source, Instant::now());
+        if self.ime.source.told(source, Instant::now()) {
+            self.note_source(source);
+        }
         log::debug!("input source: {source:?}");
         self.point_back_if_japanese();
+    }
+
+    /// Marks what follows the input source as `source` has it.
+    pub(super) fn note_source(&mut self, source: InputSource) {
+        self.ime.japanese = marked(source, self.reads());
     }
 
     /// Whether the person's input source is a Japanese input mode, as far as oso was told, and
@@ -303,11 +397,16 @@ impl App {
 
     /// Whether oso wants the IME on now ([`wants_ime`]).
     pub(super) fn ime_wanted(&self) -> bool {
+        let secret = self.editor.shows_secret();
+        if self.reads() == Some(Reads::Search) && self.ime.japanese == Some(Reads::Search) {
+            // Its text goes into no buffer, so a read-only one is searched too.
+            return !secret && !self.dispatcher.reads_keys();
+        }
         let prompt = self
             .editor
             .prompt()
-            .map(|prompt| (prompt.id(), prompt.kind()));
-        if takes_japanese(prompt, self.ime.japanese_prompt, self.editor.shows_secret()) {
+            .map(|prompt| (Reads::Prompt(prompt.id()), prompt.kind()));
+        if takes_japanese(prompt, self.ime.japanese, secret) {
             return wants_ime(self.editor.current().1, self.dispatcher.reads_keys(), false);
         }
         let reads_input = self.editor.prompt().is_some()
@@ -394,7 +493,9 @@ impl App {
         };
         let grid = view.render_state.pixel_grid();
         // In a terminal, the program's cursor cell, even while it hides the cursor (ADR 0120).
-        let area = if self.editor.current().1.is_terminal() {
+        // Isearch composes on its own line, in any buffer.
+        let in_terminal = self.composes_in_terminal();
+        let area = if in_terminal {
             self.terminal_cursor_area(grid)
         } else {
             self.editor.cursor_area(grid)
@@ -410,6 +511,11 @@ impl App {
         self.ime.area = Some((area, scale));
     }
 
+    /// Whether a composition is made at a terminal's cursor: not in isearch, whose line shows it.
+    fn composes_in_terminal(&self) -> bool {
+        self.editor.current().1.is_terminal() && self.editor.isearch().is_none()
+    }
+
     /// Gives the window where the composition is drawn, so that the input method's question
     /// about a range of it gets that place, and its candidate window follows the segment being
     /// converted (ADR 0077). It is worked out after each event during a composition, as the
@@ -421,7 +527,7 @@ impl App {
         };
         let mut positions = std::mem::take(&mut self.ime.scratch);
         let grid = view.render_state.pixel_grid();
-        let first = if self.editor.current().1.is_terminal() {
+        let first = if self.composes_in_terminal() {
             self.terminal_preedit_layout(grid, &mut positions)
         } else {
             self.editor.preedit_layout(grid, &mut positions)
@@ -476,7 +582,9 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use super::{follows_input_source, marked, next_allowed, takes_japanese, wants_ime};
+    use super::{
+        MadeIn, ascii_asks, follows_input_source, marked, next_allowed, takes_japanese, wants_ime,
+    };
     use oso_core::buffer::Buffer;
     use oso_core::minibuffer::Kind;
     use oso_platform::window::InputSource;
@@ -547,6 +655,26 @@ mod tests {
         assert_eq!(marked(InputSource::Japanese, None::<u32>), None);
         // The person chose Japanese in the prompt.
         assert_eq!(marked(InputSource::Japanese, Some(1)), Some(1));
+    }
+
+    #[test]
+    fn what_opens_as_one_with_japanese_chosen_closes_has_ascii_chosen_again() {
+        assert_eq!(ascii_asks(None, Some(1), None), [true]);
+        assert_eq!(ascii_asks(Some(1), None, Some(1)), [false]);
+        assert!(ascii_asks(Some(1), Some(1), Some(1)).is_empty(), "the same");
+        assert!(ascii_asks(None::<u32>, None, None).is_empty());
+        // M-x in isearch, or query-replace's second prompt, in one event.
+        assert_eq!(ascii_asks(Some(1), Some(2), Some(1)), [false, true]);
+        // With ASCII still chosen, nothing.
+        assert!(ascii_asks(Some(1), Some(2), None).is_empty());
+    }
+
+    #[test]
+    fn a_composition_is_lost_once_the_search_it_was_made_in_is_gone() {
+        assert!(MadeIn { search: true }.lost(false));
+        assert!(!MadeIn { search: true }.lost(true));
+        assert!(!MadeIn::default().lost(false), "a buffer's");
+        assert!(!MadeIn::default().lost(true));
     }
 
     #[test]

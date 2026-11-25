@@ -111,12 +111,30 @@ pub fn state(
         && !editor.echo_withheld()
         && !editor.keys_withheld()
         && !editor.shows_keys_in_progress()
+        && !searches_around_secret(editor)
     {
         let mut status = Status::default();
         editor.status_into(editor.tiled().0.id(), &mut status);
-        state["echo"] = json!(status.echo);
+        // What is composed in isearch is not typed yet (ADR 0085, ADR 0158).
+        if status.composed.is_none_or(|range| range.is_empty()) {
+            state["echo"] = json!(status.echo);
+        }
     }
     state
+}
+
+/// Whether isearch, a jump or query-replace is on that began, or went on, while a buffer that may
+/// hold secrets was shown: the echo line holds its string.
+pub fn searches_around_secret(editor: &Editor) -> bool {
+    editor
+        .isearch()
+        .is_some_and(oso_core::editor::Isearch::around_secret)
+        || editor
+            .jump()
+            .is_some_and(oso_core::jump::Jump::around_secret)
+        || editor
+            .replace()
+            .is_some_and(oso_core::editor::Replace::around_secret)
 }
 
 /// The `undoing` field of `get-state`: null, or the undo or the redo of a large step under way,
@@ -443,6 +461,32 @@ mod tests {
             .collect();
         assert!(!names.contains(&json!("plain.txt")), "{names:?}");
         assert_eq!(state["buffer_count"], names.len());
+    }
+
+    #[test]
+    fn what_is_composed_in_isearch_is_not_told_nor_a_search_around_a_secret() {
+        use oso_core::display_map::Preedit;
+        let mut editor = editor("日本");
+        editor.isearch_begin(false, false);
+        editor.isearch_add("日");
+        assert!(state(&editor, None, 0)["echo"].is_string());
+        editor.set_preedit(Some(Preedit::new("ほん".into(), None)));
+        let composing = state(&editor, None, 0);
+        assert!(composing.get("echo").is_none());
+        assert!(!composing.to_string().contains("ほん"));
+        editor.set_preedit(None);
+        assert!(state(&editor, None, 0)["echo"].is_string());
+        editor.isearch_exit();
+
+        // A buffer not judged yet as the search began, then found ordinary.
+        let path = PathBuf::from("/tmp/plain.txt");
+        let unjudged = editor.add_buffer(Buffer::visiting(path.clone()));
+        editor.show(unjudged);
+        editor.isearch_begin(false, false);
+        let buffer = editor.buffer_mut(unjudged).unwrap();
+        buffer.judge_secret(Some(&[path]));
+        assert!(!editor.shows_secret());
+        assert!(state(&editor, None, 0).get("echo").is_none());
     }
 
     #[test]

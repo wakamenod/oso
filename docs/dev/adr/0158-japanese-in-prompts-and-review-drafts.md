@@ -1,6 +1,6 @@
 # 0158. Japanese in prompts and review drafts
 
-- Status: Accepted
+- Status: Accepted; "Isearch takes Japanese, as amended" (2026-11-25)
 - Date: 2026-11-19
 
 ## Context
@@ -141,3 +141,53 @@ them off since migemo reads romaji).
   chose to have them follow the source too.
 - **The input method on in every prompt:** a question's `y` and `n` and a number's digits would
   start a composition.
+
+## Isearch takes Japanese, as amended
+
+Amended on 2026-11-25. The author asked why Japanese cannot be typed in isearch, and chose, through
+the coordinator, that isearch follows the input source as the prompts that read text do. The other
+rules below are the orchestrator's, but the public field, which the author approved. "With them isearch, ..., where
+a letter is a key" no longer holds for isearch: a letter there is text of the search string.
+Query-replace's answers, a jump and a menu keep the input method off.
+
+- **Isearch follows the input source** (`C-s`, `C-r`, `C-M-s`, `C-M-r`), as `Kind::Text` does: it
+  opens with the ASCII source, a Japanese input mode chosen in it, by `かな` or any other way,
+  allows the input method for that search until it ends or another kind of source is chosen, and
+  the person's source comes back as it ends, however it ends. What is committed goes into the
+  string as typed text does, one step for `DEL`, and a match is looked for on the commit, never
+  during a composition. It is a literal, so migemo does not read it. A macro records the commit.
+- **Its keys are unchanged.** With nothing being composed, a key with Control or Option goes to
+  oso first, and `RET` and `DEL` come back from the input method. While text is composed, keys go
+  as in a buffer: `C-g` drops the composition and no more, and an Option key commits it and runs.
+- **It is on in a read-only buffer, a terminal and a transcript** too, as its text goes into none of
+  them. It is off while a prefix key waits, as after isearch's `C-c`.
+- **Never with secrets.** It is off while any window shows a buffer that may hold secrets, and
+  searching one switches no source either, as such a buffer has secure input.
+- **The composition is on the search's line,** after the string and underlined, the candidates
+  there, as Emacs on macOS shows it. In the buffer nothing is pushed, scrolled or matched. The
+  start of a string too long for the row is cut while one is composed. Public API:
+  `oso_core::editor::Status` gains `composed: Option<Range<usize>>`, where in `echo` text is
+  composed; the author approved it. It is drawn as a terminal's preedit is (`GridView::preedit`),
+  so nothing in `oso-render` or `oso-platform` changes.
+- **The input method is given nothing of the buffer:** no excerpt of the cursor's line
+  ([ADR 0077](0077-choices-for-the-native-layers-stage-2.md)) while isearch is on.
+- **A composition goes with its search.** If the search ends under it, as by a click, another
+  window or a command, it is dropped and never goes into the buffer, also where the search ended
+  between two of the input method's reports.
+- **The agent channel's state leaves the echo line out while one is composed,** as it says no
+  composition ([ADR 0085](0085-agent-channel-and-oso-mcp.md)), and in a search, a jump or a
+  query-replace around a buffer that may hold secrets, as the dev socket's did.
+- **What opens in the event that closes one with Japanese chosen has the ASCII source chosen again:**
+  `M-x` in isearch, or query-replace's second prompt after its first, which before this typed
+  ASCII with Japanese in the menu bar, against "the menu bar and what the prompt types always
+  agree". As it closes, the Japanese it replaced is given back.
+- **Linux and Windows:** off, as the prompts.
+- **Cost:** with a Japanese source, the switch comes at each end of a search. In eight
+  searches with Kotoeri in a dev build, choosing ASCII took 3 to 7 ms on the UI thread and giving
+  the source back 21 to 37 ms, over the 1 ms after which this
+  ADR moves the switch after the frame. That move is its own change (`open-questions.md`).
+- **Passages this changes:** [ADR 0082](0082-isearch.md)'s "The IME is off while isearch is on" and
+  [ADR 0116](0116-migemo-and-jumps.md)'s, each in its own section;
+  [ADR 0106](0106-the-input-source-turns-japanese-on-in-a-file-name-prompt.md)'s "Only the prompt
+  for a file's name does this" and [ADR 0026](0026-m2-ui-layout.md)'s "IME", as this ADR has them,
+  hold with isearch among what follows the source.

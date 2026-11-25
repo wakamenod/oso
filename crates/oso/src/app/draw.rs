@@ -16,9 +16,7 @@ use std::time::Instant;
 use oso_core::editor::{Editor, MatchCells, Status};
 use oso_core::frame::CellRect;
 use oso_core::window::{Screen, WindowId};
-use oso_render::{
-    Bands, Face, GridRow, Layer, Pane, PaneContent, PaneId, Redraw, RenderState, Rules, Span,
-};
+use oso_render::{Face, GridRow, Pane, Redraw, RenderState};
 
 use super::App;
 use super::shell::{Loop, Window};
@@ -30,6 +28,7 @@ use crate::text;
 
 mod card;
 mod chip;
+mod echo;
 mod float;
 mod menu;
 mod spaces;
@@ -74,9 +73,6 @@ fn reuse<T, U>(mut room: Vec<T>) -> Vec<U> {
     room.into_iter().filter_map(|_| None).collect()
 }
 
-/// The echo area's pane, apart from every window's and float's.
-const ECHO: PaneId = PaneId(2);
-
 /// Calls `draw` with what the frame shows, for the renderer: every tiled window's panes, in
 /// the tree's order, with their `statuses` ([`statuses_into`]), the echo area, and a prompt's
 /// float over them. What they fill goes in `cells`, which a frame reuses.
@@ -117,8 +113,8 @@ pub(super) fn with_frame<R>(
     fill_float_screens(editor, cells);
     let empty = Status::default();
     let status = tiled::tiled_status(editor, statuses).unwrap_or(&empty);
-    let echo = echo_spans(status);
-    let echo = [&echo[..]];
+    let echo = echo::spans(status);
+    let echo = echo::lines(&echo);
     let mut room = std::mem::take(&mut cells.room);
     let hints = tiled::placeholder::rows(editor, &cells.windows, natives, &mut room.hints);
     let hint_lines = tiled::placeholder::lines(&hints, &mut room.hints);
@@ -150,7 +146,7 @@ pub(super) fn with_frame<R>(
     let mut list: Vec<Pane<'_>> = reuse(std::mem::take(&mut cells.panes));
     tiled::panes(editor, &drawn, &mut list);
     // After the windows, so that no amount of text can take its place (ADR 0061).
-    list.push(echo_pane(editor, &echo));
+    echo::panes(editor, status, &echo, &mut list);
     let preview_fills = [
         (Face::SearchCurrent, &cells.preview_matches.current[..]),
         (Face::SearchMatch, &cells.preview_matches.others[..]),
@@ -205,15 +201,6 @@ pub(super) fn footer_said(editor: &Editor, natives: &NativeSessions) -> Option<S
     tiled::footer::said(editor, natives)
 }
 
-/// What the echo area says, its warnings first.
-fn echo_spans(status: &Status) -> [Span<'_>; 2] {
-    let span = |text, face| Span { text, face };
-    [
-        span(status.echo_warnings(), Face::Warning),
-        span(&status.echo, Face::Text),
-    ]
-}
-
 /// The rows the floats over the windows show into `cells`: a prompt's preview with the matches
 /// of a search in it, and a server's description at point (ADR 0138).
 fn fill_float_screens(editor: &Editor, cells: &mut Cells) {
@@ -228,21 +215,6 @@ fn fill_float_screens(editor: &Editor, cells: &mut Cells) {
             columns: shown.label().min(regions.inner.columns),
             ..regions.inner
         });
-    }
-}
-
-/// The echo area's pane, showing `echo`. It has no background of its own, so that nothing marks
-/// the pixels left over below it (ADR 0057).
-fn echo_pane<'a>(editor: &Editor, echo: &'a [&'a [Span<'a>]]) -> Pane<'a> {
-    Pane {
-        id: ECHO,
-        region: editor.frame().echo,
-        layer: Layer::TILED,
-        background: None,
-        panel: None,
-        bands: Bands::NONE,
-        rules: Rules::NONE,
-        content: PaneContent::Lines(echo),
     }
 }
 
@@ -484,11 +456,13 @@ fn take_theme(view: &mut View, editor: &Editor, terminals: &super::terminals::Ho
 
 #[cfg(test)]
 mod tests {
+    use super::echo::ECHO;
     use super::*;
     use oso_core::buffer::{Buffer, Mode, Replacement};
     use oso_core::editor::AgentChannel;
     use oso_core::frame::{self, FrameSize};
     use oso_core::minibuffer::Kind;
+    use oso_render::{Layer, PaneContent, PaneId};
 
     fn statuses(editor: &Editor) -> Vec<(WindowId, Status)> {
         let mut statuses = Vec::new();

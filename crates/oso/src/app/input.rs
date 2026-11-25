@@ -170,6 +170,7 @@ impl App {
     /// command registry. Keys from the dev control socket take the same
     /// path, through [`crate::dispatch::Dispatcher::handle_keys_with`].
     fn handle_key(&mut self, event_loop: &Loop<'_>, key: KeyPress) {
+        self.key_after_composition();
         self.note_person_acted();
         let started = Instant::now();
         #[cfg(feature = "dev")]
@@ -192,6 +193,7 @@ impl App {
     /// Handles text from one key press that types several characters.
     fn handle_text(&mut self, event_loop: &Loop<'_>, text: &str) {
         self.person_typed("text");
+        self.key_after_composition();
         if self.typed_as_point_came(Typing::Text) {
             return;
         }

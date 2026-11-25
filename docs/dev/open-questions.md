@@ -267,7 +267,9 @@ item notes when it must be settled.
   Japanese source (`M-x` then `C-g`): key to frame at p50 and p99 against the 8 ms budget, with
   Kotoeri's hiragana, Google Japanese Input, and an ASCII source for the path with no switch,
   from the dev log's `input source for ASCII` lines. Over about 1 ms at p99, move the switch
-  after the frame ([ADR 0158](adr/0158-japanese-in-prompts-and-review-drafts.md)).
+  after the frame. In a dev build with Kotoeri on 2026-11-25, choosing ASCII took 3 to 7 ms and
+  giving the source back 21 to 37 ms, which isearch does at each end of a search with a Japanese
+  source, so the move is due; which of the calls costs it was not looked at ([ADR 0158](adr/0158-japanese-in-prompts-and-review-drafts.md)).
 - The cursor's line for the input method and typing in one long line: on the native layer,
   typing and deleting in a 10 MB line were about 0.3 ms slower per key once the excerpt was
   given, in every run on a second Mac on 2026-11-09, far under the 5 ms gate. Cutting the

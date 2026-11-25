@@ -539,3 +539,14 @@ fn m_x_terminal_in_a_session_asks_the_host_for_a_shell() {
     );
     assert!(sent(&mut dispatcher, &mut editor).is_empty());
 }
+
+/// A commit in isearch goes into its string in a terminal too, never to the program (ADR 0158).
+#[test]
+fn a_commit_in_a_search_never_goes_to_the_program() {
+    let (mut dispatcher, mut editor) = in_terminal();
+    let _ = dispatcher.run_command(&mut editor, "isearch-forward", None);
+    assert!(editor.isearch().is_some());
+    dispatcher.commit_text(&mut editor, "日本");
+    assert_eq!(editor.isearch().unwrap().string(), "日本");
+    assert_eq!(dispatcher.take_terminal_sends(&mut editor), []);
+}

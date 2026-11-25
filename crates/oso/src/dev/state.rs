@@ -20,9 +20,9 @@
 use oso_core::buffer::{Buffer, BufferId, Mode, ReadOnly};
 use oso_core::complete::Candidates;
 use oso_core::display_map::{DisplayPoint, DisplaySnapshot, Preedit};
-use oso_core::editor::{Editor, Isearch, Preview, Replace, Status};
+use oso_core::editor::{Editor, Preview, Status};
 use oso_core::frame::{CellRect, PixelRect};
-use oso_core::jump::{Jump, Stage};
+use oso_core::jump::Stage;
 use oso_core::key::KeyPress;
 use oso_core::keymap::display_keys;
 use oso_core::minibuffer::MAX_ENTRY_BYTES;
@@ -38,7 +38,7 @@ use super::Reply;
 mod popup;
 mod syntax;
 mod text;
-use crate::channel::state::slice;
+use crate::channel::state::{searches_around_secret, slice};
 pub use text::get_text;
 
 /// The most visible text `get-state` returns, in bytes. A cell usually holds
@@ -125,10 +125,9 @@ pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u3
         let mut status = Status::default();
         editor.status_into(editor.tiled().0.id(), &mut status);
         state["modeline"] = json!(status.modeline());
-        // isearch's line holds its string, and query-replace's both of its.
-        let search_withheld = editor.isearch().is_some_and(Isearch::around_secret)
-            || editor.jump().is_some_and(Jump::around_secret)
-            || editor.replace().is_some_and(Replace::around_secret);
+        // isearch's line holds its string, and query-replace's both of its; isearch's also what
+        // is being composed.
+        let search_withheld = searches_around_secret(editor) || editor.preedit_withheld();
         if keys_shown && !search_withheld {
             state["echo"] = json!(status.echo);
         }

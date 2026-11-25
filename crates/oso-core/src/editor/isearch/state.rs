@@ -240,9 +240,9 @@ impl Isearch {
         self.around_secret = true;
     }
 
-    /// The echo line: `I-search: foo [3/17]`, with Emacs's words before it, and
-    /// `[migemo]` before them while migemo searches (ADR 0116).
-    pub(super) fn write_line(&self, out: &mut String) {
+    /// The echo line up to the string's end: `I-search: foo`, with Emacs's words before it,
+    /// and `[migemo]` before them while migemo searches (ADR 0116).
+    pub(super) fn write_head(&self, out: &mut String) {
         if self.migemo() {
             out.push_str("[migemo] ");
         }
@@ -277,6 +277,10 @@ impl Isearch {
         out[start..=start].make_ascii_uppercase();
         out.push_str(": ");
         out.push_str(&self.string);
+    }
+
+    /// The echo line after the string: ` [3/17]`.
+    pub(super) fn write_tail(&self, out: &mut String) {
         // Why a regexp cannot search, in place of where it got to.
         match (&self.pattern, self.too_long) {
             (Pattern::Bad(Bad::Incomplete), _) => {
