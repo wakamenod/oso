@@ -85,6 +85,8 @@ impl App {
         } else if connect.is_some() && !resumes {
             self.remote_stays_off(key, "claude did not resume");
         }
+        // Before the composer is looked at: what was being sent goes back there.
+        self.sending_ended(key);
         let Some(native) = self.hosting.natives.map.get_mut(&key) else {
             return;
         };

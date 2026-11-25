@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use super::past::Index;
 use super::placed::Placed;
 use super::remote::Remote;
-use super::render::{Face, GUIDE, Rendered, render, tables, tail};
+use super::render::{Face, GUIDE, Rendered, render, sending_rows, tables, tail};
 use super::rows::{Changes, Kind, Row, RowChange, Rows};
 use super::turns::target;
 use super::wire::{parse, transcript};
@@ -170,6 +170,49 @@ fn only_oso_is_in_its_faces(row: &Row, rendered: &Rendered) -> bool {
     })
 }
 
+/// Whether "Hi", sent first, and [`BRIEF`], sent `from` an agent, are each still being sent or
+/// one row of their own, no row is the person's or a brief otherwise, and what is drawn of those
+/// being sent has oso's mark alone in its first two columns and no face of a prompt or a brief.
+fn sent_stay_apart(rows: &Rows, from: &str) -> bool {
+    let waits: Vec<_> = rows.sending().collect();
+    let passed = rows
+        .rows()
+        .iter()
+        .any(|row| matches!(&row.kind, Kind::Note(text) if text == "Not confirmed by claude: Hi"));
+    let mut said = Vec::new();
+    for row in rows.rows() {
+        match &row.kind {
+            Kind::Prompt(text) => said.push((text.as_str(), None)),
+            Kind::Brief { from, text } => said.push((text.as_str(), Some(from.as_str()))),
+            _ => {}
+        }
+    }
+    let each = [("Hi", None), (BRIEF, Some(from))];
+    let waiting = waits.iter().map(|sent| (sent.text, sent.from));
+    let waiting: Vec<_> = waiting.collect();
+    let one = each.iter().enumerate().all(|(at, sent)| {
+        let times =
+            [&waiting, &said].map(|texts| texts.iter().filter(|text| *text == sent).count());
+        times[0] + times[1] + usize::from(at == 0 && passed) == 1
+    });
+    let known = said.iter().all(|said| each.contains(said));
+    let drawn = sending_rows(rows);
+    let quiet = drawn.faces.iter().all(|(_, face)| *face == Face::Dim);
+    let lines = || drawn.text.lines();
+    let marked = |mark: &str| lines().filter(|line| line.starts_with(mark)).count();
+    let ended = waits.iter().filter(|sent| sent.ended).count();
+    let marks = marked("✗") == ended && marked("…") == waits.len() - ended;
+    let named = lines()
+        .filter(|line| line.contains("@ from session"))
+        .count();
+    let briefs = waits.iter().filter(|sent| sent.from.is_some()).count();
+    let marks = marks && named == briefs;
+    let starts = lines()
+        .filter(|line| !line.is_empty() && !line.starts_with("   "))
+        .count();
+    one && known && quiet && marks && starts == waits.len()
+}
+
 proptest! {
     #[test]
     fn any_bytes_read_without_panicking(bytes in prop::collection::vec(any::<u8>(), 0..4096)) {
@@ -188,8 +231,9 @@ proptest! {
     ) {
         let directory = Path::new("/work/probe");
         let mut rows = Rows::new(PathBuf::from(directory));
-        rows.sent("Hi");
-        rows.sent_brief(BRIEF, "session \u{202e}a\n〉 me");
+        let from = "session \u{202e}a\n〉 me";
+        let _ = rows.sent("Hi");
+        let _ = rows.sent_brief(BRIEF, from);
         let mut remote = Remote::default();
         // The buffer as a host keeps it: changed only as the changes of each batch say, where
         // `Placed` says.
@@ -225,6 +269,7 @@ proptest! {
                 placed.put(at, range, text.len());
                 prop_assert_eq!(placed.end(), buffer.len());
             }
+            prop_assert!(sent_stay_apart(&rows, from));
             // Its window's width changes: a result is drawn again, and of a reply, its tables.
             let Some(next) = widths.next() else {
                 continue;

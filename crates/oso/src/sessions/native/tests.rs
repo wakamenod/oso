@@ -20,6 +20,7 @@ use super::wire::{Event, MAX_LINE, MAX_TEXT, parse, user_message};
 use crate::sessions::state::Target;
 
 mod look;
+mod sending;
 
 const TOOLS_2_1_330: &str = include_str!("fixtures/2.1.330/tools.jsonl");
 /// What the recording's turns sent, as oso would have.
@@ -42,8 +43,9 @@ fn events(lines: &str) -> Vec<Event> {
 
 fn recorded() -> Rows {
     let mut rows = Rows::new(PathBuf::from("/work/probe"));
-    for text in SENT_2_1_330 {
-        rows.sent(text);
+    // The command is never replayed: its row would be there at once.
+    for text in SENT_2_1_330.iter().filter(|text| **text != "/compact") {
+        let _ = rows.sent(text);
     }
     for event in events(TOOLS_2_1_330) {
         for change in rows.apply(event) {
@@ -294,8 +296,8 @@ fn a_reply_that_grows_is_drawn_from_its_last_line() {
 #[test]
 fn only_what_oso_sent_is_the_persons() {
     let mut rows = Rows::new(PathBuf::from("/w"));
-    rows.sent("/compact");
-    rows.sent("Fix it");
+    let _ = rows.sent("/compact");
+    let _ = rows.sent("Fix it");
     for line in [
         r#"{"type":"user","isReplay":true,"message":{"content":"Fix it"}}"#,
         r#"{"type":"user","message":{"content":"not replayed"}}"#,
@@ -311,7 +313,7 @@ fn only_what_oso_sent_is_the_persons() {
     }
     assert_eq!(
         shown(&rows),
-        "〉 Fix it\n\n  Done\n\n  Fix it\n\n  a message from elsewhere\n"
+        "  Not confirmed by claude: /compact\n\n〉 Fix it\n\n  Done\n\n  Fix it\n\n  a message from elsewhere\n"
     );
 }
 

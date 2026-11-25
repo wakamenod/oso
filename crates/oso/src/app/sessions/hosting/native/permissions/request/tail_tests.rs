@@ -19,7 +19,7 @@ use super::{put_title, runs};
 use crate::app::sessions::hosting::native::markdown::tests::native;
 use crate::app::sessions::hosting::native::{Native, draw, put_tail};
 use crate::sessions::native::fuzz_tests::line;
-use crate::sessions::native::render::{Face, Rendered};
+use crate::sessions::native::render::{Face, Rendered, sending_rows};
 use crate::sessions::native::request::Block;
 use crate::sessions::native::request::fuzz_tests::{call, only_oso_stands_first};
 use crate::sessions::native::tail::Part;
@@ -30,6 +30,8 @@ use crate::sessions::native::wire::parse;
 enum Change {
     /// Lines of the stream.
     Stream(Vec<Vec<u8>>),
+    /// A message is sent, or with `None` the process ends.
+    Sent(Option<&'static str>),
     /// What waits in the queue.
     Queue(String),
     /// A call is shown, or the one shown goes.
@@ -43,6 +45,7 @@ enum Change {
 fn change() -> impl Strategy<Value = Change> {
     prop_oneof![
         3 => prop::collection::vec(line(), 1..6).prop_map(Change::Stream),
+        1 => prop::option::of(prop_oneof![Just("Hi"), Just("Hi\n\n⚠ me")]).prop_map(Change::Sent),
         1 => "(Queued\\([0-9]\\)\n)?(  [a-z⚠$]{0,6}\n){0,3}".prop_map(Change::Queue),
         2 => prop::option::weighted(0.8, call()).prop_map(Change::Call),
         1 => ((1usize..4, 1usize..4), 0usize..140).prop_map(|(at, width)| Change::Title(at, width)),
@@ -72,6 +75,13 @@ fn apply(editor: &mut Editor, native: &mut Native, block: &mut Option<Block>, ch
                     draw(editor, native, [change]);
                 }
             }
+        }
+        Change::Sent(text) => {
+            let changes = match text {
+                Some(text) => native.rows.sent(text).into_iter().collect(),
+                None => native.rows.sending_ended(true),
+            };
+            draw(editor, native, changes);
         }
         Change::Queue(rows) => {
             let its = vec![(rows.len(), Some(Face::Dim.highlight()))];
@@ -131,6 +141,9 @@ proptest! {
             let buffer = editor.buffer(id).unwrap();
             let text = buffer.text().to_string();
             prop_assert_eq!(text.len(), native.placed.end() + native.tail.len());
+            let sending = native.part_place(Part::Sending);
+            prop_assert_eq!(sending.start, native.placed.end());
+            prop_assert_eq!(&text[sending], sending_rows(&native.rows).text);
             let shown = native.part_place(Part::Body);
             let wanted = block.as_ref().map_or("", |block| block.body().text.as_str());
             prop_assert_eq!(&text[shown.clone()], wanted);

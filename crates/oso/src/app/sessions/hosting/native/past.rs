@@ -188,6 +188,7 @@ pub(super) fn draw_added(editor: &mut Editor, native: &mut Native, from: usize) 
         native.placed.put(row, at..at, length);
         at += length;
     }
+    super::sending::sync(editor, native);
     debug_assert_eq!(
         editor.buffer(native.buffer).map(|b| b.text().len()),
         Some(native.placed.end() + native.tail.len())

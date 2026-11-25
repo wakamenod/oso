@@ -25,7 +25,7 @@ pub(in crate::app) use placeholder::Placeholder;
 
 use std::collections::VecDeque;
 
-use oso_core::buffer::{Buffer, BufferId, Mode, Replacement};
+use oso_core::buffer::{BufferId, Mode, Replacement};
 use oso_core::editor::{Editor, NativeAction};
 use oso_core::window::{DockSlot, WindowId};
 
@@ -362,16 +362,16 @@ impl App {
         }
         match stream.send(text) {
             Ok(()) => {
+                native.composing.busy = true;
                 // The CLI replays no command it runs: the person's row is shown now (step 2d).
-                if native.commands.runs(text) {
-                    let change = native.rows.sent_command(text);
-                    super::draw(&mut self.editor, native, [change]);
-                } else {
-                    native.rows.sent(text);
-                }
+                // Any other message shows as being sent, until its replay.
+                let change = match native.commands.runs(text) {
+                    true => Some(native.rows.sent_command(text)),
+                    false => native.rows.sent(text),
+                };
+                super::draw(&mut self.editor, native, change);
                 // A `/model` or `/effort` is noted once its turn's result says it was taken.
                 native.choice.sent(&native.commands, text);
-                native.composing.busy = true;
                 // So that an exit asks about it at once, before the stream replays it (ADR
                 // 0133); a local command's result ends it again.
                 if let Some(worker) = &self.sessions {
@@ -438,6 +438,7 @@ impl App {
                 continue;
             }
             let buffer = native.buffer;
+            self.editor.refill_wraps();
             if !self.deliver(key, &text) {
                 self.not_sent(key, Some(text));
             }
@@ -450,22 +451,6 @@ impl App {
                 self.request_redraw();
             }
         }
-    }
-
-    /// Refuses a restart while a native session's queue holds messages, which it would lose
-    /// (ADR 0165, step 2, the author's choice): the composer's own text is the carry's to
-    /// refuse.
-    pub(in crate::app) fn refuse_unsent_queues(&self) -> Result<(), String> {
-        let waiting =
-            (self.hosting.natives.map.values()).find(|native| !native.composing.queue.is_empty());
-        let Some(native) = waiting else {
-            return Ok(());
-        };
-        let name = self.editor.buffer(native.buffer).map_or("", Buffer::name);
-        let count = native.composing.queued();
-        Err(format!(
-            "cannot hand over {name}: {count} queued message(s) not sent; send or drop them"
-        ))
     }
 
     /// Native session `key`'s process ended: no turn runs, and the queue waits for the person.

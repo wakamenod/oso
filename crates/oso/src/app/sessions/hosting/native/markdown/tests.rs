@@ -76,6 +76,7 @@ const SESSION: u64 = 7;
 pub(in crate::app::sessions::hosting::native) fn native(buffer: BufferId) -> Native {
     Native {
         tail: crate::sessions::native::tail::Tail::default(),
+        sending: crate::app::sessions::hosting::native::sending::Drawn::default(),
         buffer,
         rows: Rows::new(PathBuf::from("/w")),
         placed: Placed::default(),

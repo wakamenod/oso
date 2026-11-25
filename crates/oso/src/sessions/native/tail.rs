@@ -1,5 +1,5 @@
 //! What stands after a native session's rows in its transcript, at its end (ADR 0182, "The
-//! block"): the queue's rows, then the block of the request that waits for the person, each part
+//! block"): the messages being sent (ADR 0165), the queue's rows, then the block of the request that waits for the person, each part
 //! with runs of its own. What draws, counts, colours or finds what stands there goes through
 //! here.
 //!
@@ -19,6 +19,8 @@ pub type Run = (usize, Option<Highlight>);
 /// A part of the tail, in the order they stand.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Part {
+    /// The messages oso sent that the CLI has not replayed (ADR 0165).
+    Sending,
     /// The rows of the messages that wait (ADR 0165, step 2).
     Queue,
     /// The title of the block of the request that waits for the person, after the row that
@@ -29,7 +31,7 @@ pub enum Part {
 }
 
 impl Part {
-    const ALL: [Self; 3] = [Self::Queue, Self::Title, Self::Body];
+    const ALL: [Self; 4] = [Self::Sending, Self::Queue, Self::Title, Self::Body];
 }
 
 /// The tail's parts.
@@ -108,7 +110,8 @@ mod tests {
     }
 
     /// The parts, each with a highlight of its own.
-    const PARTS: [(Part, Highlight); 3] = [
+    const PARTS: [(Part, Highlight); 4] = [
+        (Part::Sending, Highlight::SessionPrompt),
         (Part::Queue, Highlight::SessionQuiet),
         (Part::Title, Highlight::CardTitle),
         (Part::Body, Highlight::CardKey),
@@ -122,7 +125,7 @@ mod tests {
     }
 
     #[test]
-    fn the_queue_stands_before_the_block() {
+    fn what_is_sent_then_the_queue_stand_before_the_block() {
         let mut tail = Tail::default();
         // Nothing for nothing is no change.
         let nothing = vec![(0, Some(Highlight::SessionQuiet))];
@@ -132,20 +135,22 @@ mod tests {
             let (part, highlight) = PARTS[part];
             tail.put(part, text.to_owned(), runs(text, highlight))
         };
-        assert_eq!(put(&mut tail, 2, "  ls\n"), Some(0..0));
-        assert_eq!(put(&mut tail, 1, "\n⚠ asks\n"), Some(0..0));
-        assert_eq!(put(&mut tail, 0, "Queued (1)\n"), Some(0..0));
-        assert_eq!(put(&mut tail, 0, "Queued (1)\n"), None);
+        assert_eq!(put(&mut tail, 3, "  ls\n"), Some(0..0));
+        assert_eq!(put(&mut tail, 2, "\n⚠ asks\n"), Some(0..0));
+        assert_eq!(put(&mut tail, 1, "Queued (1)\n"), Some(0..0));
+        assert_eq!(put(&mut tail, 1, "Queued (1)\n"), None);
+        assert_eq!(put(&mut tail, 0, "…  a\n"), Some(0..0));
         let places = PARTS.map(|(part, _)| tail.place(part));
-        assert_eq!(places, [0..11, 11..21, 21..26]);
-        assert_eq!(at(&tail, 10), Some((Part::Queue, 10)));
-        assert_eq!(at(&tail, 11), Some((Part::Title, 0)));
-        assert_eq!(at(&tail, 21), Some((Part::Body, 0)));
-        assert_eq!((at(&tail, 26), tail.len()), (None, 26));
+        assert_eq!(places, [0..7, 7..18, 18..28, 28..33]);
+        assert_eq!(at(&tail, 17), Some((Part::Queue, 10)));
+        assert_eq!(at(&tail, 18), Some((Part::Title, 0)));
+        assert_eq!(at(&tail, 28), Some((Part::Body, 0)));
+        assert_eq!((at(&tail, 33), tail.len()), (None, 33));
         let all: Vec<Run> = tail.runs().collect();
-        let wanted = [(11, 0), (10, 1), (5, 2)].map(|(len, at)| (len, Some(PARTS[at].1)));
+        let wanted = [(7, 0), (11, 1), (10, 2), (5, 3)].map(|(len, at)| (len, Some(PARTS[at].1)));
         assert_eq!(all, wanted);
-        assert_eq!(put(&mut tail, 0, ""), Some(0..11));
+        assert_eq!(put(&mut tail, 1, ""), Some(7..18));
+        assert_eq!(put(&mut tail, 0, ""), Some(0..7));
         assert_eq!(at(&tail, 0), Some((Part::Title, 0)));
     }
 
@@ -156,7 +161,7 @@ mod tests {
         let id = editor.add_native_session_buffer("*claude: s*");
         editor.show(id);
         let mut tail = Tail::default();
-        for (at, text) in [(1, "\n"), (2, "\n"), (1, "\n\n")] {
+        for (at, text) in [(2, "\n"), (3, "\n"), (2, "\n\n")] {
             let (part, highlight) = PARTS[at];
             if text == "\n\n" {
                 editor.current_mut().0.selections.move_primary(1);
@@ -205,7 +210,7 @@ mod tests {
             for change in changes {
                 // The person goes to a row under the title; the end follows, which is no place.
                 let body = tail.place(Part::Body);
-                let its = texts[2].split_inclusive('\n').take(row).map(str::len).sum::<usize>();
+                let its = texts[3].split_inclusive('\n').take(row).map(str::len).sum::<usize>();
                 let held = (its < body.len() && body.start > tail.place(Part::Title).start).then_some(its);
                 let goes = held.map_or(rows.len() + tail.len(), |at| rows.len() + body.start + at);
                 editor.current_mut().0.selections.move_primary(goes);
