@@ -177,3 +177,19 @@ fn a_file_not_judged_yet_does_not_count_as_secret() {
     assert!(editor.replace().is_none());
     assert_eq!(text(&editor), "foo");
 }
+
+#[test]
+fn the_first_string_counts_in_the_buffer_the_replace_begins_in() {
+    let (mut d, mut editor) = at("foo\n", &[0]);
+    editor.kill_new("hunter2", true);
+    with_yank(&mut d, &mut editor, "", "");
+    assert_eq!(editor.current().1.verdict(), Verdict::Yanked);
+    with_yank(&mut d, &mut editor, "M-%", "RET");
+    assert!(editor.prompt().is_some(), "the buffer counts as secret");
+    let other = editor.add_buffer(Buffer::from_text("other", "hunter2\n"));
+    editor.show(other);
+    send(&mut d, &mut editor, "b a r RET");
+    assert!(editor.replace().is_none());
+    assert_eq!(kept_messages(&editor).pop().as_deref(), Some(REFUSED));
+    assert_eq!(editor.last_replace(false), None);
+}
