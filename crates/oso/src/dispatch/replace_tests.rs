@@ -5,7 +5,9 @@
 //! Must not depend on: `app`, winit, the renderer or the GPU; these run on every OS with no
 //! window.
 
+use oso_core::buffer::{Buffer, Verdict};
 use oso_core::editor::{Editor, Status};
+use oso_core::kill::FromClipboard;
 
 use super::Dispatcher;
 use super::motion_tests::{at, cursors, send, text};
@@ -119,4 +121,75 @@ fn input_during_bang_waits_for_it_and_c_g_stops_it() {
     send(&mut d, &mut editor, "C-g");
     assert!(editor.replace().is_none());
     assert!(text(&editor).starts_with("c c "), "kept what it replaced");
+}
+
+/// Types `keys`, yanks the newest kill, and types `then`.
+fn with_yank(d: &mut Dispatcher, editor: &mut Editor, keys: &str, then: &str) {
+    send(d, editor, keys);
+    send(d, editor, "C-y");
+    assert!(d.take_clipboard_request().is_some());
+    d.clipboard_answered(editor, &FromClipboard::Own);
+    send(d, editor, then);
+}
+
+const REFUSED: &str =
+    "The text holds what may be secret: yank it into the buffer first, which marks it";
+
+#[test]
+fn a_string_that_a_secret_was_yanked_into_is_refused() {
+    for key in ["M-%", "C-M-%"] {
+        for before in [" ", " f o o RET "] {
+            let (mut d, mut editor) = at("foo foo hunter2\n", &[0]);
+            editor.kill_new("hunter2", true);
+            with_yank(&mut d, &mut editor, &format!("{key}{before}"), "RET");
+            assert!(editor.prompt().is_none(), "no second prompt shows it");
+            assert!(editor.replace().is_none());
+            assert_eq!(kept_messages(&editor).pop().as_deref(), Some(REFUSED));
+            assert_eq!(text(&editor), "foo foo hunter2\n");
+            assert_eq!(editor.current().1.verdict(), Verdict::Ordinary);
+            assert_eq!(editor.last_replace(key != "M-%"), None);
+        }
+    }
+}
+
+#[test]
+fn a_buffer_already_secret_takes_it_and_the_pair_is_not_kept() {
+    let (mut d, mut editor) = at("foo foo\n", &[0]);
+    editor.kill_new("hunter2", true);
+    with_yank(&mut d, &mut editor, "", "");
+    assert_eq!(editor.current().1.verdict(), Verdict::Yanked);
+    with_yank(&mut d, &mut editor, "M-% f o o RET", "RET !");
+    finish_bang(&mut d, &mut editor);
+    assert_eq!(text(&editor), "hunter2hunter2 hunter2\n");
+    assert_eq!(editor.last_replace(false), None);
+}
+
+#[test]
+fn a_file_not_judged_yet_does_not_count_as_secret() {
+    let mut unjudged = Buffer::visiting(std::path::PathBuf::from("/test/notes"));
+    unjudged.finish_empty();
+    let mut editor = Editor::with_buffer(unjudged);
+    let mut d = Dispatcher::new();
+    d.insert_text(&mut editor, "foo");
+    assert_eq!(editor.current().1.verdict(), Verdict::Unjudged);
+    editor.kill_new("hunter2", true);
+    with_yank(&mut d, &mut editor, "M-< M-% f o o RET", "RET");
+    assert!(editor.replace().is_none());
+    assert_eq!(text(&editor), "foo");
+}
+
+#[test]
+fn the_first_string_counts_in_the_buffer_the_replace_begins_in() {
+    let (mut d, mut editor) = at("foo\n", &[0]);
+    editor.kill_new("hunter2", true);
+    with_yank(&mut d, &mut editor, "", "");
+    assert_eq!(editor.current().1.verdict(), Verdict::Yanked);
+    with_yank(&mut d, &mut editor, "M-%", "RET");
+    assert!(editor.prompt().is_some(), "the buffer counts as secret");
+    let other = editor.add_buffer(Buffer::from_text("other", "hunter2\n"));
+    editor.show(other);
+    send(&mut d, &mut editor, "b a r RET");
+    assert!(editor.replace().is_none());
+    assert_eq!(kept_messages(&editor).pop().as_deref(), Some(REFUSED));
+    assert_eq!(editor.last_replace(false), None);
 }

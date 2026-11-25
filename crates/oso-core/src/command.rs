@@ -255,8 +255,8 @@ pub struct Invocation<'a> {
     /// What a prompt read for the command, as its [`ArgSpec`] asked (ADR 0072).
     pub answer: Option<&'a str>,
     /// Whether the prompt's buffer may have held secrets as it gave [`Invocation::answer`]
-    /// (ADR 0044), so that a command keeps no such answer where others read it. Set for a
-    /// command that reads one answer.
+    /// (ADR 0044), so that a command keeps no such answer where others read it. For a
+    /// command that reads two, of the second, and for [`ArgSpec::Replace`] of either.
     pub answer_secret: bool,
     /// What a second prompt read, for [`ArgSpec::Replace`] (ADR 0113),
     /// [`ArgSpec::DirectoryAndTextOnPrefix`], [`ArgSpec::ListedAndNoteUnlessRegion`] and,

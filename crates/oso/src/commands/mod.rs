@@ -42,7 +42,7 @@ mod prefix;
 mod projects;
 mod recovery;
 mod rename;
-mod replace;
+pub(crate) mod replace;
 mod restart;
 pub(crate) mod review;
 mod save;

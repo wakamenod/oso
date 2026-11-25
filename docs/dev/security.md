@@ -592,7 +592,8 @@ shown, boxed or escaped.
   at its list of types, to drop TypeWhisper's own Command-V
   ([ADR 0175](adr/0175-dictation-through-typewhisper.md)). A kill from a buffer that may hold secrets
   goes there marked concealed for clipboard managers, never shows over the socket, and
-  makes the buffer it is yanked into secret, also after a round trip through another app
+  makes the buffer it is yanked into secret, also after a round trip through another app;
+  query-replace refuses a string it was yanked into unless the buffer counts as secret
   ([ADR 0074](adr/0074-the-kill-ring-and-the-clipboard.md)). An image is read only on
   `session-yank-image` and never decoded in oso's process: it is copied into a new `0600` file
   in a `0700` directory under the cache, a TIFF is converted by `/usr/bin/sips` in a child
@@ -881,7 +882,7 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     wrong, the bridge denies: a call runs only on the person's `y` or answers, an `allow`
     gives the CLI back the input it sent, and only an `AskUserQuestion`'s takes answers, the
     person's alone, and an `ExitPlanMode`'s the person's edit and mode (part 3d, below). A
-    note or an answer holding a yanked secret is refused.
+    note or an answer holding a yanked secret is refused, as `session-send`'s note is.
   - A plan's card (part 3d) also approves with a mode after it, `acceptEdits` or `auto`, the
     only two the protocol and the bridge carry: an answer naming any other mode, or a plan
     that is not a string within 64 KiB, denies, and only an `ExitPlanMode`'s `allow` takes

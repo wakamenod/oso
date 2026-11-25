@@ -52,7 +52,7 @@ pub const YANK_IMAGE: &str = "session-yank-image";
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "session-send",
-        doc: "Paste the region into an agent session, read with completion, or with no region, a note read in the minibuffer.\n\nThe region goes as its path relative to the session's directory, its lines and its text in a fence; with `C-u`, as its path and lines only, `path:10-20`, which the agent reads itself (with no region, the line at point, and the note after it). A buffer that may hold secrets sends its path and lines only. The paste is not submitted: the session is shown, you read it in its input box and press Enter. A session that asks for permission or another answer is refused until you answer it. At most 256 KiB.",
+        doc: "Paste the region into an agent session, read with completion, or with no region, a note read in the minibuffer.\n\nThe region goes as its path relative to the session's directory, its lines and its text in a fence; with `C-u`, as its path and lines only, `path:10-20`, which the agent reads itself (with no region, the line at point, and the note after it). A buffer that may hold secrets sends its path and lines only, and a note that a secret was yanked into is not sent. The paste is not submitted: the session is shown, you read it in its input box and press Enter. A session that asks for permission or another answer is refused until you answer it. At most 256 KiB.",
         args: ArgSpec::ListedAndNoteUnlessRegion {
             list: SEND_LIST,
             prompt: "Send to session:",
@@ -125,6 +125,12 @@ fn session_send(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
         .listed_and_note()
         .filter(|(session, _)| !session.is_empty())
         .ok_or_else(|| CommandError::new("No session"))?;
+    // A yank of a secret entry turns the note's prompt secret: its text stays here.
+    if ctx.answer_secret() {
+        return Err(CommandError::new(
+            "The note holds secret text, which is not sent: write it again without it",
+        ));
+    }
     let place_only = args.raw().is_some();
     let mut parts = match note {
         // No region showed: the line at point with `C-u`, then the note.
