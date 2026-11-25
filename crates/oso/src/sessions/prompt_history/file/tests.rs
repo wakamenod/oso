@@ -111,7 +111,20 @@ fn many_instances_at_once_lose_nothing() {
             let directory = scratch.0.clone();
             thread::spawn(move || {
                 let ours = history(&[(&format!("from {n}"), n + 1)]);
-                write(&directory, &ours, false).unwrap();
+                // A write gives up on a lock held past `LOCK_WAIT`, as by the others' on a loaded
+                // machine, and changes nothing then.
+                let until = Instant::now() + Duration::from_secs(60);
+                loop {
+                    match write(&directory, &ours, false) {
+                        Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                            assert!(Instant::now() < until, "the lock was never had: {e}");
+                        }
+                        written => {
+                            written.unwrap();
+                            break;
+                        }
+                    }
+                }
             })
         })
         .collect();
