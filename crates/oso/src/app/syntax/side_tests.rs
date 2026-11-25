@@ -5,7 +5,7 @@
 
 use oso_core::buffer::Mode;
 use oso_core::syntax::{Highlight, Highlights};
-use oso_syntax::{Language, Outcome, Report};
+use oso_syntax::{Failure, Language, Outcome, Report};
 
 use super::Syntax;
 use super::tests::{editor_with, job_ids, visited};
@@ -67,4 +67,29 @@ fn an_internal_buffer_of_a_language_is_highlighted_by_no_one_but_a_side() {
     let window = editor.window().id();
     editor.show_in(window, other);
     assert!(!job_ids(&Syntax::default().orders(&editor)).contains(&other));
+}
+
+#[test]
+fn a_side_whose_highlighting_failed_is_not_tried_again_by_hiding_it() {
+    let (mut editor, id) = editor_with(visited("/w/p/main.rs", "fn main() {}\n"));
+    let side = editor.add_side_buffer("*new: b.rs \u{b7} commit abc*", Mode::Rust);
+    editor.set_internal_text(side, "fn b() {}\n");
+    let window = editor.window().id();
+    editor.show_in(window, side);
+    let mut syntax = Syntax::default();
+    let orders = syntax.orders(&editor);
+    let job = (orders.jobs.iter().find(|job| job.buffer == side)).expect("a job");
+    let report = Report {
+        buffer: side,
+        epoch: job.epoch,
+        stamp: 1,
+        revision: job.revision,
+        outcome: Outcome::Failed(Failure::TooSlow),
+        done: true,
+    };
+    assert!(syntax.take(&mut editor, report).message.is_some());
+    editor.show_in(window, id);
+    syntax.drops(&editor);
+    editor.show_in(window, side);
+    assert!(!job_ids(&syntax.orders(&editor)).contains(&side));
 }

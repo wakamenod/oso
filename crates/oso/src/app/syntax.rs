@@ -173,7 +173,12 @@ impl Syntax {
             }
             keep
         });
-        self.stopped.retain(|id, _| present.contains_key(id));
+        // A side no window shows keeps its place, so that hiding it is no way to try it again.
+        let kept = |id: &BufferId| {
+            (editor.buffer(*id)).is_some_and(|it| it.is_internal() && it.can_highlight())
+        };
+        self.stopped
+            .retain(|id, _| present.contains_key(id) || kept(id));
         self.whole.retain(|id, _| present.contains_key(id));
         drops
     }
