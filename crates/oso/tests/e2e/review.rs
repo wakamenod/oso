@@ -312,10 +312,16 @@ fn a_comment_is_drafted_kept_edited_removed_and_yanked_back() {
     app.send_keys("q");
     app.wait_for("a.rs", |state| state["buffer"]["name"] == "a.rs");
     app.send_keys("M-> C-y");
-    let state = app.state();
+    let state = yanked(&mut app);
     assert_eq!(state["buffer"]["name"], "a.rs");
     let text = rows(&mut app, 20).join("\n");
     assert!(text.ends_with("You  #0\nfirst\nsecond"), "{text:?}");
+}
+
+/// Waits until a `C-y` sent before is done, which waits for the clipboard, and returns the first
+/// state after it.
+fn yanked(app: &mut App) -> Value {
+    app.wait_for("the yank", |state| state["clipboard"]["waiting"] == false)
 }
 
 #[test]
@@ -350,11 +356,10 @@ fn a_draft_takes_no_japanese_once_it_or_a_buffer_shown_may_hold_secrets() {
     assert_eq!(app.state()["prompts"][0]["kind"], "draft");
     assert_eq!(app.state()["ime"]["allowed"], true, "on in the draft");
     app.send_keys("C-y");
-    assert_eq!(
-        app.state()["ime"]["allowed"],
-        false,
-        "off in a secret draft"
-    );
+    // `C-y` yanks once the clipboard's thread answered, and the IME is off in that same event:
+    // the first state with nothing waiting has it off, not a later one.
+    let state = yanked(&mut app);
+    assert_eq!(state["ime"]["allowed"], false, "off in a secret draft");
     let none = if cfg!(target_os = "macos") {
         json!(false)
     } else {
