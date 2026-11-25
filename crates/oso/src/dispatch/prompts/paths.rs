@@ -7,6 +7,7 @@
 //!
 //! Must not depend on: `app` or winit; key sequences stay testable without a window.
 
+use oso_core::buffer::Mode;
 use oso_core::command::{ArgSpec, Args, CommandId, Effects, ExecuteError, Invocation, Prefix};
 use oso_core::editor::Editor;
 use oso_core::minibuffer::PromptError;
@@ -21,6 +22,7 @@ pub(super) fn reads_listed(spec: ArgSpec) -> bool {
         spec,
         ArgSpec::Mark { .. }
             | ArgSpec::Diagnostics { .. }
+            | ArgSpec::PastPrompt { .. }
             | ArgSpec::File { .. }
             | ArgSpec::Directory { .. }
             | ArgSpec::Target { .. }
@@ -44,6 +46,7 @@ impl Dispatcher {
         match spec {
             ArgSpec::Mark { prompt } => self.read_mark(editor, id, prefix, prompt),
             ArgSpec::Diagnostics { prompt } => self.read_diagnostic(editor, id, prefix, prompt),
+            ArgSpec::PastPrompt { prompt } => self.read_past(editor, id, prefix, prompt),
             // Its list opens only once a server's answer needs it (ADR 0138, step 8b).
             ArgSpec::Xref => {
                 editor.message("A server's places are listed by M-. and M-?");
@@ -86,6 +89,33 @@ impl Dispatcher {
                 Step::MayJoin,
             ),
         }
+    }
+
+    /// Opens the list of what the person sent native sessions for the command `id`, unless a
+    /// prompt, or what is no composer, or one that a yank turned secret, is selected (ADR 0165).
+    fn read_past(
+        &mut self,
+        editor: &mut Editor,
+        id: CommandId,
+        prefix: Option<Prefix>,
+        prompt: &'static str,
+    ) -> (Effects, Result<(), ExecuteError>) {
+        if let Some(refused) = refused_in_a_prompt(editor) {
+            return refused;
+        }
+        let buffer = editor.current().1;
+        if buffer.mode() != Mode::Composer {
+            editor.message("This buffer is no native session's composer");
+        } else if buffer.is_secret() {
+            editor.message("The composer holds secret text: take it out");
+        } else {
+            match editor.open_past_prompts(prompt) {
+                Ok(prompt) => self.reading.push(Reading::run(id, prefix, prompt)),
+                Err(PromptError::Invalid) => editor.message("Nothing sent yet"),
+                Err(error) => editor.prompt_says(error.to_string()),
+            }
+        }
+        (redraw(), Ok(()))
     }
 
     /// Opens the list of the current buffer's project's diagnostics for the command `id`, unless

@@ -492,6 +492,9 @@ mod tests {
         "native-composer-effort",
         "native-composer-model",
         "native-composer-next",
+        "native-composer-past-prompt",
+        // It takes out what the person sent (ADR 0165).
+        "native-prompt-history-clear",
         "native-composer-previous",
         "native-composer-send",
         "native-composer-transcript",

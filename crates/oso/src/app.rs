@@ -101,6 +101,8 @@ pub enum UserEvent {
     DictationFix(u64, Result<crate::dictation::fix::Applied, String>),
     /// Dictation's learning was forgotten, or not (ADR 0175, step 3).
     DictationForgot(dictation::Forgot),
+    /// The prompt history's thread read or wrote it (ADR 0165, step 2).
+    PromptHistory(sessions::PromptHistoryEvent),
     /// Dictation's learning log was read, or not, by how often it had been emptied (step 4).
     DictationLog(Option<String>, u64),
     /// A whitespace scan ended (ADR 0113).
@@ -170,8 +172,7 @@ pub enum UserEvent {
     Adoptable(Box<crate::sessions::adopt::Found>),
     /// The look for a session that asks to move into a space ended, by its token (ADR 0151).
     MoveLooked(u64, Box<Result<crate::sessions::moving::Asker, String>>),
-    /// The registry look of an agent's archive that stops a session ended, by its token
-    /// (ADR 0179).
+    /// The registry look of an agent's archive ended, by its token (ADR 0179).
     ArchiveLooked(u64, Box<crate::sessions::registry_look::Found>),
     /// The wait for a moving session's outside process took a step, by its token (ADR 0151).
     MoveWaited(u64, crate::sessions::moving::Step),

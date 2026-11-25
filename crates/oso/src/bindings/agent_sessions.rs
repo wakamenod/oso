@@ -71,6 +71,9 @@ pub const COMPOSER: &[(&str, &str)] = &[
     ("C-c C-k", "native-composer-cancel"),
     ("M-p", "native-composer-previous"),
     ("M-n", "native-composer-next"),
+    // What the person sent any native session, by completion; the transcript's is
+    // `session-resume`.
+    ("C-c C-r", "native-composer-past-prompt"),
     ("C-c C-o", "native-composer-transcript"),
     ("C-c C-q", "native-session-queue"),
     ("C-c C-s", "native-session-take-suggestion"),

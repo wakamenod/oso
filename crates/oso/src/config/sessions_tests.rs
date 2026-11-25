@@ -130,6 +130,23 @@ fn steering_worktrees_is_off_until_set() {
 }
 
 #[test]
+fn the_prompt_history_is_kept_unless_prompt_history_is_not_true() {
+    let f = Fixture::new();
+    let kept = |text: &str| {
+        let loaded = f.parse(text);
+        (
+            !loaded.settings.sessions.no_prompt_history,
+            messages(&loaded).len(),
+        )
+    };
+    assert_eq!(kept("[sessions]\n"), (true, 0));
+    assert_eq!(kept("[sessions]\nprompt_history = true\n"), (true, 0));
+    assert_eq!(kept("[sessions]\nprompt_history = false\n"), (false, 0));
+    assert_eq!(kept("[sessions]\nprompt_history = \"no\"\n"), (false, 1));
+    assert_eq!(kept("[[sessions]]\nprompt_history = false\n"), (false, 1));
+}
+
+#[test]
 fn waiting_rows_blink_until_blink_is_false() {
     let f = Fixture::new();
     assert!(!f.parse("[sessions]\n").settings.sessions.no_blink);

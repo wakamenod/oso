@@ -14,16 +14,16 @@
 //! - What oso sends a native session is put into the composer, or a review's confirmed
 //!   question sent, by `composed` (part 2f).
 //! - A send while a dictation's fix runs waits for it, in `held` (ADR 0175, step 2).
+//! - What the person sent, and `M-p` over it, is `past`'s.
 //! - What an empty composer's placeholder says is `placeholder`'s (ADR 0170).
 
 mod composed;
 mod held;
+mod past;
 mod placeholder;
 mod queued;
 
 pub(in crate::app) use placeholder::Placeholder;
-
-use std::collections::VecDeque;
 
 use oso_core::buffer::{BufferId, Mode, Replacement};
 use oso_core::editor::{Editor, NativeAction};
@@ -40,9 +40,6 @@ use crate::sessions::state::Target;
 use crate::sessions::stream::NotSent;
 use crate::sessions::worker::{Job, SessionKey};
 
-/// The most messages the composer's history keeps.
-const MAX_HISTORY: usize = 100;
-
 /// What a key to a composer that is not shown says.
 const HIDDEN: &str = "The composer is hidden: the window is too short for it";
 
@@ -57,9 +54,8 @@ pub(super) struct Composing {
     /// The CLI's prompt suggestion since its turn ended, until a turn starts, the person
     /// sends or the process ends (part 3f), which its empty composer's placeholder shows.
     pub(super) suggestion: Option<String>,
-    /// The messages sent, the newest last, and where `M-p` is among them.
-    history: VecDeque<String>,
-    at: Option<usize>,
+    /// Where `M-p` is in the history, while it walks it.
+    walk: Option<past::Walk>,
     /// A turn is under way: what is sent now is queued.
     pub(super) busy: bool,
     /// A send that waits for a dictation's fix (ADR 0175, step 2).
@@ -164,6 +160,7 @@ impl App {
             NativeAction::Cancel if self.drop_held_send(key) => {}
             NativeAction::Cancel => self.composer_cancel(key),
             NativeAction::History(count) => self.composer_history(key, count),
+            NativeAction::PastPrompt => self.put_past_prompt(key),
             NativeAction::Transcript => self.composer_go(key, false),
             NativeAction::Compose => self.composer_go(key, true),
             NativeAction::Request => self.go_to_request(key),
@@ -260,6 +257,7 @@ impl App {
         let Some(native) = self.hosting.natives.map.get_mut(&key) else {
             return;
         };
+        let taken = text.clone();
         let sent = match now {
             true => native.composing.queue.send_now(text, turn),
             false => native.composing.queue.send(text, turn),
@@ -267,7 +265,7 @@ impl App {
         // Sent or queued: the window it was written in follows again.
         let mut went = true;
         match sent {
-            Sent::Now(text) if self.deliver(key, &text) => self.set_composer_text(key, ""),
+            Sent::Now(text) if self.deliver(key, &text) => self.sent_from_composer(key, &taken),
             // The person's text stays in the composer, and the queue waits for the person.
             Sent::Now(_) => {
                 went = false;
@@ -283,7 +281,7 @@ impl App {
                 self.editor.message("The queue goes on once the turn ends");
             }
             Sent::Queued(count) => {
-                self.set_composer_text(key, "");
+                self.sent_from_composer(key, &taken);
                 let when = match turn.run {
                     Run::Running => "C-c C-q goes to the queue",
                     Run::Starting if turn.busy => "it goes once the first turn ends",
@@ -294,14 +292,14 @@ impl App {
             }
             // It goes first, the queue not paused: a send now is a send (Q1 (a)).
             Sent::Ahead(_) => {
-                self.set_composer_text(key, "");
+                self.sent_from_composer(key, &taken);
                 if self.native_interrupt(key, false) != Interrupted::Yes {
                     self.editor.message("It goes first, once the turn ends");
                 }
             }
             Sent::PutBack => {
                 went = false;
-                self.set_composer_text(key, "");
+                self.sent_from_composer(key, &taken);
             }
             Sent::Refused(why) => {
                 went = false;
@@ -379,12 +377,6 @@ impl App {
                 }
                 native.spoke = true;
                 native.composing.suggestion = None;
-                let history = &mut native.composing.history;
-                if history.len() == MAX_HISTORY {
-                    history.pop_front();
-                }
-                history.push_back(text.to_owned());
-                native.composing.at = None;
                 // A turn starts: an exit or a restart that waits for the sessions waits for
                 // it too.
                 self.idle_quit.restart();
@@ -491,29 +483,6 @@ impl App {
         if self.native_interrupt(key, true) == Interrupted::NoTurn {
             self.editor.message("No turn runs to interrupt");
         }
-    }
-
-    /// `M-p` and `M-n`: the message sent `count` before the one shown, after if negative;
-    /// `M-n` past the newest, in an empty composer, puts the suggestion in (part 3f).
-    fn composer_history(&mut self, key: SessionKey, count: isize) {
-        let past_newest =
-            (self.hosting.natives.map.get(&key)).is_some_and(|n| n.composing.at.is_none());
-        if count < 0 && past_newest && self.take_suggestion(key) {
-            return;
-        }
-        let Some(native) = self.hosting.natives.map.get_mut(&key) else {
-            return;
-        };
-        let history = &native.composing.history;
-        if history.is_empty() {
-            return self.editor.message("Nothing sent yet");
-        }
-        let newest = history.len() - 1;
-        let from = native.composing.at.unwrap_or(newest + 1);
-        let to = from.saturating_add_signed(-count).min(newest + 1);
-        native.composing.at = (to <= newest).then_some(to);
-        let text = history.get(to).cloned().unwrap_or_default();
-        self.set_composer_text(key, &text);
     }
 
     /// `i` and `C-c C-o`: to the composer, or back to the window that carries it.

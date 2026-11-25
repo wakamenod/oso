@@ -34,7 +34,7 @@ pub enum Preview {
     /// A recent file no buffer visits, which `C-x b` lists after the buffers: nothing of it
     /// is read (ADR 0148).
     NotOpen,
-    /// The kill ring's entry `entry`, as [`Editor::kill_preview`] gives its lines (ADR 0091).
+    /// The kill ring's entry `entry`, or the past prompt of that place (ADR 0165), as [`Editor::kill_preview`] gives its lines (ADR 0091).
     Text { entry: u64 },
     /// What the host read of a project search's row's file, as
     /// [`Editor::preview_excerpt_display`] gives it, at its own `revision`, with a cursor at the
@@ -261,6 +261,9 @@ impl Editor {
             return self.xrefs_preview();
         }
         // `M-y` previews the kill its selected row names, never a secret one (ADR 0091).
+        if let Some(at) = self.selected_past() {
+            return Some(Preview::Text { entry: at as u64 });
+        }
         if self.kill_list_open() {
             let entry = self.selected_kill()?;
             return Some(if entry.is_secret() {

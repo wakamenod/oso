@@ -28,7 +28,7 @@ use crate::sessions::send;
 use crate::sessions::worker::SessionKey;
 
 /// What a composer that would hold too much says.
-fn too_much() -> String {
+pub(super) fn too_much() -> String {
     format!(
         "The composer would hold over {} KiB: nothing was put in",
         MAX_MESSAGE >> 10
@@ -36,7 +36,7 @@ fn too_much() -> String {
 }
 
 /// Why `buffer`, a session's composer, takes no text of oso's, if it takes none.
-fn refuses(buffer: &Buffer) -> Result<(), String> {
+pub(super) fn refuses(buffer: &Buffer) -> Result<(), String> {
     if buffer.mode() != Mode::Composer {
         return Err("The composer is no longer one".to_owned());
     }

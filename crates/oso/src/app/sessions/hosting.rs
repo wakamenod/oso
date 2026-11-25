@@ -49,7 +49,7 @@ use fork::ForkFrom;
 pub(in crate::app) use adopt::Adopting;
 pub(in crate::app) use begin::{Begin, Then};
 pub(in crate::app) use moving::{Moves, Moving};
-pub(crate) use native::Looked as RemoteLooked;
+pub(crate) use native::{Looked as RemoteLooked, PromptHistoryEvent};
 pub(in crate::app) use native::{
     NativeSessions, Placeholder, RequestWaits, Typing, with_transcripts_shown,
 };

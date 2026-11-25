@@ -1,6 +1,6 @@
 # 0165. Native Claude sessions: the route
 
-- Status: Accepted, amended by 0170, 0173, 0176, 0180, 0181 and 0182; "Worktrees' resumes", "Following the end, as amended", "Remote Control is off, as amended", part 3f's suggestion and "The footer, as built" (2026-11-24)
+- Status: Accepted, amended by 0170, 0173, 0176, 0180, 0181 and 0182; "Worktrees' resumes", "Following the end, as amended", "Remote Control is off, as amended", "The composer's history, as amended", part 3f's suggestion and "The footer, as built" (2026-11-24)
 - Date: 2026-11-21
 
 ## Context
@@ -2853,6 +2853,45 @@ The author chose (a) on each, on 2026-11-21. The options are kept as they were p
    (a) Idle sessions are stopped and resumed with `--resume` after the restart; a turn in progress
    delays the restart as ADR 0133's quit-wait does; passing the pipes over comes later if wanted.
    (b) Pass the pipe fds to the new oso from the start (ADR 0133's fd passing).
+
+## The composer's history, as amended
+
+Amended on 2026-11-25, at the author's words: `M-p`'s history went with each session and each
+restart, where emacs-claude-code's is shared by every session and kept. It replaces step 2's
+"History"; the public items and the choices below are the author's, but the size, that commands
+and queued messages are kept, and that the clear asks nothing.
+
+- **One history.** `M-p`/`M-n` walk what the person sent from native composers, the newest first,
+  shared by all native sessions and kept in `prompt-history` in oso's state directory, at most
+  200 messages and 512 KiB; each text once. It goes over projects and spaces too.
+- **A walk gives its draft back** past the newest. It keeps its place by when the message shown
+  was sent, so another session's send does not move it. It ends as the composer's text changes
+  another way (sent, edited, put in): the next step then starts one from that text.
+- **What goes in:** a composer's text once its send is taken, in one place, after the secret
+  check: sent now once it is written; queued or put ahead as it is queued, so one dropped or
+  interrupted later stays; an edited queued message as it is put back. `/model` and other
+  commands the person sends are in it. Not: a refused or failed send, `/clear`, a review's
+  question, a brief, a suggestion not sent, text from claude.ai, another session's words. A
+  composer a secret yank turned secret takes no part, so no draft of it is kept either.
+- **`C-c C-r`** (`native-composer-past-prompt`, `Past prompt:`) completes over it, with the whole
+  text beside it, and puts the one chosen at point, unsent and unescaped: the person's own words,
+  as a yank's or `M-p`'s are (what they sent of oso's text was escaped then, and still is). The
+  list is `M-y`'s (ADR 0091) rather than a `Listed` one: whole texts, a preview, rows the dev
+  socket does not see, and no minibuffer history, which would keep a second copy.
+- **The file:** JSON lines, the first its version and its last clear; read and replaced as the
+  `sessions` record is, at most 1 MiB, on `oso-prompts`, a second after the last send and at an
+  exit or a restart's start. A bad line is left out; a file too large, not plain or of another
+  version is not read, and not replaced until a clear, and the echo area says so. A write reads
+  and merges first, under `prompt-history.lock`, so two instances lose none of each other's and
+  bring back nothing one cleared.
+- **Off and cleared:** `[sessions] prompt_history = false` reads and writes nothing, and `M-p`
+  walks what was sent since the start; anything but `true` is off, and once off it is on again
+  only from the next start, so that nothing sent meanwhile is written. Before the configuration
+  is read, while it cannot be, or with none read at all (`--no-config`), nothing is. `native-prompt-history-clear` (no key, `Person`)
+  empties it in memory and in the file, also one that could not be read.
+
+Approved public items: `ArgSpec::PastPrompt`, `Editor::set_past_prompts`, `open_past_prompts` and
+`take_past_prompt`, `NativeAction::PastPrompt`, `SessionRequest::ClearPromptHistory`.
 
 ## Following the end, as amended
 

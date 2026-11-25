@@ -10,7 +10,7 @@ use oso_core::editor::{Editor, NativeAction, SessionRequest};
 use super::Dispatcher;
 use super::motion_tests::send;
 
-fn actions(editor: &mut Editor) -> Vec<NativeAction> {
+pub(super) fn actions(editor: &mut Editor) -> Vec<NativeAction> {
     (editor.take_session_requests().into_iter())
         .filter_map(|request| match request {
             SessionRequest::Native { action, .. } => Some(action),

@@ -664,6 +664,8 @@ mod menu_tests;
 #[cfg(test)]
 mod motion_tests;
 #[cfg(test)]
+mod past_prompt_tests;
+#[cfg(test)]
 mod paste_guard_tests;
 #[cfg(test)]
 mod prefix_tests;

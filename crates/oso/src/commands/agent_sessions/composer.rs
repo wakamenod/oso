@@ -117,7 +117,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "native-composer-previous",
-        doc: "Put the message sent before the one shown in a native session's composer, times the count.",
+        doc: "Put the message sent before the one shown, in any native session, in this composer, times the count.\n\nThe text there when the walk starts comes back with `native-composer-next` past the newest.",
         args: ArgSpec::Count,
         reach: Reach::Person,
         run: previous,
@@ -125,10 +125,28 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "native-composer-next",
-        doc: "Put the message sent after the one shown in a native session's composer, times the count.\n\nPast the newest, in an empty composer, put in the session's prompt suggestion, escaped as text oso composes, not sent.",
+        doc: "Put the message sent after the one shown, in any native session, in this composer, times the count.\n\nPast the newest, put back the text the walk started from; with no walk, in an empty composer, put in the session's prompt suggestion, escaped as text oso composes, not sent.",
         args: ArgSpec::Count,
         reach: Reach::Person,
         run: next,
+        state: None,
+    },
+    Command {
+        name: "native-composer-past-prompt",
+        doc: "Complete over what you sent native sessions, the newest first, and put the message chosen in this composer at point, as it was sent, not sent again.\n\nThe list is shared by every native session and kept over restarts, unless `[sessions] prompt_history` is false. `native-prompt-history-clear` empties it.",
+        args: ArgSpec::PastPrompt {
+            prompt: "Past prompt:",
+        },
+        reach: Reach::Person,
+        run: past_prompt,
+        state: None,
+    },
+    Command {
+        name: "native-prompt-history-clear",
+        doc: "Take every message out of the history of what you sent native sessions, in oso's memory and in its file.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: clear_history,
         state: None,
     },
     Command {
@@ -230,6 +248,15 @@ fn next(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
     ask(ctx, NativeAction::History(-args.count()))
 }
 
+fn past_prompt(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    ask(ctx, NativeAction::PastPrompt)
+}
+
+fn clear_history(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    (ctx.editor).request_session(oso_core::editor::SessionRequest::ClearPromptHistory);
+    Ok(())
+}
+
 fn transcript(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     ask(ctx, NativeAction::Transcript)
 }
@@ -314,8 +341,14 @@ fn with_argument(
         .map_err(|error| CommandError::new(error.to_string()))
 }
 
-/// The prompt's answer, or `none` as the error when it gave nothing.
+/// The prompt's answer, or `none` as the error when it gave nothing; refused if a secret was
+/// yanked into it, which the composer would no longer be marked with.
 fn chosen(ctx: &Ctx<'_>, none: &'static str) -> Result<String, CommandError> {
+    if ctx.answer_secret() {
+        return Err(CommandError::new(
+            "The answer holds secret text, which is not put in the composer",
+        ));
+    }
     match ctx.answer() {
         Some(answer) if !answer.is_empty() => Ok(answer.to_owned()),
         _ => Err(CommandError::new(none)),

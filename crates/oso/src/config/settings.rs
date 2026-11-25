@@ -69,6 +69,9 @@ pub struct Sessions {
     /// `blink = false`: waiting sessions' rows in `*Spaces*` stand still (ADR 0140, as
     /// amended). They blink unless set.
     pub no_blink: bool,
+    /// `prompt_history = false`: what the person sends native sessions is not kept in a file
+    /// (ADR 0165, step 2). It is unless set; off at once, on again from oso's next start.
+    pub no_prompt_history: bool,
     /// `pane_width`: the columns of `*Spaces*`' pane, from 24 to 80; else 44 (ADR 0131, Q7).
     pub pane_width: Option<usize>,
     /// `[sessions.notify]`: which states ask for the person's attention (ADR 0121, step 3).
@@ -289,6 +292,8 @@ pub(super) fn search(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Search 
 pub(super) fn sessions(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Sessions {
     let mut sessions = Sessions::default();
     let Some(entries) = table(value, "[sessions]", found) else {
+        // It may say to keep nothing.
+        sessions.no_prompt_history = true;
         return sessions;
     };
     for (name, value) in entries {
@@ -309,6 +314,11 @@ pub(super) fn sessions(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Sessi
                 if let Some(on) = switch(value, "[sessions]", "blink", found) {
                     sessions.no_blink = !on;
                 }
+            }
+            // Anything but `true` keeps nothing.
+            "prompt_history" => {
+                let on = switch(value, "[sessions]", "prompt_history", found);
+                sessions.no_prompt_history = on != Some(true);
             }
             "pane_width" => sessions.pane_width = pane_width(value, found),
             "notify" => notify(value, &mut sessions.notify, found),

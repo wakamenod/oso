@@ -667,6 +667,7 @@ spinner = false                      # keep working marks in *Spaces* still (the
 blink = false                        # keep waiting sessions in *Spaces* still (they blink by default)
 agents_start_without_asking = true   # let your sessions start sessions, and add known repositories, with no question (off by default)
 agents_start_limit = 4               # how many such sessions each may run at once, 1 to 8, or "none"
+prompt_history = false               # keep what you send native sessions in no file (kept by default)
 pane_width = 52                      # the *Spaces* pane's columns, 24 to 80 (44 by default)
 mode = "tui"                         # new sessions host Claude Code's TUI in a terminal ("native" by default, in trusted projects)
 
@@ -680,7 +681,8 @@ ready_for_review = false
 `steer_worktrees` gives each new session a hook that turns down Claude Code's own worktree
 tools and points the agent to `start_worktree_session`, so its worktrees show in oso.
 `spinner = false` stops the working marks from turning, and `blink = false` stops waiting
-sessions from blinking; with both, the list runs no timer. `pane_width` is where the pane starts; `<` and `>` in it change it for this oso only.
+sessions from blinking; with both, the list runs no timer. `prompt_history = false` also leaves the file there as it is (`M-x native-prompt-history-clear` empties it); it is off at once, and on again from oso's next start.
+`pane_width` is where the pane starts; `<` and `>` in it change it for this oso only.
 The `[sessions.notify]` values shown are the defaults.
 
 `mode = "tui"` starts new sessions, forks, adopted ones and new orchestrators as Claude Code's TUI in a terminal,
@@ -759,7 +761,13 @@ You write the next messages in the composer under the conversation, which agents
 The row under it says the permission mode, with the key that changes it, and the model. It changes
 once `claude` says that it did. In a window too short for the row, the modeline says both.
 While the composer is empty it says in grey what it is and its keys. `i` goes there and `C-c C-o` back, `C-c C-c` sends, and `M-p` and `M-n` bring back what you
-sent. A message shows at once at the end of the conversation, grey after `…`, until Claude says it has
+sent, from any native session, also before a restart; past the newest, what you were writing comes
+back. `C-c C-r` lists it all (`Past prompt:`), with the whole message beside, and `RET` puts the one
+you choose where point is, not sent. The list is one for all sessions, so it goes across your projects
+and spaces: what you wrote in one shows in another's. oso keeps the last 200 in a private file, in
+clear text, as Claude Code keeps its conversations; never one from a composer that holds a secret
+oso knows of. `M-x native-prompt-history-clear` takes them all out, and `prompt_history = false` in
+[Session settings](#session-settings) keeps them in no file. A message shows at once at the end of the conversation, grey after `…`, until Claude says it has
 it. If Claude's turn ends without that, it stays grey after `✗`; if `claude` itself ends first, the
 conversation says so and the message is back in your composer if that is empty. After a turn, Claude's guess at your next message shows there in grey instead, with
 `(C-c C-s takes it)` after it. `C-c C-s`, in the composer or the conversation, puts it at the

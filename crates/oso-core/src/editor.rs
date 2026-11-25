@@ -63,6 +63,7 @@ mod messages;
 mod migemo;
 mod order;
 mod pairs;
+mod past_prompts;
 mod preedit;
 mod project_search;
 mod projects;
@@ -218,6 +219,8 @@ pub struct Editor {
     mark_list: Option<marks::MarkList>,
     /// The ring's entries a `M-y` list shows (ADR 0091).
     kill_list: Option<yank_pop::KillList>,
+    /// What the person sent native sessions, and the list of it (ADR 0165).
+    past_prompts: past_prompts::PastPrompts,
     /// The home directory, which `~` stands for, as the host read it at startup.
     home: Option<std::path::PathBuf>,
     /// The buffer a question about killing it with unsaved text was asked of (ADR 0088).
@@ -364,6 +367,7 @@ impl Editor {
             home: None,
             mark_list: None,
             kill_list: None,
+            past_prompts: past_prompts::PastPrompts::default(),
             file_list: files::FileList::default(),
             project_files: walks::ProjectFiles::default(),
             project_search: project_search::ProjectSearch::default(),

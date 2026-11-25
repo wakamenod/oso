@@ -362,6 +362,21 @@ network features.
   has seen where its path leads, goes in, and the list read back is judged by its names again.
   The agent channel neither reads it nor opens a file from it, and nothing on it is looked at
   to list it.
+- The messages the person sent from native composers
+  ([ADR 0165](adr/0165-native-claude-sessions-the-route.md), "The composer's history, as amended")
+  are kept in `prompt-history` in oso's state directory, private (`0600`), in clear text, so as
+  sensitive as the transcripts Claude Code keeps itself; it is read and replaced as the `sessions`
+  record is. Never written: a message of a composer that may hold secrets or that a secret yank
+  turned secret. A secret the person types, or yanks unmarked, is the person's own text and is
+  kept, as the transcript keeps it; `native-prompt-history-clear` takes it out of oso's memory and
+  file, also what another instance would write back, and `[sessions] prompt_history = false` keeps
+  it in memory only. It is shared across projects and spaces: a message written for one project
+  can be put, on the person's key, into another's session, unsent, whose `@path` then names that
+  one's file. The agent channel, the dev socket, the log, minibuffer histories and a restart's
+  state carry nothing of it: its completion rows are withheld, and no screenshot is taken while
+  they show. A process of the same user, an agent's shell among them, can read the file and write
+  it, as it can the transcripts: what it plants is listed as the person's, and goes nowhere until
+  the person puts it in the composer, reads it there and sends it.
 - Saved reviews (ADR 0122, step 6), `reviews/*.review` in oso's state directory, are private
   (`0700`, files `0600`) and hold file contents: the hunk lines of the readings a review's
   comments and marks are on, with the comments' texts, the person's and the agent's. Nothing of
