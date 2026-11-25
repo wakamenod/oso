@@ -676,6 +676,12 @@ The UI thread never blocks on I/O or parsing:
   writes it on `oso-recent` 1 s after the last change, merging another instance's. Every exit or
   restart's start waits for it with the sessions record, at most 1 s in all
   ([ADR 0148](adr/0148-recent-files.md)).
+- What the person sent native sessions is one history (`sessions/prompt_history.rs`, pure), which
+  `app/sessions/hosting/native/prompt_history.rs` holds and `oso-prompts` reads, once the configuration's first look
+  applied, and writes 1 s after the last send, merging another instance's under a lock
+  (`prompt_history/file.rs`). Exits wait for it as for the recent files. `oso-core`
+  (`editor/past_prompts.rs`) lists it
+  ([ADR 0165](adr/0165-native-claude-sessions-the-route.md), "The composer's history, as amended").
 - The directory editor's listings are read on the same threads, a request kept per listing
   buffer (`crates/oso/src/dired.rs`, glue in `app/dired.rs`): each entry's metadata from the
   descriptor, following no link (`getattrlistbulk` on macOS, `fstatat` on Linux, the

@@ -61,6 +61,7 @@ pub mod moving;
 pub mod native;
 pub mod oneshot;
 pub mod past;
+pub mod prompt_history;
 pub mod recap;
 pub mod record;
 pub mod registry;

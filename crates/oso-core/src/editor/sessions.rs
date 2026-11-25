@@ -134,6 +134,9 @@ pub enum SessionRequest {
     /// says, or make every start ask until oso restarts (`agent-starts-allow`,
     /// `agent-starts-ask`).
     AgentStarts(bool),
+    /// Take out every message of the prompt history, here and in its file
+    /// (`native-prompt-history-clear`, ADR 0165).
+    ClearPromptHistory,
     /// Show `*Spaces*` in the side window and select it; select it if shown; while it is
     /// selected, select the tree's window selected last (`sessions`, ADR 0140).
     ShowList,
@@ -334,8 +337,11 @@ pub enum NativeAction {
     /// From the composer: cancel the edit of a queued message, or interrupt the turn; from
     /// `*plan: NAME*` (part 3d): give the plan's edit up, back to its card.
     Cancel,
-    /// From the composer: the session's message sent this many before, after if negative.
+    /// From the composer: the message sent this many before, in any native session, after if
+    /// negative.
     History(isize),
+    /// From the composer: put in the past prompt its list picked, at point, not sent.
+    PastPrompt,
     /// From the composer: back to the transcript.
     Transcript,
     /// From the transcript: to the composer.

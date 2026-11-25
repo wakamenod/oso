@@ -76,6 +76,7 @@ impl App {
         self.save_sessions();
         // And to the recent files (ADR 0148).
         self.sync_recent_files();
+        self.sync_prompt_history();
         // At once, not at the next wait: a buffer that turned secret gets no slice after this.
         self.drop_syntax();
     }
@@ -100,6 +101,7 @@ impl App {
             UserEvent::Dictation(generation, event) => self.dictation_event(generation, event),
             UserEvent::DictationFix(id, answer) => self.dictation_fixed(id, answer),
             UserEvent::DictationForgot(forgot) => self.dictation_forgot(forgot),
+            UserEvent::PromptHistory(event) => self.prompt_history_event(event),
             UserEvent::DictationLog(text, forgets) => self.show_dictation_log(text, forgets),
             UserEvent::Trim(report) => self.trim_reported(report),
             UserEvent::Search(report) => self.isearch_reported(report),

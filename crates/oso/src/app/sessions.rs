@@ -19,10 +19,10 @@ mod tools;
 mod watch;
 mod worktrees;
 pub(super) use conversations::conversations;
-pub(crate) use hosting::RemoteLooked;
 pub(super) use hosting::{
     Hosting, NativeSessions, Placeholder, RequestWaits, Typing, with_transcripts_shown,
 };
+pub(crate) use hosting::{PromptHistoryEvent, RemoteLooked};
 pub(super) use spaces::Orchestrator;
 pub(super) use watch::Watch;
 pub(in crate::app) use watch::sending::{Outgoing, Shown};
@@ -80,6 +80,10 @@ impl App {
                 }
                 SessionRequest::AgentStarts(allow) => {
                     self.hold_agent_starts(!allow);
+                    continue;
+                }
+                SessionRequest::ClearPromptHistory => {
+                    self.clear_prompt_history();
                     continue;
                 }
                 SessionRequest::Adopt(pick) => {

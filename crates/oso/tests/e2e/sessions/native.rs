@@ -523,6 +523,7 @@ mod modes;
 mod past;
 mod plan;
 mod point;
+mod prompt_history;
 mod quit;
 mod remote;
 mod request;

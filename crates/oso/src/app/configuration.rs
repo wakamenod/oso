@@ -100,6 +100,13 @@ impl Configuration {
         !self.in_force.sessions.tui
     }
 
+    /// `[sessions] prompt_history` in force: whether the prompt history is kept in its file
+    /// (ADR 0165, step 2); `None` until a look applied the file, or there is none.
+    pub(super) fn prompt_history(&self) -> Option<bool> {
+        let known = self.applied || (self.looked && self.reader.is_none());
+        known.then_some(!self.in_force.sessions.no_prompt_history)
+    }
+
     /// `[sessions] steer_worktrees` in force: whether a session oso starts gets the hook that
     /// steers Claude away from its own worktree tools (ADR 0121, Q15).
     pub(super) fn steer_worktrees(&self) -> bool {

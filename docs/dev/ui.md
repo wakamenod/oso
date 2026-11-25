@@ -1317,6 +1317,7 @@ a switch made with its command stands until that setting changes in the file
   claude = "/usr/local/bin/claude"   # absolute; else the login shell finds it on PATH
   env = ["HTTPS_PROXY", "NODE_EXTRA_CA_CERTS"]
   steer_worktrees = true             # sessions oso starts are steered to C-c a w
+  prompt_history = false             # what native sessions were sent is not kept in a file (kept unless set)
   pane_width = 44                    # *Spaces*' pane, 24 to 80 columns
   mode = "tui"                       # new sessions host the TUI; native in trusted projects unless set (ADR 0165)
   ```
@@ -1341,7 +1342,11 @@ a switch made with its command stands until that setting changes in the file
   and withheld from agents, between two thin lines, each along the middle of a row of its own (in
   the composer's rows where the window is too short for them; ADR 0170, as amended): `i` goes
   there and `C-c C-o` back, `C-c C-c` sends (at most
-  64 KiB), and `M-p`/`M-n` walk the messages sent. While it is empty, a placeholder drawn over
+  64 KiB), and `M-p`/`M-n` walk the messages
+  sent from any native session, kept over restarts, and give the draft back past the newest;
+  `C-c C-r` (`Past prompt:`) completes over them, the whole text beside, and puts the one chosen at
+  point (ADR 0165, "The composer's history, as amended"). `[sessions] prompt_history = false` keeps
+  them in memory only, and `M-x native-prompt-history-clear` takes them all out. While it is empty, a placeholder drawn over
   it names its keys (ADR 0170, as amended). Once a turn ends, the CLI's suggestion of
   the next message shows there instead, with the key that takes it, until a turn starts, the
   person sends or the process ends; `C-c C-s`, in the transcript too, puts it at the composer's

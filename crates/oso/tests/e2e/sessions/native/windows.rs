@@ -47,7 +47,7 @@ fn on_transcript(state: &Value) -> Vec<bool> {
 }
 
 /// Restarts `old` into a new instance. `old` outlives it: its log's reader ends with both.
-fn restarted(old: &mut App) -> App {
+pub(super) fn restarted(old: &mut App) -> App {
     let before = sockets();
     old.run_command("oso-restart", None)
         .expect("oso-restart runs");
@@ -59,7 +59,7 @@ fn restarted(old: &mut App) -> App {
 
 /// Starts a session of a second repository, `other`, beside the flow's, in a space of its own, and
 /// brings that to the front.
-fn other_in_front(flow: &Flow, app: &mut App) {
+pub(super) fn other_in_front(flow: &Flow, app: &mut App) {
     let other = flow.scratch.path().join("other");
     fs::create_dir(&other).unwrap();
     git_init(&other);

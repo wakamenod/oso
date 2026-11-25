@@ -289,7 +289,8 @@ fn prompts_state(editor: &Editor) -> Value {
                 "message": prompt.message().filter(|_| shown && !prompt.message_withheld()),
                 "region": region,
                 // Only the innermost shows its rows and keeps them in view.
-                // `M-y`'s rows are kills, also another app's copy: none of them (ADR 0091).
+                // `M-y`'s rows are kills, also another app's copy, and past prompts what the
+                // person sent: none of them (ADR 0091, ADR 0165).
                 "completion": prompt
                     .candidates()
                     .filter(|_| shown && index + 1 == count && !editor.kill_list_open())
@@ -563,15 +564,15 @@ fn visible_text(editor: &Editor, text: &Rope, display: &DisplaySnapshot) -> Valu
 
 /// Refuses a screenshot while any window shows a buffer that may hold
 /// secrets, while anything `get-state` leaves out for having been around one is on the
-/// screen, or while the kill ring is listed (ADR 0091). Checked on the UI thread right before the capture, so nothing
+/// screen, or while the kill ring or past prompts are listed (ADR 0091). Checked on the UI thread right before the capture, so nothing
 /// can switch the buffer in between.
 pub fn screenshot_allowed(editor: &Editor) -> Result<(), String> {
     if editor.shows_secret() || editor.around_secret() {
         return Err(WITHHELD.into());
     }
-    // The `M-y` list shows what `get-state` leaves out (ADR 0091).
+    // The `M-y` list, and that of past prompts, show what `get-state` leaves out (ADR 0091).
     if editor.kill_list_open() {
-        return Err("no screenshot while the kill ring is listed".into());
+        return Err("no screenshot while kills or past prompts are listed".into());
     }
     Ok(())
 }

@@ -61,6 +61,7 @@ mod mode;
 mod note;
 mod past;
 mod permissions;
+mod prompt_history;
 mod recap;
 mod remote;
 mod restarting;
@@ -75,6 +76,7 @@ mod todo;
 mod widths;
 mod windows;
 
+pub(crate) use prompt_history::PromptHistoryEvent;
 pub(crate) use remote::Looked;
 pub(super) use resumed::runs_elsewhere;
 
@@ -133,6 +135,8 @@ pub(in crate::app) struct NativeSessions {
     /// The orchestrators resumed with a repository added, at the person's `y` (ADR 0176,
     /// part O-2).
     adding: HashMap<SessionKey, adding::Adding>,
+    /// What the person sent from the composers, kept in its file (step 2).
+    prompts: prompt_history::Prompts,
     /// What Remote Control keeps beside the sessions (ADR 0181).
     remotes: remote::Remotes,
     /// What an empty composer's placeholder says (ADR 0170), until the user's keys change.

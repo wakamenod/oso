@@ -225,7 +225,7 @@ impl App {
         }
     }
 
-    /// Hands the sessions, the spaces, the recent files and the reviews to their threads, if
+    /// Hands the sessions, the spaces, the recent files, the prompt history and the reviews to their threads, if
     /// they changed, and waits at most [`FLUSH_WAIT`] in all until they are written: before the
     /// process goes, or a restart's new instance reads them (ADR 0121, ADR 0148, ADR 0122). Past the wait it goes on,
     /// and says so in the log.
@@ -234,6 +234,7 @@ impl App {
         // The reviews too (ADR 0122, step 6), handed over first so that all write at once.
         self.hand_review_saves();
         self.sync_recent_files();
+        let prompts = self.flush_prompt_history();
         let (done, answer) = mpsc::sync_channel(1);
         let asked =
             (self.recent.jobs.as_ref()).is_some_and(|jobs| jobs.send(Job::Flush(done)).is_ok());
@@ -242,6 +243,10 @@ impl App {
         let left = FLUSH_WAIT.saturating_sub(started.elapsed());
         if asked && answer.recv_timeout(left).is_err() {
             log::warn!("the recent files were not written within {FLUSH_WAIT:?}");
+        }
+        let left = FLUSH_WAIT.saturating_sub(started.elapsed());
+        if prompts.is_some_and(|written| written.recv_timeout(left).is_err()) {
+            log::warn!("the prompt history was not written within {FLUSH_WAIT:?}");
         }
         self.wait_review_saves(FLUSH_WAIT.saturating_sub(started.elapsed()));
     }

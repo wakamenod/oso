@@ -107,9 +107,14 @@ impl Editor {
         Ok(prompt)
     }
 
-    /// Whether a `M-y` list is the innermost prompt, whose rows the control socket leaves
-    /// out, and of which no screenshot is taken (ADR 0091).
+    /// Whether a `M-y` list, or that of past prompts (ADR 0165), is the innermost prompt, whose
+    /// rows the control socket leaves out, and of which no screenshot is taken (ADR 0091).
     pub fn kill_list_open(&self) -> bool {
+        self.lists_kills() || self.past_prompts_open()
+    }
+
+    /// Whether a `M-y` list is the innermost prompt.
+    fn lists_kills(&self) -> bool {
         let list = self.kill_list.as_ref();
         self.prompt()
             .is_some_and(|prompt| list.is_some_and(|list| list.prompt == prompt.id()))
@@ -128,46 +133,21 @@ impl Editor {
     /// escaped, its pieces joined by line breaks, for the preview. It reads at most a few
     /// bytes per cell it fills, so a large entry costs no more than a small one.
     pub fn kill_preview(&self, id: u64, rows: usize, columns: usize) -> Vec<String> {
-        let Some(entry) = self.kills.ring.iter().find(|entry| entry.id() == id) else {
+        if let Some(text) = self.past_text(id) {
+            return preview_lines([text].into_iter(), rows, columns);
+        }
+        // Nothing of the ring is in the other list's preview.
+        let listed = |entry: &&KillEntry| entry.id() == id && !self.past_prompts_open();
+        let Some(entry) = self.kills.ring.iter().find(listed) else {
             return Vec::new();
         };
-        let mut budget = rows
-            .saturating_mul(columns.saturating_add(1))
-            .saturating_mul(4);
-        let mut lines = vec![String::new()];
-        let mut cells = 0;
-        let pieces = entry.pieces();
-        let texts = pieces.iter().enumerate().flat_map(|(index, piece)| {
-            let between = (index > 0).then_some(PIECE_SEPARATOR);
-            between.into_iter().chain(piece.chunks())
-        });
-        'read: for text in texts {
-            for c in text.chars() {
-                budget = budget.saturating_sub(c.len_utf8());
-                if c == '\n' {
-                    if lines.len() == rows {
-                        break 'read;
-                    }
-                    lines.push(String::new());
-                    cells = 0;
-                } else if cells < columns {
-                    if let Some(line) = lines.last_mut() {
-                        line.push(c);
-                    }
-                    cells += 1;
-                }
-                if budget == 0 {
-                    break 'read;
-                }
-            }
-        }
-        lines.truncate(rows);
-        lines.iter().map(|line| row_text(line)).collect()
+        preview_lines(entry_texts(entry), rows, columns)
     }
 
     /// Notes which entry the selected row names, as the innermost prompt is answered while it
     /// is a `M-y` list.
     pub(super) fn note_kill_pick(&mut self) {
+        self.note_past_pick();
         let index = self
             .prompt()
             .and_then(Prompt::candidates)
@@ -185,6 +165,7 @@ impl Editor {
 
     /// Forgets a `M-y` list as `closed` closes, all of it unless it was answered.
     pub(super) fn forget_kill_list(&mut self, closed: PromptId) {
+        self.forget_past_list(closed);
         let Some(list) = self.kill_list.as_mut().filter(|list| list.prompt == closed) else {
             return;
         };
@@ -313,6 +294,80 @@ impl std::fmt::Display for YankPopError {
 
 impl std::error::Error for YankPopError {}
 
+/// The first `rows` lines of `texts`, joined, each cut to `columns` characters and escaped.
+fn preview_lines<'a>(
+    texts: impl Iterator<Item = &'a str>,
+    rows: usize,
+    columns: usize,
+) -> Vec<String> {
+    let mut budget = rows
+        .saturating_mul(columns.saturating_add(1))
+        .saturating_mul(4);
+    let mut lines = vec![String::new()];
+    let mut cells = 0;
+    'read: for text in texts {
+        for c in text.chars() {
+            budget = budget.saturating_sub(c.len_utf8());
+            if c == '\n' {
+                if lines.len() == rows {
+                    break 'read;
+                }
+                lines.push(String::new());
+                cells = 0;
+            } else if cells < columns {
+                if let Some(line) = lines.last_mut() {
+                    line.push(c);
+                }
+                cells += 1;
+            }
+            if budget == 0 {
+                break 'read;
+            }
+        }
+    }
+    lines.truncate(rows);
+    lines.iter().map(|line| row_text(line)).collect()
+}
+
+/// The texts of `entry`, its pieces joined by line breaks.
+fn entry_texts(entry: &KillEntry) -> impl Iterator<Item = &str> {
+    (entry.pieces().iter().enumerate()).flat_map(|(index, piece)| {
+        let between = (index > 0).then_some(PIECE_SEPARATOR);
+        between.into_iter().chain(piece.chunks())
+    })
+}
+
+/// How a row says it has `lines` lines, if more than one.
+pub(super) fn lines_said(lines: usize) -> Option<String> {
+    (lines > 1).then(|| format!("{lines} lines"))
+}
+
+/// The row of `texts`, joined, as the module says.
+pub(super) fn row<'a>(texts: impl Iterator<Item = &'a str>) -> String {
+    let mut text = String::with_capacity(ROW_BYTES);
+    'read: for chunk in texts {
+        for c in chunk.chars() {
+            if text.len() + c.len_utf8() > ROW_BYTES {
+                break 'read;
+            }
+            text.push(c);
+        }
+    }
+    // A `⤶` of the text's own is escaped, so that each one shown is a line break.
+    let mut shown: String = text
+        .split('\n')
+        .map(|line| row_text(line).replace(LINE_BREAK, &LINE_BREAK.escape_unicode().to_string()))
+        .collect::<Vec<_>>()
+        .join(&LINE_BREAK.to_string());
+    // Escaping can make a row several times longer, and each frame and key reads it whole.
+    let mut end = shown.len().min(ROW_BYTES);
+    while !shown.is_char_boundary(end) {
+        end -= 1;
+    }
+    shown.truncate(end);
+    shown
+}
+
 /// The row of `entry` in a `M-y` list.
 fn candidate(entry: &KillEntry) -> Candidate {
     let lines: usize = entry
@@ -328,8 +383,8 @@ fn candidate(entry: &KillEntry) -> Candidate {
         said.push("secret".to_owned());
     }
     // A secret row says how many lines it has (ADR 0091), and nothing more.
-    if lines > 1 {
-        said.push(format!("{lines} lines"));
+    if let Some(many) = lines_said(lines) {
+        said.push(many);
     } else if entry.is_secret() {
         said.push("1 line".to_owned());
     }
@@ -340,31 +395,7 @@ fn candidate(entry: &KillEntry) -> Candidate {
     if entry.is_secret() {
         return Candidate::new("", "", annotation).hidden_by_input();
     }
-    let mut text = String::with_capacity(ROW_BYTES);
-    'read: for (index, piece) in entry.pieces().iter().enumerate() {
-        let between = (index > 0).then_some(PIECE_SEPARATOR);
-        for chunk in between.into_iter().chain(piece.chunks()) {
-            for c in chunk.chars() {
-                if text.len() + c.len_utf8() > ROW_BYTES {
-                    break 'read;
-                }
-                text.push(c);
-            }
-        }
-    }
-    // A `⤶` of the text's own is escaped, so that each one shown is a line break.
-    let mut shown: String = text
-        .split('\n')
-        .map(|line| row_text(line).replace(LINE_BREAK, &LINE_BREAK.escape_unicode().to_string()))
-        .collect::<Vec<_>>()
-        .join(&LINE_BREAK.to_string());
-    // Escaping can make a row several times longer, and each frame and key reads it whole.
-    let mut end = shown.len().min(ROW_BYTES);
-    while !shown.is_char_boundary(end) {
-        end -= 1;
-    }
-    shown.truncate(end);
-    Candidate::new(shown, "", annotation)
+    Candidate::new(row(entry_texts(entry)), "", annotation)
 }
 
 #[cfg(test)]

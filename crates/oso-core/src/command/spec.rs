@@ -225,6 +225,11 @@ pub enum ArgSpec {
     /// in the ring (ADR 0091). The command yanks it with
     /// [`Editor::yank_picked`](crate::editor::Editor::yank_picked).
     KillEntry { prompt: &'static str },
+    /// A message the person sent from a native session's composer, read in a prompt that says
+    /// `prompt` and completes over those the host gave, newest first, with the selected one's
+    /// text beside it, and no history (ADR 0165). Only a composer reads it. The host takes it
+    /// with [`Editor::take_past_prompt`](crate::editor::Editor::take_past_prompt).
+    PastPrompt { prompt: &'static str },
     /// A string to replace and its replacement, read in two prompts kept in one history, a
     /// regexp's if `regexp`, before query-replace begins (ADR 0113). An empty first answer
     /// takes the last pair, with no second prompt. The command reads both with

@@ -416,6 +416,7 @@ pub fn commands<'a>(commands: impl Iterator<Item = &'a Command>) -> Value {
                     | ArgSpec::BufferLines { .. }
                     | ArgSpec::ConversationSearch { .. }
                     | ArgSpec::KillEntry { .. }
+                    | ArgSpec::PastPrompt { .. }
                     | ArgSpec::Replace { .. }
                     | ArgSpec::BranchAndBaseOnPrefix { .. }
                     | ArgSpec::Key => "person",
