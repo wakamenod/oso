@@ -1,6 +1,6 @@
 # 0158. Japanese in prompts and review drafts
 
-- Status: Accepted; "Isearch takes Japanese, as amended" (2026-11-25)
+- Status: Accepted; "Isearch takes Japanese, as amended" and "The source is switched after the frame" (2026-11-25)
 - Date: 2026-11-19
 
 ## Context
@@ -122,7 +122,8 @@ them off since migemo reads romaji).
   prompt costs one look at the current source, and closing it costs nothing. Neither ADR 0106 nor
   this ADR measured them; a select through a third-party input method is the likely slow case.
   Dev builds log each switch's time, and the measurement against the 8 ms key-to-photon budget is
-  in `open-questions.md`. If it is over about 1 ms at p99, the switch moves after the frame.
+  in `open-questions.md`. If it is over about 1 ms at p99, the switch moves after the frame. It
+  was, and it has ("The source is switched after the frame").
 - A draft opened while the person's source is Japanese starts composing at the first letter, as
   a buffer does, and `英数` types ASCII.
 - Japanese typed through the input method is precomposed, so without `%` it does not match a
@@ -182,12 +183,54 @@ Query-replace's answers, a jump and a menu keep the input method off.
   ASCII with Japanese in the menu bar, against "the menu bar and what the prompt types always
   agree". As it closes, the Japanese it replaced is given back.
 - **Linux and Windows:** off, as the prompts.
-- **Cost:** with a Japanese source, the switch comes at each end of a search. In eight
-  searches with Kotoeri in a dev build, choosing ASCII took 3 to 7 ms on the UI thread and giving
-  the source back 21 to 37 ms, over the 1 ms after which this
-  ADR moves the switch after the frame. That move is its own change (`open-questions.md`).
+- **Cost:** with a Japanese source, the switch comes at each end of a search, as of a prompt. It is
+  made after the frame, as the next section says.
 - **Passages this changes:** [ADR 0082](0082-isearch.md)'s "The IME is off while isearch is on" and
   [ADR 0116](0116-migemo-and-jumps.md)'s, each in its own section;
   [ADR 0106](0106-the-input-source-turns-japanese-on-in-a-file-name-prompt.md)'s "Only the prompt
   for a file's name does this" and [ADR 0026](0026-m2-ui-layout.md)'s "IME", as this ADR has them,
   hold with isearch among what follows the source.
+
+## The source is switched after the frame
+
+Added on 2026-11-25, as the Consequences have it, when the switch was measured: a release build,
+Kotoeri's hiragana, 30 searches (`C-s`, `C-g`) with keys given in the process. No third-party
+input method was at hand. Milliseconds, the median and the slowest of 30:
+
+| | Median | Slowest |
+| --- | --- | --- |
+| `TISSelectInputSource`, the ASCII source | 4.1 | 6.7 |
+| `TISSelectInputSource`, the person's, given back | 32.7 | 63.9 |
+| Each other call as a source is switched | under 0.01 | 0.01 |
+| Each notice of the change, in oso | 0.02 | 0.2 |
+| Key to frame, switched before the frame: opening | 4.5 | 7.2 |
+| Key to frame, switched before the frame: closing | 37 | 71 |
+| Key to frame, switched after it: opening | 0.5 | 1.4 |
+| Key to frame, switched after it: closing | 0.9 | 1.4 |
+
+The select is the cost, and it is the system's: giving the source back before the input method is
+allowed was no faster, and the call must be made on the main thread. The frames after the move were
+measured with a trial of it, not with the code as merged.
+
+- **What the app asks waits in the window layer until the frame the event asked for is drawn,** or
+  until the loop next waits if none is due. Only the last of what was asked counts: an open and a
+  close before one frame switch nothing. A close and an open keep the ASCII source, with none
+  selected, unless the person chose another meanwhile; ASCII is then chosen again, and theirs is the
+  one given back.
+- **A key handed to the input method has the source given back first,** so it is typed as it was
+  when the switch came before the frame. A key oso takes itself does not wait for it, nor does a
+  macro's.
+- **A notice that comes while a switch waits is looked at after it.** One of oso's own, come late,
+  would otherwise be read as a Japanese source chosen in the search or prompt just opened.
+- **Never with secrets, at the moment of the switch.** No source is chosen once a buffer that may
+  hold secrets is selected; one is still given back. A terminal that begins to read a password in a
+  search has the source given back then, and no longer at the next event.
+- **Every way out gives the source back at once, as before:** oso goes behind, ends, or the loop
+  stops after a panic. Coming to the front chooses ASCII at once too.
+- **What a person may feel:** the loop stands still while the source is given back, about 35 ms and
+  at worst 70 in what was measured, with the frame already shown. A key pressed in that time waits
+  for it; none is lost.
+- **Passage this changes:** [ADR 0106](0106-the-input-source-turns-japanese-on-in-a-file-name-prompt.md)'s
+  "applied once the handler returns as the other requests are".
+- **Not taken:** a fixed pause before the switch, which keeps the menu bar wrong longer; and not
+  giving the source back where nothing was typed, which leaves the person another source than theirs.

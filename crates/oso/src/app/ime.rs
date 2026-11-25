@@ -285,6 +285,8 @@ impl App {
         self.note_logging();
         self.give_excerpt();
         self.sync_secure_input();
+        // A search there asks for no ASCII source any more, or for it again (ADR 0158).
+        self.sync_ascii_input();
     }
 
     /// Asks the window for secure input while the selected buffer may hold secrets, as a

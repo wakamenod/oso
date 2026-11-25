@@ -380,7 +380,7 @@ impl State {
             return;
         }
         if let Request::AsciiInput(wanted) = request {
-            self.update_ascii(Some(wanted));
+            self.ask_ascii(wanted);
             return;
         }
         let Some((window, view, _)) = self.window.get() else {
@@ -533,6 +533,9 @@ impl State {
         if self.redraw.take() && self.window.get().is_some() {
             self.deliver(Delivery::Window(Event::RedrawRequested));
         }
+        // The frame is presented, so the key that asked is not held (ADR 0158).
+        self.settle_ascii();
+        self.look_at_held_notice();
         let Some(hooks) = self.hooks.get() else {
             return;
         };
