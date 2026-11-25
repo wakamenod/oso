@@ -2,7 +2,7 @@
 //! found again after the person rearranged the windows, the key's choices, a zoom inside it,
 //! a layout a restart carried, and a property that whatever is done inside it, restoring gives
 //! back the tree from before. The session `review-ask` shows below what the slot shows (ADR
-//! 0169) is tested in `ask`.
+//! 0169) is tested in `ask`, a review shown over another's two panes in `panes`.
 //!
 //! Must not depend on: the app's threads, git or files; these work on an editor made here.
 
@@ -392,3 +392,6 @@ fn the_slot_never_brings_back_a_buffer_that_may_hold_secrets() {
 
 #[path = "slot_ask_tests.rs"]
 mod ask;
+
+#[path = "slot_panes_tests.rs"]
+mod panes;

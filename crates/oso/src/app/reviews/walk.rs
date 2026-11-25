@@ -382,11 +382,14 @@ impl App {
     }
 
     /// Shows the review `id` where a step shows it: in the review layout, as a person's open
-    /// does (ADR 0160), else in the selected window.
+    /// does (ADR 0160), else in the selected window, in the whole area of a pair of a review's
+    /// panes there.
     fn show_stepped(&mut self, id: ReviewId) {
         if !self.show_review_laid(id)
             && let Some(buffer) = self.editor.review_buffer(id)
         {
+            let window = self.editor.tiled().0.id();
+            self.editor.show_review_unified(window);
             self.editor.show(buffer);
         }
     }
