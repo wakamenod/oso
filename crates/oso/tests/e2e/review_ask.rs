@@ -17,7 +17,7 @@ use super::git_agent::{END, FAKE, WORKING, back_to, echo, hosted, pastes};
 use super::git_status::{has, rows_until};
 use super::harness::App;
 use super::review::rows;
-use super::spaces::{PrivateRoot, answer, space};
+use super::spaces::{PrivateRoot, answer, in_project, space};
 use super::typing;
 use super::worktrees::{Flow, terminal};
 
@@ -280,8 +280,7 @@ fn a_question_goes_to_the_review_s_session_submitted_and_shows_beside_the_review
     // Another file than the source, so that `RET` is seen to change the slot's top.
     app.open_file(&flow.repo.join(".gitignore"));
     app.wait_for(".gitignore in its project", |state| {
-        state["buffer"]["name"] == ".gitignore"
-            && (state["modeline"].as_str()).is_some_and(|modeline| modeline.contains("  repo  "))
+        state["buffer"]["name"] == ".gitignore" && in_project(state, "repo")
     });
     show_review(&mut app);
 
@@ -430,10 +429,7 @@ fn in_a_space_questions_and_comments_go_to_its_orchestrator() {
     app.open_file(&flow.repo.join("README.md"));
     // Its project is found off the UI thread; the review menu needs it.
     wait_saying(&mut app, "README.md in its project", |state| {
-        state["buffer"]["name"] == "README.md"
-            && state["modeline"]
-                .as_str()
-                .is_some_and(|line| line.contains("  repo  "))
+        state["buffer"]["name"] == "README.md" && in_project(state, "repo")
     });
     show_review_in_space(&mut app);
 

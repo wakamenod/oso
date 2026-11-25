@@ -8,7 +8,7 @@ use std::collections::HashSet;
 use std::time::Duration;
 
 use super::{MAX_CHARS, clean, recap};
-use crate::sessions::engine::evaluate;
+use crate::sessions::engine::{UNHURRIED, evaluate_unhurried};
 use crate::sessions::rules::{Deadline, RuleSet};
 use crate::sessions::screen::Evidence;
 
@@ -18,8 +18,8 @@ const TITLE: &str = "✳ Date to now.txt";
 fn of(text: &str) -> Option<String> {
     let rules = RuleSet::bundled();
     let evidence = Evidence::new(text.lines(), TITLE, None);
-    let verdict = evaluate(&rules, &evidence);
-    let deadline = Deadline::after(Duration::from_secs(5));
+    let verdict = evaluate_unhurried(&rules, &evidence);
+    let deadline = Deadline::after(UNHURRIED);
     recap(&rules, &verdict, &evidence, &HashSet::new(), &deadline)
 }
 
@@ -83,7 +83,7 @@ fn a_late_recap_keeps_the_last_one() {
     let rules = RuleSet::bundled();
     let screen = include_str!("../screens/permission-bash.txt");
     let evidence = Evidence::new(screen.lines(), TITLE, None);
-    let verdict = evaluate(&rules, &evidence);
+    let verdict = evaluate_unhurried(&rules, &evidence);
     let late = Deadline::after(Duration::ZERO);
     assert_eq!(
         recap(&rules, &verdict, &evidence, &HashSet::new(), &late),
@@ -109,13 +109,13 @@ fn a_recap_is_one_clean_line_cut_to_its_length() {
 #[test]
 fn the_titles_spinner_is_no_part_of_the_recap() {
     let rules = RuleSet::bundled();
-    let deadline = Deadline::after(Duration::from_secs(5));
+    let deadline = Deadline::after(UNHURRIED);
     let screen = include_str!("../screens/done.txt");
     let recaps: Vec<Option<String>> = ["\u{2802} Date to now.txt", "\u{2810} Date to now.txt"]
         .into_iter()
         .map(|title| {
             let evidence = Evidence::new(screen.lines(), title, None);
-            let verdict = evaluate(&rules, &evidence);
+            let verdict = evaluate_unhurried(&rules, &evidence);
             recap(&rules, &verdict, &evidence, &HashSet::new(), &deadline)
         })
         .collect();

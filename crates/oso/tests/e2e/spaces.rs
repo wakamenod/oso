@@ -278,6 +278,23 @@ pub(super) fn space<'a>(state: &'a Value, name: &str) -> Option<&'a Value> {
         .find(|space| space["name"] == name)
 }
 
+/// Whether the selected window's buffer is in the project `project`, trusted, by its modeline:
+/// the project's name, then the space in front's, which often is the same name and is there
+/// before the project, found off the UI thread, is. Both together tell the one from the other.
+pub(super) fn in_project(state: &Value, project: &str) -> bool {
+    let front = &state["sessions"]["space"];
+    let front = match front.as_str() {
+        Some(name) => {
+            let display = space(state, name).and_then(|space| space["display"].as_str());
+            let label = display.filter(|display| !display.is_empty());
+            format!("{}  ", label.unwrap_or(name))
+        }
+        None => String::new(),
+    };
+    let parts = format!("  {project}  {front}");
+    (state["modeline"].as_str()).is_some_and(|modeline| modeline.contains(&parts))
+}
+
 /// What the echo area says.
 pub(super) fn echo(state: &Value) -> String {
     state["echo"].as_str().unwrap_or_default().to_owned()

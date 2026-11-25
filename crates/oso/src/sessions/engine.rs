@@ -139,12 +139,22 @@ pub fn evaluate_within(
     }
 }
 
+/// A budget no test's rules run past, however slow the machine.
+#[cfg(test)]
+pub(in crate::sessions) const UNHURRIED: Duration = Duration::from_secs(60 * 60);
+
+/// [`evaluate`], within [`UNHURRIED`]: for the tests of what the rules say, not of how long.
+#[cfg(test)]
+pub(in crate::sessions) fn evaluate_unhurried(rules: &RuleSet, evidence: &Evidence) -> Verdict {
+    evaluate_within(rules, evidence, UNHURRIED, &HashSet::new())
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
     use std::time::Duration;
 
-    use super::{Fallback, Target, evaluate, evaluate_within};
+    use super::{Fallback, Target, UNHURRIED, evaluate_unhurried, evaluate_within};
     use crate::sessions::rules::{Parsed, RuleSet, Source, parse};
     use crate::sessions::screen::{Evidence, Region};
     use crate::sessions::state::Reason;
@@ -197,21 +207,21 @@ not = [{ contains = ["help"] }]
     #[test]
     fn the_highest_priority_rule_that_holds_wins_and_says_what_it_matched() {
         let rules = set(RULES, "");
-        let verdict = evaluate(&rules, &screen("? for shortcuts"));
+        let verdict = evaluate_unhurried(&rules, &screen("? for shortcuts"));
         assert_eq!(verdict.target, Target::Idle { visible: true });
         let matched = verdict.by.unwrap();
         assert_eq!(matched.name, "prompt");
         assert_eq!(matched.region, Region::PromptBox);
         assert_eq!(matched.text, "❯");
         assert_eq!(
-            evaluate(&rules, &screen("esc to interrupt")).target,
+            evaluate_unhurried(&rules, &screen("esc to interrupt")).target,
             Target::Working,
             "contains ignores ASCII case"
         );
-        let asked = evaluate(&rules, &screen("Enter to select · Esc to cancel"));
+        let asked = evaluate_unhurried(&rules, &screen("Enter to select · Esc to cancel"));
         assert_eq!(asked.target, Target::NeedsInput(Reason::Question));
         assert_eq!(
-            evaluate(&rules, &screen("Enter to confirm · Esc to cancel")).target,
+            evaluate_unhurried(&rules, &screen("Enter to confirm · Esc to cancel")).target,
             Target::NeedsInput(Reason::Question)
         );
     }
@@ -219,22 +229,22 @@ not = [{ contains = ["help"] }]
     #[test]
     fn not_and_any_gate_a_rule() {
         let rules = set(RULES, "");
-        let help = evaluate(&rules, &screen("Help · Enter to select · Esc to cancel"));
+        let help = evaluate_unhurried(&rules, &screen("Help · Enter to select · Esc to cancel"));
         assert_eq!(help.by.unwrap().name, "prompt", "not keeps the dialog out");
-        let neither = evaluate(&rules, &screen("Esc to cancel"));
+        let neither = evaluate_unhurried(&rules, &screen("Esc to cancel"));
         assert_eq!(neither.by.unwrap().name, "prompt", "any needs one");
     }
 
     #[test]
     fn no_rule_is_idle_and_echo_off_holds() {
         let rules = set(RULES, "");
-        let none = evaluate(
+        let none = evaluate_unhurried(
             &rules,
             &Evidence::from_text("Do you want to proceed?\n1. Yes"),
         );
         assert_eq!(none.target, Target::Idle { visible: false });
         assert_eq!(none.by, Err(Fallback::NoRule));
-        let off = evaluate(&rules, &Evidence::echo_off("title", None));
+        let off = evaluate_unhurried(&rules, &Evidence::echo_off("title", None));
         assert_eq!(off.target, Target::Hold);
         assert_eq!(off.by, Err(Fallback::EchoOff));
     }
@@ -257,9 +267,9 @@ disable = true
         let rules = set(RULES, local);
         assert_eq!((rules.bundled, rules.local, rules.disabled), (1, 1, 1));
         let shown = screen("esc to interrupt");
-        assert_eq!(evaluate(&rules, &shown).by, Err(Fallback::NoRule));
+        assert_eq!(evaluate_unhurried(&rules, &shown).by, Err(Fallback::NoRule));
         let spinning = Evidence::new(["x"].into_iter(), "⠋ Claude", None);
-        let verdict = evaluate(&rules, &spinning);
+        let verdict = evaluate_unhurried(&rules, &spinning);
         assert_eq!(verdict.target, Target::Working);
         assert_eq!(verdict.by.unwrap().source, Source::Local);
     }
@@ -282,12 +292,7 @@ disable = true
                 .says()
                 .contains("over 5 ms")
         );
-        let in_time = evaluate_within(
-            &rules,
-            &screen("? for shortcuts"),
-            Duration::from_secs(5),
-            &none,
-        );
+        let in_time = evaluate_within(&rules, &screen("? for shortcuts"), UNHURRIED, &none);
         assert_eq!(in_time.target, Target::Idle { visible: true });
         let dropped = HashSet::from(["ask".to_owned()]);
         let passed_over =
@@ -309,9 +314,9 @@ regex = ['(?s)a.*c']
 "#,
             "",
         );
-        let verdict = evaluate(&rules, &Evidence::from_text("a\nb\nc"));
+        let verdict = evaluate_unhurried(&rules, &Evidence::from_text("a\nb\nc"));
         assert_eq!(verdict.target, Target::Working);
-        let verdict = evaluate(&rules, &Evidence::from_text("a\nbc\n"));
+        let verdict = evaluate_unhurried(&rules, &Evidence::from_text("a\nbc\n"));
         assert_eq!(verdict.by, Err(Fallback::NoRule));
     }
 }

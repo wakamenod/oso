@@ -114,8 +114,9 @@ fn a_pattern_too_large_or_heavy_for_a_key_is_the_worker_s() {
 
 #[test]
 fn a_key_leaves_the_regexps_for_a_cut_of_a_slow_regexp_to_the_worker() {
-    // One large class takes a key about a millisecond to compile.
-    let compiled = regexp(r"\p{Any}a|a+");
+    // How long a key took to compile it decides, which no test can keep to: said here instead.
+    let mut compiled = regexp(r"\p{Any}a|a+");
+    compiled.quick = false;
     let rope = Rope::from("aaa aaa");
     // A match that ends at the cut inside the line needs them.
     let found = find_backward(
@@ -135,9 +136,18 @@ fn a_key_leaves_the_regexps_for_a_cut_of_a_slow_regexp_to_the_worker() {
     let found = find_backward(&copy, &rope, (5, 5), (key(1 << 20), &|| false), &mut None);
     assert_eq!(found, Ok(Found::Match(4..5)));
     // A quick one, a key builds them.
-    let quick = regexp("a+");
+    let mut quick = regexp("a+");
+    quick.quick = true;
     let found = find_backward(&quick, &rope, (5, 5), (key(1 << 20), &|| false), &mut None);
     assert_eq!(found, Ok(Found::Match(4..5)));
+}
+
+#[test]
+fn only_a_key_s_compile_is_ever_a_quick_one() {
+    let on_worker = compile_isearch("a+", true, On::Worker).unwrap();
+    assert!(!on_worker.quick);
+    // One of many that the machine let run: a key compiles it in far less than the limit.
+    assert!((0..1000).any(|_| regexp("a+").quick));
 }
 
 #[test]

@@ -108,7 +108,7 @@ fn quote<'l>(out: &mut String, lines: impl Iterator<Item = &'l str>) {
 #[cfg(test)]
 mod tests {
     use super::{Unasked, text, unasked};
-    use crate::sessions::engine::evaluate;
+    use crate::sessions::engine::evaluate_unhurried;
     use crate::sessions::rules::RuleSet;
     use crate::sessions::screen::Evidence;
 
@@ -149,7 +149,7 @@ mod tests {
             "question.txt",
             &rules,
             &evidence,
-            &evaluate(&rules, &evidence),
+            &evaluate_unhurried(&rules, &evidence),
         );
         assert!(shown.starts_with("Session explain: question.txt\n"));
         assert!(shown.contains("Verdict: needs input (question)"));
@@ -163,7 +163,12 @@ mod tests {
     fn no_match_shows_why_and_the_screen() {
         let rules = RuleSet::bundled();
         let evidence = Evidence::from_text("Proceed?\n> ok");
-        let shown = text("x", &rules, &evidence, &evaluate(&rules, &evidence));
+        let shown = text(
+            "x",
+            &rules,
+            &evidence,
+            &evaluate_unhurried(&rules, &evidence),
+        );
         assert!(shown.contains("Rule: none\nWhy: no rule matched"));
         assert!(shown.contains("never as needs input"));
         assert!(shown.contains("Screen, its last 2 rows:\n  │ Proceed?\n  │ > ok\n"));

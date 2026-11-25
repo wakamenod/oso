@@ -11,6 +11,7 @@ use super::{
     Deadline, Late, MAX_DEPTH, MAX_MATCHERS, MAX_PATTERNS, MAX_RULES, Parsed, RuleSet, Source,
     bundled, parse,
 };
+use crate::sessions::engine::UNHURRIED;
 use crate::sessions::state::{Reason, Target};
 
 fn local(text: &str) -> Parsed {
@@ -47,7 +48,7 @@ fn a_good_rule_takes_every_field() {
     assert_eq!(rule.target, Target::NeedsInput(Reason::Plan));
     assert_eq!(rule.priority, -5);
     assert_eq!(rule.source, Source::Local);
-    let deadline = Deadline::after(Duration::from_secs(5));
+    let deadline = Deadline::after(UNHURRIED);
     let holds = |text: &str| rule.holds(text, &text.to_ascii_lowercase(), &deadline);
     assert_eq!(holds("Yes a\nb\nc d e"), Ok(true));
     assert_eq!(holds("Yes a\nb\nc d e\nf"), Ok(false));
@@ -288,7 +289,7 @@ fn a_recap_is_read_and_a_wrong_one_is_skipped_with_its_rule_kept() {
     assert_eq!(parsed.problems, Vec::<String>::new());
     let recap = parsed.rules[0].recap.as_ref().unwrap();
     assert_eq!(recap.region.to_string(), "bottom(3)");
-    let deadline = Deadline::after(Duration::from_secs(5));
+    let deadline = Deadline::after(UNHURRIED);
     assert_eq!(
         recap.find("y\nxx z\nq", &deadline),
         Ok(Some("xx".to_owned()))
