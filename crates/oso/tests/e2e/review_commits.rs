@@ -16,7 +16,7 @@ use super::git_status::project;
 use super::harness::{App, Scratch};
 use super::review::git;
 use super::review_pr::{stand_in_gh, tip};
-use super::{cursor, typing};
+use super::typing;
 
 const WHOLE: &str = "*review: pull request #7 proj-git*";
 
@@ -198,8 +198,10 @@ fn ret_in_a_commit_opens_the_file_now_else_its_side_and_m_ret_the_side() {
     app.send_keys("C-x v r");
     app.wait_for("the review again", |state| state["buffer"]["name"] == one);
     app.send_keys("RET");
-    let state = app.wait_for("the file", |state| state["buffer"]["name"] == "b.txt");
-    assert_eq!(cursor(&state), (1, 0));
+    // Its cursor too: the state has none until the file has loaded and been judged.
+    app.wait_for("the file, at the line", |state| {
+        state["buffer"]["name"] == "b.txt" && state["cursor"]["row"] == 1
+    });
     wait_echo(&mut app, "whose", "#7's head is not checked out here");
 
     // `M-RET`: the side all the same.
