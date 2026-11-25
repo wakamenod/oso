@@ -34,6 +34,8 @@ const COMMAND_OUTPUT: (&str, &str) = ("<local-command-stdout>", "</local-command
 pub(super) struct Sent {
     texts: VecDeque<Text>,
     version: u64,
+    /// The version of the session's commands they were last looked up in.
+    looked_up: u64,
 }
 
 /// A text oso sent.
@@ -133,11 +135,20 @@ impl Rows {
         }
     }
 
-    /// The session's commands are known: what waits that is one, as `runs` says, is never
-    /// replayed, and its row is there, as [`Rows::sent_command`]'s.
-    pub fn sending_commands(&mut self, runs: impl Fn(&str) -> bool) -> Vec<RowChange> {
+    /// The session's commands are those of `version`: what waits that is one, as `runs` says, and
+    /// whose turn has not ended, is never replayed, and its row is there, as
+    /// [`Rows::sent_command`]'s. Looked up once a version.
+    pub fn sending_commands(
+        &mut self,
+        version: u64,
+        runs: impl Fn(&str) -> bool,
+    ) -> Vec<RowChange> {
         let mut changes = Vec::new();
-        while let Some(at) = self.sent.texts.iter().position(|sent| runs(&sent.text)) {
+        if std::mem::replace(&mut self.sent.looked_up, version) == version {
+            return changes;
+        }
+        let is_one = |sent: &Text| !sent.ended && runs(&sent.text);
+        while let Some(at) = self.sent.texts.iter().position(is_one) {
             let Some(sent) = self.sent.texts.remove(at) else {
                 break;
             };
@@ -177,13 +188,14 @@ impl Rows {
     }
 
     /// The note of `sent`, which the CLI did not replay: what `said` says of it, and of a brief
-    /// whose it is.
+    /// whose it is. The text's later lines are further in, so that none reads as another note.
     fn unconfirmed(&mut self, said: &str, sent: &Text) -> RowChange {
         let from = match &sent.from {
             Some(from) => format!("a message from {}: ", one_line(from)),
             None => String::new(),
         };
-        let note = format!("{said}{from}{}", sent.text);
+        let text = sent.text.replace('\n', "\n  ");
+        let note = format!("{said}{from}{text}");
         self.push(Kind::Note(note), 0, false)
     }
 

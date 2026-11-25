@@ -69,8 +69,8 @@ fn a_command_sent_before_the_list_came_is_its_row_once_it_did() {
     let _ = rows.sent("/init");
     let _ = rows.sent_brief("/review", "session a");
     let _ = rows.sent("Go");
-    assert_eq!(rows.sending_commands(|_| false), []);
-    let changes = rows.sending_commands(|text| text.starts_with('/'));
+    assert_eq!(rows.sending_commands(1, |_| false), []);
+    let changes = rows.sending_commands(2, |text| text.starts_with('/'));
     assert_eq!(changes, [RowChange::Added(0), RowChange::Added(1)]);
     assert_eq!(shown(&rows), "〉 /init\n\n@  from session a\n   /review\n");
     assert_eq!(sending(&rows), "\n…  Go\n");
@@ -90,6 +90,34 @@ fn two_alike_are_confirmed_one_each() {
     assert_eq!(shown(&rows), "〉 Go on\n\n〉 Go on\n");
     read(&mut rows, &replay("Go on"));
     assert!(shown(&rows).ends_with("\n\n  Go on\n"), "not oso's");
+}
+
+/// A list that comes after its turn says nothing of it, and one looked up in is not again.
+#[test]
+fn a_later_list_makes_no_row_of_one_whose_turn_ended() {
+    let mut rows = rows();
+    let _ = rows.sent("/deploy");
+    read(&mut rows, RESULT);
+    assert_eq!(rows.sending_commands(1, |_| true), []);
+    let _ = rows.sent("/ship");
+    let looked_up = |_: &str| panic!("the same version");
+    assert_eq!(rows.sending_commands(1, looked_up), []);
+    let _ = rows.sent("Go");
+    read(&mut rows, &replay("Go"));
+    assert!(shown(&rows).contains("  Not confirmed by claude: /deploy\n"));
+}
+
+/// A text's own lines read as no note of oso's.
+#[test]
+fn a_notes_text_is_further_in_than_its_words() {
+    let mut rows = rows();
+    let _ = rows.sent_brief("Do it\n\nNot confirmed by claude: x", "session a");
+    rows.sending_ended(false);
+    assert_eq!(
+        shown(&rows),
+        "  Not confirmed by claude, which ended: a message from session a: Do it\n    \n    \
+         Not confirmed by claude: x\n"
+    );
 }
 
 /// Of two alike, the replay is of the one whose turn it is.

@@ -38,7 +38,9 @@ use crate::sessions::worker::SessionKey;
 pub(super) fn commands_event(native: &mut Native, event: &mut Event) -> Vec<RowChange> {
     let moved = listed(native, event);
     let commands = &native.commands;
-    let mut changes = native.rows.sending_commands(|text| commands.runs(text));
+    let mut changes = native
+        .rows
+        .sending_commands(commands.version(), |text| commands.runs(text));
     changes.extend(moved);
     changes
 }

@@ -5,11 +5,11 @@
 //! Must not depend on: key presses or how a frame is drawn; what is said of a message not
 //! confirmed is the rows'.
 
+use oso_core::buffer::Replacement;
 use oso_core::editor::Editor;
 
 use super::{Native, draw, put_tail};
 use crate::app::App;
-use crate::app::sessions::empty_composer;
 use crate::sessions::native::render::{Rendered, sending_rows};
 use crate::sessions::native::tail::Part;
 use crate::sessions::worker::SessionKey;
@@ -51,7 +51,7 @@ pub(super) fn before_rows(editor: &mut Editor, native: &mut Native) {
 
 impl App {
     /// Native session `key`'s process ended: what was being sent is a note that says so, and the
-    /// person's text whose turn was under way goes back to their composer, if that is empty.
+    /// person's text whose turn was under way goes back to their composer, if that is free.
     pub(super) fn sending_ended(&mut self, key: SessionKey) {
         let Some(native) = self.hosting.natives.map.get(&key) else {
             return;
@@ -59,28 +59,30 @@ impl App {
         if native.rows.sending().len() == 0 {
             return;
         }
-        let text = native.rows.sending_back().map(str::to_owned);
-        let text = text.filter(|_| self.composer_takes_back(key));
+        let free = self.composer_free(key);
+        if free {
+            self.composer_back(key);
+        }
         self.editor.refill_wraps();
-        if let Some(text) = &text {
-            self.set_composer_text(key, text);
-        }
-        let back = text.is_some() && !self.composer_empty(key);
         if let Some(native) = self.hosting.natives.map.get_mut(&key) {
-            let changes = native.rows.sending_ended(back);
-            draw(&mut self.editor, native, changes);
+            end(&mut self.editor, native, free);
         }
     }
+}
 
-    /// Whether native session `key`'s composer is empty and takes a text back: not where a queued
-    /// message is edited, nor one whose mode the person changed or that a yank turned secret.
-    fn composer_takes_back(&self, key: SessionKey) -> bool {
-        let Some(native) = self.hosting.natives.map.get(&key) else {
-            return false;
-        };
-        let buffer = (native.composing.buffer).and_then(|id| self.editor.buffer(id));
-        buffer.is_none_or(empty_composer) && !native.composing.edits()
-    }
+/// `native`'s process ended: what was being sent is a note, and what goes back is in its composer,
+/// if that is `free`.
+fn end(editor: &mut Editor, native: &mut Native, free: bool) {
+    let composer = native.composing.buffer.filter(|_| free);
+    let back = match (composer, native.rows.sending_back()) {
+        (Some(composer), Some(text)) => {
+            let edit = Replacement { range: 0..0, text };
+            editor.apply_edits(composer, &[edit]).is_ok()
+        }
+        _ => false,
+    };
+    let changes = native.rows.sending_ended(back);
+    draw(editor, native, changes);
 }
 
 #[cfg(test)]

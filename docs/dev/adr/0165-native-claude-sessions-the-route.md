@@ -2923,20 +2923,23 @@ composer was emptied and nothing showed until the replay.
   that message. At most 8 wait; past that the oldest is such a note.
 - **The process's end** (Q4 and Q5 (a)), whatever ended it: each that waits is a note that says
   so, a brief's with whose it is. The person's newest, if its own turn was under way, goes back to
-  their composer, if that is empty, is still a composer, holds no secret and edits no queued message; else `M-p`
-  has it. Never one whose turn had ended, which a mode's respawn or `oso-restart` would bring
+  their composer, if that is free as a request's line finds it (ADR 0182): empty, still a composer,
+  with no secret, queued message's edit, held send, dictation or image under way; else `M-p` has it. Never one whose turn had ended, which a mode's respawn or `oso-restart` would bring
   back stale; so an idle session's end, as a restart's or a switch to the TUI's, puts nothing
   back. Never what a start sent (a worktree's brief, a takeover), nor an agent's brief.
 - **A command sent before the list is known** (Q6 (a)), as a brief or while the session
-  starts, is never replayed: once the list says it is one it is its row, the person's or an agent's brief's. That amends part
+  starts, is never replayed: once the list says it is one, in its own turn, it is its row, the person's or an agent's brief's. A
+  text whose turn ended stays as it is, whatever a later list says. That amends part
   2d's "shows no row of its own when it is a command".
 - **Cost** (release, 5000 rows above, 120 columns, 30 runs): a send's draw is 0.03 ms at p50 for
   1 KiB and at most 0.97 ms for 64 KiB, the confirmation at most 1.04 ms, and a reply's delta the
-  same with one waiting as with none, 0.02 to 0.05 ms. With none waiting, a draw compares a count.
+  same with one waiting as with none, 0.02 to 0.05 ms. With none waiting, a draw compares a count. What waits is
+  looked up in the commands once a version of their list: a delta with 1 and 8 texts of 64 KiB waiting that start with `/` and have
+  no space is 25 and 27 µs at p50 and 0.03 and 0.77 ms at p99 (57 and 277 µs at p50 looked up at each).
 - **Accepted:** a message Claude Code kept in its transcript but had not replayed when its process
   ended is in the conversation and may be back in the composer too. `oso dev`'s restart drops what waits, as
   it does the rows.
-- **Not tested:** the app's own steps at an end during an interrupt, a stop, a switch and a restart;
+- **Not tested:** the app's own steps, past when a composer takes a text back, at an end during an interrupt, a stop, a switch and a restart;
   the e2e flow ends the process by itself.
 
 ## Changes to accepted ADRs

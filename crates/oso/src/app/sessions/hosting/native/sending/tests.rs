@@ -6,6 +6,7 @@ use oso_core::buffer::BufferId;
 use oso_core::editor::Editor;
 use oso_core::frame::FrameSize;
 
+use super::super::composer::new_docked_composer;
 use super::super::markdown::tests::native;
 use super::super::{Native, NativeState, draw, put_tail};
 use crate::sessions::native::rows::Changes;
@@ -125,4 +126,48 @@ fn a_window_follows_and_one_reading_stays() {
             assert_eq!(top(&editor), sent.0, "no row moved");
         }
     }
+}
+
+/// At the process's end the text whose turn was under way is in a free composer again, and its note
+/// says so; a composer that is not free is as it was.
+#[test]
+fn a_text_goes_back_to_a_free_composer_alone() {
+    for free in [true, false] {
+        let (mut editor, id, mut native) = session();
+        let composer = new_docked_composer(&mut editor, id, "s");
+        native.composing.buffer = Some(composer);
+        send(&mut editor, &mut native, "Fix it");
+        super::end(&mut editor, &mut native, free);
+        let (held, said) = match free {
+            true => ("Fix it", "and back in the composer: Fix it\n"),
+            false => ("", "claude, which ended: Fix it\n"),
+        };
+        assert_eq!(text(&editor, composer), held);
+        assert!(text(&editor, id).ends_with(said));
+        assert_eq!(native.rows.sending().len(), 0);
+    }
+}
+
+/// Its composer killed: the note says no more than that it ended.
+#[test]
+fn a_text_goes_back_to_no_killed_composer() {
+    let (mut editor, id, mut native) = session();
+    let composer = new_docked_composer(&mut editor, id, "s");
+    native.composing.buffer = Some(composer);
+    send(&mut editor, &mut native, "Fix it");
+    editor.kill_buffer(composer);
+    super::end(&mut editor, &mut native, true);
+    assert!(text(&editor, id).ends_with("claude, which ended: Fix it\n"));
+}
+
+/// A transcript killed and not swept yet is left alone.
+#[test]
+fn a_killed_transcript_is_not_drawn() {
+    let (mut editor, id, mut native) = session();
+    send(&mut editor, &mut native, "Fix it");
+    editor.kill_buffer(id);
+    assert!(editor.buffer(id).is_none());
+    feed(&mut editor, &mut native, &[REPLAY, RESULT]);
+    let _ = native.rows.sent("Next");
+    assert!(!super::sync(&mut editor, &mut native));
 }

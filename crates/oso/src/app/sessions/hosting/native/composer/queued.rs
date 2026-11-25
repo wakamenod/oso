@@ -63,13 +63,6 @@ fn stay_on_row(
     }
 }
 
-impl super::Composing {
-    /// A queued message is edited in its composer.
-    pub(in crate::app::sessions::hosting::native) fn edits(&self) -> bool {
-        self.queue.editing().is_some()
-    }
-}
-
 impl App {
     /// Refuses a restart while a native session's queue holds messages, which it would lose
     /// (ADR 0165, step 2, the author's choice): the composer's own text is the carry's to
