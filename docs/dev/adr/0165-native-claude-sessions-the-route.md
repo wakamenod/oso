@@ -2125,6 +2125,49 @@ the restart; Q4-10 (a), the resume is judged by part 4a's trust.
   harness of its own beside the end-to-end flows.
 - **New public items:** none.
 
+### Part 4c-2: a restart shows a native session's window again
+
+A carried terminal's window shows it again after a restart; a transcript's fell back to what was
+behind it, and the person picked the session from the list each time. The author asked on
+2026-11-25 that the window stay.
+
+- **The state** (`carry/native_windows.rs`) names, beside the resumes, each tree window that shows
+  a native session's transcript, by the session's id and the window's place among the state's
+  windows, and whether its composer was selected; no row, text or position. The field,
+  `native_windows`, is optional, read entry by entry and left out when it does not fit; the
+  version stays 5. Running, stopped and failed sessions are named alike. A transcript set aside
+  for the TUI (part 4d) is not: its window falls back as before.
+- **The new instance** (`app/sessions/hosting/native/windows.rs`) takes it from its parent only,
+  and shows the transcript of a native session its own record has, at its end, its composer
+  selected again if it was: within the import when the record is read, else once as it is read.
+  The session then resumes, or stays stopped saying why, in the same buffer. The composer is
+  selected only where it is laid out, else the transcript.
+- **A window the person moved, used or selected meanwhile stays theirs;** so does the selected one
+  once they typed, or while a prompt, a menu, a composition, a paste, a press of the button or a key
+  sequence is under way. With a search, a replace, a jump or a macro under way no window changes,
+  as showing a buffer in any would end it.
+- **What the window goes back to is carried beside it,** as its own entry in the state, and shows
+  where the record has no such session: archived, forgotten, never given a message, or in the TUI.
+  A reader from before this part shows it too.
+- **Trust.** Naming a session gives it a window and nothing else: who resumes is
+  `native_resumes`' and the record's.
+- **The selected window** in the state is the tree's: with a composer selected, the window it is
+  docked in, which was read as the first before; with the side window selected, the tree's window
+  selected last.
+- **The space in front** is that of the session the tree's selected window shows once the windows
+  are in, unless a space was entered before (ADR 0136).
+- **As before:** a draft or a queued message refuses the restart, and a request that waits holds it
+  (part 4b). Trees kept behind the frame's are not carried.
+- **Known limit:** where a record is read after a review reopened, its layout does not know the
+  session below its slot as the one `review-ask` showed (ADR 0169), until it shows one again.
+- **Tests.** The field's round trip, its refusals and its fit (`carry::native_windows`); what is
+  shown, selected and left (`native::windows`); the space in front (`sessions::spaces`). End to
+  end (`sessions::native::windows`): a split of a file and two windows on one transcript with its
+  composer selected, of a second space's session; a stopped session's window.
+- **Not tested:** a record read after the import, and a state that is not the parent's, at the app
+  level.
+- **New public items:** `oso-core`'s `Editor::tree_window`.
+
 ### Part 4d-1: a native session handed to the TUI
 
 The author's (a) on Q4-5 to Q4-8 of 2026-11-23, through the space's orchestrator, carrying out

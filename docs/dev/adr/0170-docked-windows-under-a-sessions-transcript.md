@@ -63,7 +63,8 @@ The facts it builds on (`frame`, `window`, `draw`):
     Killing the host buffer, or the docked buffer, removes the dock.
 - **Not in the tree, not carried.** A docked window is not in the split tree or in the `Tiling`
   a restart hands over. After a restart, a session's docks come back when its buffer is shown
-  and its host docks them again. A space's tree that comes in or goes out (ADR 0121) leaves
+  and its host docks them again: for a window on a transcript, by the restart itself (ADR 0165,
+  part 4c-2). A space's tree that comes in or goes out (ADR 0121) leaves
   docked windows in the frame, as it leaves the side window: they go where their host is shown.
 
 ### Rows

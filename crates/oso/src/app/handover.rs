@@ -71,11 +71,17 @@ impl App {
             self.wait_review_saves(REVIEWS_WAIT);
         }
         let (mut state, exported) = self.export_texts(None)?;
-        // Last, as they never refuse the restart (ADR 0165, part 4c).
-        carry::natives::add(&mut state, &self.native_resumes());
-        carry::natives::add_agents(&mut state, &self.natives_of_agents());
+        self.add_natives(&mut state);
         self.keep_export(exported);
         Ok(state)
+    }
+
+    /// Adds to the exported `state` what it says of the native sessions: last, as they never refuse
+    /// the restart (ADR 0165, part 4c), and the windows after all else (part 4c-2).
+    pub(super) fn add_natives(&self, state: &mut Value) {
+        carry::natives::add(state, &self.native_resumes());
+        carry::natives::add_agents(state, &self.natives_of_agents());
+        carry::native_windows::add(state, &self.editor, &self.native_transcripts());
     }
 
     /// The state and the texts it carries, numbered as the next export; `terminals` the

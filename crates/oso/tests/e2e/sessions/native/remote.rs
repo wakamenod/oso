@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 use super::super::super::harness::{App, sockets};
 use super::super::super::spaces::trust_restricted;
 use super::modes::{footer, modeline, send};
-use super::restart::show_transcript;
+use super::restart::{show_transcript, transcript_shown_again};
 use super::{Flow, git_init, in_composer, remote_control_off, text};
 
 /// The fake: run `N` from 1 writes its arguments to `run.N`, and answers `initialize` with
@@ -366,7 +366,7 @@ fn a_connected_session_comes_back_to_the_same_session_after_oso_restart() {
     assert_eq!(asked["request"]["reattach_session_id"], "cse_a1");
     assert!(!there(&flow, "off.2"), "it was never told that it is off");
     assert!(!remote_control_off(&args(&flow, "run.3")));
-    show_transcript(&mut new);
+    transcript_shown_again(&mut new);
     transcript_says(&mut new, "Remote Control was on before oso-restart");
     new.wait_for("the mark", |state| modeline(state).contains("⇄ claude.ai"));
     let _ = new.exchange("exit", None);
@@ -379,7 +379,7 @@ fn another_session_answered_after_oso_restart_turns_it_off() {
     flow.wait_for_file("on.3");
     flow.wait_for_file("off.3");
     assert!(remote_control_off(&args(&flow, "run.4")));
-    show_transcript(&mut new);
+    transcript_shown_again(&mut new);
     transcript_says(&mut new, "answered another session than this one's");
     new.wait_for("no mark", |state| !modeline(state).contains('⇄'));
     let _ = new.exchange("exit", None);
@@ -401,7 +401,7 @@ fn a_directory_made_again_before_oso_restart_connects_nothing() {
     assert!(old.wait_for_exit().success(), "the instance going exits");
     new.wait_until_ready();
     assert!(remote_control_off(&args(&flow, "run.3")));
-    show_transcript(&mut new);
+    transcript_shown_again(&mut new);
     transcript_says(&mut new, "Remote Control stays off");
     assert!(!there(&flow, "on.3"));
     let _ = new.exchange("exit", None);

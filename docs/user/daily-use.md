@@ -785,7 +785,8 @@ native session has a turn under way, asks you something or is starting, or while
 file copy, move or delete runs,
 `M-x oso-restart` waits for it: the echo area names what it waits for, nothing queued is sent
 meanwhile, and the restart begins once all of it has been idle for 2 seconds. `C-g` or
-`C-x C-c` cancels the wait. `M-x session-resume` takes
+`C-x C-c` cancels the wait. The new oso shows each conversation again in the windows that showed
+it, at its end, with its composer selected if it was. `M-x session-resume` takes
 a stopped session up again in its own buffer, and `M-x session-fork` copies it into a new one;
 both start at once, with the composer ready. They need a project you trust, though no file of
 it needs to be open; in a git worktree of a repository you trust, a resume needs none open

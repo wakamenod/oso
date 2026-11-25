@@ -64,8 +64,7 @@ impl App {
         }
         self.save_sessions();
         if self.watch.spaces.current().is_none() {
-            let shown = tree_buffer_of(&self.editor);
-            let first = shown
+            let first = tree_buffer_of(&self.editor)
                 .and_then(|buffer| self.hosting.table().by_buffer(buffer))
                 .or_else(|| self.hosting.table().iter().next())
                 .and_then(|session| self.space_of_session(session));
@@ -93,6 +92,20 @@ impl App {
         self.watch.placed = placed;
     }
 
+    /// After a restart's windows are in: the space of the session the frame's tree shows is in
+    /// front, in place of the one the tree was given as the record was read, before them. Not once
+    /// a space was entered, nor where the tree shows no session (ADR 0136).
+    pub(in crate::app) fn front_space_is_shown(&mut self) {
+        let shown = tree_buffer_of(&self.editor)
+            .and_then(|buffer| self.hosting.table().by_buffer(buffer))
+            .and_then(|session| self.space_of_session(session));
+        if let Some(at) = shown
+            && self.watch.spaces.adopt_instead(at)
+        {
+            self.sessions_touched();
+        }
+    }
+
     /// The space hosted session `session` is in: the one its record names, else the one it
     /// joined in this instance only.
     pub(in crate::app) fn space_of_session(&self, session: &Hosted) -> Option<usize> {
@@ -108,16 +121,8 @@ impl App {
     }
 }
 
-/// The buffer of the frame's selected window, else of the tree's first when the side window is
-/// selected.
+/// The buffer of the frame's tree's selected window, else of the one selected last, as the side
+/// window is; of a selected docked window's host.
 fn tree_buffer_of(editor: &Editor) -> Option<BufferId> {
-    let side = editor.side_window();
-    let selected = editor.window();
-    if Some(selected.id()) != side {
-        return Some(selected.buffer());
-    }
-    editor
-        .windows()
-        .find(|window| Some(window.id()) != side)
-        .map(oso_core::window::Window::buffer)
+    (editor.window_by_id(editor.tree_window())).map(oso_core::window::Window::buffer)
 }

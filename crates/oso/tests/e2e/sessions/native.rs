@@ -537,6 +537,7 @@ mod status;
 mod suggest;
 mod switch;
 mod todo;
+mod windows;
 mod wrap;
 
 /// The selected window, if it is the composer docked under a session.

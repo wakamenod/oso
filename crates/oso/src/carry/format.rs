@@ -87,6 +87,8 @@ pub struct State {
     pub native_resumes: Vec<super::natives::NativeResume>,
     /// The conversations forked from an agent's session (ADR 0181).
     pub native_agents: super::natives::Agents,
+    /// The native sessions its windows showed (ADR 0165, part 4c-2).
+    pub native_windows: Vec<super::native_windows::NativeWindows>,
 }
 
 #[cfg(test)]
@@ -257,6 +259,7 @@ pub fn parse(state: &Value) -> Result<State, String> {
     let reviews = super::reviews::parse(state, windows.windows.len());
     Ok(State {
         export,
+        native_windows: super::native_windows::parse(state, windows.windows.len()),
         items: items.lengths,
         buffers,
         order,

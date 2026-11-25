@@ -3,7 +3,8 @@
 //! going ends the idle session's process, and the new instance resumes it, with `--resume` and
 //! the mode the person chose; a restart that stays (a dev build's `OSO_DEV_RESTART_FAIL`),
 //! before the new instance took the state or after, resumes it in the instance going instead,
-//! and the new instance resumes nothing.
+//! and the new instance resumes nothing. The new instance shows the session again in the window
+//! that showed it, its composer selected (part 4c-2; `windows` has the splits and the spaces).
 //!
 //! Must not depend on: the app's internals; the state's field, the order's signals and the
 //! mode carried have their own tests.
@@ -16,7 +17,7 @@ use super::super::super::harness::{App, sockets};
 use super::super::super::spaces::trust_restricted;
 use super::super::super::worktrees::keys;
 use super::modes::{MODES_FAKE, footer_says, modeline, send};
-use super::{Flow, in_composer, text};
+use super::{Flow, composer_docked, in_composer, text};
 
 /// A flow on tier 2 whose session switched to `acceptEdits` and ended a turn, idle, with the
 /// composer selected. Its instance's restart stops short at `fail`, if any.
@@ -64,8 +65,20 @@ fn resumed_in_accept_edits(flow: &Flow, id: &str) {
     assert!(run.contains("arg --permission-mode=acceptEdits"), "{run}");
 }
 
-/// Shows the session's transcript, which the new instance does not show at first, as it
-/// comes back behind the file.
+/// Waits until the new instance shows the session again by itself, with its composer selected as
+/// it was (part 4c-2).
+pub(super) fn shown_again(app: &mut App) {
+    app.wait_for("the session shown again", composer_docked);
+}
+
+/// Waits until the new instance shows the session's transcript again by itself, selected as it was.
+pub(super) fn transcript_shown_again(app: &mut App) {
+    app.wait_for("the transcript shown again", |state| {
+        state["buffer"]["name"] == "*claude: proj*"
+    });
+}
+
+/// Shows the session's transcript, from another buffer.
 pub(super) fn show_transcript(app: &mut App) {
     app.send_keys("C-x b");
     app.send_keys(&keys("*claude: proj*"));
@@ -93,7 +106,7 @@ fn a_native_session_resumes_in_the_instance_oso_restart_starts_in_its_mode() {
     new.wait_until_ready();
     // Run 1 ended with its input, and only then, the old instance gone, did run 2 start.
     resumed_in_accept_edits(&flow, &id);
-    show_transcript(&mut new);
+    shown_again(&mut new);
     transcript_says(&mut new, "Resumed after oso-restart.");
     footer_says(&mut new, "▶▶ accept edits on");
     // The resumed session takes messages: run 2's first.

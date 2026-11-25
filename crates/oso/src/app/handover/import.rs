@@ -11,9 +11,11 @@ use oso_core::buffer::{BufferId, Verdict};
 use oso_core::frame::{FrameSize, Tiling};
 use oso_core::rope::Rope;
 use oso_core::sum_tree::Bias;
+use oso_core::window::WindowId;
 use serde_json::json;
 
 use super::super::App;
+use super::super::sessions::with_transcripts_shown;
 use super::ImportReply;
 use crate::carry::{self, Reply};
 
@@ -32,12 +34,13 @@ impl App {
             let refused = super::super::terminals::carry::NOT_PARENT.to_owned();
             return Some((reply, Err(refused)));
         }
-        // Which instances a bridge follows here, and which native sessions resume, are the
-        // parent's to say (ADR 0165, part 4c).
+        // Which instances a bridge follows here, and which native sessions resume and show again,
+        // are the parent's to say (ADR 0165, part 4c).
         let mut state = state;
         if !parent {
             state.follows.clear();
             state.native_resumes.clear();
+            state.native_windows.clear();
         }
         let judging = match self.import_state(state) {
             Ok(judging) => judging,
@@ -189,10 +192,12 @@ impl App {
             .filter_map(|&at| named.get(at).copied())
             .collect();
         self.take_view(&named, state);
+        let order = with_transcripts_shown(&self.editor, order);
         // After the windows, whose shows and selection would raise their buffers (ADR 0171).
         self.editor.restore_buffer_order(&order);
         // Each once its project is known and trusted (ADR 0122, step 6).
         self.reviews_handed_over(reviews);
+        self.front_space_is_shown();
         Ok(judging)
     }
 
@@ -264,7 +269,10 @@ impl App {
         if let Some(aids) = state.visual_aids {
             self.editor.set_visual_aids(aids);
         }
-        self.take_windows(named, state.windows);
+        let selected = state.windows.selected;
+        let ids = self.take_windows(named, state.windows);
+        // Before its keys, which were typed there (ADR 0165, part 4c-2).
+        self.native_windows_carried(&state.native_windows, &ids, selected);
         self.try_restore_positions();
         self.dispatcher
             .restore_pending(&mut self.editor, &state.pending_keys);
@@ -282,8 +290,9 @@ impl App {
     /// window's positions to restore, and selects the window that was selected. Each window is
     /// shown and restored where it is, none selected but the last, so that taking many costs
     /// one layout each. A layout this editor cannot take, or one of more windows than its frame
-    /// can show, leaves one window, the state's first (ADR 0112).
-    fn take_windows(&mut self, named: &[BufferId], windows: carry::Windows) {
+    /// can show, leaves one window, the state's first (ADR 0112). Returns the windows, by their
+    /// places in the state.
+    fn take_windows(&mut self, named: &[BufferId], windows: carry::Windows) -> Vec<WindowId> {
         let first = self.editor.tiled().0.id();
         let room = room_for_windows(self.editor.frame().size());
         let ids = match windows.layout {
@@ -314,17 +323,23 @@ impl App {
         }
         let selected = ids.get(windows.selected).copied().unwrap_or(first);
         self.editor.select_window(selected);
+        ids
     }
 
     /// Applies positions from a handoff if their files have loaded far enough, and forgets
     /// those that no longer stand. Returns whether any window moved, so a frame is drawn.
     pub(in crate::app) fn try_restore_positions(&mut self) -> bool {
         let editor = &mut self.editor;
+        let natives = &mut self.hosting.natives;
         let mut moved = false;
         self.handover.restore.retain(|restore| {
             let stands = restore.stands(editor);
             let over = restore.try_apply(editor);
             moved |= over && stands;
+            if over && stands {
+                // oso moved it, not the person.
+                natives.carried_window_moved(editor, restore.window);
+            }
             !over
         });
         moved

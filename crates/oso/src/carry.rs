@@ -63,6 +63,7 @@ pub mod pair;
 pub mod pieces;
 use internal::{behind_internal, handed_over};
 mod look;
+pub mod native_windows;
 pub mod natives;
 pub mod notice;
 mod restore;
@@ -258,7 +259,8 @@ pub fn fits(state: &Value) -> Result<(), String> {
 }
 
 /// Every window of the tree as the state keeps it, in the tree's order, and the selected one's
-/// place among them, the first while the side window is selected. `restores` are positions still waiting for their files, which go on as they
+/// place among them: with the side window selected, the one selected last, and with a docked one,
+/// its host's. `restores` are positions still waiting for their files, which go on as they
 /// came; a window on a buffer that may hold secrets goes at its start (ADR 0090, ADR 0112).
 fn windows_state(editor: &Editor, restores: &[Restore]) -> (Vec<Value>, usize) {
     let at_the_top = SelectionSet::default();
@@ -291,7 +293,7 @@ fn windows_state(editor: &Editor, restores: &[Restore]) -> (Vec<Value>, usize) {
         .collect();
     let selected = tiled
         .iter()
-        .position(|window| window.id() == editor.tiled().0.id())
+        .position(|window| window.id() == editor.tree_window())
         .unwrap_or(0);
     (windows, selected)
 }
@@ -490,7 +492,7 @@ const JUMPING: &str = "a jump is under way";
 /// keyboard macro being recorded or run, or an undo or a redo of a large step (ADR 0082,
 /// ADR 0113, ADR 0116, ADR 0119). A restart and a guarded `exit` both say it after their own
 /// words.
-pub(super) fn under_way(editor: &Editor) -> Option<&'static str> {
+pub(crate) fn under_way(editor: &Editor) -> Option<&'static str> {
     if editor.crossing().is_some() {
         Some(UNDOING)
     } else if editor.jump().is_some() {

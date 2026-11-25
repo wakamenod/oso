@@ -51,6 +51,8 @@ pub(in crate::app) struct Resuming {
     pub(super) asked: Vec<SessionKey>,
     /// Since when each has reported, while what they left stopped waits to be said.
     pub(super) reported: Option<Instant>,
+    /// The windows that show a transcript again, until the record is read (part 4c-2).
+    pub(super) windows: super::windows::Carried,
 }
 
 impl App {
