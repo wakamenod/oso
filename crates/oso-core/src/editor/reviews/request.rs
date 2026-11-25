@@ -11,6 +11,17 @@ use crate::buffer::BufferId;
 use crate::project::ProjectId;
 use crate::review::Side;
 
+/// Where a jump from a review's line goes (ADR 0122, "Jump to the source").
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VisitTo {
+    /// Its file now, at the line carried to it.
+    Source,
+    /// The line's own side as the review read it, read-only.
+    Side,
+    /// The old side as the review read it, read-only.
+    OldSide,
+}
+
 /// What commands ask of the host for reviews.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ReviewRequest {
@@ -35,14 +46,13 @@ pub enum ReviewRequest {
         path: Box<[u8]>,
         show: Option<Range<u32>>,
     },
-    /// Go to line `number` of `side` of the file in its source, or in its old side when
-    /// `old_side`.
+    /// Go to line `number` of `side` of the file, where `to` says.
     Visit {
         review: ReviewId,
         path: Box<[u8]>,
         side: Side,
         number: u32,
-        old_side: bool,
+        to: VisitTo,
     },
     /// The review was closed: stop its threads.
     Close(ReviewId),

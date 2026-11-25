@@ -434,9 +434,10 @@ selected file's repository offered by `M-n`. Then a small menu asks what of it:
 So the menu works from the orchestrator's terminal too, which is in no repository.
 
 A review opens in the review layout: the review at the left, and one window at the right, the
-slot, which shows one thing at a time. `RET` shows the source there, `C-u RET` the old side,
-and `C-c C-c` the message of your comments, each in place of the last, so windows do not pile
-up. `C-x v r` is the one key for the rest:
+slot, which shows one thing at a time. `RET` shows the source there, `M-RET` the line's
+side as the review read it, `C-u RET` the old side, and `C-c C-c` the message
+of your comments, each in place of the last, so windows do not pile up. `C-x v r` is the
+one key for the rest:
 
 - in the slot, it goes back to the review, where you were;
 - in the review, it puts back the windows you had before the review, exactly, as `q` does;
@@ -449,6 +450,9 @@ In a review buffer:
 
 | Key | What it does |
 |---|---|
+| `RET` | Its line in the file as it is now; in a commit, the checkout's file, or the commit's side if none |
+| `M-RET` | Its line as the review read it, read-only |
+| `C-u RET` | The old side, read-only |
 | `n`, `p` | Next and previous hunk |
 | `N`, `P` | Next and previous file |
 | `c` | Comment on the line or hunk at point, or reply to the comment at point |

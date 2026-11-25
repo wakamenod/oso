@@ -97,6 +97,7 @@ fn carry_jump(path: &[u8], new: &[u8], line: u32, now: Option<Rope>) -> Jump {
             new: Arc::from(new),
             line,
             now,
+            or_side: false,
         },
     }
 }
@@ -143,6 +144,34 @@ fn the_work_tree_s_file_is_read_with_no_link_followed_nor_a_file_of_two_names() 
         assert!(line_of(link).unwrap_err().contains("link"));
         let shared = answer(carry_jump(b"twice.rs", &new, 2, None), Some(&top));
         assert!(line_of(shared).unwrap_err().contains("more than one name"));
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn a_file_gone_gives_the_side_when_asked_to_and_one_refused_still_is() {
+    let dir = scratch_dir("jump-or-side");
+    let root = dir.as_path();
+    std::fs::write(root.join("a.rs"), b"line 1\n").unwrap();
+    let top = Directory::open(root).unwrap();
+    let or_side = |path: &[u8], now: Option<Rope>| {
+        let mut jump = carry_jump(path, &lines(2), 2, now);
+        if let Ask::Carry { or_side, .. } = &mut jump.ask {
+            *or_side = true;
+        }
+        answer(jump, Some(&top)).landed
+    };
+    assert!(matches!(or_side(b"gone.rs", None), Ok(Landed::Side(_))));
+    assert!(matches!(or_side(b"a.rs", None), Ok(Landed::Line { .. })));
+    // An open buffer's text is the file's, whatever is on disk.
+    let now = Some(Rope::from("line 1\nline 2\n"));
+    assert!(matches!(or_side(b"gone.rs", now), Ok(Landed::Line { .. })));
+    #[cfg(unix)]
+    {
+        std::fs::hard_link(root.join("a.rs"), root.join("twice.rs")).unwrap();
+        assert!(or_side(b"twice.rs", None).is_err());
+        std::os::unix::fs::symlink(root.join("a.rs"), root.join("link.rs")).unwrap();
+        assert!(or_side(b"link.rs", None).is_err());
     }
     std::fs::remove_dir_all(root).unwrap();
 }

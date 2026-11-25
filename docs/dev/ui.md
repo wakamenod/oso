@@ -512,10 +512,10 @@ project and how long ago the baseline was taken. Only a trusted project runs git
   would be lost; a review not shown is shown before the question.
 - **The review layout** ([ADR 0160](adr/0160-the-review-layout.md)): a review a person opens
   takes the frame as the review at the left, three fifths, and the slot at the right, two
-  fifths. The slot shows one thing at a time: the source `RET` goes to, the side `C-u RET` shows,
-  the message `C-c C-c` makes and the session `Q` asks (ADR 0163), each in place of the last,
-  except that the session goes below whatever else the slot shows but `*Messages*`, the slot
-  split in halves (ADR 0169): a later `RET` changes the top, a later `Q` the bottom. `C-x v r` (`review-layout`) goes
+  fifths. The slot shows one thing at a time: the source `RET` goes to, the side `M-RET` or
+  `C-u RET` shows, the message `C-c C-c` makes and the session `Q` asks (ADR 0163), each in
+  place of the last, except that the session goes below whatever else the slot shows but
+  `*Messages*`, the slot split in halves (ADR 0169): a later `RET` changes the top, a later `Q` the bottom. `C-x v r` (`review-layout`) goes
   back from the slot to the review where the person left it, and in the review puts back the
   windows from before the layout, exactly, as `q` and closing the review do. The two panes take
   the layout's left, the files pane the review's left. The windows are found by name, so a slot

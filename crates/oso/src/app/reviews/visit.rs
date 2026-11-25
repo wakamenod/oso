@@ -1,8 +1,8 @@
 //! Jumping to the source from a review (ADR 0122, "Jump to the source", step 3, part three):
-//! what `RET` and `C-u RET` ask, carried out. A line of a review of the work tree opens its
-//! file at that line carried through the edits since the reading, counted on the review's
-//! thread (Q5); a side the work tree does not hold, as a commit's new side or any old side,
-//! shows read-only in a buffer of its own (Q4), built on that thread too and put in at O(1).
+//! what `RET`, `M-RET` and `C-u RET` ask, carried out. `RET` opens the checkout's file at the
+//! line carried through the edits since the reading, counted on the review's thread (Q5), or a
+//! commit's side when the checkout has no such file; the other two show a side as the review
+//! read it, read-only in a buffer of its own (Q4), built on that thread too and put in at O(1).
 //!
 //! Must not depend on: key presses or how a frame is drawn. Nothing here reads a file, diffs or
 //! builds a text: the review's thread does, and its answer comes by the jump's ticket.
@@ -29,7 +29,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use oso_core::buffer::{BufferId, Mode};
-use oso_core::editor::{Editor, ReviewId};
+use oso_core::editor::{Editor, ReviewId, VisitTo};
 use oso_core::frame::Way;
 use oso_core::review::Side;
 use oso_core::selection::SelectionSet;
@@ -54,6 +54,8 @@ pub(super) struct Jumping {
     /// The window it was asked in.
     window: WindowId,
     to: To,
+    /// The files whose open buffers must hold no secrets: all but a work tree review's own.
+    guards: Vec<PathBuf>,
 }
 
 /// A buffer showing a side of a file of the review, found again by the path and the side: its
@@ -66,19 +68,42 @@ pub(super) struct SideBuffer {
 
 /// Where a jump's answer goes.
 enum To {
-    /// The work tree's file at `place`, at the line the answer gives; `line` is the line as the
-    /// review read it.
-    File { place: PathBuf, line: u32 },
-    /// A buffer named `name`, of `mode`, holding `side` of the file at `path`, which is at
-    /// `place`, at `line`.
-    Side {
-        name: String,
-        mode: Mode,
-        path: Box<[u8]>,
-        side: Side,
-        line: u32,
+    /// The checkout's file at `place`, at the line the answer gives; `line` is the line as the
+    /// review read it. `commit` says what a review whose new side is a commit adds.
+    File {
         place: PathBuf,
+        line: u32,
+        commit: Option<FromCommit>,
     },
+    Side(SideTo),
+}
+
+/// A jump to the checkout's file from a review whose new side is a commit.
+struct FromCommit {
+    /// What the echo area says of the file.
+    said: String,
+    /// Where the commit's side goes when the checkout has no such file.
+    or_side: Option<SideTo>,
+}
+
+/// A buffer named `name`, of `mode`, holding `side` of the file at `path`, at `line`.
+struct SideTo {
+    name: String,
+    mode: Mode,
+    path: Box<[u8]>,
+    side: Side,
+    line: u32,
+}
+
+/// What the echo area says of the checkout's file a review of a commit goes to; `pull` is the
+/// pull request the commit is of, if its head is not checked out here.
+fn now_said(pull: Option<u64>) -> String {
+    match pull {
+        Some(number) => format!(
+            "#{number}'s head is not checked out here: this checkout's file \u{b7} M-RET shows #{number}'s"
+        ),
+        None => "The file as checked out now \u{b7} M-RET shows it as the review read it".into(),
+    }
 }
 
 /// The name of the buffer showing `side` of `path` in a review of `scope`, its bidirectional
@@ -110,23 +135,28 @@ fn side_shown(sides: &[SideBuffer], path: &[u8], side: Side) -> Option<BufferId>
 }
 
 impl App {
-    /// Goes to line `number` of `side` of the file at `path` in the review `review`: its
-    /// source, or with `old_side` its old side, read-only.
+    /// Goes to line `number` of `side` of the file at `path` in the review `review`,
+    /// where `to` says.
     pub(super) fn visit_review_line(
         &mut self,
         review: ReviewId,
         path: &[u8],
         (side, number): (Side, u32),
-        old_side: bool,
+        to: VisitTo,
     ) {
         let Some(index) = self.reviews.index(review) else {
             return;
         };
-        match self.plan_jump(index, path, (side, number), old_side) {
-            Ok((ask, to)) => {
+        match self.plan_jump(index, path, (side, number), to) {
+            Ok((ask, to, guards)) => {
                 let ticket = self.reviews.serial();
                 let window = self.editor.window().id();
-                self.reviews.open[index].jumping = Some(Jumping { ticket, window, to });
+                self.reviews.open[index].jumping = Some(Jumping {
+                    ticket,
+                    window,
+                    to,
+                    guards,
+                });
                 self.ask_review(index, Request::Jump(Jump { ticket, ask }));
             }
             Err(why) => self.editor.message(why),
@@ -141,8 +171,8 @@ impl App {
         index: usize,
         path: &[u8],
         (side, number): (Side, u32),
-        old_side: bool,
-    ) -> Result<(Ask, To), String> {
+        to: VisitTo,
+    ) -> Result<(Ask, To, Vec<PathBuf>), String> {
         let running = &self.reviews.open[index];
         if running.revoked {
             return Err(REVOKED.into());
@@ -160,57 +190,82 @@ impl App {
             place_of(root, path).ok_or("That file's name is not one this system can open")?;
         let checked_out = (running.pr.as_ref()).is_some_and(|found| found.head_checked_out);
         let on_disk = running.scope.new_side_on_disk(checked_out);
+        let source = to == VisitTo::Source;
+        let guards = if source && on_disk {
+            Vec::new()
+        } else {
+            guards_of(reading, root, &place)
+        };
+        if secret_buffer(&self.editor, &guards) {
+            return Err(WITHHELD.into());
+        }
+        let said = (!on_disk).then(|| now_said(self.pull_elsewhere(index)));
         let Content::Text {
             shape, old, new, ..
         } = &reading.content
         else {
-            return not_text(reading, place, old_side || !on_disk);
+            let (ask, to) = not_text(reading, place, !source, said)?;
+            return Ok((ask, to, guards));
         };
         // The reading the rows were laid out from: one read again since waits for its text.
         let shown = (self.editor.review(running.id)).and_then(|model| model.file(path));
         if !shown.is_some_and(|shown| Arc::ptr_eq(shown, shape)) {
             return Err("This file is being read again: try in a moment".into());
         }
-        let want = if old_side { Side::Old } else { Side::New };
+        let want = match to {
+            VisitTo::Source => Side::New,
+            VisitTo::Side => side,
+            VisitTo::OldSide => Side::Old,
+        };
         let line = if side == want {
             number
         } else {
             across(shape.hunks(), side, number)
         };
-        match reading.entry.status {
-            Status::Deleted if !old_side => {
-                return Err("Deleted in this review: C-u RET shows the old side".into());
-            }
-            Status::Added | Status::Copied if old_side && old.is_empty() => {
-                return Err("Added in this review: it has no old side".into());
-            }
-            _ => {}
+        if let Some(why) = no_side(reading.entry.status, want, old) {
+            return Err(why.into());
         }
-        if !old_side && on_disk {
-            let now = open_buffer_of(&self.editor, &place)
-                .and_then(|buffer| self.editor.buffer(buffer))
-                .map(|buffer| buffer.text().clone());
-            let ask = Ask::Carry {
-                path: path.into(),
-                new: Arc::clone(new),
-                line,
-                now,
-            };
-            return Ok((ask, To::File { place, line }));
-        }
-        if secret_buffer(&self.editor, &place) {
-            return Err(WITHHELD.into());
-        }
-        let bytes = Arc::clone(if old_side { old } else { new });
-        let to = To::Side {
+        let side_to = || SideTo {
             name: side_name(path, want, &running.scope),
             mode: side_mode(path, reading.entry.old_path.as_deref(), want),
             path: path.into(),
             side: want,
             line,
-            place,
         };
-        Ok((Ask::Side { bytes }, to))
+        if !source {
+            let bytes = Arc::clone(if want == Side::Old { old } else { new });
+            return Ok((Ask::Side { bytes }, To::Side(side_to()), guards));
+        }
+        let commit = said.map(|said| FromCommit {
+            said,
+            or_side: Some(side_to()),
+        });
+        let now = open_text(&self.editor, &place);
+        let ask = Ask::Carry {
+            path: path.into(),
+            new: Arc::clone(new),
+            line,
+            now,
+            or_side: commit.is_some(),
+        };
+        let to = To::File {
+            place,
+            line,
+            commit,
+        };
+        Ok((ask, to, guards))
+    }
+
+    /// The number of the pull request the review at `index` is of, or of a commit of, if its
+    /// head was not checked out here when last asked.
+    fn pull_elsewhere(&self, index: usize) -> Option<u64> {
+        let running = &self.reviews.open[index];
+        let whole = match running.pull {
+            Some((pull, _)) => &self.reviews.open[self.reviews.index(pull)?],
+            None => running,
+        };
+        let found = whole.pr.as_ref()?;
+        (!found.head_checked_out).then_some(found.number)
     }
 
     /// Puts in where the jump `jumped` landed, if it is the review's latest, the person is
@@ -245,9 +300,7 @@ impl App {
             self.freer.free(landed);
             return self.editor.message(REVOKED);
         }
-        if let To::Side { place, .. } = &jumping.to
-            && secret_buffer(&self.editor, place)
-        {
+        if secret_buffer(&self.editor, &jumping.guards) {
             self.freer.free(landed);
             return self.editor.message(WITHHELD);
         }
@@ -259,57 +312,72 @@ impl App {
             return self.editor.message(why);
         }
         match (jumping.to, landed) {
-            (To::File { place, line: read }, Landed::Line { line, carried }) => {
-                // Loaded as the agent channel loads a file: one with a second name, as a hard
-                // link swapped in after the thread looked gives, is refused, and a link is
-                // judged by where it leads (ADR 0044, ADR 0085).
-                (self.editor).request_visit_at(
-                    place.clone(),
-                    oso_core::load::UNASKED,
-                    line as usize,
-                    0,
-                );
-                self.serve_files_of(Some(&place));
-                match carried {
-                    Carried::Kept => {}
-                    Carried::Changed => self.editor.message(format!(
-                        "Line {read} changed since the review read it: at the start of what replaced it"
-                    )),
-                    Carried::Not(why) => self
-                        .editor
-                        .message(format!("At line {read} as the review read it: {why}")),
-                }
-            }
             (
-                To::Side {
-                    name,
-                    mode,
-                    path,
-                    side,
-                    line,
+                To::File {
+                    place,
+                    line: read,
+                    commit,
+                },
+                Landed::Line { line, carried },
+            ) => self.show_file(place, read, (line, carried), commit),
+            (
+                To::File {
+                    commit:
+                        Some(FromCommit {
+                            or_side: Some(to), ..
+                        }),
                     ..
                 },
                 Landed::Side(text),
-            ) => {
-                self.show_side(index, (&path, side), name, mode, *text);
-                put_cursor_on_line(&mut self.editor, line);
-                (self.editor).message("Read-only: a side as the review read it");
+            ) => self.show_side(
+                index,
+                to,
+                *text,
+                "Not in this checkout now: the side as the review read it, read-only",
+            ),
+            (To::Side(to), Landed::Side(text)) => {
+                self.show_side(index, to, *text, "Read-only: a side as the review read it");
             }
             (_, landed) => self.freer.free(landed),
         }
         self.request_redraw();
     }
 
-    /// Shows `text`, `side` of the file at `path`, in the selected window.
+    /// Opens the checkout's file at `place` in the selected window, at `line`, where the review's
+    /// line `read` was `carried` to.
+    fn show_file(
+        &mut self,
+        place: PathBuf,
+        read: u32,
+        (line, carried): (u32, Carried),
+        commit: Option<FromCommit>,
+    ) {
+        // Loaded as the agent channel loads a file: one with a second name, as a hard
+        // link swapped in after the thread looked gives, is refused, and a link is
+        // judged by where it leads (ADR 0044, ADR 0085).
+        (self.editor).request_visit_at(place.clone(), oso_core::load::UNASKED, line as usize, 0);
+        self.serve_files_of(Some(&place));
+        match (carried, commit) {
+            (Carried::Kept, None) => {}
+            (Carried::Kept, Some(commit)) => self.editor.message(commit.said),
+            (Carried::Changed, _) => self.editor.message(format!(
+                "Line {read} changed since the review read it: at the start of what replaced it"
+            )),
+            (Carried::Not(why), _) => self
+                .editor
+                .message(format!("At line {read} as the review read it: {why}")),
+        }
+    }
+
+    /// Shows `text` in the selected window, as `to` says, and says `said`.
     fn show_side(
         &mut self,
         index: usize,
-        of: (&[u8], Side),
-        name: String,
-        mode: Mode,
+        to: SideTo,
         text: oso_core::load::Reloaded,
+        said: &'static str,
     ) {
-        let buffer = self.side_buffer(index, of, name, mode);
+        let buffer = self.side_buffer(index, (&to.path, to.side), to.name, to.mode);
         // Kept, at O(1), so that the text it replaces is freed off the UI thread.
         let before =
             (self.editor.buffer(buffer)).map(|shown| (shown.text().clone(), shown.display()));
@@ -317,6 +385,8 @@ impl App {
         self.freer.free((before, left));
         let window = self.editor.window().id();
         self.editor.show_in(window, buffer);
+        put_cursor_on_line(&mut self.editor, to.line);
+        self.editor.message(said);
     }
 
     /// The review at `index`'s buffer of `side` of the file at `path`, or a new one named
@@ -365,11 +435,25 @@ impl App {
     }
 }
 
-/// Whether the open buffer of the file at `place` may hold secrets, so that no side of it shows.
-fn secret_buffer(editor: &Editor, place: &Path) -> bool {
-    open_buffer_of(editor, place)
-        .and_then(|buffer| editor.buffer(buffer))
-        .is_some_and(oso_core::buffer::Buffer::is_secret)
+/// The text of the open buffer of the file at `place`, an O(1) copy.
+fn open_text(editor: &Editor, place: &Path) -> Option<oso_core::rope::Rope> {
+    let buffer = editor.buffer(open_buffer_of(editor, place)?)?;
+    Some(buffer.text().clone())
+}
+
+/// The places of the file at `place` and of the one it came from, whose old side may show.
+fn guards_of(reading: &Reading, root: &Path, place: &Path) -> Vec<PathBuf> {
+    let before = (reading.entry.old_path.as_deref()).and_then(|old| place_of(root, old));
+    before.into_iter().chain([place.to_path_buf()]).collect()
+}
+
+/// Whether an open buffer of a file at one of `places` may hold secrets, so that nothing of it
+/// shows.
+fn secret_buffer(editor: &Editor, places: &[PathBuf]) -> bool {
+    (places.iter())
+        .filter_map(|place| open_buffer_of(editor, place))
+        .filter_map(|buffer| editor.buffer(buffer))
+        .any(oso_core::buffer::Buffer::is_secret)
 }
 
 /// Puts the selected window's cursor alone at the start of line `line`, from 1, or the last.
@@ -414,10 +498,28 @@ pub(super) fn select_source_window(editor: &mut Editor, review: ReviewId) -> Res
     }
 }
 
-/// Where a jump to a file the review shows no text of goes: the work tree's file, when it is
-/// on disk, as "too large to show: `RET` opens it" says, once the review's thread looked at it
-/// as a carry reads one; nowhere for a side the review did not read.
-fn not_text(reading: &Reading, place: PathBuf, side_wanted: bool) -> Result<(Ask, To), String> {
+/// Why a file of `status`, whose old side is `old`, has no side `want`, if it has none.
+fn no_side(status: Status, want: Side, old: &[u8]) -> Option<&'static str> {
+    match status {
+        Status::Deleted if want == Side::New => {
+            Some("Deleted in this review: C-u RET shows the old side")
+        }
+        Status::Added | Status::Copied if want == Side::Old && old.is_empty() => {
+            Some("Added in this review: it has no old side")
+        }
+        _ => None,
+    }
+}
+
+/// Where a jump to a file the review shows no text of goes: the checkout's file, as "too large
+/// to show: `RET` opens it" says, once the review's thread looked at it as a carry reads one;
+/// nowhere for a side the review did not read. `said` is what a review of a commit says of it.
+fn not_text(
+    reading: &Reading,
+    place: PathBuf,
+    side_wanted: bool,
+    said: Option<String>,
+) -> Result<(Ask, To), String> {
     if side_wanted {
         return Err("The review read no text of this file to show".into());
     }
@@ -428,7 +530,15 @@ fn not_text(reading: &Reading, place: PathBuf, side_wanted: bool) -> Result<(Ask
         }
         _ => {
             let path = reading.entry.path.clone();
-            Ok((Ask::Look { path }, To::File { place, line: 1 }))
+            let to = To::File {
+                place,
+                line: 1,
+                commit: said.map(|said| FromCommit {
+                    said,
+                    or_side: None,
+                }),
+            };
+            Ok((Ask::Look { path }, to))
         }
     }
 }

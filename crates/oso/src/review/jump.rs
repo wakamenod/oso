@@ -43,12 +43,14 @@ pub(crate) struct Jump {
 /// What a jump asks for.
 pub(crate) enum Ask {
     /// Where line `line` of `new`, the side the review read, is in the file at `path` now:
-    /// in `now`, the open buffer's text, else in the work tree's file.
+    /// in `now`, the open buffer's text, else in the work tree's file; with `or_side`, `new`
+    /// built as a buffer's text when the work tree has no such file.
     Carry {
         path: Box<[u8]>,
         new: Arc<[u8]>,
         line: u32,
         now: Option<Rope>,
+        or_side: bool,
     },
     /// `bytes`, a side, built as a buffer's text.
     Side { bytes: Arc<[u8]> },
@@ -121,12 +123,19 @@ pub(crate) fn answer(jump: Jump, top: Option<&Directory>) -> Jumped {
             new,
             line,
             now,
-        } => carry_to_now(&path, &new, line, now, top),
+            or_side,
+        } => match carry_to_now(&path, &new, line, now, top) {
+            Err(Unopened::Gone) if or_side => Ok(Landed::Side(Box::new(side_text(&new)))),
+            carried => carried.map_err(String::from),
+        },
         Ask::Side { bytes } => Ok(Landed::Side(Box::new(side_text(&bytes)))),
-        Ask::Look { path } => look(&path, top).map(|()| Landed::Line {
-            line: 1,
-            carried: Carried::Kept,
-        }),
+        Ask::Look { path } => match work_tree_found(&path, top) {
+            Ok(_) => Ok(Landed::Line {
+                line: 1,
+                carried: Carried::Kept,
+            }),
+            Err(why) => Err(why.into()),
+        },
     };
     Jumped {
         ticket: jump.ticket,
@@ -140,7 +149,7 @@ fn carry_to_now(
     line: u32,
     now: Option<Rope>,
     top: Option<&Directory>,
-) -> Result<Landed, String> {
+) -> Result<Landed, Unopened> {
     let now = match now {
         // A buffer past a side's limit is not copied: the line is the one the review read.
         Some(text) if text.len() as u64 > MAX_BLOB => {
@@ -172,36 +181,49 @@ fn carry_to_now(
     Ok(Landed::Line { line, carried })
 }
 
-/// The work tree's file at `path`, opened as a reading opens it, or why it may not be.
-fn work_tree_found(path: &[u8], top: Option<&Directory>) -> Result<(std::fs::File, u64), String> {
-    let top = top.ok_or("The work tree cannot be opened")?;
-    match side::find(top, path).map_err(failed)? {
-        Found::File(file, stamp) => Ok((file, stamp.len)),
-        Found::Shared => {
-            Err("The file has more than one name, so the review does not open it".into())
+/// Why the work tree's file was not opened.
+enum Unopened {
+    /// There is none, reached through no link.
+    Gone,
+    /// For this reason.
+    Refused(String),
+}
+
+impl From<Unopened> for String {
+    fn from(why: Unopened) -> Self {
+        match why {
+            Unopened::Gone => "The file is no longer in the work tree".into(),
+            Unopened::Refused(why) => why,
         }
-        Found::Link(_) => Err("A link: the review follows no link".into()),
-        Found::Nothing => Err("The file is no longer in the work tree".into()),
     }
 }
 
-fn failed(e: std::io::Error) -> String {
-    format!("The file cannot be read: {}", e.kind())
+/// The work tree's file at `path`, opened as a reading opens it, or why it may not be.
+fn work_tree_found(path: &[u8], top: Option<&Directory>) -> Result<(std::fs::File, u64), Unopened> {
+    let refused = |why: &str| Unopened::Refused(why.into());
+    let top = top.ok_or_else(|| refused("The work tree cannot be opened"))?;
+    match side::find(top, path).map_err(failed)? {
+        Found::File(file, stamp) => Ok((file, stamp.len)),
+        Found::Shared => Err(refused(
+            "The file has more than one name, so the review does not open it",
+        )),
+        Found::Link(_) => Err(refused("A link: the review follows no link")),
+        Found::Nothing => Err(Unopened::Gone),
+    }
+}
+
+fn failed(e: std::io::Error) -> Unopened {
+    Unopened::Refused(format!("The file cannot be read: {}", e.kind()))
 }
 
 /// The work tree's file at `path`, read as a reading reads it, `None` past a side's limit, or
 /// why it may not be opened.
-fn work_tree_file(path: &[u8], top: Option<&Directory>) -> Result<Option<Vec<u8>>, String> {
+fn work_tree_file(path: &[u8], top: Option<&Directory>) -> Result<Option<Vec<u8>>, Unopened> {
     let (file, len) = work_tree_found(path, top)?;
     match side::read(file, len).map_err(failed)? {
         Got::Bytes(bytes) => Ok(Some(bytes)),
         Got::TooLarge(_) => Ok(None),
     }
-}
-
-/// Whether the work tree's file at `path` may be opened, reading none of it.
-fn look(path: &[u8], top: Option<&Directory>) -> Result<(), String> {
-    work_tree_found(path, top).map(|_| ())
 }
 
 /// Where line `line` of `new` is in `now`, and how it got there, within `deadline`.

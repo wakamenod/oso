@@ -32,7 +32,8 @@ The author chose (a) on each question below on 2026-11-19, through the coordinat
 - **The review layout** is the frame's tree made of the review at the left and one window at its
   right, the **slot**, side by side. The slot is two fifths of the row, the review three (Q4),
   resized with `C-x }` and `C-x {` as any window, and kept so while the layout lives.
-- **The slot shows one thing at a time (Q7):** the source `RET` goes to, the side `C-u RET` shows,
+- **The slot shows one thing at a time (Q7):** the source `RET` goes to, the side `M-RET` or
+  `C-u RET` shows,
   the `*review message*` `C-c C-c` makes, and later the orchestrator's terminal `review-ask` shows,
   each in place of the last. It first shows what the selected window showed as the layout was
   made, else the buffer that window showed last that is no review's, never one that may hold
@@ -42,7 +43,7 @@ The author chose (a) on each question below on 2026-11-19, through the coordinat
   `review-resume`, a review opened from a git status, a graph or a pull request. While the frame
   is the layout, another review opened goes to its left, selected, from wherever the person is.
   A review a restart opens again shows in its window, as before. Agents open no review.
-- **Outside the layout,** `RET` and `C-u RET` keep step 3's rule.
+- **Outside the layout,** `RET`, `M-RET` and `C-u RET` keep step 3's rule.
 
 ### One key (Q1)
 

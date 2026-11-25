@@ -8,7 +8,9 @@ use oso_core::buffer::Mode;
 use oso_core::frame::Way;
 use oso_core::review::Side;
 
-use super::{SideBuffer, select_source_window, side_mode, side_name, side_shown};
+use super::{
+    SideBuffer, now_said, secret_buffer, select_source_window, side_mode, side_name, side_shown,
+};
 use crate::git::Id;
 use crate::review::Scope;
 
@@ -109,4 +111,35 @@ fn a_side_takes_its_own_path_s_mode() {
     assert_eq!(mode(None, Side::Old), Mode::Rust);
     assert_eq!(mode(Some(b"src/a.toml"), Side::Old), Mode::Toml);
     assert_eq!(mode(Some(b"src/a.toml"), Side::New), Mode::Rust);
+}
+
+#[test]
+fn what_ret_says_of_the_file_now() {
+    assert_eq!(
+        now_said(None),
+        "The file as checked out now \u{b7} M-RET shows it as the review read it"
+    );
+    assert_eq!(
+        now_said(Some(12)),
+        "#12's head is not checked out here: this checkout's file \u{b7} M-RET shows #12's"
+    );
+}
+
+#[test]
+fn a_secret_open_buffer_of_either_name_of_a_file_is_found() {
+    let mut editor = oso_core::editor::Editor::default();
+    let mut open = |path: &str, judged: &str| {
+        let mut buffer = oso_core::buffer::Buffer::visiting(path.into());
+        buffer.judge_secret(Some(&[judged.into()]));
+        editor.add_buffer(buffer);
+    };
+    open("/p/a.rs", "/p/a.rs");
+    open("/p/old.rs", "/p/.ssh/id_rsa");
+    let secret = |places: &[&str]| {
+        let places: Vec<_> = places.iter().map(std::path::PathBuf::from).collect();
+        secret_buffer(&editor, &places)
+    };
+    assert!(!secret(&["/p/a.rs"]));
+    assert!(secret(&["/p/old.rs", "/p/a.rs"]));
+    assert!(!secret(&[]));
 }

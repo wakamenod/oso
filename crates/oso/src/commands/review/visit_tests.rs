@@ -5,7 +5,7 @@
 //! registry on a review made here.
 
 use oso_core::command::{Args, Prefix};
-use oso_core::editor::{ReviewId, ReviewRequest};
+use oso_core::editor::{ReviewId, ReviewRequest, VisitTo};
 use oso_core::frame::{FrameSize, Way};
 use oso_core::review::Side;
 
@@ -34,12 +34,26 @@ fn visit(
     (side, number): (Side, u32),
     old_side: bool,
 ) -> Vec<ReviewRequest> {
+    let to = if old_side {
+        VisitTo::OldSide
+    } else {
+        VisitTo::Source
+    };
+    asked(review, path, (side, number), to)
+}
+
+fn asked(
+    review: ReviewId,
+    path: &[u8],
+    (side, number): (Side, u32),
+    to: VisitTo,
+) -> Vec<ReviewRequest> {
     vec![ReviewRequest::Visit {
         review,
         path: path.into(),
         side,
         number,
-        old_side,
+        to,
     }]
 }
 
@@ -129,8 +143,39 @@ fn the_title_and_a_filler_row_go_nowhere_and_outside_a_review_nothing_runs() {
 }
 
 #[test]
+fn m_ret_asks_for_the_row_s_own_side_whatever_the_prefix() {
+    let (mut editor, project) = in_project(true);
+    let (review, _) = with_comments(&mut editor, project);
+    let cases = [
+        (lines::OLD, (Side::Old, 1)),
+        (lines::NEW_2, (Side::New, 2)),
+        (lines::HUNK, (Side::New, 1)),
+        (lines::FILE, (Side::New, 1)),
+        (lines::MINE, (Side::New, 1)),
+    ];
+    for (line, at) in cases {
+        for prefix in [None, Some(Prefix::universal(None))] {
+            put_at(&mut editor, &[line]);
+            let args = Args::with_prefix(prefix);
+            assert_eq!(run(&mut editor, "review-visit-side", args).0, Ok(()));
+            assert_eq!(
+                editor.take_review_requests(),
+                asked(review, b"a", at, VisitTo::Side),
+                "line {line}"
+            );
+        }
+    }
+    put_at(&mut editor, &[lines::TITLE]);
+    assert_eq!(
+        run(&mut editor, "review-visit-side", Args::NONE).0,
+        Err("Nothing to visit here".to_owned())
+    );
+}
+
+#[test]
 fn ret_is_bound_and_listed_in_the_review_s_keys() {
     assert!(super::super::KEYS.contains(&("RET", "review-visit")));
+    assert!(super::super::KEYS.contains(&("M-RET", "review-visit-side")));
     let listed = super::super::keys::keys_text("t", super::super::KEYS, "f");
     assert!(listed.contains("review-visit"), "{listed}");
     assert!(

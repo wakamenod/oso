@@ -2298,10 +2298,10 @@ pub oso_core::editor::ReviewRequest::Viewed::path: alloc::boxed::Box<[u8]>
 pub oso_core::editor::ReviewRequest::Viewed::review: oso_core::editor::ReviewId
 pub oso_core::editor::ReviewRequest::Visit
 pub oso_core::editor::ReviewRequest::Visit::number: u32
-pub oso_core::editor::ReviewRequest::Visit::old_side: bool
 pub oso_core::editor::ReviewRequest::Visit::path: alloc::boxed::Box<[u8]>
 pub oso_core::editor::ReviewRequest::Visit::review: oso_core::editor::ReviewId
 pub oso_core::editor::ReviewRequest::Visit::side: oso_core::review::Side
+pub oso_core::editor::ReviewRequest::Visit::to: oso_core::editor::VisitTo
 impl core::clone::Clone for oso_core::editor::ReviewRequest
 pub fn oso_core::editor::ReviewRequest::clone(&self) -> oso_core::editor::ReviewRequest
 impl core::cmp::Eq for oso_core::editor::ReviewRequest
@@ -2640,6 +2640,19 @@ impl core::fmt::Debug for oso_core::editor::VisitColumn
 pub fn oso_core::editor::VisitColumn::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::VisitColumn
 impl core::marker::StructuralPartialEq for oso_core::editor::VisitColumn
+pub enum oso_core::editor::VisitTo
+pub oso_core::editor::VisitTo::OldSide
+pub oso_core::editor::VisitTo::Side
+pub oso_core::editor::VisitTo::Source
+impl core::clone::Clone for oso_core::editor::VisitTo
+pub fn oso_core::editor::VisitTo::clone(&self) -> oso_core::editor::VisitTo
+impl core::cmp::Eq for oso_core::editor::VisitTo
+impl core::cmp::PartialEq for oso_core::editor::VisitTo
+pub fn oso_core::editor::VisitTo::eq(&self, &oso_core::editor::VisitTo) -> bool
+impl core::fmt::Debug for oso_core::editor::VisitTo
+pub fn oso_core::editor::VisitTo::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::VisitTo
+impl core::marker::StructuralPartialEq for oso_core::editor::VisitTo
 pub enum oso_core::editor::XrefKind
 pub oso_core::editor::XrefKind::Definitions
 pub oso_core::editor::XrefKind::References

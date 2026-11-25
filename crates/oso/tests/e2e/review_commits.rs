@@ -16,7 +16,7 @@ use super::git_status::project;
 use super::harness::{App, Scratch};
 use super::review::git;
 use super::review_pr::{stand_in_gh, tip};
-use super::typing;
+use super::{cursor, typing};
 
 const WHOLE: &str = "*review: pull request #7 proj-git*";
 
@@ -161,4 +161,50 @@ fn send_grouped(app: &mut App) {
     app.wait_for("the drop", |state| {
         state["buffer"]["name"] != "*review message*"
     });
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn ret_in_a_commit_opens_the_file_now_else_its_side_and_m_ret_the_side() {
+    let scratch = Scratch::new("review-commit-visit");
+    let (mut app, first, _) = pull_request_of_two(&scratch);
+    app.send_keys(&format!("C-x b {} RET", typing("a.txt")));
+    app.wait_for("the file", |state| state["buffer"]["name"] == "a.txt");
+    app.send_keys("C-u C-x v r");
+    app.wait_for("the review menu", |state| state["menu"] == "review");
+    app.send_keys("p 7 RET");
+    app.wait_for("the review", |state| state["buffer"]["name"] == WHOLE);
+    wait_text(&mut app, "the pull request's lines", "+sea");
+    app.wait_for("its commits", |state| {
+        state["modeline"]
+            .as_str()
+            .is_some_and(|modeline| modeline.contains("#7 all 2 commits"))
+    });
+    app.send_keys("M-n");
+    let one = commit_review(&first);
+    app.wait_for("the first commit", |state| state["buffer"]["name"] == one);
+    wait_echo(&mut app, "the step", "Reviewing #7, commit 1/2 ");
+    wait_text(&mut app, "its message", "    It holds a bee.");
+    wait_text(&mut app, "its line", "+bee");
+
+    // `main` has no b.txt: the commit's side.
+    let side = format!("*new: b.txt \u{b7} commit {}*", &first[..12]);
+    app.send_keys("M-< n C-n RET");
+    app.wait_for("the side", |state| state["buffer"]["name"] == *side);
+    wait_echo(&mut app, "why", "Not in this checkout now");
+
+    // A b.txt there now: that file, at the line carried, and what it is said.
+    fs::write(scratch.path().join("proj-git/b.txt"), "top\nbee\n").unwrap();
+    app.send_keys("C-x v r");
+    app.wait_for("the review again", |state| state["buffer"]["name"] == one);
+    app.send_keys("RET");
+    let state = app.wait_for("the file", |state| state["buffer"]["name"] == "b.txt");
+    assert_eq!(cursor(&state), (1, 0));
+    wait_echo(&mut app, "whose", "#7's head is not checked out here");
+
+    // `M-RET`: the side all the same.
+    app.send_keys("C-x v r");
+    app.wait_for("the review again", |state| state["buffer"]["name"] == one);
+    app.send_keys("M-RET");
+    app.wait_for("the side again", |state| state["buffer"]["name"] == *side);
 }
