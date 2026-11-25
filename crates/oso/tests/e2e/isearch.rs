@@ -199,6 +199,15 @@ fn japanese_ends_with_its_search_and_never_starts_beside_a_secret() {
     assert_eq!(state["ime"]["composing"], false);
     assert_eq!(state["buffer"]["modified"], false);
     assert_eq!(state["ime"]["allowed"], true, "the buffer's own");
+    // One cancelled in a search takes no later one with it, however that search ended.
+    app.send_keys("C-s");
+    assert!(choose(&mut app, true));
+    ime(&mut app, json!({ "preedit": "ご" })).unwrap();
+    ime(&mut app, json!({ "clear": true })).unwrap();
+    app.send_keys("RET");
+    ime(&mut app, json!({ "preedit": "か" })).unwrap();
+    assert_eq!(app.state()["ime"]["preedit"], "か");
+    ime(&mut app, json!({ "clear": true })).unwrap();
     // The next search starts without, and so does a prompt that ends one.
     app.send_keys("C-s");
     assert_eq!(app.state()["ime"]["allowed"], false);

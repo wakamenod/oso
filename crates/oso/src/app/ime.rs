@@ -23,6 +23,7 @@ use oso_core::minibuffer::{Kind, PromptId};
 use oso_core::window::WindowId;
 use oso_platform::window::{ImeEvent, InputSource};
 
+mod made_in;
 mod source;
 
 use std::time::Instant;
@@ -112,21 +113,6 @@ fn next_allowed(allowed: bool, wanted: bool, composing: bool, commits: bool) -> 
     (wanted != allowed && (wanted || !composing || commits)).then_some(wanted)
 }
 
-/// Whether the composition open, or the one whose commit comes next, as an empty preedit comes
-/// before it, was made in isearch (ADR 0158).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct MadeIn {
-    search: bool,
-}
-
-impl MadeIn {
-    /// Whether a report is of one whose search is gone, as one that ended between events, so
-    /// that its text goes nowhere.
-    fn lost(self, searching: bool) -> bool {
-        self.search && !searching
-    }
-}
-
 /// What oso has told the OS about the input method.
 #[derive(Default)]
 pub(super) struct ImeState {
@@ -156,7 +142,7 @@ pub(super) struct ImeState {
     ascii: Option<Reads>,
     /// Whether isearch was on after the last event, as a composition made in it goes with it.
     searched: bool,
-    made_in: MadeIn,
+    made_in: made_in::MadeIn,
     /// The kind of input source the person types with (ADR 0182).
     pub(super) source: source::Source,
     /// The tiled window selected after the last event, or the one beneath the prompts, so
@@ -175,7 +161,8 @@ impl App {
             ImeEvent::Disabled => "the IME's end",
         });
         let searching = self.editor.isearch().is_some();
-        if self.ime.made_in.lost(searching) {
+        let composing = self.composing();
+        if self.ime.made_in.lost(&event, composing, searching) {
             return self.lost_composition(&event);
         }
         // Typed as point came to a request's line, it goes to the composer (ADR 0182).
@@ -201,7 +188,6 @@ impl App {
         match event {
             ImeEvent::Preedit(text, range) if !text.is_empty() => {
                 if self.editor.preedit().is_none() {
-                    self.ime.made_in.search = searching;
                     self.dispatcher.begin_composition(&mut self.editor);
                 }
                 self.editor.set_preedit(Some(Preedit::new(text, range)));
@@ -211,7 +197,6 @@ impl App {
             ImeEvent::Preedit(..) | ImeEvent::Disabled => self.end_composition(),
             ImeEvent::Commit(text) => {
                 let ended = self.end_composition();
-                self.ime.made_in = MadeIn::default();
                 let redraw = self.commit(event_loop, &text);
                 ended || redraw
             }
@@ -225,20 +210,16 @@ impl App {
             ImeEvent::Preedit(text, _) | ImeEvent::Commit(text) => !text.is_empty(),
             ImeEvent::Disabled => false,
         };
-        // An empty preedit comes just before its commit, so the mark stays for that.
-        if text {
-            self.ime.made_in = MadeIn::default();
-            if let Some(view) = &self.view {
-                view.window.discard_composition();
-            }
+        if let Some(view) = self.view.as_ref().filter(|_| text) {
+            view.window.discard_composition();
         }
         shown
     }
 
-    /// The person pressed a key, so no commit of an ended composition is still to come.
+    /// The person pressed a key or a mouse button, so no commit of an ended composition is still to come.
     pub(super) fn key_after_composition(&mut self) {
         if !self.composing() {
-            self.ime.made_in = MadeIn::default();
+            self.ime.made_in.over();
         }
     }
 
@@ -265,7 +246,7 @@ impl App {
         let left = std::mem::replace(&mut self.ime.searched, searching) && !searching;
         if self.composing() && (moved || left || self.editor.current().1.is_secret()) {
             self.end_composition();
-            self.ime.made_in = MadeIn::default();
+            self.ime.made_in.over();
             // The window's input method too, so that nothing of it is committed later.
             if let Some(view) = &self.view {
                 view.window.discard_composition();
@@ -291,6 +272,7 @@ impl App {
         let shown = self.editor.shows_secret() && self.ime.allowed && !self.ime_wanted();
         if self.composing() && (shown || self.editor.current().1.is_secret()) {
             self.end_composition();
+            self.ime.made_in.over();
             if let Some(view) = &self.view {
                 view.window.discard_composition();
             }
@@ -463,6 +445,7 @@ impl App {
             return;
         };
         self.end_composition();
+        self.ime.made_in.over();
         self.commit(event_loop, &text);
     }
 
@@ -583,7 +566,7 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::{
-        MadeIn, ascii_asks, follows_input_source, marked, next_allowed, takes_japanese, wants_ime,
+        ascii_asks, follows_input_source, marked, next_allowed, takes_japanese, wants_ime,
     };
     use oso_core::buffer::Buffer;
     use oso_core::minibuffer::Kind;
@@ -667,14 +650,6 @@ mod tests {
         assert_eq!(ascii_asks(Some(1), Some(2), Some(1)), [false, true]);
         // With ASCII still chosen, nothing.
         assert!(ascii_asks(Some(1), Some(2), None).is_empty());
-    }
-
-    #[test]
-    fn a_composition_is_lost_once_the_search_it_was_made_in_is_gone() {
-        assert!(MadeIn { search: true }.lost(false));
-        assert!(!MadeIn { search: true }.lost(true));
-        assert!(!MadeIn::default().lost(false), "a buffer's");
-        assert!(!MadeIn::default().lost(true));
     }
 
     #[test]

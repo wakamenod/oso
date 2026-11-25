@@ -130,6 +130,7 @@ impl App {
         if !matches!(mouse.action, MouseAction::Moved) {
             self.person_typed("mouse");
             if matches!(mouse.action, MouseAction::Press(_)) {
+                self.key_after_composition();
                 let under = self.window_under(mouse.at).filter(|(_, in_text)| *in_text);
                 if self.pressed_as_point_came(under.map(|(window, _)| window)) {
                     return true;
