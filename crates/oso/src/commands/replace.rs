@@ -95,9 +95,9 @@ pub const COMMANDS: &[Command] = &[
     ),
 ];
 
-/// Refuses strings that a secret was yanked into, if `secret`, in a buffer that does not count
-/// as secret itself, so that a text that a secret was put in stays marked (ADR 0113). One not
-/// judged, or that cannot be, does not count: a yank would mark it.
+/// Refuses a prompt's text that a secret was yanked into, if `secret`, in a buffer that does not
+/// count as secret itself, so that a text that a secret was put in stays marked (ADR 0113). One
+/// not judged, or that cannot be, does not count: a yank would mark it.
 pub(crate) fn refuse_secret(editor: &Editor, secret: bool) -> Result<(), CommandError> {
     let counts = matches!(
         editor.current().1.verdict(),

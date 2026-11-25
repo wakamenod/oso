@@ -351,6 +351,29 @@ fn a_kill_from_a_secret_buffer_is_secret_and_makes_its_yank_target_secret() {
 }
 
 #[test]
+fn insert_refuses_a_text_that_a_secret_was_yanked_into() {
+    let (mut d, mut editor) = at("\n", &[0]);
+    editor.kill_new("hunter2", true);
+    send(&mut d, &mut editor, "M-x i n s e r t RET");
+    assert_eq!(editor.prompt().unwrap().label(), "Insert: ");
+    yank(&mut d, &mut editor, &FromClipboard::Own);
+    send(&mut d, &mut editor, "RET");
+    assert_eq!(text(&editor), "\n");
+    assert_eq!(editor.current().1.verdict(), Verdict::Ordinary);
+    assert_eq!(
+        last_message(&editor).as_deref(),
+        Some("The text holds what may be secret: yank it into the buffer first, which marks it")
+    );
+    // A buffer that counts as secret takes it.
+    yank(&mut d, &mut editor, &FromClipboard::Own);
+    assert_eq!(editor.current().1.verdict(), Verdict::Yanked);
+    send(&mut d, &mut editor, "M-x i n s e r t RET");
+    yank(&mut d, &mut editor, &FromClipboard::Own);
+    send(&mut d, &mut editor, "RET");
+    assert_eq!(text(&editor), "hunter2hunter2\n");
+}
+
+#[test]
 fn text_from_another_app_counts_as_secret_when_it_matches_or_is_concealed() {
     let (mut d, mut editor, notes) = secret_and_notes("TOKEN=abc");
     send(&mut d, &mut editor, "C-k");
