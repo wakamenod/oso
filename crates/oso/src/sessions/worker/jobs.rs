@@ -519,7 +519,7 @@ impl Core {
             Ok(text) => {
                 let shown = path.display().to_string();
                 let evidence = Evidence::from_text(&text);
-                let verdict = evaluate(&self.rules, &evidence);
+                let verdict = evaluate_within(&self.rules, &evidence, self.budget, &HashSet::new());
                 Out::Explained(
                     None,
                     explain::text(&shown, &self.rules, &evidence, &verdict),

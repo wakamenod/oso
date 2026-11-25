@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use super::{Core, MAX_EXPLAIN_BYTES};
 use crate::sessions::engine::UNHURRIED;
-use crate::sessions::rules::{RuleSet, Source, parse};
+use crate::sessions::rules::{BUDGET, RuleSet, Source, parse};
 use crate::sessions::screen::Evidence;
 use crate::sessions::state::{Exit, GRACE, State};
 use crate::sessions::worker::{EVALUATE_EVERY, Job, Out};
@@ -194,19 +194,19 @@ fn a_saved_screen_is_explained_and_odd_files_are_refused() {
     let saved = dir.join("screen.txt");
     fs::write(&saved, b"out \xff\n  esc to interrupt\n").unwrap();
     let mut core = core();
-    // It is judged within the rules' own budget, which a slow machine can run past: asked again.
-    let mut found = Vec::new();
-    for _ in 0..1000 {
-        found = core.handle(Job::ExplainFile(saved.clone(), true), Instant::now());
-        let late = |out: &Out| matches!(out, Out::Explained(_, text, _) if text.contains("rules took too long"));
-        if !found.iter().any(late) {
-            break;
-        }
-    }
+    let found = core.handle(Job::ExplainFile(saved.clone(), true), Instant::now());
     let [Out::Explained(None, text, true)] = found.as_slice() else {
         panic!("{found:?}");
     };
     assert!(text.contains("Rule: busy (bundled)"), "{text}");
+    // Within the core's budget, which is the rules' own in the product.
+    assert_eq!(Core::new(Arc::new(RuleSet::bundled())).budget, BUDGET);
+    let (mut slow, ..) = too_slow(Instant::now());
+    let found = slow.handle(Job::ExplainFile(saved, true), Instant::now());
+    let [Out::Explained(None, text, true)] = found.as_slice() else {
+        panic!("{found:?}");
+    };
+    assert!(text.contains("rules took too long"), "{text}");
     let big = dir.join("big.txt");
     fs::write(&big, vec![b'x'; MAX_EXPLAIN_BYTES as usize + 1]).unwrap();
     for (path, says) in [
