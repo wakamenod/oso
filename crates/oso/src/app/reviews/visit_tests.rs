@@ -4,10 +4,11 @@
 //! Must not depend on: the app's threads, git or files; these work on hunks and an editor made
 //! here.
 
+use oso_core::buffer::Mode;
 use oso_core::frame::Way;
 use oso_core::review::Side;
 
-use super::{select_source_window, side_name};
+use super::{SideBuffer, select_source_window, side_mode, side_name, side_shown};
 use crate::git::Id;
 use crate::review::Scope;
 
@@ -81,4 +82,31 @@ fn the_source_goes_to_another_window_than_the_review_s_or_one_split_off() {
     editor.select_window(first);
     select_source_window(&mut editor, review).unwrap();
     assert_eq!(editor.tiled().0.id(), third);
+}
+
+#[test]
+fn a_side_is_found_again_by_its_path_and_side_not_its_cut_name() {
+    let long = |end: &str| format!("{}/{end}", "d".repeat(100)).into_bytes();
+    let (rust, toml) = (long("a.rs"), long("b.toml"));
+    let name = |path: &[u8]| side_name(path, Side::New, &Scope::Staged);
+    assert_eq!(name(&rust), name(&toml), "both names are cut");
+    let mut editor = oso_core::editor::Editor::default();
+    let id = editor.add_side_buffer(name(&rust), Mode::Rust);
+    let sides = [SideBuffer {
+        id,
+        path: rust.clone().into(),
+        side: Side::New,
+    }];
+    assert_eq!(side_shown(&sides, &rust, Side::New), Some(id));
+    assert_eq!(side_shown(&sides, &rust, Side::Old), None);
+    assert_eq!(side_shown(&sides, &toml, Side::New), None);
+}
+
+#[test]
+fn a_side_takes_its_own_path_s_mode() {
+    let mode = |old: Option<&[u8]>, side| side_mode(b"src/a.rs", old, side);
+    assert_eq!(mode(None, Side::New), Mode::Rust);
+    assert_eq!(mode(None, Side::Old), Mode::Rust);
+    assert_eq!(mode(Some(b"src/a.toml"), Side::Old), Mode::Toml);
+    assert_eq!(mode(Some(b"src/a.toml"), Side::New), Mode::Rust);
 }
