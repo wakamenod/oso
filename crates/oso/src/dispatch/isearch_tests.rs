@@ -151,3 +151,46 @@ fn c_m_s_searches_for_a_regexp_and_its_keys_repeat_and_turn_it() {
     assert!(echo(&editor).starts_with("Regexp I-search backward: t.o"));
     assert_eq!(cursors(&editor), [8]);
 }
+
+/// An input method's commit becomes the string, one step of it, whatever the buffer takes, and
+/// a macro replays it (ADR 0158).
+#[test]
+fn a_commit_goes_into_the_search_in_a_read_only_buffer_and_a_macro_replays_it() {
+    let (mut d, mut editor) = at("日本 日本語 日本語\n", &[0]);
+    send(&mut d, &mut editor, "C-x ( C-s");
+    assert!(d.types_text(&editor) && !d.reads_keys());
+    d.begin_composition(&mut editor);
+    assert!(editor.isearch().is_some(), "a composition ends no search");
+    d.commit_text(&mut editor, "日本");
+    d.commit_text(&mut editor, "語");
+    drain(&mut editor);
+    assert_eq!(cursors(&editor), [16]);
+    send(&mut d, &mut editor, "DEL");
+    drain(&mut editor);
+    assert_eq!(editor.isearch().unwrap().string(), "日本");
+    assert!(echo(&editor).starts_with("I-search: 日本 ["), "a literal");
+    d.commit_text(&mut editor, "語");
+    drain(&mut editor);
+    send(&mut d, &mut editor, "RET C-x )");
+    assert!(editor.isearch().is_none());
+    send(&mut d, &mut editor, "C-x e");
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while editor.macro_replaying() {
+        d.replay(&mut editor, until);
+        drain(&mut editor);
+    }
+    assert_eq!(cursors(&editor), [26]);
+    assert_eq!(text(&editor), "日本 日本語 日本語\n");
+
+    let mut editor = Editor::with_buffer(oso_core::buffer::Buffer::from_bytes("b", b"\xff ab"));
+    assert!(editor.current().1.read_only().is_some());
+    let mut d = super::Dispatcher::new();
+    send(&mut d, &mut editor, "C-M-s");
+    d.commit_text(&mut editor, "ab");
+    drain(&mut editor);
+    assert!(
+        editor
+            .isearch()
+            .is_some_and(|search| search.regexp() && !search.failing())
+    );
+}

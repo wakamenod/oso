@@ -23,15 +23,15 @@ impl Editor {
     }
 
     /// The rows a frame shows of the tiled window `id`, into `out`: with the preedit laid out
-    /// in its line if it is the selected window and no prompt is open, and none for a window
-    /// that is not tiled (ADR 0112).
+    /// in its line if it is the selected window and no prompt is open, nor isearch on, whose
+    /// line shows it (ADR 0158), and none for a window that is not tiled (ADR 0112).
     pub fn screen_of(&self, id: WindowId, out: &mut Screen) {
         let Some((window, buffer, _)) = self.window_in_tree(id) else {
             out.clear();
             return;
         };
         let selected = id == self.tiled_id() && self.prompts.is_empty();
-        let preedit = self.preedit.as_ref().filter(|_| selected);
+        let preedit = self.inline_preedit().filter(|_| selected);
         window.screen_into(&buffer.display(), preedit, out);
     }
 

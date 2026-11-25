@@ -33,13 +33,14 @@ pub(in crate::app) struct Source {
 }
 
 impl Source {
-    /// The window system told of `source` at `now`.
-    pub(super) fn told(&mut self, source: InputSource, now: Instant) {
+    /// The window system told of `source` at `now`. Whether that is looked at.
+    pub(super) fn told(&mut self, source: InputSource, now: Instant) -> bool {
         #[cfg(feature = "dev")]
         if self.pinned {
-            return;
+            return false;
         }
         self.is(source, now);
+        true
     }
 
     /// The dev socket says it is `source` at `now`, as the window system would, which is not looked at

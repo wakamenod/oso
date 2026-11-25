@@ -291,7 +291,9 @@ suite. On macOS it runs on oso's own window layer, and on Linux on winit
 ([ADR 0070](adr/0070-windowing-and-input-without-winit.md), stage 3). It runs on the author's Mac, on Linux CI with Xvfb and lavapipe, and on macOS
 CI, and it is not part of `just ci`, because windows open and take the focus. Leave
 the keyboard and mouse alone while it runs: real input reaches its windows too, and
-what you type goes into their buffers, which can fail a flow.
+what you type goes into their buffers, which can fail a flow. End an instance you started by
+hand through its own exit (`oso ctl exit`), with no prompt or search open: one killed while one is
+cannot give the person's input source back ([ADR 0158](adr/0158-japanese-in-prompts-and-review-drafts.md)).
 
 | Flow | The seam it checks |
 |---|---|

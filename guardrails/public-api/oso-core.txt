@@ -4192,6 +4192,7 @@ impl core::marker::StructuralPartialEq for oso_core::editor::SoleWindow
 pub struct oso_core::editor::Status
 pub oso_core::editor::Status::agent: &'static str
 pub oso_core::editor::Status::agent_connected: bool
+pub oso_core::editor::Status::composed: core::option::Option<core::ops::range::Range<usize>>
 pub oso_core::editor::Status::counts: oso_core::diagnostic::Counts
 pub oso_core::editor::Status::dictation: &'static str
 pub oso_core::editor::Status::echo: alloc::string::String

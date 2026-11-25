@@ -945,6 +945,8 @@ As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
   finds the words whose reading starts with the kana: `kanji` finds `漢字`. oso ships none. The
   file is read at the first search that would use it, and until it is in, searches find kana;
   `*Messages*` then says `Migemo dictionary: 137,025 readings`, or why it was not read.
+- Japanese can be typed after `かな`, and the search looks for it on each commit, as a literal string;
+  `DEL` takes a commit back ([ADR 0158](adr/0158-japanese-in-prompts-and-review-drafts.md)).
 - Only the primary cursor searches; the others stay. `C->` and `C-<` end the search with the
   match as the region and add a cursor at the next or previous match, and `C-c C-<` puts one on
   every match, with the search's string and case
@@ -1086,16 +1088,18 @@ As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
   preedit, on the text it pushed.
 - The OS candidate window is placed just below the cursor, as in other macOS apps.
 - Each commit undoes as one step.
-- The IME is switched off automatically in isearch, a jump, query-replace's answers, a menu,
+- The IME is switched off automatically in a jump, query-replace's answers, a menu,
   the list of emergency copies and a question, since those use single keys, and in the prompts
-  that read a number or a passphrase. In
+  that read a number or a passphrase. In isearch and in
   a prompt that reads text or completes one (`C-x C-f`, `M-x`, a session's note, a stash's
   message and the others), the input source switches to ASCII when it opens and back when it
   closes, and choosing a Japanese input mode there, by `かな` or the menu bar, turns the IME on
-  for that prompt; `英数` turns it off again
+  for that prompt or search; `英数` turns it off again
   ([ADR 0106](adr/0106-the-input-source-turns-japanese-on-in-a-file-name-prompt.md),
   [ADR 0158](adr/0158-japanese-in-prompts-and-review-drafts.md)). A review comment's draft has
-  the IME on as a buffer does, with the input source left as it was. It is
+  the IME on as a buffer does, with the input source left as it was. In isearch the preedit and
+  the candidates are on the search's line, after the string, in a read-only buffer too, and a
+  composition is dropped if the search ends under it. The IME is
   also off while a prefix key (`C-x`) or a prefix argument (`C-u`, `M-5`) waits for the
   next key, in read-only buffers and in buffers that may hold secrets. It goes off only
   once a composition has ended.

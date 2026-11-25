@@ -570,7 +570,7 @@ fn grid<'a>(
     let cursor = hosted.and_then(|hosted| hosted.grid.cursor(selected));
     let preedit = editor
         .preedit()
-        .filter(|_| selected && editor.prompt().is_none());
+        .filter(|_| selected && editor.prompt().is_none() && editor.isearch().is_none());
     // At the program's cursor cell, also while it hides the cursor, as `claude`'s input does.
     let preedit_at = hosted.map_or((0, 0), |hosted| hosted.grid.cursor_cell());
     PaneContent::Grid(GridView {

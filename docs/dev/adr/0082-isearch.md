@@ -1,6 +1,6 @@
 # 0082. isearch
 
-- Status: Accepted, amended by 0091, 0113 and 0116
+- Status: Accepted, amended by 0091, 0113 and 0116; "The input method, as amended" (2026-11-25)
 - Date: 2026-11-08
 
 ## Context
@@ -196,3 +196,10 @@ channel waits for the person" holds:
   could not search it, while the screen already shows what a search would.
 - **A restart that ends isearch at its match:** never holds a restart, but takes a search away
   mid-typing.
+
+## The input method, as amended
+
+Amended on 2026-11-25. The author chose that Japanese can be typed in isearch. "The IME is off while
+isearch is on (`wants_ime`), so a Japanese string cannot be typed" becomes: it is off until a
+Japanese input mode is chosen in the search, as in a prompt that reads text
+([ADR 0158](0158-japanese-in-prompts-and-review-drafts.md), "Isearch takes Japanese, as amended").

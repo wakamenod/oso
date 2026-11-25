@@ -17,7 +17,7 @@ const IHDR_TAIL: [u8; 5] = [8, 6, 0, 0, 0];
 pub struct Png {
     pub width: u32,
     pub height: u32,
-    rgba: Vec<u8>,
+    pub rgba: Vec<u8>,
 }
 
 /// Where the topmost pixels that are not the background are.

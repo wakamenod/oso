@@ -1,6 +1,6 @@
 # 0116. Migemo: romaji search for Japanese text, and jumps by label
 
-- Status: Accepted
+- Status: Accepted; "The input method in isearch, as amended" (2026-11-25)
 - Date: 2026-11-12
 
 ## Context
@@ -1025,3 +1025,11 @@ after review, named the error `JumpActionError`, so that it reads as a jump's be
 - **Labelling windows to select one, as ace-window:** a later command over the same labels.
 - **A jump that keeps every cursor and moves each one:** no editor does this, and there is one
   target.
+
+## The input method in isearch, as amended
+
+Amended on 2026-11-25. The author chose that Japanese can be typed in isearch. The context's "The input
+method is off while isearch reads keys", and "The IME is off while isearch is on ... holds as it is",
+become: off until a Japanese input mode is chosen in the search
+([ADR 0158](0158-japanese-in-prompts-and-review-drafts.md), "Isearch takes Japanese, as amended").
+What is committed is a literal; migemo still reads romaji alone. A jump keeps it off.

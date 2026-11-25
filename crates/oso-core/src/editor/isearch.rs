@@ -20,7 +20,7 @@
 use std::ops::Range;
 use std::time::Instant;
 
-use super::Editor;
+use super::{Editor, status};
 use crate::kill::KillEntry;
 use crate::motion::{self, WalkBudget};
 use crate::search::{self, Needle};
@@ -83,7 +83,8 @@ impl Editor {
         if !self.prompts.is_empty() {
             return false;
         }
-        let around_secret = self.shows_secret();
+        // A composition made around one shows on its line.
+        let around_secret = self.shows_secret() || self.preedit_withheld();
         let (window, buffer) = self.current();
         // From a transcript's end, it goes back to the end (ADR 0165).
         let begin = Place {
@@ -519,10 +520,25 @@ impl Editor {
         self.window().selections.primary().cursor
     }
 
-    /// The echo line of an isearch under way, after what `out` holds.
-    pub(super) fn write_isearch_line(&self, out: &mut String) {
-        if let Some(state) = &self.isearch {
-            state.write_line(out);
+    /// The echo line of an isearch under way into `out`, which is empty, with what is being
+    /// composed after its string. Returns where in it text is composed, empty while none is,
+    /// and `None` with no search. A composition stays in view in `columns`: the start of what
+    /// is before it is cut.
+    pub(super) fn write_isearch_line(
+        &self,
+        columns: usize,
+        out: &mut String,
+    ) -> Option<Range<usize>> {
+        let state = self.isearch.as_ref()?;
+        state.write_head(out);
+        let mut composed = out.len()..out.len();
+        if let Some(preedit) = &self.preedit {
+            status::keep_end(out, columns.saturating_sub(preedit.cells()));
+            composed.start = out.len();
+            out.push_str(preedit.text());
+            composed.end = out.len();
         }
+        state.write_tail(out);
+        Some(composed)
     }
 }
