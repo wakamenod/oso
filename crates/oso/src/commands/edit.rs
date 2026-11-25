@@ -17,6 +17,7 @@ use oso_core::buffer::{EditError, Replacement};
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
 use oso_core::motion::{self, Edge, WalkBudget};
 
+use super::replace::refuse_secret;
 use super::{MAX_INSERT, budget_left};
 
 /// The most undo steps one command crosses (ADR 0058). The history is bounded in bytes, but it
@@ -35,7 +36,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "insert",
-        doc: "Insert text at every cursor, as one undo step.\n\nReads the text in a prompt; the agent channel gives it with the command (ADR 0085).",
+        doc: "Insert text at every cursor, as one undo step.\n\nReads the text in a prompt; the agent channel gives it with the command (ADR 0085). A text that a secret was yanked into is refused unless the buffer counts as secret.",
         args: ArgSpec::Text {
             prompt: "Insert: ",
             history: "insert",
@@ -144,6 +145,7 @@ fn insert(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     if text.is_empty() {
         return Err(CommandError::new("No text to insert"));
     }
+    refuse_secret(ctx.editor, ctx.answer_secret())?;
     insert_at_cursors(ctx, &text, 1)
 }
 
