@@ -129,6 +129,13 @@ fn ime(app: &mut App, params: Value) -> Result<Value, String> {
     app.try_call("ime", Some(params))
 }
 
+/// Ends the search, which gives the person's input source back, and then the app, by its exit.
+fn end(app: &mut App) {
+    app.send_keys("RET");
+    assert!(app.state()["isearch"].is_null());
+    app.stop_and_read_log();
+}
+
 /// Japanese in a search (ADR 0158): off until chosen, composed on the search's line, committed
 /// into the string, and off again with the search.
 #[test]
@@ -139,14 +146,17 @@ fn choosing_japanese_composes_into_the_search() {
     let mut app = App::start(Some(&file), scratch.path());
     app.visual_aids_off();
     app.wait_until_ready();
+    // The OS gets the cursor's cell once a frame is presented, which an occluded window waits for.
+    let top = |state: &Value| state["ime"]["area"]["y"].as_f64();
+    let state = app.wait_for("a cursor area", |state| top(state).is_some());
+    let in_buffer = top(&state);
     app.send_keys("C-s");
     assert_eq!(app.state()["ime"]["allowed"], false, "until it is chosen");
     assert!(ime(&mut app, json!({ "preedit": "に" })).is_err());
     assert!(choose(&mut app, true));
-    let state = app.wait_for("nothing of the buffer is given", |state| {
-        state["ime"]["excerpt"].is_null()
+    app.wait_for("nothing of the buffer, on the search's line", |state| {
+        state["ime"]["excerpt"].is_null() && top(state) > in_buffer
     });
-    let top = state["ime"]["area"]["y"].as_f64().unwrap();
     let before = app.screenshot();
     ime(&mut app, json!({ "preedit": "にほん", "range": [0, 9] })).unwrap();
     let state = app.state();
@@ -165,10 +175,7 @@ fn choosing_japanese_composes_into_the_search() {
     let state = app.wait_for("the count", |state| !state["isearch"]["count"].is_null());
     assert_eq!(state["echo"], "I-search: 日本 [1/2]");
     assert_eq!(cursor(&state), (0, 6));
-    assert!(
-        state["ime"]["area"]["y"].as_f64().unwrap() >= top,
-        "on the echo row"
-    );
+    assert!(top(&state) > in_buffer, "still on that line");
     app.send_keys("C-s");
     assert_eq!(cursor(&app.state()), (0, 11));
     // A prefix key waits with it off, and 英数 turns it off.
@@ -178,6 +185,7 @@ fn choosing_japanese_composes_into_the_search() {
     assert_eq!(app.state()["ime"]["allowed"], false);
     app.send_keys("C-g");
     assert_eq!(app.state()["ime"]["allowed"], true);
+    end(&mut app);
 }
 
 /// What was chosen in a search, and what was being composed, go with it (ADR 0158).
@@ -229,4 +237,5 @@ fn japanese_ends_with_its_search_and_never_starts_beside_a_secret() {
     assert!(!choose(&mut app, true), "one is in view");
     app.send_keys("C-g C-x 1 C-s");
     assert!(choose(&mut app, true));
+    end(&mut app);
 }
