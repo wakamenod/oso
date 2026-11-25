@@ -284,14 +284,17 @@ fn photon(app: &mut App, scratch: &Path) -> Result<f64, String> {
     let screen = scratch.join("screen");
     let staged = scratch.join("screen.new");
     for _ in 0..DIALOGS {
-        // Back to work: no session needs input.
+        // Back to work: no session needs input. That alone holds of a session that just started,
+        // before its fake read the screen.
         write_screen(&staged, &screen, WORKING)?;
-        wait_for_needs(app, false)?;
+        wait_for_state(app, "working")?;
+        wait_until_read(&screen)?;
         app.timings()?;
         let wrote = unix_us();
         write_screen(&staged, &screen, PERMISSION)?;
-        wait_for_needs(app, true)?;
+        wait_for_state(app, "needs input")?;
         let shown = counted_frame(app)?;
+        wait_until_read(&screen)?;
         samples.push(shown.saturating_sub(wrote) as f64 / 1000.0);
     }
     Ok(crate::report::median(&samples))
@@ -323,23 +326,38 @@ fn write_screen(staged: &Path, screen: &Path, text: &str) -> Result<(), String> 
     std::fs::rename(staged, screen).map_err(|e| format!("{}: {e}", screen.display()))
 }
 
-/// Waits until a session needs input, or none does.
-fn wait_for_needs(app: &mut App, needs: bool) -> Result<(), String> {
+/// Waits until the fake removed `screen`, which it does after it printed it: a screen renamed
+/// there before that would be removed unread.
+fn wait_until_read(screen: &Path) -> Result<(), String> {
+    let deadline = Instant::now() + WITHIN;
+    while screen.exists() {
+        if Instant::now() > deadline {
+            return Err(format!("no fake removed {}", screen.display()));
+        }
+        thread::sleep(Duration::from_millis(5));
+    }
+    Ok(())
+}
+
+/// Waits until a hosted session's state starts with `wanted`. The state lists the machine's other
+/// sessions too, whose states say nothing of the fake's.
+fn wait_for_state(app: &mut App, wanted: &str) -> Result<(), String> {
     let deadline = Instant::now() + WITHIN;
     loop {
         let state = app.call("get-state", None)?;
         let any = state["sessions"]["sessions"].as_array().is_some_and(|all| {
             all.iter().any(|session| {
-                session["state"]
-                    .as_str()
-                    .is_some_and(|state| state.starts_with("needs input"))
+                session["key"]["hosted"].is_u64()
+                    && session["state"]
+                        .as_str()
+                        .is_some_and(|state| state.starts_with(wanted))
             })
         });
-        if any == needs {
+        if any {
             return Ok(());
         }
         if Instant::now() > deadline {
-            return Err(format!("no session became needs input = {needs}"));
+            return Err(format!("no session became {wanted:?}"));
         }
         thread::sleep(Duration::from_millis(20));
     }
