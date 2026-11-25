@@ -8,11 +8,13 @@
 use std::fs;
 use std::time::{Duration, Instant};
 
+use serde_json::{Value, json};
+
 use super::super::super::harness::App;
 use super::super::super::spaces::switch_space;
 use super::super::super::worktrees::keys;
 use super::modes::send;
-use super::restart::{idle_in_accept_edits, shown_again};
+use super::restart::{idle_in_accept_edits, shown_again, transcript_says};
 use super::windows::{other_in_front, restarted};
 use super::{Flow, in_composer, text};
 
@@ -21,6 +23,28 @@ fn holds(app: &mut App, wanted: &str) {
     app.wait_for(&format!("the composer holding {wanted:?}"), |state| {
         in_composer(state) && text(state).trim_end() == wanted
     });
+}
+
+/// Waits until `*Messages*`, shown, says each of `wanted`, in that order.
+fn messages_say(app: &mut App, wanted: &[&str]) {
+    app.send_keys(&format!("C-x b {} RET", keys("*Messages*")));
+    app.wait_for("the messages", |state| {
+        state["buffer"]["name"] == "*Messages*"
+    });
+    let end = Instant::now() + Duration::from_secs(10);
+    loop {
+        let rows = app.call("get-text", Some(json!({ "start_row": 0, "rows": 1000 })));
+        let rows = rows["rows"].as_array().cloned().unwrap_or_default();
+        let mut left = wanted.iter().peekable();
+        for row in rows.iter().filter_map(Value::as_str) {
+            left.next_if(|wanted| row.contains(**wanted));
+        }
+        if left.peek().is_none() {
+            return;
+        }
+        assert!(Instant::now() < end, "no {wanted:?} in {rows:?}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
 }
 
 /// The file's text, once `done` of it.
@@ -92,6 +116,7 @@ fn one_history_for_two_sessions_is_walked_listed_kept_over_a_restart_and_cleared
     holds(&mut new, "");
     switch_space(&mut new, "proj");
     new.send_keys(&format!("C-x b {} RET", keys("*claude: proj*")));
+    transcript_says(&mut new, "Resumed after oso-restart.");
     new.send_keys("i");
     new.wait_for("the composer", in_composer);
     new.send_keys("M-p M-p");
@@ -101,15 +126,12 @@ fn one_history_for_two_sessions_is_walked_listed_kept_over_a_restart_and_cleared
 
     new.run_command("native-prompt-history-clear", None)
         .unwrap();
-    new.wait_for("the clear", |state| {
-        state["echo"] == "Cleared 2 past prompts"
-    });
-    new.send_keys("M-p");
-    new.wait_for("nothing to walk", |state| {
-        state["echo"] == "Nothing sent yet"
-    });
+    // Waited for in the file: the echo area has what came last, as the agent channel's start
+    // for the resumed sessions.
     let kept = file(&flow, &flow.project, |kept| !kept.contains("first"));
     assert!(kept.contains("\"version\":1"), "{kept}");
+    new.send_keys("M-p");
+    messages_say(&mut new, &["Cleared 2 past prompts", "Nothing sent yet"]);
     let _ = new.exchange("exit", None);
 }
 
@@ -132,7 +154,7 @@ fn a_secret_composer_gives_the_history_nothing() {
     app.send_keys("M-p");
     app.send_keys("C-c C-r");
     let state = app.state();
-    assert_eq!(state["prompts"], serde_json::json!([]), "{state}");
+    assert_eq!(state["prompts"], json!([]), "{state}");
     // The exit writes what waits.
     let _ = app.exchange("exit", None);
     let kept = file(&flow, &flow.project, |kept| kept.contains("\"one\""));
