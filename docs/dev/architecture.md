@@ -335,7 +335,7 @@ A panicking command is caught at the command boundary
   prefix or prefix argument, a read-only buffer, one that may hold secrets, the list of
   emergency copies and a prompt that takes no Japanese. A prompt that reads text or completes one, and isearch,
   which shows what is composed on its own line, have the window
-  choose an ASCII input source while open (`Window::set_ascii_input`), and allow the IME
+  choose an ASCII input source while open (`Window::set_ascii_input`, done after the frame), and allow the IME
   once the person chooses a Japanese input mode there, which oso's macOS layer hears from the
   system as `Event::InputSource`; a review comment's draft allows it at once, as a buffer does;
   neither while a buffer that may hold secrets is shown

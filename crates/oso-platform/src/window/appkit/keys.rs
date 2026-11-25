@@ -49,6 +49,14 @@ pub(super) enum Route {
     InputMethod,
 }
 
+impl Route {
+    /// Whether the key is typed with the person's input source, which is given back first if it
+    /// still waits for the frame (ADR 0158). A key oso takes itself does not wait for it.
+    pub(super) fn types_with_source(self) -> bool {
+        self == Self::InputMethod
+    }
+}
+
 /// Where a key goes with `held`, whether text is `marked`, whether oso has the input method
 /// `allowed`, and whether the key is `g` on the layout.
 ///
@@ -285,6 +293,19 @@ mod tests {
             Route::Oso,
             "the IME is off"
         );
+    }
+
+    #[test]
+    fn only_a_key_the_input_method_gets_needs_the_persons_source_back_first() {
+        assert!(Route::InputMethod.types_with_source());
+        for route in [
+            Route::Oso,
+            Route::CommitThenOso,
+            Route::Discard,
+            Route::DiscardThenOso,
+        ] {
+            assert!(!route.types_with_source(), "{route:?}");
+        }
     }
 
     #[test]

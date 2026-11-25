@@ -60,7 +60,8 @@ through the coordinator and accepted this on 2026-11-11, through the coordinator
   question never does, as only the prompt for a file's name can.
 - **Public API:** `oso_platform::window` gains `Event::InputSource(InputSource)`,
   `pub enum InputSource { Japanese, Other }` and, on macOS, `Window::set_ascii_input(&self,
-  wanted: bool)`, applied once the handler returns as the other requests are; the author
+  wanted: bool)`, applied once the handler returns as the other requests are (since
+  2026-11-25 after the frame, [ADR 0158](0158-japanese-in-prompts-and-review-drafts.md)); the author
   approved all three. The app says only whether it wants ASCII, when that changes, and the
   window layer keeps the rest (`gate::AsciiInput`). winit's adapter sends no `InputSource` and
   does nothing for `set_ascii_input`, so on Linux and Windows nothing changes.
