@@ -27,6 +27,7 @@ pub use menu::{review_menu, review_start_menu};
 /// keymap and `review-keys` lists.
 pub const KEYS: &[(&str, &str)] = &[
     ("RET", "review-visit"),
+    ("M-RET", "review-visit-side"),
     ("n", "review-next-hunk"),
     ("p", "review-previous-hunk"),
     ("N", "review-next-file"),

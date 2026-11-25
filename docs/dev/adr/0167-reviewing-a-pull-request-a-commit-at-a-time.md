@@ -127,6 +127,8 @@ The author chose (a) on each of the plan's ten questions on 2026-11-22, through 
 - **The modeline** of a commit's review says `#12 2/5`, and the pull request's says
   `#12 all 5 commits`.
 - The echo area says `Reviewing #12, commit 2/5 abc1234 · subject` after a step.
+- **The source:** `RET` goes to the file as checked out, as ADR 0122 says. Nothing asks git
+  whether the checkout holds the commit.
 - **Decisions:** accept and reject already refuse in a commit's review, which compares commits
   (step 5). Viewed marks are a commit review's own, keyed by its hunks' content, so a commit
   force-pushed is a new id whose hunks start unviewed. Undo is per review.

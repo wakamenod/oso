@@ -363,6 +363,7 @@ mod tests {
         "review-viewed",
         // Jumping to the source opens files and makes a buffer of a side (step 3).
         "review-visit",
+        "review-visit-side",
         // The person's comments are theirs alone to write (ADR 0122, Q11).
         "review-comment",
         "review-edit-comment",

@@ -7,9 +7,9 @@
 
 The review layout ([ADR 0160](0160-the-review-layout.md)) has the review at the left and one
 window at its right, the slot, which "shows one thing at a time (Q7)": the source `RET` goes to,
-the side `C-u RET` shows, the `*review message*` `C-c C-c` makes, and the session's terminal
-`review-ask` (`Q`) shows ([ADR 0163](0163-reviews-in-a-space.md), "Shown in the slot"), each in
-place of the last.
+the side `M-RET` or `C-u RET` shows, the `*review message*` `C-c C-c` makes, and the session's
+terminal `review-ask` (`Q`) shows ([ADR 0163](0163-reviews-in-a-space.md), "Shown in the slot"),
+each in place of the last.
 
 So a question asked about a line the person has open in the slot replaces that source with the
 session's terminal. The person reads the answer without the code it is about, and a `RET` to
@@ -33,11 +33,11 @@ author chose (a) on each question below.
   whole slot, as before.
 - **The review stays selected,** as before; the ask window is not selected.
 - **A later `Q` reuses the ask window,** whichever session it shows then.
-- **A later `RET`, `C-u RET` or `C-c C-c` takes the top alone,** the slot, as before, the ask
-  window kept.
+- **A later `RET`, `M-RET`, `C-u RET` or `C-c C-c` takes the top alone,** the slot, as before, the
+  ask window kept.
 - **A jump while the session fills the slot (Q2):** when `Q` came first, so that the session
-  fills the slot, a later `RET`, `C-u RET` or `C-c C-c` splits it the same way: the session
-  moves below, and the top takes the source.
+  fills the slot, a later `RET`, `M-RET`, `C-u RET` or `C-c C-c` splits it the same way: the
+  session moves below, and the top takes the source.
 - **Too short to split:** the session shows in the slot in place of what it showed, as before;
   and a jump or a message while the session fills the slot replaces it there, as before.
 
@@ -76,7 +76,7 @@ The ask window is known by its name (`WindowId`), never by its place, as the lay
 windows are (ADR 0160, Q3):
 
 - **The ask window deleted by hand:** the next `Q` splits the slot again.
-- **The slot deleted by hand, the ask window still there:** the next `RET`, `C-u RET` or
+- **The slot deleted by hand, the ask window still there:** the next `RET`, `M-RET`, `C-u RET` or
   `C-c C-c` splits the ask window; its top half becomes the slot and takes the source, the
   session staying below. Too short to split, the ask window becomes the whole slot again. The
   same holds while the person is in the slot itself, which a jump never takes (ADR 0160).

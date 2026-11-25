@@ -231,8 +231,9 @@ previous setup measured 25 ms for 206 files once the index's stat cache is copie
   side and the file's current text (the open buffer's, or the file's), counted on a worker for a
   file over 1 MiB. An old-side line goes to where it was removed. A line inside a changed span
   goes to the span's start. `C-u RET` opens the old side as a read-only buffer. (As built in
-  step 3, part three: always counted on the review's thread; a commit's new side opens
-  read-only too; nothing of a file that may hold secrets opens from the review.)
+  step 3, part three: always counted on the review's thread; `RET` in a review of commits
+  goes to the checkout's file as well, carried from the commit's side; `M-RET` shows the line's
+  own side read-only; nothing of a file that may hold secrets opens from the review.)
 - **Faces** join the theme table with their contrast rules ([ADR 0089](0089-built-in-themes-switched-at-run-time.md)):
   `diff.added`, `diff.removed`, `diff.refine-added`, `diff.refine-removed`, `diff.hunk-header`,
   `diff.file-header`, `review.comment-person`, `review.comment-agent`, `review.outdated`,
@@ -479,9 +480,9 @@ Limits for crafted input, each saying what it hides:
 
 In a review buffer (accept is `A`, as built in step 5): `n`/`p` hunk, `N`/`P` file, `{`/`}` comment, `c` comment, `e` edit, `k`
 remove, `r` resolve, `a` accept, `x` reject, `v` viewed, `u` undo a decision, `s` files pane, `/`
-filter, `|` two panes, `RET` source (`C-u RET` the old side, as built in step 3), `g` refresh
-now, `C-c C-c` send, `q` bury, and `[`/`]` more unchanged lines above or below, `=` a whole gap
-(step 13). `C-x v r` opens the
+filter, `|` two panes, `RET` source (`C-u RET` the old side, as built in step 3; `M-RET` the
+line's side as read), `g` refresh now, `C-c C-c` send, `q` bury, and `[`/`]` more unchanged lines
+above or below, `=` a whole gap (step 13). `C-x v r` opens the
 menu. The exact keys are settled in step 3 with the author.
 
 ## Steps
@@ -1139,8 +1140,10 @@ the author approved one more item (Q-H (a)): `Editor::set_internal_reloaded`. Wh
   its place. **The file is then loaded as the agent channel loads one,** refused with a second
   name, as a hard link swapped in after the thread looked gives, and a link swapped in is judged
   by where it leads (ADR 0044).
-- **Read-only sides (Q4):** `C-u RET`, and `RET` in a review whose new side is a commit (a
-  commit's, a range's, or a pull request's whose head is not checked out here), show that side
+- **Read-only sides (Q4):** `C-u RET` shows the old side and `M-RET` (`review-visit-side`,
+  `Person`) the line's own side, read-only. `RET` in a review whose new side is a commit (a
+  commit's, a range's, or a pull request's whose head is not checked out here) goes to the
+  checkout's file, and shows the new side only when the checkout has no such file. A side shows
   as the review read it in an internal buffer `*old: <path> · <scope>*` or `*new: …*`, of the
   path's mode (an old side's from its old path), found again by path and side, at the line, its
   name's bidirectional and invisible characters escaped. The syntax worker highlights it while a
@@ -1162,8 +1165,8 @@ the author approved one more item (Q-H (a)): `Editor::set_internal_reloaded`. Wh
   it: C-x C-f opens it". No side is shown either while the file's open buffer may hold secrets,
   as the agent channel may read a buffer of oso's own.
 - **Other files:** one the review shows no text of, as too large or binary, opens at its first
-  line in a review of the work tree, as "too large to show: `RET` opens it" says, once the
-  review's thread found it a regular file of one name, reached through no link; a submodule
+  line, in a review of commits the checkout's file, as "too large to show: `RET` opens it" says,
+  once the review's thread found it a regular file of one name, reached through no link; a submodule
   and a deleted file open nothing, and `C-u RET` on an added one says it has no old side.
 - **Refinement (Q1)** is always on. The review's thread refines each file's hunks as it reads
   them, each hunk one change block, within 50 ms a file and the request's own budget, and the

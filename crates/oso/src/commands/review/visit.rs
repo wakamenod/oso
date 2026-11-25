@@ -1,5 +1,6 @@
 //! Jumping to the source from a review (ADR 0122, "Jump to the source", step 3, part three):
-//! `RET` on a row opens the file at the line it shows, `C-u RET` the old side read-only. The
+//! `RET` on a row opens the file at the line it shows, `M-RET` the line's own side as the review
+//! read it and `C-u RET` the old side, both read-only. The
 //! command finds what the row is and asks the host, which carries the line to the file's text
 //! now on the review's thread and picks the window.
 //!
@@ -14,24 +15,48 @@
 //!   pane's side (Q3).
 
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
-use oso_core::editor::ReviewRequest;
+use oso_core::editor::{ReviewRequest, VisitTo};
 use oso_core::review::{Anchor, RowKind, Side};
 
 use super::current_review;
 
 /// The commands that jump to the source.
-pub const COMMANDS: &[Command] = &[Command {
-    name: "review-visit",
-    doc: "Open the file of the review's line at the primary cursor, at that line, in another window (`RET`).\n\nThe line is carried through the edits made to the file since the review read it, and one changed since goes to the start of what replaced it. A removed line goes to where it was removed; a hunk's header to its first line; a file's header to the file's first line; a comment to its line. A review whose new side is a commit, as of a commit, a range or a pull request not checked out here, shows that side read-only instead. With a prefix argument, it shows the old side read-only, at the line.",
-    args: ArgSpec::None,
-    reach: Reach::Person,
-    run: review_visit,
-    state: None,
-}];
+pub const COMMANDS: &[Command] = &[
+    Command {
+        name: "review-visit",
+        doc: "Open the file of the review's line at the primary cursor, at that line, in another window (`RET`).\n\nThe line is carried through the edits made to the file since the review read it, and one changed since goes to the start of what replaced it. A removed line goes to where it was removed; a hunk's header to its first line; a file's header to the file's first line; a comment to its line. In a review whose new side is a commit, as of a commit, a range or a pull request not checked out here, it goes to the file as checked out now, or to the commit's side, read-only, when the checkout has no such file. With a prefix argument, it shows the old side read-only, at the line.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: review_visit,
+        state: None,
+    },
+    Command {
+        name: "review-visit-side",
+        doc: "Show the side of the review's line at the primary cursor as the review read it, read-only, at that line (`M-RET`).\n\nA removed line shows the old side, any other line and a header the new one, and a comment the side of its line. `RET` goes to the file as it is now.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: review_visit_side,
+        state: None,
+    },
+];
 
 fn review_visit(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
+    let to = if args.raw().is_some() {
+        VisitTo::OldSide
+    } else {
+        VisitTo::Source
+    };
+    visit(ctx, to)
+}
+
+fn review_visit_side(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    visit(ctx, VisitTo::Side)
+}
+
+/// Asks the host to go to the row at the primary cursor, where `to` says.
+fn visit(ctx: &mut Ctx<'_>, to: VisitTo) -> Result<(), CommandError> {
     let review = current_review(ctx)?;
-    let old_side = args.raw().is_some();
+    let old_side = to == VisitTo::OldSide;
     let (window, buffer) = ctx.editor.current();
     let rows = (ctx.editor.review_rows_of(window.buffer()))
         .ok_or_else(|| CommandError::new("Not in a review"))?;
@@ -97,7 +122,7 @@ fn review_visit(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
         path: row.path.into(),
         side,
         number,
-        old_side,
+        to,
     });
     ctx.request_redraw();
     Ok(())

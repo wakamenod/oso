@@ -28,6 +28,7 @@ fn a_review_s_side_gets_a_job_while_a_window_shows_it_and_takes_its_report() {
     let orders = syntax.orders(&editor);
     let job = (orders.jobs.iter().find(|job| job.buffer == side)).expect("a job");
     assert_eq!(job.language, Language::Rust);
+    assert!(syntax.orders(&editor).jobs.is_empty(), "sent once");
     let mut highlights = Highlights::new(job.text.len());
     highlights.replace(0..2, [(2, Some(Highlight::Keyword))]);
     let report = Report {
@@ -92,4 +93,26 @@ fn a_side_whose_highlighting_failed_is_not_tried_again_by_hiding_it() {
     syntax.drops(&editor);
     editor.show_in(window, side);
     assert!(!job_ids(&syntax.orders(&editor)).contains(&side));
+}
+
+#[test]
+fn a_side_two_windows_show_gets_one_job() {
+    let (mut editor, _) = editor_with(visited("/w/p/main.rs", "fn main() {}\n"));
+    editor.set_frame_size(oso_core::frame::FrameSize {
+        rows: 30,
+        columns: 100,
+    });
+    let side = editor.add_side_buffer("*new: b.rs \u{b7} commit abc*", Mode::Rust);
+    editor.set_internal_text(side, "fn b() {}\n");
+    let first = editor.window().id();
+    editor
+        .split_window(oso_core::frame::Way::Down, true)
+        .unwrap();
+    let second = editor.window().id();
+    assert_ne!(first, second);
+    editor.show_in(first, side);
+    editor.show_in(second, side);
+    let orders = Syntax::default().orders(&editor);
+    let jobs = job_ids(&orders).iter().filter(|id| **id == side).count();
+    assert_eq!(jobs, 1);
 }
