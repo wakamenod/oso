@@ -302,6 +302,8 @@ pub(super) struct SourceGate {
 pub(super) struct AsciiInput {
     wanted: bool,
     switched: bool,
+    /// What the app asked since, which waits until the frame is drawn (ADR 0158).
+    waiting: Option<Waiting>,
 }
 
 /// What `AsciiInput` asks of the input source.
@@ -311,17 +313,51 @@ pub(super) enum AsciiStep {
     Switch,
     /// Give the person's source back, if they have not chosen another since.
     Restore,
+    /// What wanted ASCII closed and another opened: choose it again, if the person has chosen
+    /// another source since.
+    Renew,
     Nothing,
 }
 
+/// What the app asked since the last step.
+#[derive(Clone, Copy, Debug)]
+struct Waiting {
+    wanted: bool,
+    /// What wanted ASCII, as the last step knew, closed since.
+    closed: bool,
+}
+
 impl AsciiInput {
-    /// What to do now that the app wants ASCII or not (`wanted`, kept from before if `None`)
-    /// and oso is in front or not.
-    pub(super) fn step(&mut self, wanted: Option<bool>, active: bool) -> AsciiStep {
-        self.wanted = wanted.unwrap_or(self.wanted);
-        let switched = self.wanted && active;
+    /// The app wants ASCII or not, which waits for the next `step` (ADR 0158).
+    pub(super) fn ask(&mut self, wanted: bool) {
+        let closed = self.waiting.is_some_and(|waiting| waiting.closed);
+        self.waiting = Some(Waiting {
+            wanted,
+            closed: closed || (self.wanted && !wanted),
+        });
+    }
+
+    /// Whether something asked waits.
+    pub(super) fn waits(&self) -> bool {
+        self.waiting.is_some()
+    }
+
+    /// What to do now that the app wants ASCII or not (`wanted`, what it last asked if `None`),
+    /// and oso is in front or not (`active`). Nothing waits after. While secure input is wanted
+    /// (`secure`), as a buffer that may hold secrets is selected, nothing is chosen, only given
+    /// back. A search asks again once it is not; a prompt with a secret yanked into it does not.
+    pub(super) fn step(&mut self, wanted: Option<bool>, active: bool, secure: bool) -> AsciiStep {
+        let waiting = self.waiting.take();
+        let asked = waiting.map(|waiting| waiting.wanted);
+        let renewed = wanted.is_none() && waiting.is_some_and(|waiting| waiting.closed);
+        self.wanted = wanted.or(asked).unwrap_or(self.wanted);
+        let switched = self.wanted && active && (self.switched || !secure);
         if switched == self.switched {
-            return AsciiStep::Nothing;
+            return if switched && renewed && !secure {
+                AsciiStep::Renew
+            } else {
+                AsciiStep::Nothing
+            };
         }
         self.switched = switched;
         if switched {
@@ -467,40 +503,40 @@ mod tests {
     fn ascii_is_chosen_while_wanted_and_in_front_and_given_back_otherwise() {
         let mut ascii = AsciiInput::default();
         assert_eq!(
-            ascii.step(Some(true), true),
+            ascii.step(Some(true), true, false),
             AsciiStep::Switch,
             "the prompt opens"
         );
         assert_eq!(
-            ascii.step(Some(true), true),
+            ascii.step(Some(true), true, false),
             AsciiStep::Nothing,
             "still open"
         );
         assert_eq!(
-            ascii.step(None, false),
+            ascii.step(None, false, false),
             AsciiStep::Restore,
             "oso goes behind"
         );
-        assert_eq!(ascii.step(None, false), AsciiStep::Nothing);
+        assert_eq!(ascii.step(None, false, false), AsciiStep::Nothing);
         assert_eq!(
-            ascii.step(None, true),
+            ascii.step(None, true, false),
             AsciiStep::Switch,
             "back in front, still open"
         );
         assert_eq!(
-            ascii.step(Some(false), true),
+            ascii.step(Some(false), true, false),
             AsciiStep::Restore,
             "the prompt closes"
         );
         assert_eq!(
-            ascii.step(None, true),
+            ascii.step(None, true, false),
             AsciiStep::Nothing,
             "in front, none open"
         );
         // Opened while another app is in front: switched only once oso is.
         let mut ascii = AsciiInput::default();
-        assert_eq!(ascii.step(Some(true), false), AsciiStep::Nothing);
-        assert_eq!(ascii.step(None, true), AsciiStep::Switch);
+        assert_eq!(ascii.step(Some(true), false, false), AsciiStep::Nothing);
+        assert_eq!(ascii.step(None, true, false), AsciiStep::Switch);
     }
 
     #[test]

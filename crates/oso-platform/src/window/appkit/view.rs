@@ -468,7 +468,11 @@ impl OsoView {
         let marked = !self.ivars().marked.borrow().is_empty();
         let allowed = self.ivars().state.ime_allowed();
         let is_g = marked && held == Held::CONTROL && key_text::is_g(event);
-        match keys::route(held, marked, allowed, is_g) {
+        let route = keys::route(held, marked, allowed, is_g);
+        if route.types_with_source() {
+            self.ivars().state.settle_ascii();
+        }
+        match route {
             Route::Oso => self.deliver_key(event),
             Route::CommitThenOso => {
                 self.commit_marked();

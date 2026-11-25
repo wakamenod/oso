@@ -212,8 +212,8 @@ impl Window {
     }
 
     /// Whether oso wants the input source to type ASCII, as while a prompt that reads text or
-    /// completes one is open (ADR 0106, ADR 0158). Applied once the handler returns, as the
-    /// other requests are.
+    /// completes one is open (ADR 0106, ADR 0158). Applied once the frame the event
+    /// asked for is drawn, as it takes tens of milliseconds (ADR 0158).
     pub fn set_ascii_input(&self, wanted: bool) {
         self.state
             .requests
