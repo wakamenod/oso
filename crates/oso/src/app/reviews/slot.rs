@@ -297,8 +297,9 @@ fn to_lay_out(editor: &Editor) -> Option<ReviewId> {
     (last_of_project.or(any)).or_else(|| editor.reviews().map(|(id, _)| id).last())
 }
 
-/// Shows the review `id` in the layout's window while the frame is the layout, else in a
-/// layout made for it; the tree a layout made again took out, for the caller to free.
+/// Shows the review `id` in the layout's window while the frame is the layout, in the whole
+/// area of a pair of a review's panes there, else in a layout made for it; the tree a layout
+/// made again took out, for the caller to free.
 pub(super) fn show_laid(
     editor: &mut Editor,
     kept: &mut Vec<Kept>,
@@ -319,6 +320,8 @@ pub(super) fn show_laid(
     }
     match layout_window(editor, kept) {
         Some(window) => {
+            // The whole area of a pair of panes there, from the place of its selected window.
+            editor.show_review_unified(window);
             editor.select_window(window);
             editor.show_in(window, buffer);
             (true, None)

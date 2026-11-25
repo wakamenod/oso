@@ -59,6 +59,7 @@ impl App {
                 && !(show == Show::Laid && self.show_review_laid(id))
                 && let Some(buffer) = self.editor.review_buffer(id)
             {
+                self.editor.show_review_unified(window);
                 self.editor.show_in(window, buffer);
             }
             let running = &mut self.reviews.open[index];
@@ -108,6 +109,8 @@ impl App {
         let running = Running::new(id, project, scope.clone(), root, view);
         self.reviews.open.push(running);
         if show != Show::Hidden && !(show == Show::Laid && self.show_review_laid(id)) {
+            // In the whole area of a pair of a review's panes there, as in the layout.
+            self.editor.show_review_unified(window);
             self.editor.show_in(window, buffer);
         }
         let index = self.reviews.open.len() - 1;
