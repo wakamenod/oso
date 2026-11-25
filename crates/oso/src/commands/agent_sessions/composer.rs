@@ -341,8 +341,14 @@ fn with_argument(
         .map_err(|error| CommandError::new(error.to_string()))
 }
 
-/// The prompt's answer, or `none` as the error when it gave nothing.
+/// The prompt's answer, or `none` as the error when it gave nothing; refused if a secret was
+/// yanked into it, which the composer would no longer be marked with.
 fn chosen(ctx: &Ctx<'_>, none: &'static str) -> Result<String, CommandError> {
+    if ctx.answer_secret() {
+        return Err(CommandError::new(
+            "The answer holds secret text, which is not put in the composer",
+        ));
+    }
     match ctx.answer() {
         Some(answer) if !answer.is_empty() => Ok(answer.to_owned()),
         _ => Err(CommandError::new(none)),
