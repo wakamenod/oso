@@ -241,7 +241,8 @@ fn serve(stream: TcpStream, script: &mut Script, requests: &Path) -> std::io::Re
         .create(true)
         .append(true)
         .open(requests)?;
-    writeln!(log, "{record}")?;
+    // In one write, as a flow reads the file meanwhile.
+    log.write_all(format!("{record}\n").as_bytes())?;
     let route = format!("{method} {path}");
     let answer = if authorized && route == TRANSCRIPTION && !script.stopped {
         Answer {
