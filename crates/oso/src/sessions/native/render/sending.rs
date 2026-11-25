@@ -11,8 +11,6 @@ use crate::sessions::native::rows::{Rows, Sending};
 
 /// In its turn, and once that ended: three columns, as `〉` and its space take.
 const MARKS: (&str, &str) = ("…  ", "✗  ");
-/// What a line under way starts with, and its words.
-const UNDER_WAY: (Face, Face) = (Face::Dim, Face::Dim);
 /// What is said under one whose turn ended.
 const NOT_CONFIRMED: &str = "   claude did not say it took this";
 /// And of one the person sent.
@@ -29,10 +27,7 @@ pub fn sending_rows(rows: &Rows) -> Rendered {
             text, from, ended, ..
         } = sent;
         let from_here = out.faces.len();
-        let (mark, faces) = match ended {
-            false => (MARKS.0, UNDER_WAY),
-            true => (MARKS.1, (Face::Dim, Face::Dim)),
-        };
+        let mark = if ended { MARKS.1 } else { MARKS.0 };
         match from {
             Some(from) => {
                 // Its `@` stands where no message's words do.
@@ -40,7 +35,7 @@ pub fn sending_rows(rows: &Rows) -> Rendered {
                 out.put(&from, Some(Face::Dim));
                 out.said("   ", text, (Face::Dim, Face::Dim));
             }
-            None => out.said(mark, text, faces),
+            None => out.said(mark, text, (Face::Dim, Face::Dim)),
         }
         if ended {
             let back = if sent.persons { BRINGS_BACK } else { "" };

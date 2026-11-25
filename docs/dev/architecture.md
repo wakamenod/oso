@@ -1298,7 +1298,8 @@ Full details are in [`security.md`](security.md).
     ([ADR 0180](adr/0180-a-permission-card-that-stands-out-and-is-read-as-it-is.md)). A plan's
     approval asks in `card/plan/ask.rs`, and `card/front.rs` tells the agent channel
     (`app/agent/requests.rs`) where a request waits. What stands after a transcript's rows, the
-    queue's and the block, is `sessions::native::tail`'s.
+    messages being sent (`sessions::native::render::sending_rows`), the queue's and the block, is
+    `sessions::native::tail`'s.
   - `oso mcp` (`channel/mcp.rs`) is a subcommand of the oso binary that opens no window: MCP's
     JSON-RPC on stdin and stdout, with the tools `state`, `text`, `diagnostics`, `commands`, `look`,
     `change`, `open` and `cancel`, which takes back a question the agent's change opened
