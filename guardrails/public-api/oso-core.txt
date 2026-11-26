@@ -3270,6 +3270,8 @@ pub fn oso_core::editor::Editor::set_review_panes_paint(&mut self, oso_core::edi
 pub fn oso_core::editor::Editor::show_review_panes(&mut self, oso_core::window::WindowId, oso_core::frame::Way) -> core::result::Result<(), oso_core::editor::NoPair>
 pub fn oso_core::editor::Editor::show_review_unified(&mut self, oso_core::window::WindowId) -> bool
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::click_point(&mut self, oso_core::window::WindowId, usize, usize) -> bool
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::close_completion_popup(&mut self)
 pub fn oso_core::editor::Editor::completion_popup(&self) -> core::option::Option<&oso_core::editor::CompletionPopup>
 pub fn oso_core::editor::Editor::completion_popup_insert(&mut self) -> core::result::Result<(), core::option::Option<oso_core::buffer::EditError>>

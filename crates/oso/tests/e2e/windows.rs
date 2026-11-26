@@ -2,7 +2,9 @@
 //! draws both, `C-x o` selects the other, a key goes to the selected one only and a
 //! composition ends there, `C-x 0` and `C-x 1` delete windows, and a buffer that may hold
 //! secrets beside the selected window keeps screenshots refused, with secure input following
-//! the selected window. The wheel scrolls the window under the pointer and selects none.
+//! the selected window. The wheel scrolls the window under the pointer and selects none. A
+//! click on a window's text selects it and moves point to the cell (ADR 0183); on its gutter,
+//! it only selects it.
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test. The tree, the
 //! commands and what each window draws have their own tests in oso-core, the dispatcher's
@@ -256,4 +258,67 @@ fn the_wheel_scrolls_the_window_under_the_pointer_without_selecting_it() {
     let state = app.state();
     assert_eq!(top(&windows(&state)[1]), 3, "down a notch, then up one");
     assert_eq!(top(&windows(&state)[0]), 3);
+}
+
+/// The cursor of `window`'s primary selection: a byte offset, as the dev state gives it.
+fn cursor(window: &Value) -> u64 {
+    window["selections"][0]["cursor"]
+        .as_u64()
+        .expect("a selection's cursor")
+}
+
+/// A left click at `row`, `column` from the top left of `window`'s area.
+fn click(app: &mut App, window: &Value, row: u64, column: u64) {
+    let area = &window["area"];
+    let at = json!({
+        "row": area["row"].as_u64().expect("an area's row") + row,
+        "column": area["column"].as_u64().expect("an area's column") + column,
+    });
+    app.call("mouse", Some(json!({ "press": "left", "at": at })));
+    app.call("mouse", Some(json!({ "release": "left", "at": at })));
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_click_moves_point_to_its_cell_and_on_the_gutter_only_selects() {
+    let scratch = Scratch::new("windows-click");
+    let file = scratch.write("notes.txt", b"agenda\nbudget items\nend\n");
+    let mut app = App::start(Some(&file), scratch.path());
+    app.visual_aids_off();
+    app.wait_until_ready();
+    app.send_keys("C-x 3");
+    let state = app.state();
+    let split = windows(&state).to_vec();
+    assert_eq!(split[1]["selected"], true, "the right window is selected");
+    let (left, right) = (&split[0], &split[1]);
+
+    // The first press on the left window selects it and moves its point to the cell; the
+    // right window's stays.
+    click(&mut app, left, 1, 3);
+    let state = app.state();
+    let now = windows(&state);
+    assert_eq!(now[0]["selected"], true, "the click selected it");
+    assert_eq!(
+        cursor(&now[0]),
+        10,
+        "line 1, column 3: past `agenda` and its newline"
+    );
+    assert_eq!(cursor(&now[1]), 0);
+
+    // Past a line's end, to its end.
+    let past = columns(left) - 2;
+    assert!(past > 6, "the window is wider than `agenda`");
+    click(&mut app, left, 0, past);
+    let state = app.state();
+    assert_eq!(cursor(&windows(&state)[0]), 6, "the end of `agenda`");
+
+    // With line numbers on, a press on the right window's gutter selects it and moves nothing.
+    app.run_command("global-display-line-numbers-mode", Some(1))
+        .expect("line numbers turn on");
+    click(&mut app, right, 2, 0);
+    let state = app.state();
+    let now = windows(&state);
+    assert_eq!(now[1]["selected"], true, "the gutter's click selected it");
+    assert_eq!(cursor(&now[1]), 0);
+    assert_eq!(cursor(&now[0]), 6);
 }

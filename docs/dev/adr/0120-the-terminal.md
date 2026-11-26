@@ -1,6 +1,6 @@
 # 0120. The terminal
 
-- Status: Accepted, amended by 0132, 0133, 0137, 0141, 0143, 0154, 0156, 0169 and 0173
+- Status: Accepted, amended by 0132, 0133, 0137, 0141, 0143, 0154, 0156, 0169, 0173 and 0183
 - Date: 2026-11-12
 
 ## Context
@@ -1344,6 +1344,9 @@ keep them apart from this ADR's.
   - on a window that is not selected, it selects it (plan Q5), and nothing more: the first click
     on a terminal never reaches its program;
   - point never moves in a text buffer, and a press outside a terminal's text does nothing;
+    since [ADR 0183](0183-a-click-moves-point.md), a left press without Shift on a text
+    buffer's text moves point there, on a window selected or not, and the two rules above
+    hold for terminals only;
   - with reports asked for, Shift not held and no password being read, the program gets it;
   - otherwise the left button begins a selection.
 

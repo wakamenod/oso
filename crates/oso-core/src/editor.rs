@@ -38,6 +38,7 @@ use std::sync::atomic::AtomicU64;
 
 mod agent;
 mod aids;
+mod click;
 mod completion;
 mod copies;
 mod crossing;

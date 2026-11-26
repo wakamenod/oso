@@ -1,6 +1,6 @@
 # 0112. Window splits
 
-- Status: Accepted, amended by 0122, 0160, 0165, 0170 and 0171
+- Status: Accepted, amended by 0122, 0160, 0165, 0170, 0171 and 0183
 - Date: 2026-11-12
 
 ## Context
@@ -516,7 +516,8 @@ These ADRs stay as they are; this one changes the following:
 - Floats stay where they are whatever the layout.
 - The handoff carries the layout.
 - The wheel reaches the window under the pointer; clicks and divider drags come with mouse focus.
-  A click selects the window under it since ADR 0120's step 4b-2; point does not move.
+  A click selects the window under it since ADR 0120's step 4b-2; point does not move. Since
+  [ADR 0183](0183-a-click-moves-point.md), a left press on its text also moves point.
 - `FrameLayout` stops being `Copy`.
 - `oso-core` gains `WindowId`, `Splits`, `Way` and window methods on `Editor`, in existing modules.
 
