@@ -68,7 +68,9 @@ fn again(
     find: Option<BufferId>,
 ) {
     assert!(enter(editor, kept, review));
-    assert!(lay_out_kept(editor, kept, review, layout, |_, _| find));
+    assert!(lay_out_kept(editor, kept, review, layout, None, |_, _| {
+        find
+    }));
 }
 
 #[test]
@@ -272,4 +274,64 @@ fn a_line_past_the_end_and_a_share_past_the_frame_are_held_in() {
     let cursor = windows(&editor)[1].2;
     let text = editor.buffer(source).unwrap().text();
     assert_eq!(cursor, text.line_end(19));
+}
+
+#[test]
+fn a_layout_continued_from_memory_gives_the_slot_back_its_own_cursor_mark_and_goal() {
+    use oso_core::selection::{Goal, Selection, SelectionSet};
+    let (mut editor, review, _, _) = editor();
+    let source = file(&mut editor, SOURCE, 200);
+    let mut kept = Vec::new();
+    assert!(enter(&mut editor, &mut kept, review));
+    let slot = windows(&editor)[1].0;
+    editor.show_in(slot, source);
+    // As a jump and `C-n` leave it: the place jumped from on the mark, a goal column.
+    let text = editor.buffer(source).unwrap().text().clone();
+    let selection = Selection {
+        cursor: text.line_start(102) + 3,
+        mark: Some(text.line_start(5)),
+        goal: Some(Goal::Column(3)),
+    };
+    let scroll = oso_core::window::Scroll {
+        start: text.line_start(90),
+        left: 0,
+    };
+    let set = SelectionSet::from_parts(vec![selection], 0).unwrap();
+    editor.restore_positions_in(slot, set.clone(), scroll);
+    let left_as = state(&editor, &kept, review).unwrap();
+    let seen = super::super::laid::slot_seen(&editor, &kept, review);
+    restore(&mut editor, &mut kept).unwrap();
+    assert!(enter(&mut editor, &mut kept, review));
+    assert!(lay_out_kept(
+        &mut editor,
+        &mut kept,
+        review,
+        &left_as,
+        seen.as_ref(),
+        |_, _| { Some(source) }
+    ));
+    let slot = windows(&editor)[1].0;
+    let window = editor.window_by_id(slot).unwrap();
+    assert_eq!(window.selections, set, "its cursor, mark and goal");
+    assert_eq!(window.scroll(), scroll);
+    // Its file changed since: the line, column and rows above alone.
+    restore(&mut editor, &mut kept).unwrap();
+    let end = text.len();
+    let edit = Replacement {
+        range: end..end,
+        text: "fn more() {}\n",
+    };
+    editor.apply_edits(source, &[edit]).unwrap();
+    assert!(enter(&mut editor, &mut kept, review));
+    assert!(lay_out_kept(
+        &mut editor,
+        &mut kept,
+        review,
+        &left_as,
+        seen.as_ref(),
+        |_, _| { Some(source) }
+    ));
+    let window = editor.window_by_id(windows(&editor)[1].0).unwrap();
+    assert_eq!(window.selections.primary().cursor, text.line_start(102) + 3);
+    assert_eq!(window.selections.primary().mark, None);
 }

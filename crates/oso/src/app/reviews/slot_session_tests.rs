@@ -84,6 +84,7 @@ fn a_live_hosted_session_goes_below_the_slot_again_with_its_split() {
         &mut kept,
         review,
         &left_as,
+        None,
         |_, _| Some(other)
     ));
     let table = hosting(session);

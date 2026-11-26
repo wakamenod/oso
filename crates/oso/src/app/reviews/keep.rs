@@ -95,6 +95,8 @@ pub(super) struct Saving {
     /// Whether the layout that goes back is on one a restart carried, which keeps its own
     /// widths, selection and session: only what its slot lacks goes back (ADR 0184).
     pub(super) lay_carried: bool,
+    /// The slot's own cursors and view as it was last left laid out, in memory alone.
+    pub(super) slot_seen: Option<super::slot::SlotSeen>,
 }
 
 /// What a review's view keeps besides its cursor: its layout chosen, agent cards folded, its

@@ -36,7 +36,7 @@ mod laid;
 mod loaded;
 mod windows;
 
-pub(super) use laid::put_at;
+pub(super) use laid::{SlotSeen, put_at};
 pub(super) use loaded::SlotLoading;
 
 #[cfg(test)]
