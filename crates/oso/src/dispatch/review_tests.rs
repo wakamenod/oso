@@ -275,3 +275,16 @@ fn review_start_names_the_repository_and_needs_two_worktrees_for_w() {
     editor.set_listed(REVIEW_WORKTREES_LIST, two);
     assert!(start_notes(&editor).get(1).is_none());
 }
+
+#[test]
+fn c_x_k_ret_in_a_review_closes_the_review_and_kills_no_other_buffer() {
+    let (mut editor, project) = in_project(true);
+    let file = editor.tiled().0.buffer();
+    let (review, buffer) = editor.add_review(project, "*review: uncommitted oso*".into());
+    editor.show(buffer);
+    let mut d = super::Dispatcher::new();
+    // The current buffer is `kill-buffer`'s default, a review's too (ADR 0122).
+    super::motion_tests::send(&mut d, &mut editor, "C-x k RET");
+    assert!(editor.review_buffer(review).is_none(), "the review closed");
+    assert!(editor.buffer(file).is_some(), "the file shown before stays");
+}

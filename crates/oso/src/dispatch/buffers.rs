@@ -57,11 +57,16 @@ fn by_visibility(editor: &Editor) -> Vec<BufferId> {
 }
 
 /// The buffers `C-x k` lists: the current one, those its window showed before, the most recent
-/// first, then the rest by recency (ADR 0088).
+/// first, then the rest by recency (ADR 0088). The current one is listed whenever `kill-buffer`
+/// may kill it, as a review's buffer, which closes the review (ADR 0122), though no buffer list
+/// holds it: else `RET` would kill the buffer shown before it.
 fn by_window(editor: &Editor) -> Vec<BufferId> {
     let window = editor.tiled().0;
     let listed = editor.buffers_by_recency();
     let mut unseen: HashSet<BufferId> = listed.iter().copied().collect();
+    if editor.review_of(window.buffer()).is_some() {
+        unseen.insert(window.buffer());
+    }
     let shown = std::iter::once(window.buffer()).chain(window.places().map(|(id, _)| id));
     shown
         .chain(listed.iter().copied())
@@ -220,5 +225,40 @@ mod tests {
             names(BufferPurpose::Kill),
             ["b", "a", "*scratch*", "*Messages*", "c"]
         );
+    }
+    #[test]
+    fn killing_lists_a_review_first_when_it_is_current_and_a_kept_buffer_not() {
+        use oso_core::buffer::Mode;
+
+        let (mut editor, project) = crate::commands::review::tests::in_project(true);
+        let file = editor.tiled().0.buffer();
+        let (_, review) = editor.add_review(project, "*review: uncommitted oso*".into());
+        editor.show(review);
+        let names = |editor: &Editor| -> Vec<String> {
+            candidates(editor, BufferPurpose::Kill)
+                .iter()
+                .map(|candidate| candidate.text().to_owned())
+                .collect()
+        };
+        // `kill-buffer` closes a review: `C-x k RET` in it is that, not a kill of the file
+        // shown before it.
+        assert_eq!(
+            names(&editor),
+            ["*review: uncommitted oso*", "a.rs", "*Messages*"]
+        );
+        // `C-x b` lists it no more than before.
+        let shown: Vec<String> = candidates(&editor, BufferPurpose::Switch)
+            .iter()
+            .map(|candidate| candidate.text().to_owned())
+            .collect();
+        assert!(
+            !shown.iter().any(|name| name.starts_with("*review")),
+            "{shown:?}"
+        );
+        // An internal buffer `kill-buffer` keeps is listed as before.
+        editor.show(file);
+        let keys = editor.add_internal_buffer("*Review keys*", Mode::Fundamental);
+        editor.show(keys);
+        assert_eq!(names(&editor), ["a.rs", "*Messages*"]);
     }
 }

@@ -964,8 +964,9 @@ fn c_c_a_v_continues_the_review_left_last_where_its_cursor_and_view_were() {
     let changed: Vec<u32> = (1..=60).map(|n| n * 5).collect();
     let mut app = open_lines_review(&scratch, 300, &changed);
     rows_until(&mut app, "+L5");
-    // Down the review, and a few rows back up, so that the view starts above the cursor.
-    app.send_keys("C-v C-v C-v C-p C-p");
+    // Down the review, onto a changed line of the next hunk: a place is a line of a side, or a
+    // file's row (ADR 0122, step 6).
+    app.send_keys("C-v C-v C-v n C-n");
     let left = app.wait_for("the review moved", |state| {
         state["scroll"]["start"]
             .as_u64()
@@ -986,10 +987,19 @@ fn c_c_a_v_continues_the_review_left_last_where_its_cursor_and_view_were() {
         state["buffer"]["name"] == "other.txt"
     });
     app.send_keys("C-c a v");
-    let state = app.wait_for("the review where it was left", |state| {
+    app.wait_for("the review again", |state| {
         state["buffer"]["name"] == "*review: uncommitted proj-review*"
-            && row_and_start(state) == left
     });
+    // Its place goes back once the text shows its file.
+    let mut state = app.state();
+    for _ in 0..200 {
+        if row_and_start(&state) == left {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+        state = app.state();
+    }
+    assert_eq!(row_and_start(&state), left, "where it was left");
     assert_eq!(window_count(&mut app), 2, "laid out");
 
     // `q`, then the key again: from memory, as it was.
