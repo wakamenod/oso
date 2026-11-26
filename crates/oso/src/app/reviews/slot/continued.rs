@@ -84,7 +84,7 @@ impl App {
                     let window = self.editor.tiled().0.id();
                     self.put_back_seen(index, window);
                     // The layout's own state as it was left (ADR 0184).
-                    self.put_back_layout(index);
+                    self.put_back_layout(index, super::laid::PutBack::Memory);
                 }
             }
             Shown::Not => self.editor.message(IN_PROMPT),

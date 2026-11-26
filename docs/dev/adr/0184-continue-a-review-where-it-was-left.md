@@ -94,10 +94,31 @@ before has none; one not read is left out alone, and a slot of a kind not known 
   - *Nothing*, else: the slot shows what `first_slot_buffer` chooses.
   - The store's thread judges the slot's file again as it writes, as it judges the review's.
 
-A later step keeps the session below the slot
-([ADR 0169](0169-the-review-slot-keeps-the-source-above-the-session.md)), by its record name:
-shown again if it is live and hosted; if it ended, the message "session <name> ended: M-x
-session-resume", and nothing is spawned.
+The third step keeps the session below the slot
+([ADR 0169](0169-the-review-slot-keeps-the-source-above-the-session.md)), by its record name,
+as an optional `session` in the saved layout: the session the window below the slot shows,
+else the one `review-ask` showed in the slot itself, never one whose buffer may hold secrets or
+is withheld from agents. Put back, after what the slot showed:
+
+- **Live and hosted:** its buffer goes below the slot, in the window there or one split off,
+  else in the slot too small to split, and the split below goes back to its share.
+- **Ended,** or no longer hosted: the message "session <name> ended: M-x session-resume", and
+  nothing is spawned. One still starting, or whose buffer may hold secrets now, is left out
+  and nothing is said.
+
+**A restart** carries the layout's windows, their sizes, the selection and the session below
+the slot (ADR 0160, Q9; ADR 0169). Once the review's text shows, the slot is given back what
+its saved file kept it showing only where the windows carried lack it, as a read-only side or
+the review message, which no window carries; the review's own cursor and rows above go back as
+for any saved review. Quitting and restarting stamp the review in front, as "Left" says.
+
+**Only under the review's root, from a saved file.** A file the slot showed, as a saved
+review's layout names it, after a quit, `C-x k` or a restart, is put back only if its path lies
+under the review's root, judged by its words, below the root and with no `..`, as the review's
+own files are joined to it; else nothing opens, the slot shows what `first_slot_buffer`
+chooses, and the echo area says "The file the slot showed is outside the review's root, so it
+is not shown again". A layout kept in memory, made by the person in this run, puts back any
+file it showed, after the same secret checks.
 
 **Never kept or shown:** a buffer that may hold secrets, is withheld from agents, or is among the
 paths held as secret while a review was open. A review buffer that may hold secrets gives no
@@ -141,7 +162,7 @@ review is a leaving, so a review open but never left is still continued.
 - [ADR 0167](0167-reviewing-a-pull-request-a-commit-at-a-time.md): the review continued is the
   commit stepped to; a commit gone opens the pull request's review.
 - [ADR 0169](0169-the-review-slot-keeps-the-source-above-the-session.md): the session below the
-  slot is kept by its record name (a later step).
+  slot is kept by its record name; an ended one is only named.
 - ADRs 0117, 0122, 0127, 0132, 0136, 0143, 0160, 0162 and 0163: the key's name only.
 
 ## Consequences

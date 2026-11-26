@@ -190,6 +190,7 @@ fn a_slot_s_file_that_may_hold_secrets_is_written_as_nothing() {
         slot_permille: 400,
         ask_permille: None,
         slot,
+        session: None,
     };
     let source = |path: &str| saved::SlotShows::Source {
         path: path.into(),
