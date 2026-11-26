@@ -30,11 +30,14 @@ use oso_core::window::WindowId;
 use super::super::App;
 use crate::sessions::spaces::kept::{self, Kept, ReviewKept};
 
+mod below;
 mod continued;
 mod laid;
+mod loaded;
 mod windows;
 
-pub(super) use laid::{SlotLoading, put_at};
+pub(super) use laid::put_at;
+pub(super) use loaded::SlotLoading;
 
 #[cfg(test)]
 use continued::{Shown, continue_open};

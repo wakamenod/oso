@@ -13,14 +13,19 @@ use super::{bytes_value, side_name, side_of, value_bytes};
 
 /// What the review layout kept of itself as its review was left (ADR 0184): the slot's share
 /// of its row and of the column it shares with the window below it, in thousandths, which side
-/// was selected, and what the slot showed.
+/// was selected, what the slot showed, and the record name of the session below it
+/// (ADR 0169), never one whose buffer may hold secrets.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct SavedLayout {
     pub(crate) slot_selected: bool,
     pub(crate) slot_permille: u16,
     pub(crate) ask_permille: Option<u16>,
     pub(crate) slot: SlotShows,
+    pub(crate) session: Option<String>,
 }
+
+/// The longest session name read back, in bytes: a longer one is read as none.
+const SESSION_BYTES: usize = 256;
 
 /// What the review layout's slot showed: never a buffer that may hold secrets or is withheld
 /// from agents, which is kept as nothing.
@@ -76,14 +81,20 @@ pub(super) fn layout_value(layout: &SavedLayout) -> Value {
         "slot": layout.slot_permille,
         "shows": shows,
     });
-    if let (Some(ask), Some(map)) = (layout.ask_permille, value.as_object_mut()) {
-        map.insert("ask".to_owned(), json!(ask));
+    if let Some(map) = value.as_object_mut() {
+        if let Some(ask) = layout.ask_permille {
+            map.insert("ask".to_owned(), json!(ask));
+        }
+        if let Some(session) = &layout.session {
+            map.insert("session".to_owned(), json!(session));
+        }
     }
     value
 }
 
 /// The layout [`layout_value`] wrote; a share past the whole is cut to it, and a slot of a
-/// kind this does not know shows nothing.
+/// kind this does not know shows nothing, and a session name that is not text, or is longer
+/// than [`SESSION_BYTES`], is none.
 pub(super) fn layout_of(value: &Value) -> Option<SavedLayout> {
     let share = |value: &Value| u16::try_from(value.as_u64()?.min(1000)).ok();
     let shows = value.get("shows")?;
@@ -113,5 +124,8 @@ pub(super) fn layout_of(value: &Value) -> Option<SavedLayout> {
         slot_permille: share(value.get("slot")?)?,
         ask_permille: value.get("ask").and_then(share),
         slot: slot.unwrap_or(SlotShows::Nothing),
+        session: (value.get("session").and_then(Value::as_str))
+            .filter(|name| !name.is_empty() && name.len() <= SESSION_BYTES)
+            .map(str::to_owned),
     })
 }

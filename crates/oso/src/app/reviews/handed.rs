@@ -139,6 +139,13 @@ impl App {
             .and_then(|w| super::slot::owner(&self.editor, w.buffer()));
         if let (Some(review), Some(slot)) = (review, slot) {
             self.carried_review_layout(review, first, slot, ask);
+            // What the slot showed, as the review's saved file kept it, goes back once a text
+            // shows, where the windows carried lack it (ADR 0184).
+            if let Some(index) = self.reviews.index(review) {
+                let saving = &mut self.reviews.open[index].saving;
+                saving.lay_kept = true;
+                saving.lay_carried = true;
+            }
         }
         let back = if self.editor.window_by_id(selected).is_some() {
             selected

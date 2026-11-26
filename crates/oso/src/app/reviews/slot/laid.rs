@@ -8,9 +8,13 @@
 //! - What the slot showed is never a buffer that may hold secrets or is withheld from agents,
 //!   nor a file held as secret while a review was open: it is kept as nothing.
 //! - A line past the end goes to the last; a share is held to a tenth from either edge.
+//! - The session below the slot is kept by its record name: put back while it is live and
+//!   hosted, else named as ended; nothing here starts one.
+//! - From a saved file, a slot's file outside the review's root is not opened; on a layout a
+//!   restart carried, only what its slot lacks goes back.
 
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 
 use oso_core::buffer::{Buffer, BufferId};
 use oso_core::editor::{Editor, ReviewId};
@@ -20,6 +24,7 @@ use oso_core::sum_tree::Bias;
 use oso_core::window::{Scroll, WindowId};
 
 use super::super::super::App;
+use super::loaded::{SLOT_WITHHELD, SlotLoading, Source, source_fits};
 use super::windows::{
     ask_share, ask_window, fit_ask_to, fit_slot_to, layout_window, slot, slot_share,
 };
@@ -28,12 +33,14 @@ use crate::review::saved::{SavedLayout, SlotShows};
 use crate::sessions::spaces::kept::{self, Kept};
 
 /// What the slot's buffer is besides a file: a side of the review's, the message waiting, and
-/// the files held as secret while a review was open.
+/// the files held as secret while a review was open; and the record name of a hosted session
+/// whose buffer a buffer is.
 pub(in crate::app::reviews) struct SlotKinds<'a> {
     /// The path and side of a buffer of the review's sides.
     pub(in crate::app::reviews) side: &'a dyn Fn(BufferId) -> Option<(Box<[u8]>, Side)>,
     pub(in crate::app::reviews) message: Option<BufferId>,
     pub(in crate::app::reviews) held: &'a HashSet<PathBuf>,
+    pub(in crate::app::reviews) session: &'a dyn Fn(BufferId) -> Option<String>,
 }
 
 /// The state of the layout of the review `id`, while it is the frame: None otherwise.
@@ -56,6 +63,7 @@ pub(in crate::app::reviews) fn layout_state(
         slot_permille: slot_share(editor, slot)?,
         ask_permille: ask.and_then(|ask| ask_share(editor, slot, ask)),
         slot: slot_shows(editor, slot, kinds),
+        session: super::below::session_shown(editor, kept, slot, kinds),
     })
 }
 
@@ -137,89 +145,86 @@ pub(in crate::app::reviews) fn lay_out_kept(
     if let (Some(permille), Some(ask)) = (layout.ask_permille, ask_window(editor, kept)) {
         fit_ask_to(editor, slot, ask, permille);
     }
-    if let Some(buffer) = show(editor, &layout.slot) {
-        editor.show_in(slot, buffer);
-        if let SlotShows::Source {
-            line,
-            column,
-            above,
-            ..
-        } = layout.slot
-        {
-            put_at(editor, slot, (line, column), above);
-        } else if let SlotShows::Side { line, above, .. } = layout.slot {
-            put_at(editor, slot, (line, 0), above);
-        }
-    }
+    show_kept(editor, slot, layout, show);
     editor.select_window(if layout.slot_selected { slot } else { window });
     true
 }
 
-/// Shows `buffer` in the slot of the layout of the review `id` while it is the frame and the
-/// slot still shows `filler`, the buffer it was given while `buffer` loaded, at `line` from 1,
-/// `column` bytes in and `above` rows below the top. Returns whether it did.
-pub(in crate::app::reviews) fn show_loaded(
+/// Puts what the slot showed back alone on the layout of the review `id` a restart carried,
+/// while it is the frame and its slot lacks it: its widths, selection and session are the
+/// ones carried (ADR 0184). Returns whether it gave the slot anything.
+pub(in crate::app::reviews) fn put_back_carried_slot(
     editor: &mut Editor,
-    kept: &[Kept],
-    (id, filler): (ReviewId, BufferId),
-    buffer: BufferId,
-    (line, column): (u32, u32),
-    above: u32,
+    kept: &mut [Kept],
+    (id, kinds): (ReviewId, &SlotKinds<'_>),
+    layout: &SavedLayout,
+    show: impl FnOnce(&mut Editor, &SlotShows) -> Option<BufferId>,
 ) -> bool {
-    let Some(laid) = kept::review(kept).filter(|laid| laid.review == id) else {
-        return false;
-    };
-    let slot = laid
-        .slot
-        .filter(|slot| super::windows::in_tree(editor, *slot));
-    let Some(slot) = slot.filter(|_| kept::review_in_frame(kept)) else {
-        return false;
-    };
-    if editor
-        .window_by_id(slot)
-        .map(oso_core::window::Window::buffer)
-        != Some(filler)
-    {
+    if kept::review(kept).is_none_or(|laid| laid.review != id) || !kept::review_in_frame(kept) {
         return false;
     }
-    editor.show_in(slot, buffer);
-    put_at(editor, slot, (line, column), above);
+    let Some(slot) = kept::review(kept)
+        .and_then(|laid| laid.slot)
+        .filter(|slot| super::windows::in_tree(editor, *slot))
+    else {
+        return false;
+    };
+    if !slot_lacks(&slot_shows(editor, slot, kinds), &layout.slot) {
+        return false;
+    }
+    show_kept(editor, slot, layout, show);
     true
 }
 
-/// Whether a file the slot showed may be shown in it again.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(in crate::app::reviews) enum Source {
-    /// Its name, or its open buffer, may hold secrets, or it was held as secret in this run.
-    Withheld,
-    /// Its open buffer.
-    Open(BufferId),
-    /// Not open: a plain visit opens it.
-    Closed,
+/// Whether a slot that shows `now` lacks what it showed, `then`: another file, side or kind.
+/// A slot that showed nothing lacks nothing.
+fn slot_lacks(now: &SlotShows, then: &SlotShows) -> bool {
+    match (now, then) {
+        (_, SlotShows::Nothing) | (SlotShows::Message, SlotShows::Message) => false,
+        (SlotShows::Source { path, .. }, SlotShows::Source { path: was, .. }) => path != was,
+        (
+            SlotShows::Side { path, side, .. },
+            SlotShows::Side {
+                path: was,
+                side: was_side,
+                ..
+            },
+        ) => path != was || side != was_side,
+        _ => true,
+    }
 }
 
-/// Whether the file at `path` may be shown in the slot again, judged again as it is put back
-/// (ADR 0184): by its name now, the files `held` as secret in this run, and its open buffer.
-pub(in crate::app::reviews) fn source_fits(
-    editor: &Editor,
-    held: &HashSet<PathBuf>,
-    path: &std::path::Path,
-) -> Source {
-    if Buffer::name_may_hold_secrets(path) || held.contains(path) {
-        return Source::Withheld;
+/// Shows in `slot` what `show` gives for what the slot showed, at its line.
+fn show_kept(
+    editor: &mut Editor,
+    slot: WindowId,
+    layout: &SavedLayout,
+    show: impl FnOnce(&mut Editor, &SlotShows) -> Option<BufferId>,
+) {
+    let Some(buffer) = show(editor, &layout.slot) else {
+        return;
+    };
+    editor.show_in(slot, buffer);
+    if let SlotShows::Source {
+        line,
+        column,
+        above,
+        ..
+    } = layout.slot
+    {
+        put_at(editor, slot, (line, column), above);
+    } else if let SlotShows::Side { line, above, .. } = layout.slot {
+        put_at(editor, slot, (line, 0), above);
     }
-    match crate::commands::review::open_buffer_of(editor, path) {
-        Some(open) => {
-            let fits = (editor.buffer(open))
-                .is_some_and(|buffer| !buffer.is_secret() && !buffer.withheld_from_agents());
-            if fits {
-                Source::Open(open)
-            } else {
-                Source::Withheld
-            }
-        }
-        None => Source::Closed,
-    }
+}
+
+/// Whether `path`, a file the slot showed as a saved review kept it, lies under the review's
+/// `root`, as the review's own files do: judged by its words, below the root, with no `..`.
+pub(in crate::app::reviews) fn under_root(root: &Path, path: &Path) -> bool {
+    path.strip_prefix(root).is_ok_and(|rest| {
+        rest.components().next().is_some()
+            && (rest.components()).all(|part| matches!(part, Component::Normal(_)))
+    })
 }
 
 /// Puts `window`'s cursor alone at `column` bytes into line `line` from 1, each as far as the
@@ -246,19 +251,20 @@ pub(in crate::app::reviews) fn put_at(
     editor.restore_positions_in(window, SelectionSet::new(offset), scroll);
 }
 
-/// What the slot says of a file it showed that may now hold secrets, which it does not show.
-const SLOT_WITHHELD: &str = "The file the slot showed may hold secrets, so it is not shown again";
+/// What the slot says of a file a saved review kept it showing outside the review's root,
+/// which it does not show (ADR 0184).
+const SLOT_OUTSIDE: &str =
+    "The file the slot showed is outside the review's root, so it is not shown again";
 
-/// A file the slot showed, loading to be shown again in it once its text came (ADR 0184).
-#[derive(Debug)]
-pub(in crate::app::reviews) struct SlotLoading {
-    review: ReviewId,
-    buffer: BufferId,
-    /// What the slot shows meanwhile, which it must still show for the file to go in.
-    filler: BufferId,
-    line: u32,
-    column: u32,
-    above: u32,
+/// Where a layout put back comes from (ADR 0184).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::app::reviews) enum PutBack {
+    /// Kept in memory as the person left it in this run.
+    Memory,
+    /// Read from the review's saved file, as it was continued from it.
+    File,
+    /// Read from the saved file, onto the layout a restart carried: only what its slot lacks.
+    Carried,
 }
 
 /// What the slot is given as a layout is put back, besides a buffer at once.
@@ -291,10 +297,13 @@ impl App {
             super::super::visit::side_of(&running.sides, buffer)
                 .filter(|(path, _)| !super::super::secrets::withheld(root, held, path))
         };
+        let table = self.hosting.table();
+        let session = |buffer| table.by_buffer(buffer).map(|hosted| hosted.name.clone());
         let kinds = SlotKinds {
             side: &side,
             message: self.waiting_message(),
             held,
+            session: &session,
         };
         layout_state(&self.editor, self.watch.spaces().kept(), running.id, &kinds)
     }
@@ -348,26 +357,53 @@ impl App {
                 return;
             }
         }
-        self.reviews.open[index].saving.lay_kept = false;
-        self.put_back_layout(index);
+        let saving = &mut self.reviews.open[index].saving;
+        saving.lay_kept = false;
+        let from = if std::mem::take(&mut saving.lay_carried) {
+            PutBack::Carried
+        } else {
+            PutBack::File
+        };
+        self.put_back_layout(index, from);
     }
 
     /// Puts the layout kept with the review at `index` back on the layout of it in front
     /// (ADR 0184): its slot's width, the window below it, what the slot showed and the side
-    /// selected. A file not open is opened unshown, as a plain visit, and goes in once it
-    /// loaded; nothing that may hold secrets is shown.
-    pub(in crate::app::reviews) fn put_back_layout(&mut self, index: usize) {
+    /// selected, then the session below it. A file not open is opened unshown, as a plain
+    /// visit, and goes in once it loaded; nothing that may hold secrets is shown, and from a
+    /// saved file, no file outside the review's root. On a layout a restart carried, only what
+    /// its slot lacks goes back.
+    pub(in crate::app::reviews) fn put_back_layout(&mut self, index: usize, from: PutBack) {
         let running = &self.reviews.open[index];
         let id = running.id;
-        let Some(layout) = running.saving.layout.clone() else {
+        let Some(mut layout) = running.saving.layout.clone() else {
             return;
         };
+        if from == PutBack::Carried {
+            let Some(laid) = kept::review(self.watch.spaces().kept()).filter(|l| l.review == id)
+            else {
+                return;
+            };
+            // The selection carried stands, and nothing is asked for a slot that has it.
+            layout.slot_selected = laid.slot == Some(self.editor.window().id());
+            let lacks = (self.review_layout_state(running))
+                .is_none_or(|now| slot_lacks(&now.slot, &layout.slot));
+            if !lacks {
+                return;
+            }
+        }
         let (ready, then) = match &layout.slot {
             SlotShows::Nothing => (None, Then::Nothing),
             SlotShows::Message => match self.waiting_message() {
                 Some(buffer) => (Some(buffer), Then::Nothing),
                 None => (None, Then::Message),
             },
+            SlotShows::Source { path, .. }
+                if from != PutBack::Memory && !under_root(running.root.path(), path) =>
+            {
+                self.editor.message(SLOT_OUTSIDE);
+                (None, Then::Nothing)
+            }
             SlotShows::Source { path, .. } => self.slot_source(path),
             SlotShows::Side { path, side, .. } => {
                 let root = running.root.path();
@@ -382,13 +418,32 @@ impl App {
             }
         };
         let kept = self.watch.spaces_mut().kept_mut();
-        if !lay_out_kept(&mut self.editor, kept, id, &layout, |_, _| ready) {
+        let laid = if from == PutBack::Carried {
+            let none = HashSet::new();
+            let kinds = SlotKinds {
+                side: &|_| None,
+                message: None,
+                held: &none,
+                session: &|_| None,
+            };
+            // Judged above with the review's sides and message: here the slot is given it.
+            put_back_carried_slot(&mut self.editor, kept, (id, &kinds), &layout, |_, _| ready)
+        } else {
+            lay_out_kept(&mut self.editor, kept, id, &layout, |_, _| ready)
+        };
+        if !laid {
             if let Then::Loading(buffer) = then {
                 self.editor.kill_buffer(buffer);
             }
             return;
         }
         self.after_put_back(id, then, &layout);
+        // A restart carried its session with its windows.
+        if from != PutBack::Carried
+            && let Some(name) = &layout.session
+        {
+            self.put_back_session(name, layout.ask_permille);
+        }
         self.request_redraw();
     }
 
@@ -477,66 +532,5 @@ impl App {
                 }
             }
         }
-    }
-
-    /// The load of `buffer` ended with its text: a file a layout put back goes in its slot, if
-    /// the slot still shows what it was given meanwhile, and nothing of one that opened as
-    /// holding secrets shows. One not shown goes.
-    pub(in crate::app) fn review_slot_loaded(&mut self, buffer: BufferId) {
-        let Some(loading) = self
-            .reviews
-            .keep
-            .slot_loading
-            .take_if(|at| at.buffer == buffer)
-        else {
-            return;
-        };
-        let fits = (self.editor.buffer(buffer))
-            .is_some_and(|shown| !shown.is_secret() && !shown.withheld_from_agents());
-        let shown = fits
-            && show_loaded(
-                &mut self.editor,
-                self.watch.spaces().kept(),
-                (loading.review, loading.filler),
-                buffer,
-                (loading.line, loading.column),
-                loading.above,
-            );
-        if !fits {
-            self.editor.message(SLOT_WITHHELD);
-        }
-        let modified = (self.editor.buffer(buffer)).is_some_and(Buffer::is_modified);
-        if !shown && !modified && !(self.editor.windows()).any(|window| window.buffer() == buffer) {
-            self.editor.kill_buffer(buffer);
-        }
-        self.request_redraw();
-    }
-
-    /// Whether the load at `index`, of `buffer`, found no file where a file a layout put back
-    /// was: the buffer goes, unshown, the slot keeps what it shows, and the echo area says so
-    /// (ADR 0184), rather than a new file opening.
-    pub(in crate::app) fn review_slot_gone(
-        &mut self,
-        index: usize,
-        buffer: BufferId,
-        update: &crate::loader::LoadUpdate,
-    ) -> bool {
-        use crate::loader::{LoadError, LoadUpdate};
-        let slot = &mut self.reviews.keep.slot_loading;
-        if !matches!(update, LoadUpdate::Failed(LoadError::NotFound))
-            || slot.take_if(|at| at.buffer == buffer).is_none()
-        {
-            return false;
-        }
-        let name = (self.editor.buffer(buffer))
-            .and_then(Buffer::path)
-            .map(|path| crate::commands::review::one_line(&path.to_string_lossy(), 200));
-        self.loads.swap_remove(index);
-        self.editor.kill_buffer(buffer);
-        self.editor.message(format!(
-            "The file the slot showed no longer exists: {}",
-            name.unwrap_or_default()
-        ));
-        true
     }
 }

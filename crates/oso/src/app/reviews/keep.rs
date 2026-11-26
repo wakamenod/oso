@@ -92,6 +92,9 @@ pub(super) struct Saving {
     pub(super) layout: Option<SavedLayout>,
     pub(super) laid_changed: bool,
     pub(super) lay_kept: bool,
+    /// Whether the layout that goes back is on one a restart carried, which keeps its own
+    /// widths, selection and session: only what its slot lacks goes back (ADR 0184).
+    pub(super) lay_carried: bool,
 }
 
 /// What a review's view keeps besides its cursor: its layout chosen, agent cards folded, its
