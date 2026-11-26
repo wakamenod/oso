@@ -42,11 +42,15 @@ pub(super) fn note_held(
             continue;
         };
         let verdict = buffer.verdict();
-        if verdict == Verdict::Unjudged {
-            now.insert(path.to_path_buf());
-        } else if verdict.is_withheld() && !sticky.contains(path) {
+        // `verdict` folds in what else makes a buffer secret (a secret yank, a passphrase, a
+        // password read), as `is_secret` asks it; only a buffer not judged yet, which
+        // `is_secret` counts too, is held while it is not.
+        let secret = verdict != Verdict::Unjudged && buffer.is_secret();
+        if secret && !sticky.contains(path) {
             sticky.insert(path.to_path_buf());
             grew = true;
+        } else if !secret && verdict == Verdict::Unjudged {
+            now.insert(path.to_path_buf());
         }
     }
     let changed = grew || now != *unjudged;
@@ -147,6 +151,29 @@ mod tests {
         assert_eq!(held.note(&editor), set(&["/src/repo/.env"]));
         judge(&mut editor, again, Some("/src/repo/plain.txt"));
         assert_eq!(held.note(&editor), set(&["/src/repo/.env"]));
+    }
+
+    #[test]
+    fn a_file_not_judged_yet_that_a_secret_was_yanked_into_stays_held_for_the_run() {
+        let mut editor = Editor::default();
+        let mut held = Held::default();
+        let notes = visiting(&mut editor, "/src/repo/notes.txt");
+        editor.buffer_mut(notes).unwrap().finish_empty();
+        editor.show(notes);
+        // A secret kill yanked into it before its path was resolved: its verdict says so, and
+        // its own is still not judged.
+        editor.kill_new("TOKEN=x", true);
+        editor.yank(0, false).unwrap();
+        assert!(editor.buffer(notes).unwrap().is_secret());
+        assert_eq!(held.note(&editor), set(&["/src/repo/notes.txt"]));
+        assert_eq!(
+            held.unjudged,
+            set(&[]),
+            "held for the run, not while not judged"
+        );
+        // Judged ordinary since: still held.
+        judge(&mut editor, notes, Some("/src/repo/notes.txt"));
+        assert_eq!(held.note(&editor), set(&["/src/repo/notes.txt"]));
     }
 
     #[test]
