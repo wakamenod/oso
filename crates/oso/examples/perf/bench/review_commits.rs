@@ -63,7 +63,7 @@ pub(super) fn review_commits(exe: &Path, runs: usize, report: &mut Report) -> Re
             t["load"]["done_us"].is_u64()
         })?;
         trust(&mut app)?;
-        app.send_keys("C-u C-x v r")?;
+        app.send_keys("C-c a V")?;
         wait_for(&mut app, "the review menu", |state| {
             state["menu"] == "review"
         })?;
