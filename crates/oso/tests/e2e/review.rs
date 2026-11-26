@@ -964,8 +964,9 @@ fn c_c_a_v_continues_the_review_left_last_where_its_cursor_and_view_were() {
     let changed: Vec<u32> = (1..=60).map(|n| n * 5).collect();
     let mut app = open_lines_review(&scratch, 300, &changed);
     rows_until(&mut app, "+L5");
-    // Down the review, and a few rows back up, so that the view starts above the cursor.
-    app.send_keys("C-v C-v C-v C-p C-p");
+    // Down the review, onto a changed line of the next hunk: a place is a line of a side, or a
+    // file's row (ADR 0122, step 6).
+    app.send_keys("C-v C-v C-v n C-n");
     let left = app.wait_for("the review moved", |state| {
         state["scroll"]["start"]
             .as_u64()
@@ -974,28 +975,31 @@ fn c_c_a_v_continues_the_review_left_last_where_its_cursor_and_view_were() {
     let left = row_and_start(&left);
 
     // Closed, and another file shown: continued from its saved file, as it was.
-    app.send_keys("C-x k");
+    // `kill-buffer` asks which buffer, the current one by default.
+    app.send_keys("C-x k RET");
     app.wait_for("the review closed", |state| {
         state["buffer"]["name"] == "a.txt"
     });
     scratch.write("proj-review/other.txt", b"other\n");
-    app.send_keys(&format!(
-        "C-x C-f {} RET",
-        typing(
-            &scratch
-                .path()
-                .join("proj-review/other.txt")
-                .to_string_lossy()
-        )
-    ));
+    // `find-file` starts in a.txt's directory, the project's.
+    app.send_keys(&format!("C-x C-f {} RET", typing("other.txt")));
     app.wait_for("the other file", |state| {
         state["buffer"]["name"] == "other.txt"
     });
     app.send_keys("C-c a v");
-    let state = app.wait_for("the review where it was left", |state| {
+    app.wait_for("the review again", |state| {
         state["buffer"]["name"] == "*review: uncommitted proj-review*"
-            && row_and_start(state) == left
     });
+    // Its place goes back once the text shows its file.
+    let mut state = app.state();
+    for _ in 0..200 {
+        if row_and_start(&state) == left {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+        state = app.state();
+    }
+    assert_eq!(row_and_start(&state), left, "where it was left");
     assert_eq!(window_count(&mut app), 2, "laid out");
 
     // `q`, then the key again: from memory, as it was.
@@ -1073,20 +1077,14 @@ fn c_c_a_v_puts_the_layout_back_with_the_slot_s_source_line_width_and_selection(
     assert_eq!(window_count(&mut app), 2);
 
     // Closed, another file shown, and continued: from the saved file, the same.
-    app.send_keys("C-x k");
+    // `kill-buffer` asks which buffer, the current one by default.
+    app.send_keys("C-x k RET");
     app.wait_for("the review closed", |state| {
         state["buffer"]["name"] != "*review: uncommitted proj-review*"
     });
     scratch.write("proj-review/other.txt", b"other\n");
-    app.send_keys(&format!(
-        "C-x C-f {} RET",
-        typing(
-            &scratch
-                .path()
-                .join("proj-review/other.txt")
-                .to_string_lossy()
-        )
-    ));
+    // `find-file` starts in a.txt's directory, the project's.
+    app.send_keys(&format!("C-x C-f {} RET", typing("other.txt")));
     app.wait_for("the other file", |state| {
         state["buffer"]["name"] == "other.txt"
     });

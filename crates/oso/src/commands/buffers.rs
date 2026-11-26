@@ -92,9 +92,18 @@ fn switch_to_buffer(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 fn kill_buffer(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     super::not_in_prompt(ctx)?;
     let name = ctx.answer().unwrap_or_default();
-    let id = ctx
-        .editor
-        .buffer_named(name)
+    // The current buffer when it is a review's, which `C-x k` lists first though no buffer list
+    // holds it: its kill closes the review (ADR 0122).
+    let current = ctx.editor.window().buffer();
+    let review = (ctx.editor.review_of(current).is_some())
+        .then_some(current)
+        .filter(|id| {
+            ctx.editor
+                .buffer(*id)
+                .is_some_and(|buffer| buffer.name() == name)
+        });
+    let id = review
+        .or_else(|| ctx.editor.buffer_named(name))
         .ok_or_else(|| CommandError::new("No such buffer"))?;
     kill(ctx, id, false)
 }
