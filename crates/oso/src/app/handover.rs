@@ -65,11 +65,7 @@ impl App {
     /// `export-text`, replacing the one before.
     pub(super) fn export_state(&mut self) -> Reply {
         self.resume_terminals();
-        // The reviews are on disk before the next instance opens them again (ADR 0122, step 6),
-        // waited for only when one was handed over now.
-        if self.hand_review_saves() {
-            self.wait_review_saves(REVIEWS_WAIT);
-        }
+        self.save_reviews_for_export();
         let (mut state, exported) = self.export_texts(None)?;
         self.add_natives(&mut state);
         self.keep_export(exported);
@@ -102,6 +98,15 @@ impl App {
             terminals,
             &reviews,
         )
+    }
+
+    /// The reviews are on disk before the next instance opens them again (ADR 0122, step 6;
+    /// ADR 0184), waited for at most [`REVIEWS_WAIT`], only when one was handed over now: an
+    /// export with terminals or without.
+    pub(in crate::app) fn save_reviews_for_export(&mut self) {
+        if self.hand_review_saves() {
+            self.wait_review_saves(REVIEWS_WAIT);
+        }
     }
 
     /// Keeps `exported` for `export-text`, as the latest export, dropping the one before.
