@@ -56,6 +56,17 @@ pub(super) struct Jumping {
     to: To,
     /// The files whose open buffers must hold no secrets: all but a work tree review's own.
     guards: Vec<PathBuf>,
+    /// A side a layout put back asked for (ADR 0184): the rows above its line, and whether the
+    /// slot stays selected.
+    then: Option<(u32, bool)>,
+}
+
+impl Jumping {
+    /// The jump puts back a layout's side (ADR 0184): `above` rows above its line, and the
+    /// slot selected with `select`, else the window it was asked in.
+    pub(super) fn put_back(&mut self, above: u32, select: bool) {
+        self.then = Some((above, select));
+    }
 }
 
 /// A buffer showing a side of a file of the review, found again by the path and the side: its
@@ -127,8 +138,15 @@ fn side_mode(path: &[u8], old_path: Option<&[u8]>, side: Side) -> Mode {
     crate::git::os_path(named).map_or(Mode::Fundamental, |name| Mode::for_path(Path::new(name)))
 }
 
+/// The path and side the buffer `buffer` of `sides` shows, if it is one of them.
+pub(super) fn side_of(sides: &[SideBuffer], buffer: BufferId) -> Option<(Box<[u8]>, Side)> {
+    (sides.iter())
+        .find(|shown| shown.id == buffer)
+        .map(|shown| (shown.path.clone(), shown.side))
+}
+
 /// The buffer of `sides` showing `side` of the file at `path`.
-fn side_shown(sides: &[SideBuffer], path: &[u8], side: Side) -> Option<BufferId> {
+pub(super) fn side_shown(sides: &[SideBuffer], path: &[u8], side: Side) -> Option<BufferId> {
     (sides.iter())
         .find(|shown| shown.side == side && *shown.path == *path)
         .map(|shown| shown.id)
@@ -156,6 +174,7 @@ impl App {
                     window,
                     to,
                     guards,
+                    then: None,
                 });
                 self.ask_review(index, Request::Jump(Jump { ticket, ask }));
             }
@@ -337,6 +356,19 @@ impl App {
             ),
             (To::Side(to), Landed::Side(text)) => {
                 self.show_side(index, to, *text, "Read-only: a side as the review read it");
+                // A layout's side put back: its rows above, and the side that was selected.
+                if let Some((above, select)) = jumping.then {
+                    let (window, shown) = self.editor.current();
+                    let row = shown
+                        .text()
+                        .offset_to_point(window.selections.primary().cursor)
+                        .row;
+                    let (slot, line) = (window.id(), u32::try_from(row + 1).unwrap_or(u32::MAX));
+                    super::slot::put_at(&mut self.editor, slot, (line, 0), above);
+                    if !select {
+                        self.editor.select_window(jumping.window);
+                    }
+                }
             }
             (_, landed) => self.freer.free(landed),
         }

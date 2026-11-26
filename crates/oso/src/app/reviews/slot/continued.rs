@@ -36,7 +36,10 @@ impl App {
                     && let Some(index) = self.reviews.index(id)
                 {
                     // A commit gone from a pull request's: that pull request's review instead.
-                    self.reviews.open[index].saving.instead = pull.filter(|_| commit);
+                    let saving = &mut self.reviews.open[index].saving;
+                    saving.instead = pull.filter(|_| commit);
+                    // The layout its file kept goes back once a text shows.
+                    saving.lay_kept = true;
                 }
             }
         }
@@ -80,6 +83,8 @@ impl App {
                 if let Some(index) = self.reviews.index(id) {
                     let window = self.editor.tiled().0.id();
                     self.put_back_seen(index, window);
+                    // The layout's own state as it was left (ADR 0184).
+                    self.put_back_layout(index);
                 }
             }
             Shown::Not => self.editor.message(IN_PROMPT),

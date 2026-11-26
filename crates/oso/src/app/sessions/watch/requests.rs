@@ -209,6 +209,8 @@ impl App {
 
     /// Switches to space `at`, keeping the file buffer shown last in the space left.
     pub(in crate::app) fn enter_space(&mut self, at: usize) {
+        // The review layout leaving the frame keeps its state (ADR 0184).
+        self.keep_review_layout_state();
         let shown = tree_buffer(&mut self.editor);
         let is_session = self.hosting.table().by_buffer(shown).is_some();
         if let Some(from) = self.watch.spaces.current() {

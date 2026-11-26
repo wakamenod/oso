@@ -31,7 +31,10 @@ use super::super::App;
 use crate::sessions::spaces::kept::{self, Kept, ReviewKept};
 
 mod continued;
+mod laid;
 mod windows;
+
+pub(super) use laid::{SlotLoading, put_at};
 
 #[cfg(test)]
 use continued::{Shown, continue_open};
@@ -67,6 +70,8 @@ impl App {
     /// `review-layout`: with `menu`, the review menu; else the way back to the review from the
     /// slot, the restore from the review, or the review left last continued (ADR 0184).
     pub(super) fn review_layout_key(&mut self, menu: bool) {
+        // Kept before a restore takes the layout out of the frame (ADR 0184).
+        self.keep_review_layout_state();
         let kept = self.watch.spaces_mut().kept_mut();
         let (key, old) = press(&mut self.editor, kept, menu);
         self.freer.free(old);
@@ -81,6 +86,7 @@ impl App {
     /// `q` buried a review: the windows from before the layout come back, if the frame is one.
     pub(super) fn review_quit_layout(&mut self) {
         if kept::review(self.watch.spaces().kept()).is_some() {
+            self.keep_review_layout_state();
             self.restore_review_layout();
         }
     }

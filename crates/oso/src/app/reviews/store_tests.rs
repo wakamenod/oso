@@ -180,6 +180,49 @@ fn no_line_of_a_file_that_may_hold_secrets_is_written() {
 }
 
 #[test]
+fn a_slot_s_file_that_may_hold_secrets_is_written_as_nothing() {
+    // ADR 0184: judged again on the store's thread, as the review's files are.
+    let scratch = Scratch::new("slot");
+    let dir = scratch.reviews();
+    let mut thread = scratch.thread();
+    let layout = |slot| saved::SavedLayout {
+        slot_selected: false,
+        slot_permille: 400,
+        ask_permille: None,
+        slot,
+    };
+    let source = |path: &str| saved::SlotShows::Source {
+        path: path.into(),
+        line: 3,
+        column: 0,
+        above: 1,
+    };
+    let side = |path: &[u8]| saved::SlotShows::Side {
+        path: path.into(),
+        side: Side::New,
+        line: 3,
+        above: 1,
+    };
+    let cases = [
+        (source("/p/.env"), saved::SlotShows::Nothing),
+        (source("/p/notes.txt"), saved::SlotShows::Nothing),
+        (side(b"notes.txt"), saved::SlotShows::Nothing),
+        (side(b"id_rsa"), saved::SlotShows::Nothing),
+        (source("/p/plain.txt"), source("/p/plain.txt")),
+        (side(b"plain.txt"), side(b"plain.txt")),
+    ];
+    for (shows, written) in cases {
+        let mut snapshot = snapshot("/p", 5);
+        // An open buffer of `notes.txt` was seen to hold secrets.
+        snapshot.held = Arc::new(HashSet::from([PathBuf::from("/p/notes.txt")]));
+        snapshot.view.layout = Some(layout(shows));
+        thread.write(&name("/p"), snapshot).unwrap();
+        let found = read(&dir, &name("/p"), &header("/p", 0)).unwrap().unwrap();
+        assert_eq!(found.view.layout, Some(layout(written)));
+    }
+}
+
+#[test]
 fn a_file_that_is_not_a_saved_reviews_own_is_refused() {
     let scratch = Scratch::new("refused");
     let dir = scratch.reviews();

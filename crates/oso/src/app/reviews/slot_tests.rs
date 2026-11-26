@@ -436,3 +436,6 @@ mod ask;
 
 #[path = "slot_panes_tests.rs"]
 mod panes;
+
+#[path = "slot_laid_tests.rs"]
+mod laid;

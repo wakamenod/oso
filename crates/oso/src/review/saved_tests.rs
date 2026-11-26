@@ -114,6 +114,17 @@ fn round_trip(review: &Review, max: usize) -> (Vec<u8>, Decoded) {
         }),
         filter: Filter::new("src todo"),
         files: true,
+        layout: Some(SavedLayout {
+            slot_selected: true,
+            slot_permille: 437,
+            ask_permille: Some(500),
+            slot: SlotShows::Source {
+                path: "/work/project/src/a.rs".into(),
+                line: 40,
+                column: 3,
+                above: 9,
+            },
+        }),
     };
     let bytes = encode(&header(), &review.save(), &kept, &withheld, max).unwrap();
     let read = decode(&bytes).unwrap();
@@ -479,4 +490,63 @@ fn a_view_kept_before_the_files_pane_reads_with_no_filter_and_no_pane() {
         "choice": "auto", "folded": false, "place": null, "filter": 3,
     });
     assert!(super::view_of(&wrong).is_none());
+}
+
+#[test]
+fn the_layout_kept_comes_back_and_a_slot_of_a_kind_not_known_shows_nothing() {
+    // ADR 0184: the layout's own state, each kind of what the slot showed.
+    let shows = [
+        SlotShows::Nothing,
+        SlotShows::Message,
+        SlotShows::Source {
+            path: "/work/project/src/a.rs".into(),
+            line: 1,
+            column: 0,
+            above: 0,
+        },
+        SlotShows::Side {
+            path: b"src/\xff.rs".as_slice().into(),
+            side: Side::Old,
+            line: 12,
+            above: 4,
+        },
+    ];
+    for slot in shows {
+        let view = SavedView {
+            layout: Some(SavedLayout {
+                slot_selected: false,
+                slot_permille: 400,
+                ask_permille: None,
+                slot,
+            }),
+            ..SavedView::default()
+        };
+        let bytes = encode(&header(), &Saved::default(), &view, &withheld, MAX_BYTES).unwrap();
+        assert_eq!(decode(&bytes).unwrap().view, view);
+    }
+    let layout = |shows: serde_json::Value| {
+        let kept = serde_json::json!({
+            "choice": "auto", "folded": false, "place": null,
+            "layout": { "slot_selected": true, "slot": 5000, "ask": 2, "shows": shows },
+        });
+        super::view_of(&kept).unwrap().layout
+    };
+    // A kind not known, or a known one not whole, shows nothing; a share past the whole is cut.
+    let unknown = layout(serde_json::json!({ "kind": "session", "name": "x" })).unwrap();
+    assert_eq!(unknown.slot, SlotShows::Nothing);
+    assert_eq!(
+        (unknown.slot_permille, unknown.ask_permille),
+        (1000, Some(2))
+    );
+    let torn = layout(serde_json::json!({ "kind": "source", "path": "/a" })).unwrap();
+    assert_eq!(torn.slot, SlotShows::Nothing);
+    // A layout not read is left out alone: the rest of the view stands.
+    let kept = serde_json::json!({
+        "choice": "panes", "folded": false, "place": null, "layout": { "slot": "wide" },
+    });
+    let view = super::view_of(&kept).unwrap();
+    assert_eq!((view.choice, view.layout), (ReviewChoice::Panes, None));
+    // A file saved before has none.
+    let kept = serde_json::json!({ "choice": "auto", "folded": false, "place": null });
+    assert_eq!(super::view_of(&kept).unwrap().layout, None);
 }

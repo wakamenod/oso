@@ -368,6 +368,7 @@ impl Thread {
             return Err(io::Error::other("not a saved review's name"));
         }
         snapshot.header.opened = snapshot.header.opened.max(now());
+        withhold_slot(&mut snapshot);
         let withheld = withheld_paths(&snapshot);
         let withheld = |path: &[u8]| withheld.contains(path);
         let bytes = saved::encode(
@@ -411,6 +412,26 @@ pub(super) fn now() -> u64 {
 /// The paths of `snapshot` whose lines must not be written: those whose name may hold secrets,
 /// or the name they had before a rename, and those of a buffer the UI saw that may. Each path
 /// once, however many comments it has.
+/// What the review layout's slot showed is judged again here, as the review's files are: a
+/// file whose name may hold secrets, or that was held as secret, is kept as nothing (ADR 0184).
+fn withhold_slot(snapshot: &mut Snapshot) {
+    let Some(layout) = &mut snapshot.view.layout else {
+        return;
+    };
+    let withheld = match &layout.slot {
+        saved::SlotShows::Source { path, .. } => {
+            oso_core::buffer::Buffer::name_may_hold_secrets(path) || snapshot.held.contains(path)
+        }
+        saved::SlotShows::Side { path, .. } => {
+            super::secrets::withheld(&snapshot.root, &snapshot.held, path)
+        }
+        saved::SlotShows::Nothing | saved::SlotShows::Message => false,
+    };
+    if withheld {
+        layout.slot = saved::SlotShows::Nothing;
+    }
+}
+
 fn withheld_paths(snapshot: &Snapshot) -> HashSet<Box<[u8]>> {
     let paths: HashSet<&[u8]> = (snapshot.saved.files.iter().map(|file| &*file.path))
         .chain(snapshot.saved.comments.iter().map(|comment| &*comment.path))
