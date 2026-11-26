@@ -121,9 +121,13 @@ pub(super) struct Keep {
     tried: bool,
     /// Each saved review as last listed: its candidate's text, its file's name and header.
     listed: Vec<(String, String, Header)>,
-    /// The files of buffers seen to hold secrets, or withheld from agents, while a review was
-    /// open: once seen, always withheld from what is saved, in this run.
+    /// The files held as secret while a review is open, withheld from what is saved: the union
+    /// of `held_sticky`, those of buffers ever judged to hold secrets or whose path could not be
+    /// resolved, held for the run, and `held_unjudged`, those of buffers not judged yet, held
+    /// while they are not (ADR 0184).
     pub(super) held: Arc<HashSet<PathBuf>>,
+    held_sticky: HashSet<PathBuf>,
+    held_unjudged: HashSet<PathBuf>,
     /// The review closed in this run that was left last, the review the selected window
     /// showed at the last event, and whether the store listed the saved ones yet (ADR 0184).
     left: Option<left::Left>,
@@ -303,18 +307,20 @@ impl App {
         }
     }
 
-    /// Adds the files of buffers that hold secrets now to those seen to.
+    /// Notes the files held as secret now: those of buffers judged to hold secrets join the ones
+    /// held for the run, and those of buffers not judged yet are held while they are not.
     fn note_held_buffers(&mut self) {
-        let held = super::secrets::held_paths(&self.editor);
-        if held
-            .iter()
-            .all(|path| self.reviews.keep.held.contains(path))
-        {
-            return;
+        let keep = &mut self.reviews.keep;
+        let changed =
+            super::secrets::note_held(&self.editor, &mut keep.held_sticky, &mut keep.held_unjudged);
+        if changed {
+            let held = keep
+                .held_sticky
+                .union(&keep.held_unjudged)
+                .cloned()
+                .collect();
+            keep.held = Arc::new(held);
         }
-        let mut seen = (*self.reviews.keep.held).clone();
-        seen.extend(held);
-        self.reviews.keep.held = Arc::new(seen);
     }
 
     /// The review at `index`'s model revision and view choices, as they would be handed over.
