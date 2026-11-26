@@ -1,5 +1,5 @@
 //! The review benchmark (ADR 0122): a repository of 57 files with some 5,000 lines changed in
-//! its work tree, reviewed with `C-c a v w`: how soon its first screen and its whole text are
+//! its work tree, reviewed with `C-c a V w`: how soon its first screen and its whole text are
 //! shown, keys moving between its hunks and files, `|` showing it as two panes and keys in them
 //! (ADR 0122, step 11), `g` after one file changed, and how soon its sides are highlighted
 //! (step 9). Recorded, with no threshold yet.
@@ -81,7 +81,7 @@ pub(super) fn review(
             t["load"]["done_us"].is_u64()
         })?;
         trust(&mut app)?;
-        app.send_keys("C-c a v")?;
+        app.send_keys("C-c a V")?;
         settle(&mut app)?;
         let asked = unix_us();
         app.send_keys("w")?;
@@ -180,7 +180,7 @@ fn resumed(exe: &Path, file: &Path, config: &Path, env: &[(&str, &Path)]) -> Res
 /// its saved review read meanwhile and carried by the first readings. Its comments must have
 /// come back.
 fn resume(app: &mut App) -> Result<f64, String> {
-    app.send_keys("C-c a v")?;
+    app.send_keys("C-c a V")?;
     settle(app)?;
     let asked = unix_us();
     app.send_keys("w")?;
