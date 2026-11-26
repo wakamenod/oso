@@ -1,8 +1,9 @@
 //! The mouse in terminals (ADR 0120, step 4b-2): a click selects any window, and the first on
-//! a terminal only selects it; a drag selects cells and the release copies them to the kill
-//! ring; a program that asked for reports gets them, in SGR here, unless Shift is held; and a
-//! copy while the program reads a password is a secret. Each flow runs under the shell the
-//! system has as `/bin/sh` (dash on Linux CI, bash on macOS).
+//! a terminal only selects it, while one on a text buffer's text also moves point (ADR 0183);
+//! a drag selects cells and the release copies them to the kill ring; a program that asked for
+//! reports gets them, in SGR here, unless Shift is held; and a copy while the program reads a
+//! password is a secret. Each flow runs under the shell the system has as `/bin/sh` (dash on
+//! Linux CI, bash on macOS).
 //!
 //! Must not depend on: the app's internals; the routing, the encoder and the selection's text
 //! have unit tests.
@@ -59,14 +60,16 @@ fn newest_kill(state: &Value) -> Value {
 
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
-fn a_click_selects_any_window_and_point_stays() {
+fn a_click_selects_any_window_and_moves_point_only_in_text() {
     let (_scratch, mut app) = start("terminal-mouse-click");
     open_terminal(&mut app);
     app.send_keys("C-x 2 C-x o C-x b");
     type_line(&mut app, "*scratch*");
-    let state = app.wait_for("scratch below", |state| {
+    app.wait_for("scratch below", |state| {
         state["buffer"]["name"] == "*scratch*"
     });
+    type_line(&mut app, "abcdef");
+    let state = app.state();
     let scratch = selected_window(&state).clone();
     let terminal_window = state["windows"]
         .as_array()
@@ -82,18 +85,33 @@ fn a_click_selects_any_window_and_point_stays() {
         state["buffer"]["name"], "*terminal*",
         "the click selected it"
     );
+    assert_eq!(
+        selected_window(&state)["selections"],
+        terminal_window["selections"],
+        "no point moves in a terminal"
+    );
     assert!(
         newest_kill(&state).is_null(),
         "the first click only selects"
     );
-    // A click in a text window selects it, and its point does not move.
+    // A click in a text window selects it, and moves its point to the cell (ADR 0183).
+    assert_eq!(
+        scratch["selections"][0]["cursor"],
+        json!({ "row": 1, "column": 0 })
+    );
     let area = &scratch["area"];
-    let in_scratch = json!({ "row": area["row"].as_u64().unwrap() + 1, "column": 8 });
+    let in_scratch = json!({
+        "row": area["row"],
+        "column": area["column"].as_u64().unwrap() + 2,
+    });
     mouse(&mut app, json!({ "press": "left", "at": in_scratch }));
     mouse(&mut app, json!({ "release": "left", "at": in_scratch }));
     let state = app.state();
     assert_eq!(state["buffer"]["name"], "*scratch*");
-    assert_eq!(selected_window(&state)["selections"], scratch["selections"]);
+    assert_eq!(
+        selected_window(&state)["selections"][0]["cursor"],
+        json!({ "row": 0, "column": 2 })
+    );
 }
 
 #[test]
