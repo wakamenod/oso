@@ -1,6 +1,8 @@
 # 0132. A session mode for hosted sessions
 
 - Status: Accepted, amended by 0136, 0142, 0143, 0155 and 0165
+- Key changed by [ADR 0184](0184-continue-a-review-where-it-was-left.md): the review key is the
+  agents menu's `v`, `C-c a v`, and the review menu its `V`, `C-c a V`.
 - Date: 2026-11-14
 
 ## Context
@@ -28,7 +30,7 @@ Two more facts shape the decision:
 
 - **A session's buffer has no project.** A terminal has no file, so ADR 0114's project table does
   not point it into one (ADR 0120, "Project terminals"). The commands that use the current
-  buffer's project, `C-x a w` `session-worktree`, `worktree-list`, the review menu `C-x v r` and
+  buffer's project, `C-x a w` `session-worktree`, `worktree-list`, the review menu `C-c a V` and
   `review-session`, refuse from a session's buffer with `Not in a project`; the person has to
   select a file of the project first. `*Sessions*` has none either.
 - **Not every planned key is built.** ADR 0120 also gives semi-char mode `C-s` (the live search),
@@ -130,7 +132,7 @@ key, take capitals and punctuation.
 | `C-c P` | `session-pin`, this session (Q4) | `P` in `*Sessions*` |
 | `C-c A` | `session-archive`, this session (Q4) | `A` in `*Sessions*` |
 | `C-c v` | `review-session`, this session's project since its baseline | `M-x` |
-| `C-c V` | the review menu, `review` | `C-x v r` |
+| `C-c V` | the review menu, `review` | `C-c a V` |
 | `C-c +` | `terminal-allow-agent-read` | `M-x` |
 | `C-c -` | `terminal-deny-agent-read` | `M-x` |
 | `C-c C-u` | `universal-argument`, so that `C-c C-u C-c m` is `C-u C-x a m` | `C-u` |
@@ -181,7 +183,7 @@ builds them, `C-c C-j` copy mode and `C-c RET` the link at point.
   inside Claude Code's shell tool does not move it. ADR 0114's trust is unchanged: the project is
   trusted or restricted as it would be for one of its files.
 - So every command that uses the current buffer's project works from a session's buffer, with or
-  without session mode's keys: `C-x a w`, `worktree-list`, `C-x v r` and the review commands,
+  without session mode's keys: `C-x a w`, `worktree-list`, `C-c a v` and the review commands,
   `C-x p f`, `C-x p m`, `trust-project`.
 - **`*Sessions*`'s rows:** `w` is bound, as ADR 0121 planned: `session-worktree` in the row's
   session's project, then ADR 0126's `worktree-create` as ADR 0131's table says. `c` (`claude` in the
@@ -298,7 +300,7 @@ builds them, `C-c C-j` copy mode and `C-c RET` the link at point.
    (b) Every terminal is in the project of the directory it started in, as `C-x p m` already finds
    it. Also a plain terminal; a `cd` there is not followed.
    (c) No project for the buffer; only the session keys find the session's project themselves.
-   Plain `C-x a w` and `C-x v r` still refuse in a session.
+   Plain `C-x a w` and `C-c a v` still refuse in a session.
 9. **`C-x a o`, the repository's overview.**
    (a) It shows ADR 0131's pane with point on the current project's row, unfolded; `C-c o` in a
    session.

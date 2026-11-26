@@ -1,6 +1,8 @@
 # 0162. Orchestrator review rules
 
 - Status: Accepted
+- Key changed by [ADR 0184](0184-continue-a-review-where-it-was-left.md): the review key is the
+  agents menu's `v`, `C-c a v`, and the review menu its `V`, `C-c a V`.
 - Date: 2026-11-19
 
 ## Context
@@ -11,7 +13,7 @@ implementer in a worktree. Then, when the person asks, it starts several reviewe
 that worktree, each with conditions the person gives, such as a model or a viewpoint (security,
 design, performance, spec, tests). It triages what they report before the person sees it,
 relays the fixes the person picks to the implementer, and answers the person's questions while
-they review the diff (`C-x v r`, [ADR 0160](0160-the-review-layout.md)). The person talks only
+they review the diff (`C-c a v`, [ADR 0160](0160-the-review-layout.md)). The person talks only
 to the orchestrator, and a space has one; reviewers are workers.
 
 The orchestrator's fixed text said nothing about reviews. Left to itself, an orchestrator

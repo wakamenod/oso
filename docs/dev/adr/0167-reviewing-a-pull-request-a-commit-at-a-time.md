@@ -1,6 +1,6 @@
 # 0167. Reviewing a pull request a commit at a time
 
-- Status: Accepted
+- Status: Accepted, amended by 0184
 - Date: 2026-11-22
 
 ## Context

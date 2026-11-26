@@ -138,9 +138,9 @@ it oso's own tools through `oso mcp`.
 | `A` | `session-archive` | Archive this session, or bring it back; dim outside a session's buffer. |
 | `R` | `session-rename` | Rename this session, or the one on the `*Spaces*` row: the prompt holds its name. |
 | `t` | `session-switch-mode` | Hand this native session to Claude Code's TUI, in a terminal, or take a TUI session back to native, once it is idle. |
-| `v` | `review-layout` | The review layout, as `C-x v r`: from the layout's slot, back to the review. |
+| `v` | `review-layout` | Continue the review you left last, where you left it; from the layout's slot, back to the review. |
 | `D` | `review-session` | Review what changed in this project since its baseline. |
-| `V` | the review menu | The review menu, as `C-x v r` opens it with no review open. |
+| `V` | the review menu | The review menu, as `C-u C-c a v` opens it. |
 
 So `C-c a r` resumes a session, and `C-c a S` opens the space menu.
 
@@ -158,7 +158,7 @@ the head's letter with Control, `C-c C-n` for `n`:
 | `C-c C-w` | Start a session in a new worktree of this session's project. |
 | `C-c C-e`, `C-c C-f` | Explain this session's state; show who sent it its newest message. |
 | `C-c C-z` | Zoom the selected window. |
-| `C-c C-v` | The review layout, as `C-x v r`: from the layout's slot, back to the review. `C-c a D` reviews what changed in its project since its baseline. |
+| `C-c C-v` | The review layout, as `C-c a v`: from the layout's slot, back to the review. `C-c a D` reviews what changed in its project since its baseline. |
 | `C-c @` | Insert a session's name as `@NAME`; in a native session's conversation, into its composer. |
 | `C-c +`, `C-c -` | Let the agent channel read a TUI session's screen, or take that back. |
 | `C-c C-u` | A prefix argument for the next key, as `C-u` elsewhere: `C-c C-u C-c a m` sends the place only. |
@@ -189,7 +189,7 @@ together) reads as `C-M-s-` and an upper-case letter:
 "C-x a" = { menu = "agents" }      # C-x a, as oso had it before
 ```
 
-A session's buffer belongs to the project its session runs in, so `C-x v r`, `C-x p f` and
+A session's buffer belongs to the project its session runs in, so `C-c a v`, `C-x p f` and
 `C-c a w` work from it.
 
 A TUI session starts in the permission mode your own Claude Code settings give it: oso passes
@@ -405,8 +405,8 @@ removed; once git may be deleting, it asks first, as the worktree is then left h
 
 ## Review changes
 
-`C-x v r` opens the review menu for the current file's project while no review is open, and
-`C-u C-x v r` always:
+`C-c a V` and `C-u C-c a v` open the review menu for the current file's project, and
+`C-c a v` does while no review was ever left or saved:
 
 | Key | Reviews |
 |---|---|
@@ -424,7 +424,7 @@ Each is a command too, such as `M-x review-uncommitted`. Reviews run git, so the
 be trusted. `C-c a c` takes a baseline when it starts a session at the root of a trusted
 project, so `D` shows what that session changed.
 
-In a space with an orchestrator, `C-x v r` (with no review open, or `C-u C-x v r`) first asks
+In a space with an orchestrator, `C-c a v` (with no review left or saved, or `C-u C-c a v`) first asks
 which of the space's trusted repositories to review, only when it has two or more, with the
 selected file's repository offered by `M-n`. Then a small menu asks what of it:
 
@@ -439,12 +439,16 @@ So the menu works from the orchestrator's terminal too, which is in no repositor
 A review opens in the review layout: the review at the left, and one window at the right, the
 slot, which shows one thing at a time. `RET` shows the source there, `M-RET` the line's
 side as the review read it, `C-u RET` the old side, and `C-c C-c` the message
-of your comments, each in place of the last, so windows do not pile up. `C-x v r` is the
+of your comments, each in place of the last, so windows do not pile up. `C-c a v` is the
 one key for the rest:
 
 - in the slot, it goes back to the review, where you were;
 - in the review, it puts back the windows you had before the review, exactly, as `q` does;
-- with a review open and no layout, it shows the layout again.
+- anywhere else, it continues the review you left last, in any space: it enters that review's
+  space, then shows the review with its cursor on the same row and the same rows above it. A
+  review you closed with `C-x k`, or left before quitting oso, opens again from its saved file,
+  once oso knows its project and trusts it; a commit you stepped to from a pull request opens
+  that commit again, or the pull request's review if the commit is gone.
 
 The slot is two fifths of the frame; `C-x }` and `C-x {` resize it. Each space keeps its own
 layout, and `C-c a z` zooms inside it. `|` shows the two panes at the layout's left.

@@ -1,5 +1,5 @@
 //! Reviews in a running instance (ADR 0122): a trusted project's uncommitted changes reviewed
-//! with `C-x v r w`, its review buffer read whole with each file's header, hunk and lines, `n`
+//! with `C-c a V w`, its review buffer read whole with each file's header, hunk and lines, `n`
 //! moving to the first hunk, `g` reading a file changed meanwhile, and `q` going back; and the
 //! person's comments: typed in a draft, which takes the input method's text, kept as a card,
 //! edited, dropped to the kill ring, removed and yanked back, and asked about before the review
@@ -147,7 +147,7 @@ fn a_review_of_uncommitted_changes_reads_its_files_moves_refreshes_and_quits() {
             .is_some_and(|echo| echo.starts_with("Trusted "))
     });
 
-    app.send_keys("C-x v r");
+    app.send_keys("C-c a V");
     assert_eq!(app.state()["menu"], "review");
     app.send_keys("w");
     let state = app.wait_for("the review", |state| {
@@ -213,7 +213,7 @@ fn open_review(scratch: &Scratch) -> App {
             .as_str()
             .is_some_and(|echo| echo.starts_with("Trusted "))
     });
-    app.send_keys("C-x v r w");
+    app.send_keys("C-c a V w");
     app.wait_for("the review", |state| {
         state["buffer"]["name"] == "*review: uncommitted proj-review*"
     });
@@ -293,7 +293,7 @@ fn a_comment_is_drafted_kept_edited_removed_and_yanked_back() {
         app.state()["echo"],
         "1 unsent comment kept; review-resume brings them back"
     );
-    app.send_keys("C-x v r w");
+    app.send_keys("C-c a V w");
     app.wait_for("the review again", |state| {
         state["buffer"]["name"] == "*review: uncommitted proj-review*"
     });
@@ -549,8 +549,8 @@ fn a_hunk_is_viewed_accepted_rejected_and_each_undone() {
                 .is_some_and(|rows| rows.iter().any(|row| row == "xxx"))
     });
     // A review buffer is no C-x b default: the menu shows the open review again, which
-    // `C-u C-x v r` opens while a review is open (ADR 0160).
-    app.send_keys("C-u C-x v r w");
+    // `C-u C-c a v` opens while a review is open (ADR 0160).
+    app.send_keys("C-u C-c a v w");
     app.wait_for("the review again", |state| {
         state["buffer"]["name"] == "*review: uncommitted proj-review*"
     });
@@ -760,7 +760,7 @@ fn ret_opens_the_line_carried_through_unsaved_edits_and_c_u_ret_the_old_side() {
     });
     // A line put in at a.rs's top in its buffer, not saved: the review reads the file.
     app.send_keys(&format!("M-< {} RET", typing("zero")));
-    app.send_keys("C-x v r w");
+    app.send_keys("C-c a V w");
     app.wait_for("the review", |state| {
         state["buffer"]["name"] == "*review: uncommitted proj-review*"
     });
@@ -839,9 +839,9 @@ fn the_review_layout_keeps_one_slot_goes_back_to_the_review_and_restores_the_win
     let before = window_places(&app.state());
     assert_eq!(before.len(), 2);
 
-    // `C-x v r` with no review open opens the menu; `w` opens the review in the layout: the
+    // `C-c a V` opens the review menu; `w` opens the review in the layout: the
     // review at the left, the slot at the right showing a.rs.
-    app.send_keys("C-x v r");
+    app.send_keys("C-c a V");
     assert_eq!(app.state()["menu"], "review");
     app.send_keys("w");
     let state = app.wait_for("the review", |state| {
@@ -855,8 +855,8 @@ fn the_review_layout_keeps_one_slot_goes_back_to_the_review_and_restores_the_win
     app.send_keys("n C-n C-n RET");
     app.wait_for("a.rs", |state| state["buffer"]["name"] == "a.rs");
     assert_eq!(window_count(&mut app), 2);
-    // `C-x v r` in the slot: back to the review, on `+2`.
-    app.send_keys("C-x v r");
+    // `C-c a v` in the slot: back to the review, on `+2`.
+    app.send_keys("C-c a v");
     let state = app.state();
     assert_eq!(state["buffer"]["id"], review);
     assert_eq!(cursor(&state), (5, 0));
@@ -867,19 +867,19 @@ fn the_review_layout_keeps_one_slot_goes_back_to_the_review_and_restores_the_win
         state["buffer"]["name"] == "*old: a.rs \u{b7} uncommitted*"
     });
     assert_eq!(window_count(&mut app), 2);
-    app.send_keys("C-x v r");
+    app.send_keys("C-c a v");
     let state = app.state();
     assert_eq!(state["buffer"]["id"], review);
     assert_eq!(cursor(&state), (4, 0));
 
-    // `C-x v r` in the review: the windows from before, exactly.
-    app.send_keys("C-x v r");
+    // `C-c a v` in the review: the windows from before, exactly.
+    app.send_keys("C-c a v");
     let state = app.state();
     assert_eq!(window_places(&state), before);
     assert_eq!(state["buffer"]["name"], "a.rs");
 
     // Again, and `q` restores too.
-    app.send_keys("C-x v r");
+    app.send_keys("C-c a v");
     app.wait_for("the layout again", |state| state["buffer"]["id"] == review);
     assert_eq!(window_count(&mut app), 2);
     app.send_keys("q");
@@ -889,18 +889,24 @@ fn the_review_layout_keeps_one_slot_goes_back_to_the_review_and_restores_the_win
 /// A review of `proj-review`'s uncommitted changes, its `a.txt` of 30 lines with line 15
 /// changed, open, with the project trusted.
 fn open_context_review(scratch: &Scratch) -> App {
+    open_lines_review(scratch, 30, &[15])
+}
+
+/// A review of `proj-review`'s uncommitted changes, its `a.txt` of `lines` lines with those
+/// `changed` changed, open, with the project trusted.
+fn open_lines_review(scratch: &Scratch, lines: u32, changed: &[u32]) -> App {
     set_mode(scratch.path(), 0o700);
     let config = scratch.write("config.toml", b"[lsp]\nstart = \"manual\"\n");
     set_mode(&config, 0o644);
-    let numbered = |changed: u32| -> String {
-        (1..=30)
-            .map(|n| match n == changed {
+    let numbered = |changed: &[u32]| -> String {
+        (1..=lines)
+            .map(|n| match changed.contains(&n) {
                 true => format!("L{n}\n"),
                 false => format!("l{n}\n"),
             })
             .collect()
     };
-    let file = scratch.write("proj-review/a.txt", numbered(0).as_bytes());
+    let file = scratch.write("proj-review/a.txt", numbered(&[]).as_bytes());
     let root = scratch.path().join("proj-review");
     git(&root, &["init", "-q"]);
     git(&root, &["add", "-A"]);
@@ -918,7 +924,7 @@ fn open_context_review(scratch: &Scratch) -> App {
             "base",
         ],
     );
-    std::fs::write(&file, numbered(15)).unwrap();
+    std::fs::write(&file, numbered(changed)).unwrap();
     let mut app = App::start_with_config(Some(&file), scratch.path(), &config);
     app.wait_until_ready();
     // The project is found off the UI thread: trusting it before then finds no project.
@@ -933,11 +939,86 @@ fn open_context_review(scratch: &Scratch) -> App {
             .as_str()
             .is_some_and(|echo| echo.starts_with("Trusted "))
     });
-    app.send_keys("C-x v r w");
+    app.send_keys("C-c a V w");
     app.wait_for("the review", |state| {
         state["buffer"]["name"] == "*review: uncommitted proj-review*"
     });
     app
+}
+
+/// The window's cursor row and its view's start.
+fn row_and_start(state: &Value) -> (Value, Value) {
+    (
+        state["cursor"]["row"].clone(),
+        state["scroll"]["start"].clone(),
+    )
+}
+
+/// `C-c a v` continues the review left last (ADR 0184): after `C-x k`, from its saved file,
+/// its cursor on the same row and its view from the same start; after `q`, from memory; and
+/// from a terminal, whose keys reach the agents menu too.
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn c_c_a_v_continues_the_review_left_last_where_its_cursor_and_view_were() {
+    let scratch = Scratch::new("review-continue");
+    let changed: Vec<u32> = (1..=60).map(|n| n * 5).collect();
+    let mut app = open_lines_review(&scratch, 300, &changed);
+    rows_until(&mut app, "+L5");
+    // Down the review, and a few rows back up, so that the view starts above the cursor.
+    app.send_keys("C-v C-v C-v C-p C-p");
+    let left = app.wait_for("the review moved", |state| {
+        state["scroll"]["start"]
+            .as_u64()
+            .is_some_and(|start| start > 0)
+    });
+    let left = row_and_start(&left);
+
+    // Closed, and another file shown: continued from its saved file, as it was.
+    app.send_keys("C-x k");
+    app.wait_for("the review closed", |state| {
+        state["buffer"]["name"] == "a.txt"
+    });
+    scratch.write("proj-review/other.txt", b"other\n");
+    app.send_keys(&format!(
+        "C-x C-f {} RET",
+        typing(
+            &scratch
+                .path()
+                .join("proj-review/other.txt")
+                .to_string_lossy()
+        )
+    ));
+    app.wait_for("the other file", |state| {
+        state["buffer"]["name"] == "other.txt"
+    });
+    app.send_keys("C-c a v");
+    let state = app.wait_for("the review where it was left", |state| {
+        state["buffer"]["name"] == "*review: uncommitted proj-review*"
+            && row_and_start(state) == left
+    });
+    assert_eq!(window_count(&mut app), 2, "laid out");
+
+    // `q`, then the key again: from memory, as it was.
+    app.send_keys("q");
+    app.wait_for("the review buried", |state| {
+        state["buffer"]["name"] != "*review: uncommitted proj-review*"
+    });
+    let review = state["buffer"]["id"].clone();
+    app.send_keys("C-c a v");
+    let again = app.wait_for("the review again", |state| state["buffer"]["id"] == review);
+    assert_eq!(row_and_start(&again), left);
+
+    // From a terminal: the agents menu is bound there too, and the review continues.
+    app.send_keys("q");
+    app.run_command("terminal", None).expect("terminal runs");
+    app.wait_for("the terminal", |state| {
+        state["terminals"][0]["running"] == true
+    });
+    app.send_keys("C-c a v");
+    app.wait_for("the review from the terminal", |state| {
+        state["buffer"]["id"] == review
+    });
+    assert_eq!(row_and_start(&app.state()), left);
 }
 
 /// Unchanged lines around a hunk (step 13): three each side, gaps' rows for the rest, `[` and

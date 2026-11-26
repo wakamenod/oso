@@ -1,5 +1,5 @@
 //! Starting a review in a space whose orchestrator is recorded (ADR 0163), with `git_agent`'s
-//! fake `claude` as the orchestrator: `C-x v r` takes the space's one repository and opens
+//! fake `claude` as the orchestrator: `C-u C-c a v` takes the space's one repository and opens
 //! `review-start`'s menu, whose `.` opens the review menu for this checkout, and whose `p`
 //! finds the worktree a pull request's head is checked out in, against a stand-in `gh`, and
 //! opens its review there.
@@ -68,7 +68,7 @@ fn in_a_space_c_x_v_r_takes_its_repository_and_dot_reviews_this_checkout() {
     show(&mut app, &flow.repo.join("README.md"), "repo");
 
     // One repository: no prompt for it, and `review-start`'s menu.
-    app.send_keys("C-x v r");
+    app.send_keys("C-u C-c a v");
     app.wait_for("review-start's menu", |state| {
         state["menu"] == "review-start"
     });
@@ -103,7 +103,7 @@ fn in_a_space_p_opens_a_pull_request_on_the_worktree_its_head_is_checked_out_in(
     orchestrated(&mut app);
     show(&mut app, &repo.join("README.md"), "repo");
 
-    app.send_keys("C-x v r");
+    app.send_keys("C-u C-c a v");
     app.wait_for("review-start's menu", |state| {
         state["menu"] == "review-start"
     });

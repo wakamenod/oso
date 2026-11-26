@@ -56,9 +56,10 @@ pub enum ReviewRequest {
     },
     /// The review was closed: stop its threads.
     Close(ReviewId),
-    /// `review-layout` (ADR 0160): with `menu`, or with no review open, open the review menu;
-    /// else show the review layout, go back from its slot to the review, or restore the
-    /// layout from before it, as where the person is says.
+    /// `review-layout` (ADR 0160, ADR 0184): with `menu`, open the review menu; else go back
+    /// from the layout's slot to the review, restore the windows from before the layout, or
+    /// continue the review the person left last, as where the person is says, and open the
+    /// review menu where no review was left or saved.
     Layout { menu: bool },
     /// `q` buried a review: put back the windows from before the review layout, if the frame's
     /// tree is one (ADR 0160).

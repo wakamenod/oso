@@ -1,6 +1,6 @@
 # 0169. The review slot keeps the source above the session
 
-- Status: Accepted
+- Status: Accepted, amended by 0184
 - Date: 2026-11-22
 
 ## Context

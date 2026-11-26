@@ -274,6 +274,8 @@ impl App {
         if let Some(index) = self.reviews.index(id) {
             self.walk_review_closed(index);
         }
+        // Where it was left, which `review-layout` may continue (ADR 0184).
+        self.closed_left(id);
         match self.reviews.close(id) {
             Some(running) => {
                 // What it held is saved at once (step 6).
@@ -283,6 +285,27 @@ impl App {
             // A review that never started its threads: its model is only freed.
             None => self.freer.free(self.editor.take_closed_review(id)),
         }
+    }
+
+    /// The review at `index` could not open: if it is a commit's review continued from a pull
+    /// request's, whose commit is gone, as after a force-push, it closes, and that pull
+    /// request's review opens in its place, as the person's own open (ADR 0184). Whether it
+    /// did.
+    fn open_instead(&mut self, index: usize) -> bool {
+        let Some(number) = self.reviews.open[index].saving.instead.take() else {
+            return false;
+        };
+        let (id, project) = (
+            self.reviews.open[index].id,
+            self.reviews.open[index].project,
+        );
+        self.editor.remove_review(id);
+        self.editor.message(format!(
+            "The commit is gone: the review of pull request #{number} opens instead"
+        ));
+        let scope = crate::review::Scope::PullRequest { number };
+        self.open_scope(project, scope, Show::Laid);
+        true
     }
 
     /// The project oso knows whose root is `root`, by a buffer in it or an open review.
@@ -370,6 +393,9 @@ impl App {
                 );
             }
             Report::Failed { asked, why } => {
+                if asked == Asked::Open && self.open_instead(index) {
+                    return;
+                }
                 if matches!(asked, Asked::Open | Asked::Refresh) {
                     self.refresh_ended(index);
                 }

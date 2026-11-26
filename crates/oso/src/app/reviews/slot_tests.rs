@@ -14,8 +14,8 @@ use oso_core::window::WindowId;
 use proptest::prelude::*;
 
 use super::{
-    Key, back, carried, enter, in_slot, jump_slot, press, restore, show_asked, show_in_slot,
-    show_laid,
+    Key, Shown, back, carried, continue_open, enter, in_slot, jump_slot, press, restore,
+    show_asked, show_in_slot, show_laid,
 };
 use crate::sessions::spaces::kept::{self, Kept};
 
@@ -178,12 +178,15 @@ fn a_slot_deleted_or_moved_by_hand_is_found_or_made_again_at_the_review_s_right(
 }
 
 #[test]
-fn the_key_opens_the_menu_enters_goes_back_and_restores() {
+fn the_key_opens_the_menu_continues_goes_back_and_restores() {
     let (mut editor, review, _, other) = editor();
     let mut kept = Vec::new();
     assert_eq!(press(&mut editor, &mut kept, true).0, Key::Menu, "C-u");
     let before = look(&editor);
-    assert_eq!(press(&mut editor, &mut kept, false).0, Key::Entered);
+    // No layout in front: the review left last is continued (ADR 0184), which the host knows.
+    assert_eq!(press(&mut editor, &mut kept, false).0, Key::Continue);
+    assert_eq!(look(&editor), before, "the host continues, not the press");
+    assert!(enter(&mut editor, &mut kept, review));
     let left = editor.window().id();
     jump_window(&mut editor, &mut kept, review).unwrap();
     editor.show(other);
@@ -197,7 +200,7 @@ fn the_key_opens_the_menu_enters_goes_back_and_restores() {
     assert_eq!(press(&mut editor, &mut kept, false).0, Key::Restored);
     assert_eq!(look(&editor), before);
     // The layout's review closed while it could not restore: the key restores.
-    assert_eq!(press(&mut editor, &mut kept, false).0, Key::Entered);
+    assert!(enter(&mut editor, &mut kept, review));
     let project = editor.reviews().next().unwrap().1;
     editor.add_review(project, "*review: staged oso*".into());
     editor.remove_review(review);
@@ -205,11 +208,49 @@ fn the_key_opens_the_menu_enters_goes_back_and_restores() {
     assert_eq!(look(&editor).1, before.1);
     let (other, _) = editor.reviews().next().unwrap();
     editor.remove_review(other);
+    // No review open: a saved one may be continued, else the host opens the menu.
     assert_eq!(
         press(&mut editor, &mut kept, false).0,
-        Key::Menu,
+        Key::Continue,
         "no review open"
     );
+}
+
+#[test]
+fn a_review_continued_from_memory_is_laid_out_again_or_only_selected_where_it_was() {
+    let (mut editor, review, _, other) = editor();
+    let mut kept = Vec::new();
+    let before = look(&editor);
+    // After `q`'s restore, the review comes back in a layout made for it (ADR 0184).
+    assert!(enter(&mut editor, &mut kept, review));
+    restore(&mut editor, &mut kept).unwrap();
+    assert_eq!(look(&editor), before);
+    let (shown, old) = continue_open(&mut editor, &mut kept, review);
+    assert_eq!((shown, old.len()), (Shown::Laid, 0));
+    assert_eq!(kept::review(&kept).unwrap().review, review);
+    let left = editor.window().id();
+    // Its layout in front, from the slot: only selected again, the slot left as it was.
+    jump_window(&mut editor, &mut kept, review).unwrap();
+    editor.show(other);
+    let slot = editor.window().id();
+    let (shown, _) = continue_open(&mut editor, &mut kept, review);
+    assert_eq!(shown, Shown::Selected);
+    assert_eq!(editor.window().id(), left);
+    assert_eq!(editor.window_by_id(slot).unwrap().buffer(), other);
+    // Zoomed inside its layout: out of the zoom first.
+    editor.select_window(slot);
+    kept::zoom(&mut editor, &mut kept).unwrap();
+    let (shown, old) = continue_open(&mut editor, &mut kept, review);
+    assert_eq!((shown, old.len()), (Shown::Selected, 1));
+    assert!(kept::review_in_frame(&kept));
+    // Beneath a prompt, nothing changes.
+    restore(&mut editor, &mut kept).unwrap();
+    editor
+        .open_prompt("Say: ", oso_core::minibuffer::Kind::Text { history: None })
+        .unwrap();
+    let (shown, _) = continue_open(&mut editor, &mut kept, review);
+    assert_eq!(shown, Shown::Not);
+    assert!(kept.is_empty());
 }
 
 #[test]

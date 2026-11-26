@@ -25,7 +25,7 @@ fn a_checkpoint_shows_what_changed_since_and_m_n_steps_to_the_new_commit() {
     let (mut app, _first, second) = pull_request_of_two(&scratch);
     app.send_keys(&format!("C-x b {} RET", typing("a.txt")));
     app.wait_for("the file", |state| state["buffer"]["name"] == "a.txt");
-    app.send_keys("C-u C-x v r");
+    app.send_keys("C-u C-c a v");
     app.wait_for("the review menu", |state| state["menu"] == "review");
     app.send_keys("p 7 RET");
     app.wait_for("the review", |state| state["buffer"]["name"] == WHOLE);

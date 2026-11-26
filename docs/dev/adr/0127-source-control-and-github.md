@@ -1,6 +1,8 @@
 # 0127. Source control and GitHub
 
 - Status: Accepted, amended by 0168 and 0177
+- Key changed by [ADR 0184](0184-continue-a-review-where-it-was-left.md): the review key is the
+  agents menu's `v`, `C-c a v`, and the review menu its `V`, `C-c a V`.
 - Date: 2026-11-13
 
 ## Context
@@ -356,7 +358,7 @@ For the author, the recommended option first.
    (c) Both, the panel later.
 2. **Keys.**
    (a) Magit's: `C-x g` status; `s` `u` `k` `c` `b` `P` `F` `f` `z` `l` `N` `$` `g` `TAB` inside;
-   `C-x v l` graph, `C-x v i` issues, beside ADR 0122's `C-x v r`.
+   `C-x v l` graph, `C-x v i` issues, beside ADR 0122's `C-c a v`.
    (b) lazygit's: `space` stage, `a` all, `c` commit, `P` push, `p` pull.
 3. **Discarding.**
    (a) Ask, and keep a copy of each discarded file as an unreachable blob for git's two weeks, with

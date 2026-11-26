@@ -137,28 +137,46 @@ fn a_long_branch_base_or_project_name_is_cut_in_the_notes() {
 }
 
 #[test]
-fn c_x_v_r_opens_the_menu_at_once_with_no_review_or_c_u_and_else_asks_for_the_layout() {
+fn c_c_a_v_asks_the_host_to_continue_and_opens_the_menu_at_once_with_c_u() {
     use oso_core::editor::ReviewRequest;
 
     let (mut editor, project) = in_project(true);
     let mut d = super::Dispatcher::new();
-    // No review open: the menu, as the command ends, so a macro's next key goes to it.
-    super::motion_tests::send(&mut d, &mut editor, "C-x v r");
-    assert_eq!(d.menu_name(), Some("review"));
-    assert!(editor.take_review_requests().is_empty());
-    super::motion_tests::send(&mut d, &mut editor, "C-g");
+    // The old key is gone (ADR 0184): the agents menu's `v` is the review key.
+    super::motion_tests::send(&mut d, &mut editor, &["C-x v", "r"].join(" "));
     assert_eq!(d.menu_name(), None);
-    // A review open: the host lays it out; `C-u` opens the menu.
-    editor.add_review(project, "*review: uncommitted oso*".into());
-    super::motion_tests::send(&mut d, &mut editor, "C-x v r");
+    assert!(
+        editor.take_review_requests().is_empty(),
+        "the old key is bound"
+    );
+    // No review open: the host continues the review left last, or opens the menu.
+    super::motion_tests::send(&mut d, &mut editor, "C-c a v");
     assert_eq!(d.menu_name(), None);
     assert_eq!(
         editor.take_review_requests(),
         [ReviewRequest::Layout { menu: false }]
     );
-    super::motion_tests::send(&mut d, &mut editor, "C-u C-x v r");
+    // A review open: the same.
+    editor.add_review(project, "*review: uncommitted oso*".into());
+    super::motion_tests::send(&mut d, &mut editor, "C-c a v");
+    assert_eq!(d.menu_name(), None);
+    assert_eq!(
+        editor.take_review_requests(),
+        [ReviewRequest::Layout { menu: false }]
+    );
+    // `C-u` before the menu's key, or inside the menu, opens the review menu at once, so that
+    // a macro's next key goes to it.
+    super::motion_tests::send(&mut d, &mut editor, "C-u C-c a v");
     assert_eq!(d.menu_name(), Some("review"));
     assert!(editor.take_review_requests().is_empty());
+    super::motion_tests::send(&mut d, &mut editor, "C-g");
+    super::motion_tests::send(&mut d, &mut editor, "C-c a C-u v");
+    assert_eq!(d.menu_name(), Some("review"));
+    assert!(editor.take_review_requests().is_empty());
+    super::motion_tests::send(&mut d, &mut editor, "C-g");
+    // `C-c a V` is the review menu.
+    super::motion_tests::send(&mut d, &mut editor, "C-c a V");
+    assert_eq!(d.menu_name(), Some("review"));
 }
 
 #[test]
@@ -204,20 +222,20 @@ fn an_agents_q_buries_the_review_and_asks_for_no_restore() {
 }
 
 #[test]
-fn in_a_space_with_an_orchestrator_the_host_opens_c_x_v_r_s_menu() {
+fn in_a_space_with_an_orchestrator_the_host_opens_c_c_a_v_s_menu() {
     use oso_core::editor::ReviewRequest;
 
     let (mut editor, _) = in_project(true);
     let mut d = super::Dispatcher::new();
     d.set_review_menu_by_host(true);
-    super::motion_tests::send(&mut d, &mut editor, "C-x v r");
+    super::motion_tests::send(&mut d, &mut editor, "C-u C-c a v");
     assert_eq!(d.menu_name(), None);
     assert_eq!(
         editor.take_review_requests(),
         [ReviewRequest::Layout { menu: true }]
     );
     d.set_review_menu_by_host(false);
-    super::motion_tests::send(&mut d, &mut editor, "C-x v r");
+    super::motion_tests::send(&mut d, &mut editor, "C-u C-c a v");
     assert_eq!(d.menu_name(), Some("review"));
 }
 

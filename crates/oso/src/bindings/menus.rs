@@ -18,8 +18,9 @@ mod vcs;
 
 /// The keys bound to built-in menus in the default global keymap, as `(keys, menu)`: the
 /// toggles (ADR 0117, Q25) and the Agents menu (ADR 0143); the rest are reached from another
-/// menu, with `M-x open-menu` or a key in `config.toml`. The review menu opens from
-/// `review-layout` on `C-x v r` while no review is open, or with `C-u` (ADR 0160).
+/// menu, with `M-x open-menu` or a key in `config.toml`. The review menu is the agents menu's
+/// `V`, and opens from `review-layout`, its `v`, with `C-u`, or while no review was left or
+/// saved (ADR 0184).
 pub const MENU_KEYS: &[(&str, &str)] = &[("C-c t", "toggles"), ("C-c a", "agents")];
 
 /// One head of a built-in menu: its keys, command (or switch's or menu's name), label, whether

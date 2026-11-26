@@ -99,10 +99,10 @@ fn r_on_a_listed_pull_request_reviews_its_changes_and_the_menu_s_p_shows_it_agai
     );
 
     // The review menu's `p` reads the number and shows the same review again: with a review
-    // open, `C-u C-x v r` opens the menu (ADR 0160).
+    // open, `C-u C-c a v` opens the menu (ADR 0160).
     app.send_keys(&format!("C-x b {} RET", typing("a.txt")));
     app.wait_for("the file", |state| state["buffer"]["name"] == "a.txt");
-    app.send_keys("C-u C-x v r p 7 RET");
+    app.send_keys("C-u C-c a v p 7 RET");
     app.wait_for("the same review", |state| state["buffer"]["name"] == name);
     let names = app.state()["buffers"].to_string();
     assert!(!names.contains("pull request #7 proj-git*<2>"), "{names}");

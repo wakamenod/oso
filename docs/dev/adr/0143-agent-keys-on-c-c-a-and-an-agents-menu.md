@@ -1,6 +1,8 @@
 # 0143. Agent keys on `C-c a` and an Agents menu
 
 - Status: Accepted, amended by 0138, 0145, 0155 and 0163
+- Key changed by [ADR 0184](0184-continue-a-review-where-it-was-left.md): the review key is the
+  agents menu's `v`, `C-c a v`, and the review menu its `V`, `C-c a V`.
 - Date: 2026-11-16
 
 ## Context
@@ -92,7 +94,8 @@ The author chose on 2026-11-16, from options put to them:
   | Session | `K` | `session-stop` |
   | | `P` | `session-pin` |
   | | `A` | `session-archive` |
-  | | `v` | `review-session` |
+  | | `v` | `review-layout`: continue or lay out the review (ADR 0163, ADR 0184) |
+  | | `D` | `review-session` (ADR 0163) |
   | | `V` | the review menu (ADR 0122) |
 
   `q` quits. `C-u C-c a m` gives the head the prefix argument, as ADR 0117 (Q15) says, and `C-u`
@@ -198,7 +201,7 @@ the layers active in the current buffer, a menu's key and its head's key include
 - **[ADR 0136](0136-issue-spaces.md):** `C-x a O` and session mode's `C-c O` are `C-c a O`;
   `C-x a S` and `C-c S` are `C-c a S`; `C-x a j` and `C-x a o` are `C-c a j` and `C-c a o`.
 - **[ADR 0117](0117-menus.md), "Default keys (Q25)":** the default menu keys are `C-c t` (toggles),
-  `C-x v r` (review) and `C-c a` (agents).
+  `C-c a v` (review) and `C-c a` (agents).
 - **[ADR 0126](0126-sessions-and-worktrees-in-depth.md):** `C-x a B`, `C-x a g`, `C-x a j`,
   `C-x a w`, `C-x a z` and `C-x a k` are `C-c a` and the same key.
 - **[ADR 0131](0131-an-orca-style-sessions-pane.md) and

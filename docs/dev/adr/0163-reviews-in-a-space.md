@@ -2,6 +2,8 @@
 
 - Status: Accepted, amended by 0169 and 0176; "Submit once pasted, as amended" (2026-11-22); "A native
   session's question, as amended" (2026-11-22)
+- Key changed by [ADR 0184](0184-continue-a-review-where-it-was-left.md): the review key is the
+  agents menu's `v`, `C-c a v`, and the review menu its `V`, `C-c a V`.
 - Date: 2026-11-21
 
 ## Context
@@ -13,7 +15,7 @@ the diff at the left, one slot at the right), context lines and `RET` to the sou
 
 - **Starting a review in a space.** The review menu's scopes use the selected buffer's project.
   The orchestrator's terminal runs in the space's own directory, which is no project, so
-  `C-x v r` there says "not in a git repository". A space may also have several repositories,
+  `C-c a v` there says "not in a git repository". A space may also have several repositories,
   such as a front end and a back end, and a repository has several worktrees, one for each
   worker.
 - **Asking about a hunk.** The author reads a hunk and wants to ask the orchestrator about it
@@ -21,7 +23,7 @@ the diff at the left, one slot at the right), context lines and `RET` to the sou
   select)` shows a buffer there without selecting it.
 - **Where comments go.** `C-c C-c` (step 12a) sends to the session in the review's worktree, the
   implementer. In a space the author wants it to go to the orchestrator, which relays it.
-- **A key.** `C-x v r` runs `review-layout`. The author's own config also binds `C-c r` to it, and
+- **A key.** `C-c a v` runs `review-layout`. The author's own config also binds `C-c r` to it, and
   the author wants a default key in the Agents menu ([ADR 0143](0143-agent-keys-on-c-c-a-and-an-agents-menu.md)).
 
 What oso had:
@@ -152,13 +154,13 @@ space.
 
 ### `C-c a v` (Q11)
 
-- The Agents menu's `v` runs `review-layout`, as `C-x v r` does; `review-session` moves to `D`, its
+- The Agents menu's `v` runs `review-layout`, as `C-c a v` does; `review-session` moves to `D`, its
   letter in the review menu. Session mode's `C-c C-v` follows `v` (ADR 0143's rule), so in a
   session's terminal, which is where the slot shows the orchestrator, it goes back to the review.
 
 ### Starting a review in a space (Q9, Q10): the second PR
 
-`C-x v r` with no review open, or `C-u C-x v r`, in a space whose orchestrator is recorded, asks in
+`C-c a v` with no review left or saved, or `C-u C-c a v`, in a space whose orchestrator is recorded, asks in
 order, each step skipped when it has one choice:
 
 1. **Repository:** by completion over the space's trusted members, asked only with two or more.
@@ -340,7 +342,7 @@ and submitted as above.
 - **Tests (second PR):** the target and `add_project` in oso-core; the steps' requests; the
   dispatcher leaving the menu to the host; `review-start`'s notes; a root's detection; the
   default repository and the worktrees listed; the head's worktree against a stand-in `gh` (none,
-  another worktree, a fork's, one behind, the root). End-to-end flows in a space: `C-x v r`, `.`
+  another worktree, a fork's, one behind, the root). End-to-end flows in a space: `C-c a v`, `.`
   and `w` review this checkout; `p` and a number open the review on the head's worktree.
 - **Tests:** the question's text (place, hunk, region, unchanged line, file, secret file, fences,
   cuts, escapes, lines that stay lines once pasted); a region's rows, their signs, place and
@@ -355,7 +357,7 @@ and submitted as above.
 
 - **`C-c C-a` or `i` for `review-ask`** (Q1 (b), (c)): `C-c C-a` sits beside `C-c C-c`, but is two
   keys for the review's most frequent question; `i` has no mnemonic. `Q` sits beside `q`, whose
-  slip only restores the windows, which `C-x v r` brings back.
+  slip only restores the windows, which `C-c a v` brings back.
 - **Paste only, as every other send** (Q2 (b)): safe by ADR 0121's rule, but the person would have
   to select the slot to press Enter, leaving the diff, which is what the author wanted to avoid.
 - **Hold a question while the orchestrator asks for permission** (Q5 (b)): more state, and a

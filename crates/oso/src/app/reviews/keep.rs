@@ -37,8 +37,11 @@ use crate::commands::review::one_line;
 use crate::review::saved::{self, Header, Place, SavedView};
 use crate::review::{Report, Scope};
 
+mod left;
 mod list;
 mod place;
+
+pub(super) use left::Continue;
 
 /// How long after the last change a review is saved.
 const QUIET: Duration = Duration::from_secs(1);
@@ -70,6 +73,17 @@ pub(super) struct Saving {
     place_handed: Option<Place>,
     /// The files with restored comments the view was not told of yet.
     pub(super) untold: HashSet<Box<[u8]>>,
+    /// When the person left it last, in milliseconds since the epoch, in which space, and the
+    /// stamp last handed to the store (ADR 0184).
+    pub(super) left: u64,
+    pub(super) space: Option<String>,
+    left_handed: u64,
+    /// Where the cursor was when the selected window last showed it, or when it was last
+    /// handed over, which a review closed or continued puts back.
+    place_seen: Option<Place>,
+    /// The pull request whose review opens instead, if this commit's review, continued from
+    /// its saved file, finds the commit gone (ADR 0184).
+    pub(super) instead: Option<u64>,
 }
 
 /// What a review's view keeps besides its cursor: its layout chosen, agent cards folded, its
@@ -97,6 +111,11 @@ pub(super) struct Keep {
     /// The files of buffers seen to hold secrets, or withheld from agents, while a review was
     /// open: once seen, always withheld from what is saved, in this run.
     held: Arc<HashSet<PathBuf>>,
+    /// The review closed in this run that was left last, the review the selected window
+    /// showed at the last event, and whether the store listed the saved ones yet (ADR 0184).
+    left: Option<left::Left>,
+    front: Option<left::Front>,
+    pub(super) listed_once: bool,
 }
 
 impl App {
@@ -139,6 +158,8 @@ impl App {
             unsent: 0,
             pull: None,
             checkpoint: None,
+            left: None,
+            space: None,
         };
         let read = match name.clone() {
             Some(name) => (self.review_store()).is_some_and(|store| store.read(id, name, asked)),
@@ -249,6 +270,8 @@ impl App {
             left_out,
             pull,
             checkpoint,
+            left,
+            space,
         } = found;
         // A pull request's review: the person's last review of it (step 2).
         if checkpoint.is_some() {
@@ -292,6 +315,12 @@ impl App {
             checkpoint,
         };
         saving.handed = Some((revision, choices));
+        // When it was left before, unless it was left since it opened (ADR 0184).
+        if let Some(left) = left.filter(|left| *left > saving.left) {
+            saving.left = left;
+            saving.space = space;
+            saving.left_handed = left;
+        }
         let noun = if comments == 1 { "comment" } else { "comments" };
         if left_out > 0 {
             log::info!("{left_out} lines of a saved review were left out");
@@ -311,18 +340,21 @@ impl App {
     pub(super) fn sync_review_saves(&mut self) {
         if !self.reviews.open.is_empty() {
             self.note_held_buffers();
+            self.sync_review_front();
         }
         let now = Instant::now();
         for index in 0..self.reviews.open.len() {
             let state = self.saving_state(index);
             let saving = &mut self.reviews.open[index].saving;
-            if saving.name.is_none() || saving.waiting || saving.handed == state {
+            // A stamp of leaving alone is saved too (ADR 0184).
+            let stamped = saving.left != saving.left_handed;
+            if saving.name.is_none() || saving.waiting || (saving.handed == state && !stamped) {
                 saving.first = None;
                 saving.last = None;
                 saving.seen = state;
                 continue;
             }
-            if saving.seen != state {
+            if saving.seen != state || (stamped && saving.first.is_none()) {
                 saving.seen = state;
                 saving.first.get_or_insert(now);
                 saving.last = Some(now);
@@ -415,11 +447,17 @@ impl App {
         match handed {
             Ok(()) => {
                 saving.handed = state;
+                saving.left_handed = saving.left;
+                if place.is_some() {
+                    saving.place_seen.clone_from(&place);
+                }
                 saving.place_handed = place;
                 true
             }
             Err(snapshot) => {
-                // The store ended: nothing keeps the review any more.
+                // The store ended: nothing keeps the review any more, nor is tried again for a
+                // stamp alone.
+                saving.left_handed = saving.left;
                 self.editor.set_review_kept(id, false);
                 self.freer.free(snapshot);
                 false
@@ -458,6 +496,8 @@ impl App {
             unsent,
             pull,
             checkpoint: running.checkpoint.clone(),
+            left: (saving.left > 0).then_some(saving.left),
+            space: saving.space.clone(),
         };
         let choices = self.choices(running.id);
         let view = SavedView {
@@ -482,8 +522,11 @@ impl App {
     /// thread.
     pub(super) fn save_closed_review(&mut self, running: &Running) {
         let model = self.editor.take_closed_review(running.id);
-        let changed =
-            model.as_ref().map(Review::revision) != running.saving.handed.as_ref().map(|h| h.0);
+        let saving = &running.saving;
+        // What changed, or where it was left and its cursor (ADR 0184).
+        let changed = model.as_ref().map(Review::revision) != saving.handed.as_ref().map(|h| h.0)
+            || saving.left != saving.left_handed
+            || (saving.place_seen.is_some() && saving.place_seen != saving.place_handed);
         let name = running.saving.name.clone();
         let snapshot = match (changed, name) {
             (true, Some(name)) => self
@@ -499,7 +542,8 @@ impl App {
                 snapshot.view.filter.clone_from(&choices.filter);
                 snapshot.view.files = choices.files;
             }
-            snapshot.view.place.clone_from(&running.saving.place_handed);
+            snapshot.view.place =
+                (running.saving.place_seen.clone()).or_else(|| running.saving.place_handed.clone());
             let unsent = snapshot.header.unsent;
             let told = Told::Closed { unsent };
             let handed = match self.review_store() {
@@ -517,12 +561,15 @@ impl App {
     /// Hands every review that changed to the store, before oso goes or a restart's new
     /// instance reads them; whether any was. [`App::wait_review_saves`] then waits for them.
     pub(in crate::app) fn hand_review_saves(&mut self) -> bool {
+        // The review in front is left as oso goes (ADR 0184).
+        self.note_front_left();
         let mut handed = false;
         for index in 0..self.reviews.open.len() {
             let saving = &self.reviews.open[index].saving;
             // The cursor too, which alone changes nothing saved as it goes.
             let moved = self.review_place(self.reviews.open[index].id) != saving.place_handed;
-            if moved || self.saving_state(index) != saving.handed {
+            let stamped = saving.left != saving.left_handed;
+            if moved || stamped || self.saving_state(index) != saving.handed {
                 handed |= self.save_review(index);
             }
         }

@@ -209,6 +209,8 @@ impl App {
 
     /// The refresh of the review at `index` ended: marks made meanwhile make one more.
     pub(super) fn refresh_ended(&mut self, index: usize) {
+        // The review opened: a pull request's review no longer opens in its place (ADR 0184).
+        self.reviews.open[index].saving.instead = None;
         let shown = self.review_shown(index) && self.review_watched(index);
         (self.reviews.open[index].refresher).ended(Instant::now(), shown);
     }

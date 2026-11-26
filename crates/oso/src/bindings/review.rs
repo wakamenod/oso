@@ -1,10 +1,7 @@
-//! A review's key bindings (ADR 0122): `C-x v r`, `review-layout`, everywhere (ADR 0160), and
-//! its own keymap in a review buffer, from the keys its commands list.
+//! A review's key bindings (ADR 0122): its own keymap in a review buffer, from the keys its
+//! commands list. `review-layout` is the agents menu's `v`, `C-c a v` (ADR 0184).
 //!
 //! Must not depend on: `dispatch`, `app` or winit; bindings are data.
-
-/// Global key sequences and the commands they run.
-pub const BINDINGS: &[(&str, &str)] = &[("C-x v r", "review-layout")];
 
 /// Key sequences and the commands they run, in a review buffer only.
 pub const REVIEW: &[(&str, &str)] = crate::commands::review::KEYS;

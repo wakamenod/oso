@@ -54,6 +54,11 @@ pub(crate) struct Header {
     pub(crate) pull: Option<u64>,
     /// A pull request's review's: the person's last review of it (ADR 0167, step 2).
     pub(crate) checkpoint: Option<super::commits::Checkpoint>,
+    /// When the person left it last, in milliseconds since the epoch, and the id of the space
+    /// it was in then, as the spaces record names it (ADR 0184): which review `review-layout`
+    /// continues. None in a file saved before.
+    pub(crate) left: Option<u64>,
+    pub(crate) space: Option<String>,
 }
 
 /// Where a window's cursor was in the review: a line of a side of a file, or the file's header.
@@ -61,6 +66,9 @@ pub(crate) struct Header {
 pub(crate) struct Place {
     pub(crate) path: Box<[u8]>,
     pub(crate) line: Option<(Side, u32)>,
+    /// How many rows above the cursor the window showed (ADR 0184); None in a file saved
+    /// before, which puts a few back.
+    pub(crate) above: Option<u32>,
 }
 
 /// What the view of a review keeps besides its model.
@@ -302,7 +310,18 @@ fn header_value(header: &Header, next_id: u64) -> Value {
         let value = json!({ "base": checkpoint.base.as_str(), "head": checkpoint.head.as_str() });
         map.insert("checkpoint".to_owned(), value);
     }
+    if let (Some(left), Some(map)) = (header.left, value.as_object_mut()) {
+        map.insert("left".to_owned(), json!(left));
+    }
+    if let (Some(space), Some(map)) = (&header.space, value.as_object_mut()) {
+        map.insert("space".to_owned(), json!(space));
+    }
     value
+}
+
+/// Whether `text` is a space's id as the spaces record writes it: 32 lower-case hex digits.
+fn is_space_id(text: &str) -> bool {
+    text.len() == 32 && (text.bytes()).all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 /// `scope` as a saved review, and a restart's state (`carry`), write it.
@@ -367,6 +386,9 @@ fn view_value(kept: &SavedView) -> Value {
             value.insert("side".into(), side_name(side).into());
             value.insert("line".into(), line.into());
         }
+        if let Some(above) = place.above {
+            value.insert("above".into(), above.into());
+        }
         Value::Object(value)
     });
     let filter = kept.filter.as_ref().map(Filter::text);
@@ -399,7 +421,10 @@ fn view_of(value: &Value) -> Option<SavedView> {
                     u32::try_from(place.get("line")?.as_u64()?).ok()?,
                 )),
             };
-            Some(Place { path, line })
+            // Rows above the cursor, in a file saved since ADR 0184.
+            let above = (place.get("above").and_then(Value::as_u64))
+                .and_then(|above| u32::try_from(above).ok());
+            Some(Place { path, line, above })
         }
     };
     // Neither is in a review saved before step 6b; a filter read is cut as one typed is.
@@ -448,6 +473,11 @@ fn header_of(line: &[u8]) -> Option<(Header, u64)> {
                 head: id("head")?,
             })
         }),
+        // When and where the person left it (ADR 0184), in a file saved since.
+        left: value.get("left").and_then(Value::as_u64),
+        space: (value.get("space").and_then(Value::as_str))
+            .filter(|space| is_space_id(space))
+            .map(str::to_owned),
     };
     Some((header, value.get("next_id")?.as_u64()?))
 }

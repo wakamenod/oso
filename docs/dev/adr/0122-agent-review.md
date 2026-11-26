@@ -1,7 +1,9 @@
 # 0122. Agent review
 
-- Status: Accepted, amended by 0121, 0127, 0160, 0163 and 0167; "Pasted messages are escaped,
+- Status: Accepted, amended by 0121, 0127, 0160, 0163, 0167 and 0184; "Pasted messages are escaped,
   as amended" (2026-11-22)
+- Key changed by [ADR 0184](0184-continue-a-review-where-it-was-left.md): the review key is the
+  agents menu's `v`, `C-c a v`, and the review menu its `V`, `C-c a V`.
 - Date: 2026-11-12
 
 ## Context
@@ -129,7 +131,7 @@ previous setup measured 25 ms for 206 files once the index's stat cache is copie
   instead, so the working tree shows, when that branch holds the PR's head commit (step 12b, as
   built: the old side stays the PR's own merge-base, and only the new side is the work tree).
   Posting to GitHub is not in this ADR.
-- **The menu** (`C-x v r`, a float of choices as in ADR 0117 once it lands, a completing
+- **The menu** (`C-c a V`, a float of choices as in ADR 0117 once it lands, a completing
   prompt until then) offers each scope with its file count, counted on a worker and
   filled in as each count comes. It remembers the last choice per project.
 
@@ -156,7 +158,7 @@ previous setup measured 25 ms for 206 files once the index's stat cache is copie
 
 ### Restricted projects (Q3)
 
-- **A restricted project gets no review.** `C-x v r` says "reviewing runs git, which this project
+- **A restricted project gets no review.** `C-c a v` says "reviewing runs git, which this project
   is not trusted to run: `M-x trust-project`", and the agent tools answer the same. Nothing runs.
 - Comments, decisions and saved reviews of a project that becomes restricted again stay on disk
   and come back when it is trusted.
@@ -430,7 +432,7 @@ answer while the channel waits for the person, as `state` does; the others wait 
 Budgets, measured on the author's Mac by a new `review` scenario of the performance harness (its
 thresholds need the author's approval):
 
-- **A 57-file, 5,000-line review shows its first screen within 100 ms** of `C-x v r` (as "startup
+- **A 57-file, 5,000-line review shows its first screen within 100 ms** of `C-c a v` (as "startup
   to first frame"), git's runs included, and is whole (every file diffed, refined and highlighted)
   within 500 ms, on workers.
 - **The UI thread** spends at most 2 ms swapping in one file's section and never more than 4 ms in
@@ -482,7 +484,7 @@ In a review buffer (accept is `A`, as built in step 5): `n`/`p` hunk, `N`/`P` fi
 remove, `r` resolve, `a` accept, `x` reject, `v` viewed, `u` undo a decision, `s` files pane, `/`
 filter, `|` two panes, `RET` source (`C-u RET` the old side, as built in step 3; `M-RET` the
 line's side as read), `g` refresh now, `C-c C-c` send, `q` bury, and `[`/`]` more unchanged lines
-above or below, `=` a whole gap (step 13). `C-x v r` opens the
+above or below, `=` a whole gap (step 13). `C-c a v` opens the
 menu. The exact keys are settled in step 3 with the author.
 
 ## Steps
@@ -951,7 +953,7 @@ replaced (below). What the first PR built:
   taken on a thread of its own, the latest `B`'s alone counting, and kept for the session;
   keeping it across restarts is step 6's. A baseline that comes while the menu is open starts
   `D`'s count.
-- **The menu** is the fifth built-in menu, `review`, on `C-x v r` (ADR 0117), with a describe
+- **The menu** is the fifth built-in menu, `review`, on `C-c a V` (ADR 0117), with a describe
   function, which knows each head by its keys; a test keeps its table in step with the menu's.
   In a review buffer it is the review's project's. Its heads:
   `D` session, `w` uncommitted, `u` unstaged, `s` staged, `b` branch, `c` commit, `r`
@@ -1702,7 +1704,7 @@ building (below). What the first PR built:
   plan's `#fce8ea` to stay 0.05 OKLab from the added band; the author approved both from
   screenshots on 2026-11-17. Under the words refinement marks, text keeps the text's
   colour, as built in step 3, since a syntax face is only 3.6:1 there in dark.
-- **The `review` scenario** adds `review_highlight_first_screen_ms`, from `C-x v r w` to the
+- **The `review` scenario** adds `review_highlight_first_screen_ms`, from `C-c a V w` to the
   first frame whose sides on screen are highlighted, `review_highlight_whole_ms`, to the first
   whose every side is, and `review_put_in_max_ms`, the UI thread's longest time putting in a
   text or a paint; recorded with no threshold, as the others. Dev builds report both with each

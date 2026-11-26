@@ -114,6 +114,12 @@ impl App {
             self.editor.show_in(window, buffer);
         }
         let index = self.reviews.open.len() - 1;
+        // The person's open is a leaving too, so that a review open but never left is
+        // continued; one a restart or a step opens keeps the stamp it was saved with (ADR 0184).
+        if show == Show::Laid {
+            let space = self.front_space_text();
+            self.note_left(index, space);
+        }
         self.start_reviewer(index);
         // What was saved of it is read meanwhile, and what its thread reports waits for it
         // (step 6).

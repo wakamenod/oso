@@ -16,6 +16,33 @@ use crate::commands::review::{MAX_NAME, RESTRICTED, SAVED_LIST, one_line};
 use crate::git::TrustedRoot;
 use crate::review::saved::Header;
 
+/// What `review-resume` and `review-layout` say of a saved review whose project at `root` oso
+/// does not know yet (ADR 0184).
+pub(in crate::app::reviews) fn unknown_project(root: &std::path::Path) -> String {
+    format!(
+        "oso does not know that project yet: open a file of {} first",
+        one_line(&root.to_string_lossy(), 2 * MAX_NAME)
+    )
+}
+
+/// Whether a saved review of the project at `root`, which oso knows as `project`, may open
+/// again: only in a project oso knows and trusts, else what to say, and nothing runs.
+///
+/// # Errors
+///
+/// What to say: the project is not known, or not trusted.
+pub(in crate::app::reviews) fn resumable(
+    editor: &oso_core::editor::Editor,
+    project: Option<oso_core::project::ProjectId>,
+    root: &std::path::Path,
+) -> Result<oso_core::project::ProjectId, String> {
+    let project = project.ok_or_else(|| unknown_project(root))?;
+    match TrustedRoot::of(editor, project) {
+        Some(_) => Ok(project),
+        None => Err(RESTRICTED.to_owned()),
+    }
+}
+
 /// How many hex digits of a file's name tell two candidates of one text apart.
 const NAME_DIGITS: usize = 8;
 
@@ -59,6 +86,7 @@ impl App {
             kept.push((text, name, header));
         }
         self.editor.set_listed(SAVED_LIST, Arc::from(candidates));
+        self.reviews.keep.listed_once = true;
         let old = std::mem::replace(&mut self.reviews.keep.listed, kept);
         self.freer.free(old);
     }
@@ -82,16 +110,24 @@ impl App {
         let Some((_, header)) = self.saved_pick(pick) else {
             return;
         };
-        let Some(project) = self.project_with_root(&header.root) else {
-            return self.editor.message(format!(
-                "oso does not know that project yet: open a file of {} first",
-                one_line(&header.root.to_string_lossy(), 2 * MAX_NAME)
-            ));
-        };
-        if TrustedRoot::of(&self.editor, project).is_none() {
-            return self.editor.message(RESTRICTED);
+        self.resume_saved(&header.root, header.scope);
+    }
+
+    /// Opens the saved review of `scope` in the project at `root` again, laid out, once oso
+    /// knows the project and trusts it, as `review-resume` does: else says why, and nothing
+    /// runs.
+    pub(in crate::app::reviews) fn resume_saved(
+        &mut self,
+        root: &std::path::Path,
+        scope: crate::review::Scope,
+    ) -> Option<oso_core::editor::ReviewId> {
+        match resumable(&self.editor, self.project_with_root(root), root) {
+            Ok(project) => self.open_scope(project, scope, super::super::Show::Laid),
+            Err(why) => {
+                self.editor.message(why);
+                None
+            }
         }
-        self.open_scope(project, header.scope, super::super::Show::Laid);
     }
 
     /// `review-forget` picked `pick`: the saved review is removed now.
