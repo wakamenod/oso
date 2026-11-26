@@ -1038,6 +1038,21 @@ fn shown_as(state: &Value, buffer: &Value) -> Option<Value> {
     ]))
 }
 
+/// What a saved review keeps of the window showing `buffer` in `state` (ADR 0184): its
+/// columns, its cursor's row and column, its view's start and whether it is selected; its mark
+/// and goal column are kept in memory alone.
+fn placed_as(state: &Value, buffer: &Value) -> Option<Value> {
+    let shown = shown_as(state, buffer)?;
+    let cursor = &shown[1][0];
+    Some(json!([
+        shown[0],
+        cursor["row"],
+        cursor["column"],
+        shown[2]["start"],
+        shown[3]
+    ]))
+}
+
 /// The review layout's own state comes back with the review (ADR 0184): the source in the slot
 /// at its line and view, the slot's width and the side selected; after `q`, from memory, and
 /// after `C-x k` and another file shown, from the review's saved file.
@@ -1063,6 +1078,7 @@ fn c_c_a_v_puts_the_layout_back_with_the_slot_s_source_line_width_and_selection(
     });
     let left = shown_as(&state, &source).expect("the slot shows a.txt");
     assert_eq!(left[3], false, "the review is selected");
+    let placed = placed_as(&state, &source);
 
     // `q`, then the key: the layout from memory, as it was.
     app.send_keys("q");
@@ -1076,7 +1092,7 @@ fn c_c_a_v_puts_the_layout_back_with_the_slot_s_source_line_width_and_selection(
     });
     assert_eq!(window_count(&mut app), 2);
 
-    // Closed, another file shown, and continued: from the saved file, the same.
+    // Closed, another file shown, and continued: from the saved file, at the same place.
     // `kill-buffer` asks which buffer, the current one by default.
     app.send_keys("C-x k RET");
     app.wait_for("the review closed", |state| {
@@ -1091,7 +1107,7 @@ fn c_c_a_v_puts_the_layout_back_with_the_slot_s_source_line_width_and_selection(
     app.send_keys("C-c a v");
     app.wait_for("the layout from its file", |state| {
         state["buffer"]["name"] == "*review: uncommitted proj-review*"
-            && shown_as(state, &source).as_ref() == Some(&left)
+            && placed_as(state, &source) == placed
     });
 }
 

@@ -130,6 +130,7 @@ pub(in crate::app::reviews) fn lay_out_kept(
     kept: &mut [Kept],
     id: ReviewId,
     layout: &SavedLayout,
+    seen: Option<&SlotSeen>,
     show: impl FnOnce(&mut Editor, &SlotShows) -> Option<BufferId>,
 ) -> bool {
     if kept::review(kept).is_none_or(|laid| laid.review != id) || !kept::review_in_frame(kept) {
@@ -145,7 +146,7 @@ pub(in crate::app::reviews) fn lay_out_kept(
     if let (Some(permille), Some(ask)) = (layout.ask_permille, ask_window(editor, kept)) {
         fit_ask_to(editor, slot, ask, permille);
     }
-    show_kept(editor, slot, layout, show);
+    show_kept(editor, slot, layout, seen, show);
     editor.select_window(if layout.slot_selected { slot } else { window });
     true
 }
@@ -172,7 +173,7 @@ pub(in crate::app::reviews) fn put_back_carried_slot(
     if !slot_lacks(&slot_shows(editor, slot, kinds), &layout.slot) {
         return false;
     }
-    show_kept(editor, slot, layout, show);
+    show_kept(editor, slot, layout, None, show);
     true
 }
 
@@ -194,18 +195,24 @@ fn slot_lacks(now: &SlotShows, then: &SlotShows) -> bool {
     }
 }
 
-/// Shows in `slot` what `show` gives for what the slot showed, at its line.
+/// Shows in `slot` what `show` gives for what the slot showed: with the cursors and view
+/// `seen` kept in memory while that buffer did not change since, else at its line.
 fn show_kept(
     editor: &mut Editor,
     slot: WindowId,
     layout: &SavedLayout,
+    seen: Option<&SlotSeen>,
     show: impl FnOnce(&mut Editor, &SlotShows) -> Option<BufferId>,
 ) {
     let Some(buffer) = show(editor, &layout.slot) else {
         return;
     };
     editor.show_in(slot, buffer);
-    if let SlotShows::Source {
+    let revision = editor.buffer(buffer).map(Buffer::revision);
+    if let Some(seen) = seen.filter(|seen| seen.buffer == buffer && Some(seen.revision) == revision)
+    {
+        editor.restore_positions_in(slot, seen.selections.clone(), seen.scroll);
+    } else if let SlotShows::Source {
         line,
         column,
         above,
@@ -216,6 +223,40 @@ fn show_kept(
     } else if let SlotShows::Side { line, above, .. } = layout.slot {
         put_at(editor, slot, (line, 0), above);
     }
+}
+
+/// The slot's own cursors, mark and goal and its view as the person left them, kept in memory
+/// alone, never saved: put back as they were while the slot's buffer did not change since
+/// (ADR 0184).
+#[derive(Clone, Debug)]
+pub(in crate::app::reviews) struct SlotSeen {
+    buffer: BufferId,
+    revision: u64,
+    selections: SelectionSet,
+    scroll: Scroll,
+}
+
+/// The slot's own cursors and view, while the layout of the review `id` is the frame and its
+/// slot shows a buffer that may hold no secrets.
+pub(in crate::app::reviews) fn slot_seen(
+    editor: &Editor,
+    kept: &[Kept],
+    id: ReviewId,
+) -> Option<SlotSeen> {
+    let laid = kept::review(kept).filter(|laid| laid.review == id)?;
+    let slot = (laid.slot)
+        .filter(|slot| kept::review_in_frame(kept) && super::windows::in_tree(editor, *slot))?;
+    let window = editor.window_by_id(slot)?;
+    let buffer = editor.buffer(window.buffer())?;
+    if buffer.is_secret() || buffer.withheld_from_agents() {
+        return None;
+    }
+    Some(SlotSeen {
+        buffer: window.buffer(),
+        revision: buffer.revision(),
+        selections: window.selections.clone(),
+        scroll: window.scroll(),
+    })
 }
 
 /// Whether `path`, a file the slot showed as a saved review kept it, lies under the review's
@@ -325,7 +366,9 @@ impl App {
         let Some(state) = self.review_layout_state(&self.reviews.open[index]) else {
             return;
         };
+        let seen = slot_seen(&self.editor, self.watch.spaces().kept(), id);
         let saving = &mut self.reviews.open[index].saving;
+        saving.slot_seen = seen;
         if saving.layout.as_ref() != Some(&state) {
             saving.layout = Some(state);
             saving.laid_changed = true;
@@ -417,6 +460,10 @@ impl App {
                 }
             }
         };
+        // The slot's own cursors and view, as the person left them in this run.
+        let seen = (from == PutBack::Memory)
+            .then(|| self.reviews.open[index].saving.slot_seen.clone())
+            .flatten();
         let kept = self.watch.spaces_mut().kept_mut();
         let laid = if from == PutBack::Carried {
             let none = HashSet::new();
@@ -429,7 +476,14 @@ impl App {
             // Judged above with the review's sides and message: here the slot is given it.
             put_back_carried_slot(&mut self.editor, kept, (id, &kinds), &layout, |_, _| ready)
         } else {
-            lay_out_kept(&mut self.editor, kept, id, &layout, |_, _| ready)
+            lay_out_kept(
+                &mut self.editor,
+                kept,
+                id,
+                &layout,
+                seen.as_ref(),
+                |_, _| ready,
+            )
         };
         if !laid {
             if let Then::Loading(buffer) = then {
