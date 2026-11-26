@@ -57,16 +57,15 @@ fn by_visibility(editor: &Editor) -> Vec<BufferId> {
 }
 
 /// The buffers `C-x k` lists: the current one, those its window showed before, the most recent
-/// first, then the rest by recency (ADR 0088). The current one is listed whenever `kill-buffer`
-/// may kill it, as a review's buffer, which closes the review (ADR 0122), though no buffer list
-/// holds it: else `RET` would kill the buffer shown before it.
+/// first, then the rest by recency (ADR 0088). The current one is listed first even where no
+/// buffer list holds it: a review's buffer, whose kill closes the review (ADR 0122), an internal
+/// buffer `kill-buffer` keeps, or a docked session's composer, which it keeps too; else `RET`
+/// would kill the buffer shown before it.
 fn by_window(editor: &Editor) -> Vec<BufferId> {
     let window = editor.tiled().0;
     let listed = editor.buffers_by_recency();
     let mut unseen: HashSet<BufferId> = listed.iter().copied().collect();
-    if editor.review_of(window.buffer()).is_some() {
-        unseen.insert(window.buffer());
-    }
+    unseen.insert(window.buffer());
     let shown = std::iter::once(window.buffer()).chain(window.places().map(|(id, _)| id));
     shown
         .chain(listed.iter().copied())
@@ -255,10 +254,61 @@ mod tests {
             !shown.iter().any(|name| name.starts_with("*review")),
             "{shown:?}"
         );
-        // An internal buffer `kill-buffer` keeps is listed as before.
+        // An internal buffer `kill-buffer` keeps is listed first too, so that `RET` says so
+        // rather than kill the buffer shown before it.
         editor.show(file);
         let keys = editor.add_internal_buffer("*Review keys*", Mode::Fundamental);
         editor.show(keys);
-        assert_eq!(names(&editor), ["a.rs", "*Messages*"]);
+        assert_eq!(names(&editor), ["*Review keys*", "a.rs", "*Messages*"]);
+    }
+
+    /// The text of `*Messages*`.
+    fn messages(editor: &Editor) -> String {
+        (editor.buffer(editor.messages_buffer()))
+            .map(|buffer| buffer.text().to_string())
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn c_x_k_ret_in_a_kept_internal_buffer_says_it_is_kept_and_kills_nothing() {
+        use oso_core::buffer::Mode;
+
+        let (mut editor, _) = crate::commands::review::tests::in_project(true);
+        let file = editor.tiled().0.buffer();
+        let keys = editor.add_internal_buffer("*Review keys*", Mode::Fundamental);
+        editor.show(keys);
+        let mut d = super::super::Dispatcher::new();
+        super::super::motion_tests::send(&mut d, &mut editor, "C-x k RET");
+        assert!(editor.buffer(file).is_some(), "the file shown before stays");
+        assert_eq!(editor.tiled().0.buffer(), keys);
+        assert!(
+            messages(&editor).contains("*Review keys* is kept"),
+            "{}",
+            messages(&editor)
+        );
+    }
+
+    #[test]
+    fn c_x_k_ret_in_a_docked_composer_says_it_is_kept_and_kills_nothing() {
+        use oso_core::window::DockSlot;
+
+        let (mut editor, _) = crate::commands::review::tests::in_project(true);
+        let file = editor.tiled().0.buffer();
+        let transcript = editor.add_native_session_buffer("*claude: s*");
+        editor.show(transcript);
+        let composer = editor.add_buffer(Buffer::from_text("*compose: s*", "draft"));
+        editor.set_dock(transcript, DockSlot::Composer, Some(composer));
+        let window = editor.dock_window(transcript, DockSlot::Composer).unwrap();
+        editor.select_window(window);
+        let mut d = super::super::Dispatcher::new();
+        super::super::motion_tests::send(&mut d, &mut editor, "C-x k RET");
+        assert!(editor.buffer(composer).is_some(), "the composer stays");
+        assert!(editor.buffer(file).is_some(), "the file shown before stays");
+        assert!(editor.buffer(transcript).is_some(), "the transcript stays");
+        assert!(
+            messages(&editor).contains("A session's composer is kept"),
+            "{}",
+            messages(&editor)
+        );
     }
 }
