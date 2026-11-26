@@ -100,6 +100,8 @@ impl App {
         if let Err(why) = self.terminals_may_go(&carried) {
             return Some((reply, Err(why)));
         }
+        // As `export-state` without terminals saves them: what oso-restart always asks.
+        self.save_reviews_for_export();
         // What the texts take but the kills, which fill only what the terminals leave: the
         // state itself is made again once the terminals' states are in.
         let state = match self.export_texts(Some((&carried, MAX_CARRIED))) {
