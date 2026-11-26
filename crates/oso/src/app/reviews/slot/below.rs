@@ -17,7 +17,7 @@ use crate::sessions::spaces::kept::{self, Kept};
 
 /// The record name of the session the layout shows below its slot, else the one `review-ask`
 /// showed in the slot itself, while it is a hosted session's: none for a buffer that may hold
-/// secrets or is withheld from agents (ADR 0184).
+/// secrets (ADR 0184).
 pub(super) fn session_shown(
     editor: &Editor,
     kept: &[Kept],
@@ -29,7 +29,9 @@ pub(super) fn session_shown(
     let filling = (editor.window_by_id(slot)).filter(|window| Some(window.buffer()) == laid.asked);
     let buffer = below.or(filling)?.buffer();
     let shown = editor.buffer(buffer)?;
-    if shown.is_secret() || shown.withheld_from_agents() {
+    // A session's terminal is always withheld from agents: only what may hold secrets is not
+    // named, as its name alone is kept.
+    if shown.is_secret() {
         return None;
     }
     (kinds.session)(buffer)
@@ -47,7 +49,7 @@ pub(in crate::app::reviews) enum SessionBack {
 
 /// What goes below the slot for the session of record name `name` among `sessions`: its
 /// buffer while it runs and its buffer may be shown, else that it ended; nothing while it
-/// starts, or while its buffer is gone, may hold secrets or is withheld from agents. Starts
+/// starts, or while its buffer is gone or may hold secrets. Starts
 /// nothing.
 pub(in crate::app::reviews) fn session_back<'a>(
     editor: &Editor,
@@ -72,8 +74,7 @@ pub(in crate::app::reviews) fn session_back<'a>(
         Run::Running { .. } => {
             let buffer = session.buffer?;
             let shown = editor.buffer(buffer)?;
-            (!shown.is_secret() && !shown.withheld_from_agents())
-                .then_some(SessionBack::Show(buffer))
+            (!shown.is_secret()).then_some(SessionBack::Show(buffer))
         }
         Run::Starting => None,
         Run::Stopped | Run::Failed => Some(SessionBack::Ended(name.to_owned())),

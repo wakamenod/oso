@@ -97,8 +97,10 @@ before has none; one not read is left out alone, and a slot of a kind not known 
 The third step keeps the session below the slot
 ([ADR 0169](0169-the-review-slot-keeps-the-source-above-the-session.md)), by its record name,
 as an optional `session` in the saved layout: the session the window below the slot shows,
-else the one `review-ask` showed in the slot itself, never one whose buffer may hold secrets or
-is withheld from agents. Put back, after what the slot showed:
+else the one `review-ask` showed in the slot itself, never one whose buffer may hold secrets.
+A session's terminal is always withheld from agents, so that alone does not leave it out: only
+its record name is kept, and it is shown as `review-ask` shows it. Put back, after what the slot
+showed:
 
 - **Live and hosted:** its buffer goes below the slot, in the window there or one split off,
   else in the slot too small to split, and the split below goes back to its share.
@@ -110,7 +112,9 @@ is withheld from agents. Put back, after what the slot showed:
 the slot (ADR 0160, Q9; ADR 0169). Once the review's text shows, the slot is given back what
 its saved file kept it showing only where the windows carried lack it, as a read-only side or
 the review message, which no window carries; the review's own cursor and rows above go back as
-for any saved review. Quitting and restarting stamp the review in front, as "Left" says.
+for any saved review. Quitting and restarting stamp the review in front, as "Left" says, and
+take the layout in front as it is then, so that a slot changed while laid out is saved before the
+next instance reads it.
 
 **Only under the review's root, from a saved file.** A file the slot showed, as a saved
 review's layout names it, after a quit, `C-x k` or a restart, is put back only if its path lies
