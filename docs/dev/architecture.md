@@ -199,8 +199,9 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   without selecting it (over a terminal it may go to the program instead, ADR 0120): the app turns the pointer's pixel into a cell with
   `PixelGrid::cell_at`, and `Editor::wheel_window` into a window
   ([ADR 0112](adr/0112-window-splits.md)). A click finds its window the same way, so
-  over a float it gets the tiled window beneath, and selects it; point never moves in a
-  text buffer. In a terminal, a drag selects cells, and the release copies their text
+  over a float it gets the tiled window beneath, and selects it; a left press on a text
+  buffer's text also moves point to the cell under it, read through the rows the frame draws
+  (`Editor::click_point`, [ADR 0183](adr/0183-a-click-moves-point.md)). In a terminal, a drag selects cells, and the release copies their text
   with `Editor::kill_new`, which puts text from outside any buffer in the kill ring as
   `M-w` does ([ADR 0120](adr/0120-the-terminal.md), step 4b-2).
 - **Undo** is linear (`oso_core::undo`, [ADR 0030](adr/0030-m2-editing-commands.md)):

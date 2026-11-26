@@ -1,7 +1,9 @@
 //! The mouse in the app (ADR 0120, step 4b-2; ADR 0112). A press closes a server's description
-//! at point (ADR 0138), and selects the window under it,
-//! and the first press on a window not selected does only that; point never moves in a text
-//! buffer. `*Spaces*` in the side window takes a left press itself (ADR 0131). In the selected window's terminal, a program that asked for mouse reports gets them,
+//! at point (ADR 0138), and selects the window under it. A left press without Shift on a text
+//! buffer's text also moves point to the cell under it, selected or not (ADR 0183); the first
+//! press on a terminal not selected does only select it. `*Spaces*` in the side window takes a
+//! left press itself (ADR 0131). In the selected window's terminal, a program that asked for
+//! mouse reports gets them,
 //! but never while it reads a password; otherwise, or with Shift held, a drag selects cells,
 //! and the release copies them to the kill ring and the OS clipboard, as `M-w` does. The wheel
 //! is `wheel`'s. While oso holds input (a prompt, a menu, a key sequence and the rest that
@@ -88,6 +90,8 @@ enum PressGoes {
     Dropped,
     /// It only selects the window under it.
     SelectWindow,
+    /// It selects the text buffer's window under it, and moves point to its cell (ADR 0183).
+    Point,
     /// It begins a selection of cells.
     Selection,
     /// The program gets it.
@@ -110,6 +114,8 @@ fn route_press(
 ) -> PressGoes {
     if holding {
         PressGoes::Dropped
+    } else if !terminal && in_text && left && !shift {
+        PressGoes::Point
     } else if !selected {
         PressGoes::SelectWindow
     } else if !terminal || !in_text {
@@ -194,6 +200,10 @@ impl App {
                 self.editor.note_persons_command();
                 self.start_released();
                 self.request_redraw();
+                Drag::Nothing
+            }
+            (PressGoes::Point, _) => {
+                self.press_point(window, at);
                 Drag::Nothing
             }
             (PressGoes::Selection, Some(buffer)) => {
@@ -365,6 +375,36 @@ impl App {
                 && (text.column..text.column + text.columns).contains(&column)
         });
         Some((window, in_text))
+    }
+
+    /// A left press at `at` on the text of `window`, a text buffer's: selects the window, and
+    /// moves point to the cell under it as a plain motion (ADR 0183).
+    fn press_point(&mut self, window: WindowId, at: Position) {
+        let cell = (self.view.as_ref())
+            .and_then(|view| view.render_state.pixel_grid().cell_at(at.x, at.y));
+        let text = self
+            .editor
+            .frame()
+            .regions(window)
+            .map(|regions| regions.text);
+        let selected = window == self.editor.tiled().0.id();
+        // Read from the rows drawn now, before selecting lays the frame out again.
+        let inside = cell.zip(text).and_then(|((row, column), text)| {
+            Some((row.checked_sub(text.row)?, column.checked_sub(text.column)?))
+        });
+        let moved =
+            inside.is_some_and(|(row, column)| self.editor.click_point(window, row, column));
+        if !selected {
+            self.editor.select_window(window);
+            self.start_released();
+            if moved {
+                // So that the other window of a review's pair follows, as after a key.
+                self.editor.follow_cursor();
+            }
+        }
+        // A click into a window counts as the person's command there (ADR 0118, Q9).
+        self.editor.note_persons_command();
+        self.request_redraw();
     }
 
     /// The cell of the terminal `buffer`'s screen under `at` in `window`, kept inside its

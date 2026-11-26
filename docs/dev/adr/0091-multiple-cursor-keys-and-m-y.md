@@ -1,6 +1,6 @@
 # 0091. Multiple-cursor keys and `M-y`
 
-- Status: Accepted, amended by 0092, 0098 and 0101
+- Status: Accepted, amended by 0092, 0098, 0101 and 0183
 - Date: 2026-11-09
 
 ## Context
@@ -106,7 +106,8 @@ the coordinator.
   1000 cursors"; `C-c C-<` with more matches says "1234 matches; at most 1000 cursors" and adds
   none, so a rename never covers only part of the buffer. `edit-lines` over more lines says the
   same. The bound is a constant in `oso-core`, beside the selection set.
-- **A cursor with a click** waits for mouse clicks, which oso does not take yet.
+- **A cursor with a click** waits for mouse clicks, which oso does not take yet. Since
+  [ADR 0183](0183-a-click-moves-point.md) a click moves point; one that adds a cursor still waits.
 
 ### `C-g` with several cursors
 

@@ -1,5 +1,5 @@
-//! Where the mouse goes (ADR 0120, step 4b-2): presses by what holds input, the window, the
-//! program's reports and Shift; and how a drag ends.
+//! Where the mouse goes (ADR 0120, step 4b-2; ADR 0183): presses by what holds input, the
+//! window, the program's reports and Shift; and how a drag ends.
 //!
 //! Must not depend on: a window or a terminal; the routing is pure.
 
@@ -10,19 +10,30 @@ use super::{Drag, Pointing, PressGoes, route_press, whole};
 
 #[test]
 fn the_press_routing_table() {
-    use PressGoes::{Dropped, Nothing, Report, SelectWindow, Selection};
+    use PressGoes::{Dropped, Nothing, Point, Report, SelectWindow, Selection};
     // (holding, selected, terminal, in_text, reports, shift, left) → where it goes.
     let table = [
         ((true, true, true, true, true, false, true), Dropped),
         ((true, false, true, true, false, false, true), Dropped),
         ((true, true, false, true, false, false, true), Dropped),
         ((false, false, true, true, true, false, true), SelectWindow),
+        ((false, false, true, true, false, true, true), SelectWindow),
+        // A left press on a text buffer's text moves point there, selected or not (ADR 0183).
+        ((false, false, false, true, false, false, true), Point),
+        ((false, true, false, true, false, false, true), Point),
+        // Not with Shift, which is left for later, nor off its text, nor another button.
+        ((false, true, false, true, false, true, true), Nothing),
+        ((false, false, false, true, false, true, true), SelectWindow),
         (
-            (false, false, false, true, false, false, true),
+            (false, false, false, false, false, false, true),
             SelectWindow,
         ),
-        ((false, false, true, true, false, true, true), SelectWindow),
-        ((false, true, false, true, false, false, true), Nothing),
+        ((false, true, false, false, false, false, true), Nothing),
+        (
+            (false, false, false, true, false, false, false),
+            SelectWindow,
+        ),
+        ((false, true, false, true, false, false, false), Nothing),
         ((false, true, true, false, true, false, true), Nothing),
         ((false, true, true, true, true, false, true), Report),
         ((false, true, true, true, true, false, false), Report),
