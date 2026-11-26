@@ -28,7 +28,6 @@ use super::loaded::{SLOT_WITHHELD, SlotLoading, Source, source_fits};
 use super::windows::{
     ask_share, ask_window, fit_ask_to, fit_slot_to, layout_window, slot, slot_share,
 };
-use crate::review::Content;
 use crate::review::saved::{SavedLayout, SlotShows};
 use crate::sessions::spaces::kept::{self, Kept};
 
@@ -373,41 +372,7 @@ impl App {
             saving.layout = Some(state);
             saving.laid_changed = true;
         }
-    }
-
-    /// A text of the review at `index` went in: the layout kept in its saved file goes back on
-    /// the layout made for it, if it was continued from that file, once a side it showed can
-    /// be asked for.
-    pub(in crate::app::reviews) fn put_back_saved_layout(&mut self, index: usize) {
-        let running = &self.reviews.open[index];
-        if !running.saving.lay_kept || running.saving.waiting {
-            return;
-        }
-        if let Some(SavedLayout {
-            slot: SlotShows::Side { path, .. },
-            ..
-        }) = &running.saving.layout
-        {
-            let shown = (running.decisions.reading(path)).is_some_and(|reading| {
-                let Content::Text { shape, .. } = &reading.content else {
-                    return true;
-                };
-                (self.editor.review(running.id))
-                    .and_then(|model| model.file(path))
-                    .is_some_and(|file| std::sync::Arc::ptr_eq(file, shape))
-            });
-            if !shown && !running.read_once {
-                return;
-            }
-        }
-        let saving = &mut self.reviews.open[index].saving;
-        saving.lay_kept = false;
-        let from = if std::mem::take(&mut saving.lay_carried) {
-            PutBack::Carried
-        } else {
-            PutBack::File
-        };
-        self.put_back_layout(index, from);
+        saving.layout_read = false;
     }
 
     /// Puts the layout kept with the review at `index` back on the layout of it in front
@@ -442,7 +407,8 @@ impl App {
                 None => (None, Then::Message),
             },
             SlotShows::Source { path, .. }
-                if from != PutBack::Memory && !under_root(running.root.path(), path) =>
+                if (from != PutBack::Memory || running.saving.layout_read)
+                    && !under_root(running.root.path(), path) =>
             {
                 self.editor.message(SLOT_OUTSIDE);
                 (None, Then::Nothing)

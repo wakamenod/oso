@@ -63,6 +63,7 @@ impl App {
         // The layout's state, put back once a text shows if it was continued (ADR 0184).
         if view.layout.is_some() {
             saving.layout = view.layout;
+            saving.layout_read = true;
         }
         let choices = Choices {
             choice: view.choice,

@@ -95,6 +95,9 @@ pub(super) struct Saving {
     /// Whether the layout that goes back is on one a restart carried, which keeps its own
     /// widths, selection and session: only what its slot lacks goes back (ADR 0184).
     pub(super) lay_carried: bool,
+    /// Whether `layout` is the one its saved file kept, not one left in this run since: a file
+    /// its slot showed outside the review's root is then not put back, from memory too.
+    pub(super) layout_read: bool,
     /// The slot's own cursors and view as it was last left laid out, in memory alone.
     pub(super) slot_seen: Option<super::slot::SlotSeen>,
 }

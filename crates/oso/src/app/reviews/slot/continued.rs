@@ -9,7 +9,10 @@ use oso_core::editor::{Editor, ReviewId, WindowTree};
 
 use super::super::super::App;
 use super::super::keep::Continue;
+use super::laid::PutBack;
 use super::{IN_PROMPT, back, show_laid};
+use crate::review::Content;
+use crate::review::saved::{SavedLayout, SlotShows};
 use crate::sessions::spaces::kept::{self, Kept};
 
 impl App {
@@ -48,6 +51,51 @@ impl App {
                 .message("The review's space is no longer open: it continues in this one");
         }
         self.request_redraw();
+    }
+
+    /// A text of the review at `index` went in: the layout kept in its saved file goes back on
+    /// the layout made for it, if it was continued from that file, once a side it showed can
+    /// be asked for.
+    pub(in crate::app::reviews) fn put_back_saved_layout(&mut self, index: usize) {
+        let running = &self.reviews.open[index];
+        if !running.saving.lay_kept || running.saving.waiting {
+            return;
+        }
+        // Its layout left the frame before it could go back, as the person moved away: the
+        // wait ends, and the layout stays kept as its file kept it.
+        let kept = self.watch.spaces().kept();
+        if kept::review(kept).is_none_or(|laid| laid.review != running.id)
+            || !kept::review_in_frame(kept)
+        {
+            let saving = &mut self.reviews.open[index].saving;
+            saving.lay_kept = false;
+            saving.lay_carried = false;
+            return;
+        }
+        if let Some(SavedLayout {
+            slot: SlotShows::Side { path, .. },
+            ..
+        }) = &running.saving.layout
+        {
+            let reading = (running.decisions.reading(path)).map(|reading| match &reading.content {
+                Content::Text { shape, .. } => Some(shape),
+                _ => None,
+            });
+            let shown = (self.editor.review(running.id)).and_then(|model| model.file(path));
+            // Waits, asking nothing, until the review shows the file's latest text, at each
+            // text of the review; it ends as above once the layout left the frame.
+            if !side_ready(reading, shown, running.read_once) {
+                return;
+            }
+        }
+        let saving = &mut self.reviews.open[index].saving;
+        saving.lay_kept = false;
+        let from = if std::mem::take(&mut saving.lay_carried) {
+            PutBack::Carried
+        } else {
+            PutBack::File
+        };
+        self.put_back_layout(index, from);
     }
 
     /// Enters the open space whose id is `space`, unless it is in front; false when no open
@@ -133,4 +181,22 @@ pub(super) fn continue_open(
     let (shown, old) = show_laid(editor, kept, id);
     let shown = if shown { Shown::Laid } else { Shown::Not };
     (shown, old.into_iter().collect())
+}
+
+/// Whether a side the slot showed may be asked for as a saved layout goes back (ADR 0184):
+/// `reading` is the file's latest reading, `Some(None)` for one not of text, and `shown` the
+/// text the review shows of it. Once the review shows its latest text, so that the jump is not
+/// refused as read again; a reading not of text at once, the jump saying why; with no reading,
+/// once every file was read, the file then gone from the review. A file read again keeps it
+/// waiting, and nothing is asked meanwhile.
+pub(in crate::app::reviews) fn side_ready<T>(
+    reading: Option<Option<&std::sync::Arc<T>>>,
+    shown: Option<&std::sync::Arc<T>>,
+    read_once: bool,
+) -> bool {
+    match reading {
+        None => read_once,
+        Some(None) => true,
+        Some(Some(text)) => shown.is_some_and(|shown| std::sync::Arc::ptr_eq(shown, text)),
+    }
 }
