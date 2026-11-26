@@ -48,7 +48,7 @@ const NAME: &str = "*review message*";
 /// each with its review: of a pull request read a commit at a time, the whole pull request's
 /// and its commits' (ADR 0167).
 pub(in crate::app) struct Waiting {
-    buffer: BufferId,
+    pub(super) buffer: BufferId,
     origin: Origin,
     taken: Vec<(ReviewId, Comment)>,
     /// The first line it was made with, and the worktree a message to an orchestrator names:
@@ -73,7 +73,7 @@ enum Origin {
 /// each pull request.
 #[derive(Default)]
 pub(in crate::app) struct Sending {
-    message: Option<Waiting>,
+    pub(super) message: Option<Waiting>,
     pub(super) picked: HashMap<ReviewId, SessionKey>,
     picked_pulls: HashMap<(ProjectId, u64), SessionKey>,
 }

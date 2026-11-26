@@ -82,6 +82,9 @@ pub(crate) struct SavedView {
     /// The words that say which files it shows, and whether its files pane shows (step 6b).
     pub(crate) filter: Option<Filter>,
     pub(crate) files: bool,
+    /// The review layout's own state as the review was left laid out (ADR 0184); None in a
+    /// file saved before, or of a review not laid out.
+    pub(crate) layout: Option<SavedLayout>,
 }
 
 /// A saved review read back.
@@ -392,15 +395,18 @@ fn view_value(kept: &SavedView) -> Value {
         Value::Object(value)
     });
     let filter = kept.filter.as_ref().map(Filter::text);
-    json!({
-        "kept": {
-            "choice": choice,
-            "folded": kept.folded,
-            "place": place,
-            "filter": filter,
-            "files": kept.files,
-        }
-    })
+    let mut value = json!({
+        "choice": choice,
+        "folded": kept.folded,
+        "place": place,
+        "filter": filter,
+        "files": kept.files,
+    });
+    // Written only when there is one, so that a view of a review not laid out is as it was.
+    if let (Some(layout), Some(map)) = (&kept.layout, value.as_object_mut()) {
+        map.insert("layout".to_owned(), layout::layout_value(layout));
+    }
+    json!({ "kept": value })
 }
 
 fn view_of(value: &Value) -> Option<SavedView> {
@@ -436,12 +442,15 @@ fn view_of(value: &Value) -> Option<SavedView> {
         None => false,
         Some(files) => files.as_bool()?,
     };
+    // One not read is left out alone: the rest of the view stands (ADR 0184).
+    let layout = value.get("layout").and_then(layout::layout_of);
     Some(SavedView {
         choice,
         folded: value.get("folded")?.as_bool()?,
         place,
         filter,
         files,
+        layout,
     })
 }
 
@@ -556,7 +565,10 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Decoded, &'static str> {
     })
 }
 
+mod layout;
 mod model;
+
+pub(crate) use layout::{SavedLayout, SlotShows};
 
 #[cfg(test)]
 #[path = "saved_tests.rs"]

@@ -34,12 +34,13 @@ use super::state::Running;
 use super::store::{self, Found, Snapshot, Store, Stored, Told};
 use crate::app::{App, UserEvent};
 use crate::commands::review::one_line;
-use crate::review::saved::{self, Header, Place, SavedView};
+use crate::review::saved::{self, Header, Place, SavedLayout, SavedView};
 use crate::review::{Report, Scope};
 
 mod left;
 mod list;
 mod place;
+mod restore;
 
 pub(super) use left::Continue;
 
@@ -84,6 +85,13 @@ pub(super) struct Saving {
     /// The pull request whose review opens instead, if this commit's review, continued from
     /// its saved file, finds the commit gone (ADR 0184).
     pub(super) instead: Option<u64>,
+    /// The review layout's own state as it was last left laid out, or as its saved file kept
+    /// it; whether it changed since it was last handed to the store; and whether it goes back
+    /// on the layout once a text shows, as the review was continued from its saved file
+    /// (ADR 0184).
+    pub(super) layout: Option<SavedLayout>,
+    pub(super) laid_changed: bool,
+    pub(super) lay_kept: bool,
 }
 
 /// What a review's view keeps besides its cursor: its layout chosen, agent cards folded, its
@@ -110,12 +118,14 @@ pub(super) struct Keep {
     listed: Vec<(String, String, Header)>,
     /// The files of buffers seen to hold secrets, or withheld from agents, while a review was
     /// open: once seen, always withheld from what is saved, in this run.
-    held: Arc<HashSet<PathBuf>>,
+    pub(super) held: Arc<HashSet<PathBuf>>,
     /// The review closed in this run that was left last, the review the selected window
     /// showed at the last event, and whether the store listed the saved ones yet (ADR 0184).
     left: Option<left::Left>,
     front: Option<left::Front>,
     pub(super) listed_once: bool,
+    /// A file the review layout's slot showed, loading to go back in it (ADR 0184).
+    pub(super) slot_loading: Option<super::slot::SlotLoading>,
 }
 
 impl App {
@@ -260,80 +270,6 @@ impl App {
         self.request_redraw();
     }
 
-    /// Puts `found`'s model in the review at `index`, which holds nothing yet, with the view's
-    /// choices it kept.
-    fn restore_review(&mut self, index: usize, found: Found) {
-        let id = self.reviews.open[index].id;
-        let Found {
-            review,
-            view,
-            left_out,
-            pull,
-            checkpoint,
-            left,
-            space,
-        } = found;
-        // A pull request's review: the person's last review of it (step 2).
-        if checkpoint.is_some() {
-            self.reviews.open[index].checkpoint = checkpoint;
-        }
-        // A commit's review stepped to from a pull request: linked again once that pull
-        // request's commits are listed (ADR 0167).
-        if pull.is_some() {
-            self.want_pull(index, pull);
-        }
-        let comments = review.comments().count();
-        let Some(model) = self.editor.review_mut(id) else {
-            return self.freer.free(review);
-        };
-        let empty = std::mem::replace(model, review);
-        self.freer.free(empty);
-        // The view draws a file's cards from what it is told of its comments: each file's once,
-        // as its first reading comes, or once a listing says it left (`comments`).
-        let untold: HashSet<Box<[u8]>> = (self.editor.review(id).into_iter())
-            .flat_map(Review::comments)
-            .map(|comment| Box::from(comment.path()))
-            .collect();
-        self.reviews.open[index].saving.untold = untold;
-        self.editor.choose_review_layout(id, view.choice);
-        self.editor.fold_agents(id, view.folded);
-        self.editor.set_review_filter(id, view.filter.clone());
-        if view.files {
-            self.show_files_again(id);
-        }
-        let checkpoint = self.reviews.open[index].checkpoint_moves;
-        // Nothing to save until it changes.
-        let revision = self.editor.review(id).map_or(0, Review::revision);
-        let saving = &mut self.reviews.open[index].saving;
-        saving.place_handed.clone_from(&view.place);
-        saving.place = view.place;
-        let choices = Choices {
-            choice: view.choice,
-            folded: view.folded,
-            filter: view.filter,
-            files: view.files,
-            checkpoint,
-        };
-        saving.handed = Some((revision, choices));
-        // When it was left before, unless it was left since it opened (ADR 0184).
-        if let Some(left) = left.filter(|left| *left > saving.left) {
-            saving.left = left;
-            saving.space = space;
-            saving.left_handed = left;
-        }
-        let noun = if comments == 1 { "comment" } else { "comments" };
-        if left_out > 0 {
-            log::info!("{left_out} lines of a saved review were left out");
-            self.editor.message(format!(
-                "{comments} saved {noun} brought back; {left_out} lines of the saved review \
-                 could not be read and are left out"
-            ));
-        } else if comments > 0 {
-            self.editor
-                .message(format!("{comments} saved {noun} brought back"));
-        }
-    }
-
     /// After each event: notes which reviews changed since they were last handed to the store,
     /// and the buffers that hold secrets now. Costs a look at each review's revision and
     /// choices, and at the buffers while a review is open.
@@ -346,8 +282,8 @@ impl App {
         for index in 0..self.reviews.open.len() {
             let state = self.saving_state(index);
             let saving = &mut self.reviews.open[index].saving;
-            // A stamp of leaving alone is saved too (ADR 0184).
-            let stamped = saving.left != saving.left_handed;
+            // A stamp of leaving alone is saved too, as is the layout kept (ADR 0184).
+            let stamped = saving.left != saving.left_handed || saving.laid_changed;
             if saving.name.is_none() || saving.waiting || (saving.handed == state && !stamped) {
                 saving.first = None;
                 saving.last = None;
@@ -448,6 +384,7 @@ impl App {
             Ok(()) => {
                 saving.handed = state;
                 saving.left_handed = saving.left;
+                saving.laid_changed = false;
                 if place.is_some() {
                     saving.place_seen.clone_from(&place);
                 }
@@ -458,6 +395,7 @@ impl App {
                 // The store ended: nothing keeps the review any more, nor is tried again for a
                 // stamp alone.
                 saving.left_handed = saving.left;
+                saving.laid_changed = false;
                 self.editor.set_review_kept(id, false);
                 self.freer.free(snapshot);
                 false
@@ -506,6 +444,11 @@ impl App {
             place: self.review_place(running.id),
             filter: choices.filter,
             files: choices.files,
+            // The layout in front, else as it was last left laid out (ADR 0184); while the one
+            // its file kept waits to go back, that one.
+            layout: (self.review_layout_state(running))
+                .filter(|_| !saving.lay_kept)
+                .or_else(|| saving.layout.clone()),
         };
         Some(Snapshot {
             header,
@@ -526,6 +469,7 @@ impl App {
         // What changed, or where it was left and its cursor (ADR 0184).
         let changed = model.as_ref().map(Review::revision) != saving.handed.as_ref().map(|h| h.0)
             || saving.left != saving.left_handed
+            || saving.laid_changed
             || (saving.place_seen.is_some() && saving.place_seen != saving.place_handed);
         let name = running.saving.name.clone();
         let snapshot = match (changed, name) {
@@ -568,7 +512,7 @@ impl App {
             let saving = &self.reviews.open[index].saving;
             // The cursor too, which alone changes nothing saved as it goes.
             let moved = self.review_place(self.reviews.open[index].id) != saving.place_handed;
-            let stamped = saving.left != saving.left_handed;
+            let stamped = saving.left != saving.left_handed || saving.laid_changed;
             if moved || stamped || self.saving_state(index) != saving.handed {
                 handed |= self.save_review(index);
             }

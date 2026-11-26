@@ -169,6 +169,8 @@ impl App {
         if self.recent.awaiting.remove(&buffer).is_some() {
             self.editor.note_recent_visit(buffer);
         }
+        // A file a review layout put back goes in its slot (ADR 0184).
+        self.review_slot_loaded(buffer);
     }
 
     /// After an event: stamps what went first in the recent files or was dropped, and hands

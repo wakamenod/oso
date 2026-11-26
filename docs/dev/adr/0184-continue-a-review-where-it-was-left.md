@@ -67,17 +67,37 @@ which review it buried.
 
 ### What comes back
 
-This step brings back the review (its root and scope), the cursor's row and the rows above it
-(a new optional `above` in the saved place, and `left` and `space` in the header; a file saved
-before reads as it did, with a few rows above), the view's choices step 6 keeps, and the layout
-as a plain layout, the slot showing what `first_slot_buffer` chooses. Later steps keep the
-layout's own state:
+The first step brings back the review (its root and scope), the cursor's row and the rows
+above it (a new optional `above` in the saved place, and `left` and `space` in the header; a
+file saved before reads as it did, with a few rows above), the view's choices step 6 keeps, and
+the layout as a plain layout, the slot showing what `first_slot_buffer` chooses.
 
-- the slot's width, the split below it and which side was selected; what the slot showed (a
-  source file and line, a read-only side, the review message, or nothing), saved with the view;
-- the session below the slot ([ADR 0169](0169-the-review-slot-keeps-the-source-above-the-session.md)),
-  by its record name: shown again if it is live and hosted; if it ended, the message "session
-  <name> ended: M-x session-resume", and nothing is spawned.
+The second step keeps the layout's own state, in memory as the layout leaves the frame (`q`,
+`C-c a v`'s restore, a space switch) and in the saved view as an optional `layout` (a file saved
+before has none; one not read is left out alone, and a slot of a kind not known shows nothing):
+
+- **The slot's width and the split below it,** each in thousandths of what it shares, put back
+  held to a tenth from either edge; a width the windows refuse stays at two fifths. The split
+  below is put back while a window is below the slot, which the next step's session gives.
+- **Which side was selected:** the review or the slot.
+- **What the slot showed:**
+  - *A source file*, at its line, column and rows above, as far as the text goes now. Put back,
+    it is judged again: its name, the paths held as secret in this run, and its open buffer. An
+    open buffer goes in at once. One not open is opened unshown, as a plain visit with one name,
+    as the agent channel opens a file, and goes in once it loaded, if it opens as no secret and
+    the slot still shows what it was given meanwhile. A file gone says so, and no new file opens.
+  - *A read-only side*, at its line: its buffer if it is still open, else asked of the review's
+    thread as `M-RET` asks it, after a quit once that file's text shows, or once every file was
+    read; what the jump refuses says why.
+  - *The review message:* the message waiting, else made again from the comments not sent, as
+    `review-send` makes it; what was typed in a message is not kept across its buffer's end.
+  - *Nothing*, else: the slot shows what `first_slot_buffer` chooses.
+  - The store's thread judges the slot's file again as it writes, as it judges the review's.
+
+A later step keeps the session below the slot
+([ADR 0169](0169-the-review-slot-keeps-the-source-above-the-session.md)), by its record name:
+shown again if it is live and hosted; if it ended, the message "session <name> ended: M-x
+session-resume", and nothing is spawned.
 
 **Never kept or shown:** a buffer that may hold secrets, is withheld from agents, or is among the
 paths held as secret while a review was open. A review buffer that may hold secrets gives no

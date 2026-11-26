@@ -1021,6 +1021,82 @@ fn c_c_a_v_continues_the_review_left_last_where_its_cursor_and_view_were() {
     assert_eq!(row_and_start(&app.state()), left);
 }
 
+/// The window showing the buffer `buffer` in `state`: its columns, cursors, view and whether
+/// it is selected.
+fn shown_as(state: &Value, buffer: &Value) -> Option<Value> {
+    let windows = state["windows"].as_array()?;
+    let window = windows.iter().find(|window| window["buffer"] == *buffer)?;
+    Some(json!([
+        window["columns"],
+        window["selections"],
+        window["scroll"],
+        window["selected"]
+    ]))
+}
+
+/// The review layout's own state comes back with the review (ADR 0184): the source in the slot
+/// at its line and view, the slot's width and the side selected; after `q`, from memory, and
+/// after `C-x k` and another file shown, from the review's saved file.
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn c_c_a_v_puts_the_layout_back_with_the_slot_s_source_line_width_and_selection() {
+    let scratch = Scratch::new("review-continue-layout");
+    let changed: Vec<u32> = (1..=60).map(|n| n * 5).collect();
+    let mut app = open_lines_review(&scratch, 300, &changed);
+    rows_until(&mut app, "+L5");
+    // `RET` on `+L100`: a.txt in the slot at line 100; down a few lines there, the slot made
+    // wider, then back to the review.
+    app.send_keys(&format!("C-s {} RET RET", typing("+L100")));
+    let state = app.wait_for("a.txt in the slot", |state| {
+        state["buffer"]["name"] == "a.txt"
+    });
+    let source = state["buffer"]["id"].clone();
+    app.send_keys("C-n C-n C-n C-x } C-x } C-x } C-x }");
+    app.wait_for("line 103", |state| cursor(state).0 == 102);
+    app.send_keys("C-c a v");
+    let state = app.wait_for("the review", |state| {
+        state["buffer"]["name"] == "*review: uncommitted proj-review*"
+    });
+    let left = shown_as(&state, &source).expect("the slot shows a.txt");
+    assert_eq!(left[3], false, "the review is selected");
+
+    // `q`, then the key: the layout from memory, as it was.
+    app.send_keys("q");
+    app.wait_for("the review buried", |state| {
+        state["buffer"]["name"] != "*review: uncommitted proj-review*"
+    });
+    app.send_keys("C-c a v");
+    app.wait_for("the layout again", |state| {
+        state["buffer"]["name"] == "*review: uncommitted proj-review*"
+            && shown_as(state, &source).as_ref() == Some(&left)
+    });
+    assert_eq!(window_count(&mut app), 2);
+
+    // Closed, another file shown, and continued: from the saved file, the same.
+    app.send_keys("C-x k");
+    app.wait_for("the review closed", |state| {
+        state["buffer"]["name"] != "*review: uncommitted proj-review*"
+    });
+    scratch.write("proj-review/other.txt", b"other\n");
+    app.send_keys(&format!(
+        "C-x C-f {} RET",
+        typing(
+            &scratch
+                .path()
+                .join("proj-review/other.txt")
+                .to_string_lossy()
+        )
+    ));
+    app.wait_for("the other file", |state| {
+        state["buffer"]["name"] == "other.txt"
+    });
+    app.send_keys("C-c a v");
+    app.wait_for("the layout from its file", |state| {
+        state["buffer"]["name"] == "*review: uncommitted proj-review*"
+            && shown_as(state, &source).as_ref() == Some(&left)
+    });
+}
+
 /// Unchanged lines around a hunk (step 13): three each side, gaps' rows for the rest, `[` and
 /// `]` showing a gap's lines, `review-reset-context` hiding them again, `RET` on a context line
 /// visiting it, and `c` refusing it.

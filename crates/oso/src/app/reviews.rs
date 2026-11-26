@@ -287,6 +287,13 @@ impl App {
         }
     }
 
+    /// The review at `index` read every file, unless a newer ask `stopped` it: a layout its
+    /// file kept waits for no more of them to go back (ADR 0184).
+    fn review_read_once(&mut self, index: usize, stopped: bool) {
+        self.reviews.open[index].read_once |= !stopped;
+        self.put_back_saved_layout(index);
+    }
+
     /// The review at `index` could not open: if it is a commit's review continued from a pull
     /// request's, whose commit is gone, as after a force-push, it closes, and that pull
     /// request's review opens in its place, as the person's own open (ADR 0184). Whether it
@@ -370,7 +377,7 @@ impl App {
             }
             Report::Read { stopped, .. } => {
                 self.refresh_ended(index);
-                self.reviews.open[index].read_once |= !stopped;
+                self.review_read_once(index, stopped);
                 // What changed since, if a newer request stopped its ask (ADR 0167, step 2).
                 self.ask_since_again(index);
                 Tell::Read
@@ -522,8 +529,10 @@ impl App {
             self.carry_applied(index, reading, &applied);
         }
         self.editor.set_review_reading(id, reading);
-        // The cursor saved goes back once a text shows its file (step 6).
+        // The cursor saved goes back once a text shows its file (step 6), and the layout its
+        // file kept once it was continued (ADR 0184).
         self.put_back_place(index);
+        self.put_back_saved_layout(index);
         #[cfg(feature = "dev")]
         self.timings.review_text(crate::dev::ReviewText::of(
             reading,

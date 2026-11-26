@@ -98,6 +98,23 @@ impl Drop for Scratch {
     }
 }
 
+/// The layout's own state as it was left (ADR 0184), a source in its slot.
+#[cfg(unix)]
+fn layout() -> crate::review::saved::SavedLayout {
+    use crate::review::saved::{SavedLayout, SlotShows};
+    SavedLayout {
+        slot_selected: true,
+        slot_permille: 350,
+        ask_permille: Some(450),
+        slot: SlotShows::Source {
+            path: "/q/src/b.rs".into(),
+            line: 70,
+            column: 4,
+            above: 6,
+        },
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn a_review_left_and_saved_as_oso_goes_is_the_one_a_new_run_continues_with_its_place() {
@@ -126,6 +143,7 @@ fn a_review_left_and_saved_as_oso_goes_is_the_one_a_new_run_continues_with_its_p
         line: Some((Side::New, 40)),
         above: Some(9),
     };
+    let layout = layout();
     // Two reviews saved, the second left later, as `hand_review_saves` hands them at a quit.
     let (told, _heard) = mpsc::channel();
     let store = Store::start(&scratch.0, move |stored| {
@@ -142,6 +160,7 @@ fn a_review_left_and_saved_as_oso_goes_is_the_one_a_new_run_continues_with_its_p
             saved: oso_core::review::Review::new().save(),
             view: SavedView {
                 place: Some(place.clone()),
+                layout: Some(layout.clone()),
                 ..SavedView::default()
             },
             root: root.into(),
@@ -182,6 +201,7 @@ fn a_review_left_and_saved_as_oso_goes_is_the_one_a_new_run_continues_with_its_p
         }
     };
     assert_eq!(found.view.place, Some(place));
+    assert_eq!(found.view.layout, Some(layout));
 }
 
 #[test]

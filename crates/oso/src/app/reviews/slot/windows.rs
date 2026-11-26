@@ -279,11 +279,36 @@ pub(super) fn in_tree(editor: &Editor, id: WindowId) -> bool {
 /// Makes the window `slot` two fifths of the row it is in, by the windows beside it, leaving
 /// whichever window is selected selected.
 pub(super) fn fit_slot(editor: &mut Editor, slot: WindowId) {
-    let side = editor.side_window();
-    let windows = editor.frame().windows();
-    let Some(regions) = (windows.iter()).find_map(|(id, r)| (*id == slot).then_some(r)) else {
+    fit_slot_to(editor, slot, None);
+}
+
+/// Makes the window `slot` `permille` thousandths of the row it is in, else two fifths, by the
+/// windows beside it, leaving whichever window is selected selected. A share is held to a
+/// tenth from either edge, so that the review keeps room; a width the windows refuse stays.
+pub(super) fn fit_slot_to(editor: &mut Editor, slot: WindowId, permille: Option<u16>) {
+    let Some(((left, right), own)) = row_of(editor, slot) else {
         return;
     };
+    let whole = right - left;
+    let want = match permille {
+        Some(permille) => (whole * usize::from(permille.clamp(100, 900)) + 500) / 1000,
+        None => (whole * SLOT_FIFTHS + 2) / 5,
+    };
+    let (Ok(want), Ok(own)) = (isize::try_from(want), isize::try_from(own)) else {
+        return;
+    };
+    let selected = editor.window().id();
+    editor.select_window(slot);
+    let _ = editor.resize_window(Way::Across, want - own);
+    editor.select_window(selected);
+}
+
+/// The columns of the row the window `slot` is in, from the left edge of the windows beside it
+/// to the right edge, and the columns it takes itself.
+fn row_of(editor: &Editor, slot: WindowId) -> Option<((usize, usize), usize)> {
+    let side = editor.side_window();
+    let windows = editor.frame().windows();
+    let regions = (windows.iter()).find_map(|(id, r)| (*id == slot).then_some(r))?;
     let (top, bottom) = rows(regions);
     let (mut left, mut right) = span(regions);
     let own = right - left;
@@ -295,14 +320,51 @@ pub(super) fn fit_slot(editor: &mut Editor, slot: WindowId) {
             right = right.max(end);
         }
     }
-    let want = ((right - left) * SLOT_FIFTHS + 2) / 5;
+    Some(((left, right), own))
+}
+
+/// The window `slot`'s share of the row it is in, in thousandths (ADR 0184).
+pub(super) fn slot_share(editor: &Editor, slot: WindowId) -> Option<u16> {
+    let ((left, right), own) = row_of(editor, slot)?;
+    share(own, right - left)
+}
+
+/// The window `ask` below the slot `slot`: its share of the rows the two take, in thousandths.
+pub(super) fn ask_share(editor: &Editor, slot: WindowId, ask: WindowId) -> Option<u16> {
+    let (slot, ask) = (height(editor, slot)?, height(editor, ask)?);
+    share(ask, slot + ask)
+}
+
+/// Makes the window `ask` below the slot `slot` `permille` thousandths of the rows the two
+/// take, held to a tenth from either edge; a height the windows refuse stays.
+pub(super) fn fit_ask_to(editor: &mut Editor, slot: WindowId, ask: WindowId, permille: u16) {
+    let (Some(above), Some(own)) = (height(editor, slot), height(editor, ask)) else {
+        return;
+    };
+    let want = ((above + own) * usize::from(permille.clamp(100, 900)) + 500) / 1000;
     let (Ok(want), Ok(own)) = (isize::try_from(want), isize::try_from(own)) else {
         return;
     };
     let selected = editor.window().id();
-    editor.select_window(slot);
-    let _ = editor.resize_window(Way::Across, want - own);
+    editor.select_window(ask);
+    let _ = editor.resize_window(Way::Down, want - own);
     editor.select_window(selected);
+}
+
+/// The rows the window `id` takes, its modeline's too.
+fn height(editor: &Editor, id: WindowId) -> Option<usize> {
+    (editor.frame().windows().iter()).find_map(|(window, regions)| {
+        (*window == id).then(|| {
+            let (top, bottom) = rows(regions);
+            bottom - top
+        })
+    })
+}
+
+/// `part` of `whole` in thousandths, none of nothing.
+fn share(part: usize, whole: usize) -> Option<u16> {
+    let permille = (part * 1000 + whole / 2).checked_div(whole)?;
+    u16::try_from(permille.min(1000)).ok()
 }
 
 /// The columns a window takes, its divider's too: from its left edge to its right.

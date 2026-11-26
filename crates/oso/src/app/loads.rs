@@ -235,7 +235,7 @@ impl App {
             return true;
         }
         let editorconfig = self.editorconfig_for(index, &update);
-        if self.recent_file_gone(index, id, &update) {
+        if self.recent_file_gone(index, id, &update) || self.review_slot_gone(index, id, &update) {
             return true;
         }
         let Some(buffer) = self.editor.buffer_mut(id) else {
