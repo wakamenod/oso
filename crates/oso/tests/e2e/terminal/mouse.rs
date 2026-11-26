@@ -96,8 +96,8 @@ fn a_click_selects_any_window_and_moves_point_only_in_text() {
     );
     // A click in a text window selects it, and moves its point to the cell (ADR 0183).
     assert_eq!(
-        scratch["selections"][0]["cursor"],
-        json!({ "row": 1, "column": 0 })
+        scratch["selections"][0]["cursor"], 7,
+        "a byte offset: past `abcdef` and its newline"
     );
     let area = &scratch["area"];
     let in_scratch = json!({
@@ -110,7 +110,8 @@ fn a_click_selects_any_window_and_moves_point_only_in_text() {
     assert_eq!(state["buffer"]["name"], "*scratch*");
     assert_eq!(
         selected_window(&state)["selections"][0]["cursor"],
-        json!({ "row": 0, "column": 2 })
+        2,
+        "line 0, column 2"
     );
 }
 

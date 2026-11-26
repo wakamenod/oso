@@ -260,9 +260,11 @@ fn the_wheel_scrolls_the_window_under_the_pointer_without_selecting_it() {
     assert_eq!(top(&windows(&state)[0]), 3);
 }
 
-/// The cursor of `window`'s primary selection, as a line and a column.
-fn cursor(window: &Value) -> Value {
-    window["selections"][0]["cursor"].clone()
+/// The cursor of `window`'s primary selection: a byte offset, as the dev state gives it.
+fn cursor(window: &Value) -> u64 {
+    window["selections"][0]["cursor"]
+        .as_u64()
+        .expect("a selection's cursor")
 }
 
 /// A left click at `row`, `column` from the top left of `window`'s area.
@@ -296,18 +298,19 @@ fn a_click_moves_point_to_its_cell_and_on_the_gutter_only_selects() {
     let state = app.state();
     let now = windows(&state);
     assert_eq!(now[0]["selected"], true, "the click selected it");
-    assert_eq!(cursor(&now[0]), json!({ "row": 1, "column": 3 }));
-    assert_eq!(cursor(&now[1]), json!({ "row": 0, "column": 0 }));
+    assert_eq!(
+        cursor(&now[0]),
+        10,
+        "line 1, column 3: past `agenda` and its newline"
+    );
+    assert_eq!(cursor(&now[1]), 0);
 
     // Past a line's end, to its end.
     let past = columns(left) - 2;
     assert!(past > 6, "the window is wider than `agenda`");
     click(&mut app, left, 0, past);
     let state = app.state();
-    assert_eq!(
-        cursor(&windows(&state)[0]),
-        json!({ "row": 0, "column": 6 })
-    );
+    assert_eq!(cursor(&windows(&state)[0]), 6, "the end of `agenda`");
 
     // With line numbers on, a press on the right window's gutter selects it and moves nothing.
     app.run_command("global-display-line-numbers-mode", Some(1))
@@ -316,6 +319,6 @@ fn a_click_moves_point_to_its_cell_and_on_the_gutter_only_selects() {
     let state = app.state();
     let now = windows(&state);
     assert_eq!(now[1]["selected"], true, "the gutter's click selected it");
-    assert_eq!(cursor(&now[1]), json!({ "row": 0, "column": 0 }));
-    assert_eq!(cursor(&now[0]), json!({ "row": 0, "column": 6 }));
+    assert_eq!(cursor(&now[1]), 0);
+    assert_eq!(cursor(&now[0]), 6);
 }
