@@ -210,8 +210,12 @@ fn a_saved_review_continues_only_in_a_project_oso_knows_and_trusts_and_else_says
     use crate::commands::review::RESTRICTED;
 
     let root = std::path::Path::new("/home/me/src/oso");
-    let (editor, project) = crate::commands::review::tests::in_project(true);
-    assert_eq!(resumable(&editor, Some(project), root), Ok(project));
+    // The trusted fixture's root is absolute on Unix only: Windows reads no drive in it, so its
+    // trust list holds no root there, as the other tests of trusted projects say.
+    if cfg!(unix) {
+        let (editor, project) = crate::commands::review::tests::in_project(true);
+        assert_eq!(resumable(&editor, Some(project), root), Ok(project));
+    }
     // Not trusted: refused before any thread starts, so nothing runs git.
     let (editor, project) = crate::commands::review::tests::in_project(false);
     assert_eq!(
