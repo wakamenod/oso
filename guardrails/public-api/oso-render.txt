@@ -168,6 +168,7 @@ pub oso_render::Face::SessionPromptMark
 pub oso_render::Face::SessionQuiet
 pub oso_render::Face::SessionRepository
 pub oso_render::Face::SessionRunning
+pub oso_render::Face::SessionShown
 pub oso_render::Face::SessionSpace
 pub oso_render::Face::SessionStrong
 pub oso_render::Face::SessionStrongCode

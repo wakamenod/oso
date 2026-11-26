@@ -7,7 +7,7 @@ use super::palettes::Name;
 use crate::pane::Face;
 
 /// Every face, in the order of [`index`], so that a theme keeps a table of them.
-pub(super) const FACES: [Face; 143] = [
+pub(super) const FACES: [Face; 144] = [
     Face::Text,
     Face::Escape,
     Face::Boxed,
@@ -151,6 +151,7 @@ pub(super) const FACES: [Face; 143] = [
     Face::SessionEmphasis,
     Face::SessionLink,
     Face::SessionThinking,
+    Face::SessionShown,
 ];
 
 /// Where `face` is in [`FACES`]. A match with no wildcard, so that a new face does not
@@ -304,6 +305,7 @@ pub(super) const fn index(face: Face) -> usize {
         Face::SessionEmphasis => 140,
         Face::SessionLink => 141,
         Face::SessionThinking => 142,
+        Face::SessionShown => 143,
     }
 }
 
@@ -409,12 +411,16 @@ pub(super) fn faces(face: Face) -> (Name, Name) {
         | Face::SessionFront => (session(face), BgMain),
         // The spaces pane's levels (ADR 0140): a space's name as a heading, a repository's in a
         // terminal's blue as a listing's directories; a space's row on a review's header band,
-        // the front worktree's on the current line's, and the row at point, while the pane is
+        // the front worktree's on the current line's, the session shown's on a purple of its own, and
+        // the row at point, while the pane is
         // selected, on a selected candidate's, with a bar in an accent in its first cell.
         Face::SessionSpace => (SynHeading, BgMain),
         Face::SessionRepository => (Terminal(12), BgMain),
         Face::SessionHeader => (FgMain, BgHeader),
         Face::SessionFrontTint => (FgMain, BgCurrentLine),
+        // The session shown's row: a band in the hue of the front's name, clearer than the
+        // tint and apart from point's blue.
+        Face::SessionShown => (FgMain, BgShown),
         Face::SessionPoint => (FgMain, BgSelected),
         Face::SessionPointBar => (Azure, Azure),
         // A waiting row's mark and name on the lit beat of its blink (ADR 0140, as amended):

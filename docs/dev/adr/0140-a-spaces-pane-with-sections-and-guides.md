@@ -1,6 +1,6 @@
 # 0140. A spaces pane with sections and guides
 
-- Status: Accepted, amended by 0143 and 0159; "Waiting rows blink, as amended" (2026-11-21); "`A` on a space's row, as amended" (2026-11-24)
+- Status: Accepted, amended by 0143 and 0159; "Waiting rows blink, as amended" (2026-11-21); "`A` on a space's row, as amended" (2026-11-24); "The session shown, as amended" (2026-11-26)
 - Date: 2026-11-16
 
 ## Context
@@ -335,3 +335,34 @@ answered.
 Amended on 2026-11-24, with the author's choices through the coordinator: `A` on a space's row did
 nothing, and now closes that space, asking nothing
 ([ADR 0136](0136-issue-spaces.md), "A chosen space is closed, as amended").
+
+## The session shown, as amended
+
+Amended on 2026-11-26, with the author's choices through the coordinator. The author could not
+tell from the pane which session was open: the front worktree's rows had a faint tint, and point's
+band showed only while the pane was selected. And a space not in front sometimes showed open.
+
+- **The session shown**: the row of the session the tree's window shows (`Editor::tree_window`:
+  its terminal, or a native session's transcript, or its composer, card or call shown in a window
+  of its own) has its own band (`Face::SessionShown`), stronger than the front worktree's tint,
+  and its label in the front's colour (`Highlight::SessionFront`), whether the pane is selected or
+  not. One row at most: other windows' sessions, a file shown, or a row hidden by a fold mark
+  nothing. While the pane is selected, point's band is drawn over it.
+- **The session shown's rows open**: each time the session the tree's window shows changes, its
+  space, its repository, its worktree and the session it is nested under open, so its row is in
+  sight. One folded again by hand while it stays shown stays folded.
+- **A space not in front is folded** (amends [ADR 0136](0136-issue-spaces.md), step 2, Q4): each
+  time the space in front changes, every other space folds, whatever `TAB` or `S-TAB` chose, and
+  a session working or waiting in it no longer opens it: its row's roll-up shows that. One opened
+  by hand stays open until the space in front changes again.
+- **With no space in front**, as before, none is folded.
+- **Colours:** the band is a muted purple, the hue of the front's name, apart from point's blue and
+  clearer than the tint's grey: dark `#2a2140`, light `#e9dcf5`, dusk `#5a4a72`. Every session
+  face is checked at 4.5:1 on it, as on the other bands.
+- **Built where:** the list (`sessions/list.rs`, `row.rs`, `tree.rs`) takes the session shown with
+  `List::set_shown` and marks its rows in `SpaceBands::shown`; the app finds it
+  (`App::shown_session`) and draws the band under point's (`app/draw/spaces.rs`, `tiled.rs`).
+  `oso-render`'s `Face` gains `SessionShown`. No new crate, edge, module or trait.
+- **Changes to accepted ADRs**, each passage staying as written: this ADR's "**The pane not
+  selected** draws no band for point; only the front worktree's tint shows": only the front
+  worktree's tint and the session shown's band show.

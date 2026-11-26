@@ -1,5 +1,5 @@
 //! The bands of `*Spaces*` in the side window (ADR 0140): a section's row on its band, the
-//! front worktree's rows on their tint, and, only while the pane is selected, the row at point
+//! front worktree's rows on their tint, the session shown's on a band of its own, and, only while the pane is selected, the row at point
 //! on the point's band with a bar in its first cell. The pane not selected draws no band for
 //! point, so that whether it has the person's keys shows. On the lit beat of the blink, a
 //! waiting row's mark and name, and a roll-up's mark, are on a fill of their own (ADR 0140, as
@@ -21,6 +21,8 @@ use crate::sessions::list::SpaceBands;
 pub(super) struct SpacesFills {
     pub(super) sections: Vec<CellRect>,
     pub(super) tint: Vec<CellRect>,
+    /// The rows of the session the tree's window shows, whether the pane is selected or not.
+    pub(super) shown: Vec<CellRect>,
     pub(super) point: Vec<CellRect>,
     /// The first cell of the row at point, where the bar goes.
     pub(super) bar: Vec<CellRect>,
@@ -40,6 +42,7 @@ impl SpacesFills {
     ) {
         self.sections.clear();
         self.tint.clear();
+        self.shown.clear();
         self.point.clear();
         self.bar.clear();
         self.lit.clear();
@@ -61,6 +64,9 @@ impl SpacesFills {
             }
             if bands.tint.binary_search(&row.line).is_ok() {
                 push_row(&mut self.tint, text, at);
+            }
+            if bands.shown.binary_search(&row.line).is_ok() {
+                push_row(&mut self.shown, text, at);
             }
             push_lit(&mut self.lit, &bands.lit, (row, at), text);
         }
@@ -137,6 +143,7 @@ mod tests {
         let bands = SpaceBands {
             sections: vec![1],
             tint: vec![3],
+            shown: vec![3],
             lit: vec![(1, 14..17), (3, 6..9)],
         };
         (editor, side, bands)
@@ -165,6 +172,7 @@ mod tests {
             [1]
         );
         assert_eq!(fills.tint.iter().map(|r| r.row).collect::<Vec<_>>(), [3]);
+        assert_eq!(fills.shown.iter().map(|r| r.row).collect::<Vec<_>>(), [3]);
     }
 
     #[test]
@@ -205,9 +213,11 @@ mod tests {
         let (fills, band) = filled(&editor, side, &bands);
         assert!(band.is_empty() && fills.point.is_empty() && fills.bar.is_empty());
         assert_eq!(fills.sections.len(), 1);
+        // The session shown's band shows whether the pane is selected or not (ADR 0140).
+        assert_eq!(fills.shown.len(), 1);
         // Another window draws none of the pane's bands.
         let tree = editor.window().id();
         let (fills, _) = filled(&editor, tree, &bands);
-        assert!(fills.sections.is_empty() && fills.tint.is_empty());
+        assert!(fills.sections.is_empty() && fills.tint.is_empty() && fills.shown.is_empty());
     }
 }

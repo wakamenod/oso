@@ -223,6 +223,9 @@ pub enum Face {
     SessionHeader,
     /// The faint band behind the front worktree's rows (ADR 0140): a fill.
     SessionFrontTint,
+    /// The band behind the row of the session the tree's window shows (ADR 0140), clearer
+    /// than the front worktree's tint: a fill.
+    SessionShown,
     /// The band of the row at point while `*Spaces*` is selected (ADR 0140): a fill.
     SessionPoint,
     /// The bar in the first cell of that row, a fill in an accent.
