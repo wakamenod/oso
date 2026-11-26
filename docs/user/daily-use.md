@@ -208,7 +208,8 @@ and has its sessions' most urgent mark at the right; a session hangs from its wo
 guide (`├`, `└`) and starts with its own mark. A session named after its worktree shows its
 title (the conversation's topic) instead. A space of one repository
 lists its worktrees right under its own row. While another space is in front, a space is
-folded unless one of its sessions works or needs you; closed spaces wait in a folded
+folded, even while its sessions work or need you (its row's mark shows that); each time the
+space in front changes, the others fold again. Closed spaces wait in a folded
 `Archived spaces` group. Each line has a mark, a name, and how long since it last changed state (`now` under
 a minute). A worktree's mark is its most urgent session's. Worktrees made with git outside oso
 show too, and those untouched for a week wait in a folded `quiet` row. `s` groups the
@@ -217,7 +218,9 @@ asks, and a stopped one that could not resume one with the reason. Marks are col
 red needs you, amber works (its mark turns while it is in view), green is done, grey is idle.
 Sessions run outside oso are listed too, all in grey: under their worktree, or in a folded
 `Other projects` group. The worktree you are in has its name in an accent colour and a faint
-band behind its rows.
+band behind its rows. The session your window shows has a stronger band of its own and its name
+in that accent colour, whether the pane has your keys or not; each time it changes, its space,
+repository and worktree open so that its row is in sight.
 
 `C-c a s` (or `C-c C-p` in a session's terminal) moves you into the pane; pressing it again, or
 `q`, takes you back to the window you came from, and `C-u C-c a s` hides the pane. While the

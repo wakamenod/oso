@@ -79,6 +79,7 @@ impl<'e> Row<'e> {
         let room = width.saturating_sub(before + cells(&age) + 1);
         let name = cut_middle(unmarked(label), room);
         let mut text = format!("{head}{remote}{name}");
+        let named_at = head.len() + remote.len()..text.len();
         let remote = head.len()..head.len() + remote.trim_end().len();
         // Its mark and name, which a blink's lit beat draws inverse (ADR 0140, as amended):
         // counted in cells only then, as a row is not counted twice for nothing.
@@ -104,6 +105,7 @@ impl<'e> Row<'e> {
         let text = pad(&text, width.saturating_sub(cells(&age))) + &age;
         let age_at = text.len() - age.len()..text.len();
         let at = self.indent.len();
+        let showing = self.beat.shown == Some(entry.key);
         // A session run outside oso is quiet throughout: oso can mention it, never show it.
         let spans = if external {
             vec![(0..text.len(), Highlight::SessionQuiet)]
@@ -111,7 +113,7 @@ impl<'e> Row<'e> {
             // The guides quiet, where there are any: a span over blanks would cost a tick for
             // nothing.
             let guided = self.indent.trim_start().len();
-            let mut spans = Vec::with_capacity(4);
+            let mut spans = Vec::with_capacity(5);
             if guided > 0 {
                 spans.push((at - guided..at, Highlight::SessionQuiet));
             }
@@ -122,6 +124,10 @@ impl<'e> Row<'e> {
             }
             if !remote.is_empty() && blink != Some(true) {
                 spans.push((remote, Highlight::SessionAlert));
+            }
+            // The session shown's name in the front's colour (ADR 0140).
+            if showing && blink != Some(true) {
+                spans.push((named_at, Highlight::SessionFront));
             }
             spans.extend(place.map(|place| (place, Highlight::SessionQuiet)));
             spans.push((age_at, Highlight::SessionQuiet));
@@ -136,8 +142,12 @@ impl<'e> Row<'e> {
         if let Some(cells) = named_cells {
             out.bands.lit.push((out.lines.len(), cells));
         }
+        let first = out.lines.len();
         out.push_drawn(&cut(&text, width), line.clone(), &spans);
         self.reason(out, width, line);
+        if showing {
+            out.bands.shown.extend(first..out.lines.len());
+        }
     }
 
     /// Its reason, on the line under it, only where the person has something to do.

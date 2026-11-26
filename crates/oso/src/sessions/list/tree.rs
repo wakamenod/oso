@@ -5,13 +5,14 @@
 //! under it, quiet; every other one goes in `Other projects`, by the repository or directory it
 //! runs in. A worktree with no session and no change for a week goes in its repository's quiet
 //! row; closed spaces go in `Archived spaces`, their sessions with the archived ones. A
-//! worktree's row never moves when a state changes, though a space unfolds when one of its
-//! sessions comes to work or need input (ADR 0136, Q4): urgency shows in the marks, and the
-//! roll-ups of a worktree, a repository and a space.
+//! worktree's row never moves when a state changes, and a space behind the one in front stays
+//! folded while its sessions work or need input (ADR 0140, amending ADR 0136, Q4): urgency
+//! shows in the marks, and the roll-ups of a worktree, a repository and a space.
 //!
 //! Must not depend on: `app`, `dispatch` or `config`; plain data in, text out, as the list.
 
 mod choose;
+mod shown;
 mod space;
 mod worktree;
 
@@ -121,6 +122,16 @@ enum Place<'e> {
 type Placed<'e> = Vec<Vec<Vec<&'e Entry>>>;
 
 impl List {
+    /// The projects and worktrees the tree shows, and the space in front (ADR 0131). When the
+    /// space in front changes, every other space folds again, whatever was chosen (ADR 0140).
+    pub fn set_tree(&mut self, tree: Tree) {
+        if tree.front_space != self.tree.front_space {
+            self.chosen
+                .retain(|id, _| tree.front_space.as_ref() == Some(id));
+        }
+        self.tree = tree;
+    }
+
     /// The tree of `entries` for a window `width` cells wide, ages as of `now`.
     pub(super) fn render_tree(&self, entries: &[Entry], width: usize, now: Instant) -> Rendered {
         let mut out = Rendered::default();

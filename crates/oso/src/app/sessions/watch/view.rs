@@ -247,6 +247,8 @@ impl App {
         let lit = shown.then(|| self.watch.view.clock.lit(now)).flatten();
         let watched = self.watched_session().map(Key::Hosted);
         self.watch.list.set_blink(lit, watched);
+        let shown = self.shown_session().map(Key::Hosted);
+        self.watch.list.set_shown(shown, entries);
         let mut rendered = self.watch.list.render(entries, width, now);
         let top = scroll.start;
         let rows = window.size().rows;

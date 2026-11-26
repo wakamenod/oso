@@ -17,7 +17,8 @@ use crate::sessions::state::State;
 
 impl List {
     /// A space's row, then what it holds unless it is folded: by default, while another space
-    /// is in front and none of its sessions works or needs input (ADR 0136, step 2, Q4). A
+    /// is in front, even while its sessions work or need input (ADR 0140, amending ADR 0136,
+    /// step 2, Q4). A
     /// space of one repository shows that repository's worktrees right under its row (Q1).
     pub(super) fn space(
         &self,
@@ -30,14 +31,9 @@ impl List {
         let mut all: Vec<&Entry> = placed.iter().flatten().flatten().copied().collect();
         all.extend(orchestrator.iter().copied());
         let front = self.tree.front_space.as_ref() == Some(&space.id);
-        // Only oso's own sessions unfold a space: another program's are listed, quiet.
-        let busy = all.iter().any(|e| {
-            matches!(e.key, Key::Hosted(_))
-                && matches!(e.state, State::Working | State::NeedsInput(_))
-        });
-        // With no space in front, none is folded.
-        let quiet = self.tree.front_space.is_some() && !front && !busy;
-        let folded = self.space_folded(&space.id, quiet);
+        // With no space in front, none is folded. A busy one's roll-up shows its state.
+        let behind = self.tree.front_space.is_some() && !front;
+        let folded = self.space_folded(&space.id, behind);
         let head = format!("{LEAD}{} ", if folded { '▸' } else { '▾' });
         let name = clean(&space.name);
         let line = Line::Space(space.id.clone());

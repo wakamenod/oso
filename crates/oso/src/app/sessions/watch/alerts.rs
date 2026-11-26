@@ -29,6 +29,8 @@ const LOOKS_AT_MOST: usize = 2;
 #[derive(Debug, Default)]
 pub(super) struct Seen {
     watched: Option<(SessionKey, Option<Instant>)>,
+    /// The session the tree's window showed, as last looked at (ADR 0140).
+    shown: Option<SessionKey>,
 }
 
 impl Seen {
@@ -77,6 +79,16 @@ impl App {
         self.hosting.table().by_buffer(buffer).map(|s| s.key)
     }
 
+    /// The session the tree's window shows (ADR 0140): its terminal, or a native session's
+    /// transcript, composer or card, whether oso is focused or a prompt is open. While the side
+    /// window is selected, the tree's window selected last; while a docked window is, the one
+    /// it is laid out in.
+    pub(in crate::app) fn shown_session(&self) -> Option<SessionKey> {
+        let window = self.editor.window_by_id(self.editor.tree_window())?;
+        let table = self.hosting.table();
+        (table.by_buffer(window.buffer()).map(|s| s.key)).or_else(|| self.native_shown_in(window))
+    }
+
     /// The buffer in front of the person: the selected window's, in a focused oso window, with
     /// no prompt open.
     pub(in crate::app) fn buffer_in_front(&self) -> Option<oso_core::buffer::BufferId> {
@@ -115,6 +127,12 @@ impl App {
     /// stayed [`SEEN_AFTER`]. While a session needs input and the list could blink, it is drawn
     /// again at once, as the one in front does not blink (ADR 0140, as amended).
     pub(in crate::app) fn sync_seen(&mut self) {
+        // The session shown has its own band, and what hides its row opens (ADR 0140).
+        let shown = self.shown_session();
+        if self.watch.seen.shown != shown {
+            self.watch.seen.shown = shown;
+            self.watch.stale = true;
+        }
         let watched = self.watched_session();
         if self.watch.seen.watched.map(|(key, _)| key) == watched {
             return;

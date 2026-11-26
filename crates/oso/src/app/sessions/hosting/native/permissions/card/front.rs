@@ -58,6 +58,13 @@ fn request_waits(editor: &Editor, natives: &NativeSessions) -> RequestWaits {
 
 /// The session whose request waits and that `window` shows, if one's does.
 fn waiting_at(natives: &NativeSessions, window: &Window) -> Option<SessionKey> {
+    let key = session_at(natives, window)?;
+    (natives.permissions.asks.shown(key).is_some()).then_some(key)
+}
+
+/// The native session `window` shows: its transcript, its composer or its plan's edit, or one
+/// docked under its transcript, its card, its line, or a call's whole input or result.
+fn session_at(natives: &NativeSessions, window: &Window) -> Option<SessionKey> {
     let shown = window.buffer();
     let host = window.docked().map_or(shown, |(host, _)| host);
     let its = (natives.map.iter()).find_map(|(key, native)| {
@@ -69,14 +76,18 @@ fn waiting_at(natives: &NativeSessions, window: &Window) -> Option<SessionKey> {
             || native.result == Some(shown);
         here.then_some(*key)
     });
-    let key = its.or_else(|| natives.permissions.plans.session(shown))?;
-    (natives.permissions.asks.shown(key).is_some()).then_some(key)
+    its.or_else(|| natives.permissions.plans.session(shown))
 }
 
 impl App {
     /// Where a native session's request waits.
     pub(in crate::app) fn request_waits(&self) -> RequestWaits {
         request_waits(&self.editor, &self.hosting.natives)
+    }
+
+    /// The native session `window` shows, as [`session_at`] finds it.
+    pub(in crate::app) fn native_shown_in(&self, window: &Window) -> Option<SessionKey> {
+        session_at(&self.hosting.natives, window)
     }
 }
 

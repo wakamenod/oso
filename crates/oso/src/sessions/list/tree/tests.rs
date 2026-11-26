@@ -198,6 +198,55 @@ fn the_space_in_front_and_marks_take_their_faces_and_a_working_worktree_spins() 
 }
 
 #[test]
+fn the_session_shown_has_its_own_band_and_its_name_in_the_fronts_colour() {
+    let mut list = List::default();
+    list.set_tree(tree());
+    let entries = [
+        session(1, "oso-bb", State::Working, "/w/oso"),
+        Entry {
+            recap: "Bash: ls".to_owned(),
+            ..session(2, "pane-c3", ASK, "/w/oso/.claude/worktrees/pane")
+        },
+    ];
+    let face_of = |rendered: &super::super::Rendered, text: &str| {
+        let at = rendered.text.find(text).unwrap();
+        (rendered.highlights.iter())
+            .find(|(range, _)| *range == (at..at + text.len()))
+            .map(|(_, h)| *h)
+    };
+    // Nothing shown: no band, the name in the text's own colour.
+    let none = list.render(&entries, 44, Instant::now());
+    assert!(none.bands.shown.is_empty());
+    assert_eq!(face_of(&none, "oso-bb"), None);
+    // The session the tree's window shows, outside the front worktree too (ADR 0140): its row
+    // and the reason under it, and its name in the front's colour.
+    list.set_shown(Some(Key::Hosted(2)), &entries);
+    let rendered = list.render(&entries, 44, Instant::now());
+    let rows: Vec<&str> = rendered.text.lines().collect();
+    let row = (rows.iter().position(|r| r.starts_with("     └ ⚠ pane-c3")))
+        .unwrap_or_else(|| panic!("{rows:?}"));
+    let its: Vec<usize> = (0..rendered.lines.len())
+        .filter(|&at| rendered.lines[at] == Line::Session(Key::Hosted(2)))
+        .collect();
+    assert_eq!(its, [row, row + 1], "its reason too: {rows:?}");
+    assert_eq!(rendered.bands.shown, its, "{rows:?}");
+    assert_eq!(face_of(&rendered, "pane-c3"), Some(Highlight::SessionFront));
+    assert_eq!(face_of(&rendered, "oso-bb"), None);
+    // Its mark keeps its state's face.
+    let mark = rendered.text.find("⚠ pane-c3").unwrap();
+    assert!(
+        (rendered.highlights.iter()).any(|(r, h)| r.start == mark && *h == Highlight::SessionAlert),
+        "{:?}",
+        rendered.highlights
+    );
+    // The by-state list marks it too.
+    list.regroup();
+    let by_state = list.render(&entries, 44, Instant::now());
+    assert_eq!(by_state.bands.shown.len(), its.len());
+    assert_eq!(face_of(&by_state, "pane-c3"), Some(Highlight::SessionFront));
+}
+
+#[test]
 fn a_waiting_session_its_worktree_and_its_space_blink_even_folded() {
     let mut list = List::default();
     list.set_tree(tree());

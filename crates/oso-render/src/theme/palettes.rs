@@ -45,6 +45,8 @@ pub(super) enum Name {
     BgTrailing,
     /// The current line's band.
     BgCurrentLine,
+    /// The band of the session `*Spaces*` shows (ADR 0140).
+    BgShown,
     /// The cursor flash, at full strength.
     BgFlash,
     /// A dictation's text while Claude fixes it (ADR 0175, step 2).
@@ -202,6 +204,7 @@ pub(super) fn dark(name: Name) -> Color {
         FgWhitespace => rgb(0x9aa0b8),
         BgTrailing => rgb(0x3a1b22),
         BgCurrentLine => rgb(0x181a22),
+        BgShown => rgb(0x2a2140),
         BgFlash => rgb(0x4a2a5a),
         BgProvisional => rgb(0x15323a),
         BgAsk => rgb(0x211c12),
@@ -308,6 +311,7 @@ pub(super) fn light(name: Name) -> Color {
         FgWhitespace => rgb(0x5f6577),
         BgTrailing => rgb(0xf5d6d6),
         BgCurrentLine => rgb(0xeeefe8),
+        BgShown => rgb(0xe9dcf5),
         BgFlash => rgb(0xebc9ef),
         BgProvisional => rgb(0xc4e6e6),
         BgAsk => rgb(0xf8eed2),
@@ -415,6 +419,7 @@ pub(super) fn dusk(name: Name) -> Color {
         FgWhitespace => rgb(0xa3a7bd),
         BgTrailing => rgb(0x5d3a46),
         BgCurrentLine => rgb(0x4a4a52),
+        BgShown => rgb(0x5a4a72),
         BgFlash => rgb(0x603c6c),
         BgProvisional => rgb(0x1f5058),
         BgAsk => rgb(0x33302a),
