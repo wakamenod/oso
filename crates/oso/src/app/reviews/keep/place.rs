@@ -7,6 +7,7 @@
 //! them.
 
 use oso_core::editor::ReviewId;
+use oso_core::review::Rows;
 use oso_core::selection::SelectionSet;
 use oso_core::window::{Scroll, Window, WindowId};
 
@@ -16,6 +17,32 @@ use crate::review::saved::Place;
 /// How many rows above a cursor put back the window shows, where the place saved does not say
 /// (a file saved before ADR 0184).
 const PLACE_ABOVE: usize = 3;
+
+/// Where a saved place goes in a review's rows now.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::app::reviews) enum Spot {
+    /// At this line.
+    At(usize),
+    /// Not yet: a later text may show it.
+    Wait,
+    /// Nowhere: every file was read, and its file is not shown.
+    Gone,
+}
+
+/// Where `place` goes in `rows`, `read_once` once every file of the review was read: its line,
+/// or its file's row. A place on a line waits while only its file's row is found and not every
+/// file was read, as a text shows a file's row before its lines (ADR 0184). O(log of files,
+/// then the file's runs).
+pub(in crate::app::reviews) fn spot(rows: &Rows, place: &Place, read_once: bool) -> Spot {
+    match rows.line_of(&place.path, place.line) {
+        Some(line) if place.line.is_none() || read_once => Spot::At(line),
+        // `line_of` gives the file's row when no run of the file has the line or one after it.
+        Some(line) if rows.at(line).and_then(|row| row.line()).is_none() => Spot::Wait,
+        Some(line) => Spot::At(line),
+        None if read_once => Spot::Gone,
+        None => Spot::Wait,
+    }
+}
 
 impl App {
     /// Where the cursor of the window showing the review `id` is, the selected one first: a
@@ -54,13 +81,15 @@ impl App {
         let Some(buffer) = self.editor.review_buffer(id) else {
             return;
         };
-        let line =
-            (self.editor.review_rows(id)).and_then(|rows| rows.line_of(&place.path, place.line));
-        let Some(line) = line else {
-            if self.reviews.open[index].read_once {
+        let read_once = self.reviews.open[index].read_once;
+        let spot = (self.editor.review_rows(id)).map(|rows| spot(rows, place, read_once));
+        let line = match spot {
+            Some(Spot::At(line)) => line,
+            Some(Spot::Gone) => {
                 self.reviews.open[index].saving.place = None;
+                return;
             }
-            return;
+            Some(Spot::Wait) | None => return,
         };
         let above = place.above;
         self.reviews.open[index].saving.place = None;
@@ -115,3 +144,7 @@ impl App {
             .restore_positions_in(window, SelectionSet::new(offset), scroll);
     }
 }
+
+#[cfg(test)]
+#[path = "place_tests.rs"]
+mod tests;
