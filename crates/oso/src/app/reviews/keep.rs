@@ -510,8 +510,10 @@ impl App {
     /// Hands every review that changed to the store, before oso goes or a restart's new
     /// instance reads them; whether any was. [`App::wait_review_saves`] then waits for them.
     pub(in crate::app) fn hand_review_saves(&mut self) -> bool {
-        // The review in front is left as oso goes (ADR 0184).
+        // The review in front is left as oso goes, its layout as it is now (ADR 0184): a slot
+        // changed while laid out makes it due, or the next instance would not see it.
         self.note_front_left();
+        self.keep_review_layout_state();
         let mut handed = false;
         for index in 0..self.reviews.open.len() {
             let saving = &self.reviews.open[index].saving;

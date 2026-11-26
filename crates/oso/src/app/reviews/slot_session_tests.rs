@@ -71,7 +71,9 @@ fn a_live_hosted_session_goes_below_the_slot_again_with_its_split() {
     let slot = windows(&editor)[1].0;
     editor.show_in(slot, other);
     put_at(&mut editor, slot, (40, 0), 5);
-    let session = terminal(&mut editor, "*claude: oso-2*");
+    // A session's terminal, which agents never read: still named by its record name.
+    let session = editor.add_terminal_buffer("claude: oso-2");
+    assert!(editor.buffer(session).unwrap().withheld_from_agents());
     assert!(show_asked(&mut editor, &mut kept, session));
     let left_as = state_with(&editor, &kept, review, session).unwrap();
     assert_eq!(left_as.session.as_deref(), Some("oso-2"));
@@ -143,18 +145,20 @@ fn an_ended_session_is_only_named_and_nothing_starts() {
 }
 
 #[test]
-fn a_session_whose_buffer_may_hold_secrets_is_never_named_nor_shown() {
+fn a_session_whose_terminal_may_hold_secrets_is_never_named_nor_shown() {
     let (mut editor, review, _, other) = editor();
     let mut kept = Vec::new();
     assert!(enter(&mut editor, &mut kept, review));
     let slot = windows(&editor)[1].0;
     editor.show_in(slot, other);
-    let session = terminal(&mut editor, "*claude: oso-2*");
+    let session = editor.add_terminal_buffer("claude: oso-2");
     assert!(show_asked(&mut editor, &mut kept, session));
-    editor.buffer_mut(session).unwrap().withhold_from_agents();
+    // Its program reads a password: the buffer may hold secrets.
+    editor.set_echo_off(session, true);
+    assert!(editor.buffer(session).unwrap().is_secret());
     let left_as = state_with(&editor, &kept, review, session).unwrap();
     assert_eq!(left_as.session, None, "never named");
-    // Live, but its buffer withheld: nothing shown, and nothing said.
+    // Live, but its buffer may hold secrets: nothing shown, and nothing said.
     let table = hosting(session);
     assert_eq!(session_back(&editor, table.iter(), "oso-2"), None);
 }
