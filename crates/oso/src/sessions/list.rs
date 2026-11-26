@@ -150,13 +150,15 @@ pub struct SpaceBands {
     pub sections: Vec<usize>,
     /// The front worktree's rows.
     pub tint: Vec<usize>,
+    /// The rows of the session the tree's window shows: its row and its reason's.
+    pub shown: Vec<usize>,
     /// On the lit beat of the blink, the cells of each blinking line drawn inverse: its line
     /// and its columns, by line in order (ADR 0140, as amended).
     pub lit: Vec<(usize, Range<usize>)>,
 }
 
 /// The pane's clock as a render reads it: the spinner's frame, whether the blink's beat is
-/// lit, and the session in front of the person, whose row does not blink.
+/// lit, the session in front of the person, whose row does not blink, and the session shown.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) struct Beat {
     /// The spinner's frame, while working marks spin.
@@ -165,6 +167,8 @@ pub(super) struct Beat {
     pub(super) lit: Option<bool>,
     /// The session shown in the selected window of a focused oso window.
     pub(super) watched: Option<Key>,
+    /// The session the tree's window shows, whose row has its own band (ADR 0140).
+    pub(super) shown: Option<Key>,
 }
 
 impl Beat {
@@ -193,8 +197,8 @@ pub struct List {
     grouping: Grouping,
     /// Folds toggled from their default: the archived group starts folded, the rest open.
     toggled: HashSet<Fold>,
-    /// Spaces the person folded or opened, kept so whatever their default comes to: it moves
-    /// with the space in front and its sessions' states (ADR 0136, step 2, Q4).
+    /// Spaces the person folded or opened, or `S-TAB` set, kept whatever their default comes
+    /// to, until the space in front changes: then all but its are dropped (ADR 0140).
     chosen: HashMap<crate::sessions::spaces::SpaceId, bool>,
     /// Whether each space was folded when the tree was last made, which `TAB` turns over.
     shown: std::cell::RefCell<HashMap<crate::sessions::spaces::SpaceId, bool>>,
@@ -232,11 +236,6 @@ impl List {
     /// The projects and worktrees it shows, as last set.
     pub fn tree(&self) -> &tree::Tree {
         &self.tree
-    }
-
-    /// The projects and worktrees the tree shows, and the space in front (ADR 0131).
-    pub fn set_tree(&mut self, tree: tree::Tree) {
-        self.tree = tree;
     }
 
     /// Working marks spin, showing frame `frame` of [`SPINNER`], or stand still with `None`.

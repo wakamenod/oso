@@ -163,6 +163,8 @@ fn fills_of(cells: &WindowCells) -> [(Face, &[CellRect]); FILLS] {
         // `*Spaces*`' bands, in the side window only (ADR 0140).
         (Face::SessionHeader, &cells.pane.sections[..]),
         (Face::SessionFrontTint, &cells.pane.tint[..]),
+        // The session shown's, under point's (ADR 0140).
+        (Face::SessionShown, &cells.pane.shown[..]),
         (Face::SessionPoint, &cells.pane.point[..]),
         (Face::SessionPointBar, &cells.pane.bar[..]),
         // A waiting row's mark and name on the blink's lit beat, over the point's band.
@@ -204,7 +206,7 @@ fn fills_of(cells: &WindowCells) -> [(Face, &[CellRect]); FILLS] {
 }
 
 /// How many lists of cells a window fills behind its text.
-const FILLS: usize = 35;
+const FILLS: usize = 36;
 
 /// Room for what a frame lists of the tiled windows, empty between frames, which each frame
 /// takes at its own lifetime ([`super::reuse`]), so that a frame allocates nothing once warm.

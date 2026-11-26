@@ -307,7 +307,7 @@ const FADED_FLOOR: f32 = 4.5;
 /// are not here, so text on them is drawn in [`Face::Text`]'s colour.
 ///
 /// The spaces pane's bands (ADR 0140) follow: its marks and names keep their colours on them.
-pub(crate) const SYNTAX_FILLS: [Face; 22] = [
+pub(crate) const SYNTAX_FILLS: [Face; 23] = [
     Face::CurrentLine,
     Face::DiffAdded,
     Face::DiffRemoved,
@@ -315,6 +315,7 @@ pub(crate) const SYNTAX_FILLS: [Face; 22] = [
     Face::ReviewCommentPerson,
     Face::SessionHeader,
     Face::SessionFrontTint,
+    Face::SessionShown,
     Face::SessionPoint,
     // A waiting row's lit beat (ADR 0140, as amended): only its own inverse glyphs are on it.
     Face::SessionAlertLit,
@@ -636,6 +637,7 @@ pub(crate) mod tests {
                 (Face::ModelineInactive, LABEL),
                 (Face::SessionHeader, LABEL),
                 (Face::SessionFrontTint, LABEL),
+                (Face::SessionShown, LABEL),
                 (Face::SessionPoint, LABEL),
             ],
             // A waiting row's lit beat: its glyphs on their own fill, as a key's on its chip.
@@ -647,6 +649,7 @@ pub(crate) mod tests {
                 (Face::CurrentLine, LABEL),
                 (Face::SessionHeader, LABEL),
                 (Face::SessionFrontTint, LABEL),
+                (Face::SessionShown, LABEL),
                 (Face::SessionPoint, LABEL),
                 (Face::DiffAdded, LABEL),
                 (Face::DiffRemoved, LABEL),
@@ -661,6 +664,7 @@ pub(crate) mod tests {
                 (Face::CurrentLine, LABEL),
                 (Face::SessionHeader, LABEL),
                 (Face::SessionFrontTint, LABEL),
+                (Face::SessionShown, LABEL),
                 (Face::SessionPoint, LABEL),
                 (Face::Float, LABEL),
             ],
@@ -669,6 +673,7 @@ pub(crate) mod tests {
                 (Face::CurrentLine, LABEL),
                 (Face::SessionHeader, LABEL),
                 (Face::SessionFrontTint, LABEL),
+                (Face::SessionShown, LABEL),
                 (Face::SessionPoint, LABEL),
             ],
             // A native session's rows (ADR 0165): the person's words and inline code are read; a
@@ -776,6 +781,7 @@ pub(crate) mod tests {
             | Face::DiffFiller
             | Face::SessionHeader
             | Face::SessionFrontTint
+            | Face::SessionShown
             | Face::SessionPoint
             | Face::SessionPointBar => &[],
         }
@@ -960,6 +966,8 @@ pub(crate) mod tests {
                 // The spaces pane's bands, and point's on a section's or the front's (ADR 0140).
                 (Face::SessionHeader, behind_text),
                 (Face::SessionFrontTint, behind_text),
+                (Face::SessionShown, behind_text),
+                (Face::SessionShown, theme.background(Face::SessionFrontTint)),
                 (Face::SessionPoint, behind_text),
                 // A native session's prompt and its badges' chips (ADR 0165).
                 (Face::SessionPrompt, behind_text),

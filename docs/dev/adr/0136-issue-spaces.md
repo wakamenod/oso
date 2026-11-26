@@ -593,6 +593,9 @@ repository shows its worktrees right under its row (Q1); `RET` on a space's row 
 (Q2); closed spaces go in a folded `Archived spaces (N)` group, where `RET` opens one again
 (Q3); while another space is in front, a space is folded unless one of its sessions works or
 needs input (Q4).
+(Amended by [ADR 0140](0140-a-spaces-pane-with-sections-and-guides.md), "The session shown, as
+amended", 2026-11-26: a space not in front is folded even while its sessions work or need input,
+and each time the space in front changes every other space folds again, whatever was chosen.)
 
 - **The tree's model** is `Tree { spaces, closed, front_space, front, wall }`, each open space
   a `SpaceRows` of its repositories. Which worktrees each shows is `space_rows`

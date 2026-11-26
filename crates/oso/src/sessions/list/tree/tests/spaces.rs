@@ -96,7 +96,7 @@ fn a_space_of_several_repositories_shows_each_with_its_worktrees_a_level_deeper(
 }
 
 #[test]
-fn another_space_in_front_folds_the_quiet_ones_and_closed_spaces_go_last() {
+fn another_space_in_front_folds_the_others_even_busy_and_closed_spaces_go_last() {
     let busy_dir = "/w/b/wt/x";
     let mut tree = Tree {
         spaces: vec![
@@ -122,11 +122,14 @@ fn another_space_in_front_folds_the_quiet_ones_and_closed_spaces_go_last() {
     list.set_tree(tree);
     let mut busy = session(1, "x", ASK, busy_dir);
     busy.space_id = Some(id);
-    let text = shown(&list, &[busy], 44);
+    let text = shown(&list, &[busy.clone()], 44);
     let at = |start: &str| text.iter().position(|row| row.starts_with(start));
     assert!(at(" ▾ front ─").is_some(), "{text:?}");
     assert!(at(" ▸ quiet ─").is_some(), "{text:?}");
-    assert!(at(" ▾ busy ─").is_some(), "{text:?}");
+    // A busy space behind is folded too: its roll-up shows that it waits (ADR 0140,
+    // amending ADR 0136, step 2, Q4).
+    let busy_row = at(" ▸ busy ─").unwrap_or_else(|| panic!("{text:?}"));
+    assert!(text[busy_row].ends_with("⚠ 1"), "{text:?}");
     let closed = at(" ▸ Archived spaces ─").unwrap_or_else(|| panic!("{text:?}"));
     assert!(text[closed].ends_with(" 1"), "{text:?}");
     assert_eq!(closed, text.len() - 1);
@@ -136,6 +139,74 @@ fn another_space_in_front_folds_the_quiet_ones_and_closed_spaces_go_last() {
         text.last().unwrap().starts_with("   ■ old  An old issue"),
         "{text:?}"
     );
+}
+
+#[test]
+fn the_session_shown_opens_its_rows_and_a_new_front_folds_the_others_again() {
+    let wt = "/w/b/wt/x";
+    let mut tree = Tree {
+        spaces: vec![
+            space(1, "front", vec![project("/w/a", vec![main_at("/w/a")])]),
+            space(2, "quiet", vec![project("/w/q", vec![main_at("/w/q")])]),
+            space(
+                3,
+                "other",
+                vec![
+                    project("/w/b", vec![main_at("/w/b"), worktree(wt, "x", Some(1))]),
+                    project("/w/c", vec![main_at("/w/c")]),
+                ],
+            ),
+        ],
+        wall: Some(wall()),
+        ..Tree::default()
+    };
+    tree.front_space = Some(tree.spaces[0].id.clone());
+    let other = tree.spaces[2].id.clone();
+    let quiet = Line::Space(tree.spaces[1].id.clone());
+    let mut list = List::default();
+    list.set_tree(tree.clone());
+    // A stopped session, nested under another: its worktree is folded by default.
+    let mut parent = session(1, "p", State::Stopped, wt);
+    parent.space_id = Some(other.clone());
+    let mut child = session(2, "c", State::Stopped, wt);
+    child.space_id = Some(other.clone());
+    child.parent = Some(Key::Hosted(1));
+    let entries = [parent, child];
+    list.fold(&Line::Session(Key::Hosted(1)));
+    let text = shown(&list, &entries, 44);
+    let at = |text: &[String], start: &str| text.iter().position(|row| row.starts_with(start));
+    assert!(at(&text, " ▸ other ─").is_some(), "{text:?}");
+    // Shown: its space, repository, worktree and the session it is nested under open.
+    list.set_shown(Some(Key::Hosted(2)), &entries);
+    let text = shown(&list, &entries, 44);
+    assert!(at(&text, " ▾ other ─").is_some(), "{text:?}");
+    assert!(at(&text, "   ▾ b/").is_some(), "{text:?}");
+    assert!(at(&text, "     ▾ x").is_some(), "{text:?}");
+    assert!(text.iter().any(|row| row.contains("└ ■ c")), "{text:?}");
+    // Folded again by hand while it stays shown, it stays folded.
+    list.fold(&Line::Space(other.clone()));
+    list.set_shown(Some(Key::Hosted(2)), &entries);
+    let text = shown(&list, &entries, 44);
+    assert!(at(&text, " ▸ other ─").is_some(), "{text:?}");
+    // Shown again after another: it opens again.
+    list.set_shown(None, &entries);
+    list.set_shown(Some(Key::Hosted(2)), &entries);
+    let text = shown(&list, &entries, 44);
+    assert!(at(&text, " ▾ other ─").is_some(), "{text:?}");
+    // A space opened by hand stays open while the front stays.
+    list.fold(&quiet);
+    let text = shown(&list, &entries, 44);
+    assert!(at(&text, " ▾ quiet ─").is_some(), "{text:?}");
+    list.set_tree(tree.clone());
+    let text = shown(&list, &entries, 44);
+    assert!(at(&text, " ▾ quiet ─").is_some(), "{text:?}");
+    // Another space in front: every other space folds again, whatever was chosen.
+    tree.front_space = Some(tree.spaces[2].id.clone());
+    list.set_tree(tree.clone());
+    let text = shown(&list, &entries, 44);
+    assert!(at(&text, " ▸ quiet ─").is_some(), "{text:?}");
+    assert!(at(&text, " ▸ front ─").is_some(), "{text:?}");
+    assert!(at(&text, " ▾ other ─").is_some(), "{text:?}");
 }
 
 #[test]
