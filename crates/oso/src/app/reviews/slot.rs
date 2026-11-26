@@ -3,8 +3,9 @@
 //! read-only, the message of comments to send, or the session `review-ask` asked. While it
 //! shows something else, the session goes below it, the slot's lower half, which is lent the
 //! session's terminal size while no window showing it owns that (ADR 0169). One
-//! key, `review-layout`, shows it, goes back from the slot to the review where it was, and
-//! restores the windows from before it, as `q` in the review does.
+//! key, `review-layout` (`C-c a v`), goes back from the slot to the review where it was,
+//! restores the windows from before it, as `q` in the review does, and elsewhere continues the
+//! review left last (ADR 0184).
 //!
 //! Must not depend on: key presses or how a frame is drawn. Nothing here runs git: showing a
 //! review is what any window showing it does.
@@ -29,7 +30,11 @@ use oso_core::window::WindowId;
 use super::super::App;
 use crate::sessions::spaces::kept::{self, Kept, ReviewKept};
 
+mod continued;
 mod windows;
+
+#[cfg(test)]
+use continued::{Shown, continue_open};
 
 use windows::{
     ask_takes_size, carried, fit_slot, in_slot, in_tree, jump_slot, layout_window, show_asked,
@@ -47,8 +52,9 @@ const IN_PROMPT: &str = "Not in the minibuffer";
 pub(super) enum Key {
     /// Open the review menu.
     Menu,
-    /// The layout was made for this review.
-    Entered,
+    /// Continue the review left last (ADR 0184), else open the review menu: no layout is in
+    /// front.
+    Continue,
     /// The windows from before it came back.
     Restored,
     /// The review is selected again, from the slot.
@@ -58,16 +64,17 @@ pub(super) enum Key {
 }
 
 impl App {
-    /// `review-layout`: with `menu`, or with no review open, the review menu; else the layout,
-    /// the way back to the review from the slot, or the restore from the review.
+    /// `review-layout`: with `menu`, the review menu; else the way back to the review from the
+    /// slot, the restore from the review, or the review left last continued (ADR 0184).
     pub(super) fn review_layout_key(&mut self, menu: bool) {
         let kept = self.watch.spaces_mut().kept_mut();
         let (key, old) = press(&mut self.editor, kept, menu);
         self.freer.free(old);
         match key {
             Key::Menu => self.open_review_menu(),
+            Key::Continue => self.continue_review(),
             Key::Said(why) => self.editor.message(why),
-            Key::Entered | Key::Restored | Key::Back => self.request_redraw(),
+            Key::Restored | Key::Back => self.request_redraw(),
         }
     }
 
@@ -98,7 +105,7 @@ impl App {
         }
     }
 
-    /// Opens the review menu, as `C-x v r` did before the layout, and starts its counts; in a
+    /// Opens the review menu, as `C-c a V` does, and starts its counts; in a
     /// space whose orchestrator is recorded, the start that asks for its repository first
     /// (ADR 0163).
     fn open_review_menu(&mut self) {
@@ -234,16 +241,12 @@ pub(super) fn press(
     if editor.prompt().is_some() {
         return (Key::Said(IN_PROMPT), Vec::new());
     }
-    if menu || editor.reviews().next().is_none() {
+    if menu {
         return (Key::Menu, Vec::new());
     }
+    // No layout in front: the host continues the review left last (ADR 0184).
     if kept::review(kept).is_none() {
-        let key = match to_lay_out(editor) {
-            Some(review) if enter(editor, kept, review) => Key::Entered,
-            Some(_) => Key::Said(IN_PROMPT),
-            None => Key::Menu,
-        };
-        return (key, Vec::new());
+        return (Key::Continue, Vec::new());
     }
     // In the review, or the layout's review closed meanwhile, as beneath a prompt.
     let closed = kept::review(kept).is_some_and(|laid| editor.review_buffer(laid.review).is_none());
@@ -268,33 +271,6 @@ pub(super) fn press(
         }
         Err(why) => (Key::Said(why), old),
     }
-}
-
-/// The open review the layout shows: the one the selected window showed last of the selected
-/// buffer's project, else of any, else the one of that project opened last, else the one
-/// opened last.
-fn to_lay_out(editor: &Editor) -> Option<ReviewId> {
-    let project = crate::commands::review::selected_project(editor);
-    let project_of = |review: ReviewId| {
-        (editor.reviews()).find_map(|(id, project)| (id == review).then_some(project))
-    };
-    let (window, _) = editor.tiled();
-    let shown = std::iter::once(window.buffer()).chain(window.places().map(|(id, _)| id));
-    let mut any = None;
-    for buffer in shown {
-        let Some(review) = owner(editor, buffer) else {
-            continue;
-        };
-        if project.is_some() && project_of(review) == project {
-            return Some(review);
-        }
-        any = any.or(Some(review));
-    }
-    let last_of_project = (editor.reviews())
-        .filter(|(_, of)| Some(*of) == project)
-        .map(|(id, _)| id)
-        .last();
-    (last_of_project.or(any)).or_else(|| editor.reviews().map(|(id, _)| id).last())
 }
 
 /// Shows the review `id` in the layout's window while the frame is the layout, in the whole
@@ -516,7 +492,7 @@ pub(super) fn back(
     }
     lay_out_again(editor, kept)
         .map(Some)
-        .ok_or("The review is closed: C-x v r opens one")
+        .ok_or("The review is closed: C-c a V opens one")
 }
 
 #[cfg(test)]

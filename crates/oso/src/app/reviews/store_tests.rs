@@ -52,6 +52,8 @@ fn header(root: &str, opened: u64) -> Header {
         unsent: 1,
         pull: None,
         checkpoint: None,
+        left: None,
+        space: None,
     }
 }
 

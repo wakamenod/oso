@@ -167,7 +167,7 @@ pub fn review_menu(editor: &Editor, open: &Open) -> Notes {
 /// Why `review-start`'s `w` is unavailable while the repository has one worktree.
 const ONE_WORKTREE: &str = "one worktree: . reviews it";
 /// Why `review-start`'s heads are unavailable with no repository chosen.
-const NOT_CHOSEN: &str = "no repository was chosen: C-x v r asks";
+const NOT_CHOSEN: &str = "no repository was chosen: C-u C-c a v asks";
 
 /// `review-start`'s notes (ADR 0163): the chosen repository on the line under the title, and
 /// `w` unavailable while it has one worktree, which `.` reviews.

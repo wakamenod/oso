@@ -18,9 +18,9 @@ const REVIEW: &str = "*review: uncommitted repo*";
 const MESSAGE: &str = "*review message*";
 
 /// Shows the review of the uncommitted changes, opening it or showing the one open, from the
-/// menu `C-u C-x v r` opens whether a review is open or not (ADR 0160).
+/// menu `C-u C-c a v` opens whether a review is open or not (ADR 0160).
 fn show_review(app: &mut App) {
-    app.send_keys("C-u C-x v r w");
+    app.send_keys("C-u C-c a v w");
     app.wait_for("the review", |state| state["buffer"]["name"] == REVIEW);
 }
 

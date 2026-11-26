@@ -1,6 +1,8 @@
 # 0136. Issue spaces
 
 - Status: Accepted, amended by 0140, 0143, 0151, 0153, 0155, 0159, 0161, 0162, 0163, 0173, 0176 and 0177; "A chosen space is closed, as amended" (2026-11-24)
+- Key changed by [ADR 0184](0184-continue-a-review-where-it-was-left.md): the review key is the
+  agents menu's `v`, `C-c a v`, and the review menu its `V`, `C-c a V`.
 - Date: 2026-11-15
 
 ## Context
@@ -168,7 +170,7 @@ space's orchestrator and its workers.
     settings do;
   - Claude Code asks its workspace trust question once a space, for that directory.
 - **It is not a project** (ADR 0114: no version-control marker). So the orchestrator's buffer is
-  in no project, and a command that needs one (`C-x a w`, `C-x v r`) asks for one of the space's
+  in no project, and a command that needs one (`C-x a w`, `C-c a v`) asks for one of the space's
   repositories, completing their names, instead of failing.
 
 ### The orchestrator

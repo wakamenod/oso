@@ -26,7 +26,7 @@ const REVIEW: &str = "*review: uncommitted repo*";
 /// Shows the review of the uncommitted changes from the menu (ADR 0160), and waits for its
 /// added line.
 fn show_review(app: &mut App) {
-    app.send_keys("C-u C-x v r w");
+    app.send_keys("C-u C-c a v w");
     wait_saying(app, "the review", |state| state["buffer"]["name"] == REVIEW);
     rows_until(app, |rows| has(rows, "+changed"));
 }
@@ -34,7 +34,7 @@ fn show_review(app: &mut App) {
 /// [`show_review`] in a space whose orchestrator is recorded, where the menu first asks what
 /// of the space's repository to review (ADR 0163): this checkout, then its uncommitted changes.
 fn show_review_in_space(app: &mut App) {
-    app.send_keys("C-u C-x v r");
+    app.send_keys("C-u C-c a v");
     wait_saying(app, "review-start's menu", |state| {
         state["menu"] == "review-start"
     });
@@ -322,7 +322,7 @@ fn a_question_goes_to_the_review_s_session_submitted_and_shows_beside_the_review
     split_slot(&mut app, "README.md", "*claude: repo*");
 
     // Back in the review, a second question reuses the window below.
-    app.send_keys("C-x v r");
+    app.send_keys("C-c a v");
     wait_saying(&mut app, "the review again", |state| {
         state["buffer"]["name"] == REVIEW
     });

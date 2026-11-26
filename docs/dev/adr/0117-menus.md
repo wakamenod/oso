@@ -1,6 +1,8 @@
 # 0117. Menus
 
 - Status: Accepted, amended by 0143, 0154, 0160 and 0182
+- Key changed by [ADR 0184](0184-continue-a-review-where-it-was-left.md): the review key is the
+  agents menu's `v`, `C-c a v`, and the review menu its `V`, `C-c a V`.
 - Date: 2026-11-13
 
 ## Context
@@ -8,7 +10,7 @@
 The roadmap puts "the menu component, porting the author's hydra menus" in M3
 ([roadmap](../roadmap.md)). On 2026-11-13 the author asked for it before
 [ADR 0122](0122-agent-review.md)'s unified view, as **one component that combines hydra and
-transient**, so that the review's scope menu (`C-x v r`) is built on it. Earlier ADRs fixed its
+transient**, so that the review's scope menu (`C-c a V`) is built on it. Earlier ADRs fixed its
 outline and left the rest here:
 
 - [ADR 0008](0008-floating-ui.md): the author uses about nine hydra menus, and git needs
@@ -52,7 +54,7 @@ outline and left the rest here:
 - [ADR 0113](0113-query-replace-keyboard-macros-and-whitespace-cleanup.md): a macro holds the keys
   typed and the text an input method commits, and a replay feeds them back; a key rebound since
   recording does what it does now.
-- [ADR 0122](0122-agent-review.md): "**The menu** (`C-x v r`, a float of choices as in ADR 0117 once
+- [ADR 0122](0122-agent-review.md): "**The menu** (`C-c a V`, a float of choices as in ADR 0117 once
   it lands, a completing prompt until then) offers each scope with its file count, counted on a
   worker and filled in as each count comes. It remembers the last choice per project." Its step 3
   (the unified view) waits for this ADR.
@@ -84,7 +86,7 @@ of either is copied here.
   outline folding and the mode-specific ones name commands oso does not have.
 - **Transients:** the previous setup's main menu has 47 suffixes in two rows of titled column
   groups and opens four submenus (transient sub-prefixes); two submenus exist only to hold one
-  switch each. Its **review menu**, the model for `C-x v r`: eight scope choices whose labels are
+  switch each. Its **review menu**, the model for `C-c a V`: eight scope choices whose labels are
   worked out as it draws (a label, a file count or `nothing` or `?`, and `(last)` on the last
   choice); choices that cannot apply are shown but refused (`:inapt-if`), one is hidden without
   `gh` (`:if`); a heading names the session and project; two switches (`-f` only these files, `-e`
@@ -406,7 +408,7 @@ with the next key that is not a paging key.
 
 The author chose (Q1 (d)) these first menus, built in as Rust tables:
 
-- **`review`** on `C-x v r`, ADR 0122's scope menu, built in ADR 0122 step 3 on this component:
+- **`review`** on `C-c a V`, ADR 0122's scope menu, built in ADR 0122 step 3 on this component:
   the scopes as `exit` heads with their counts as notes and `(last)` on the default head,
   unavailable scopes dim with their reason, the PR scope hidden without `gh`, the session and
   project under the title, the switches step 3 settles with the author, and a `stay` head to
@@ -421,7 +423,7 @@ The author chose (Q1 (d)) these first menus, built in as Rust tables:
 - **`search`** (the author's search menu's heads oso has today: project search and finding a
   project's file; the rest join as their commands come).
 - The rest wait for their commands; the author may write any of them in `config.toml` meanwhile.
-- **Default keys (Q25):** only `C-c t` (toggles) and `C-x v r` (review). The windows, jump and
+- **Default keys (Q25):** only `C-c t` (toggles) and `C-c a v` (review). The windows, jump and
   search menus have no key by default; the author binds them in `config.toml`, and `M-x open-menu`
   reaches every menu.
 - **These are defaults, not the author's menus fixed in code.** Each one is a starting point that
@@ -486,7 +488,7 @@ As put to the author, the recommended option first; the answers are under
 
 1. **Which menus come first.** The author's Emacs has twelve hydras (151 heads); oso has commands
    for about 25 of those heads today (aids, line numbers, truncation, whitespace cleanup, windows,
-   buffers, files, project search, avy). ADR 0122's review needs `C-x v r`.
+   buffers, files, project search, avy). ADR 0122's review needs `C-c a v`.
    (a) Built in: the review scope menu (built in ADR 0122 step 3), a toggle menu (8 heads oso
    has), a windows-and-buffers menu (about 15 of the author's 30 heads), and a jump menu (avy and
    `goto-line`). The other hydras wait for their commands; the author may write any in
@@ -659,10 +661,10 @@ As put to the author, the recommended option first; the answers are under
 25. **Keys for the built-in menus.** In oso, Command is Meta and Option is Super (`s-`); the
     author's Emacs binds its menus to `C-c t`, `s-s`, `s-g`, `s-c` and `M-s`, and oso already uses
     `M-s r` for project search.
-    (a) Bind only `C-c t` (toggles) and `C-x v r` (review) by default; the author binds the windows
+    (a) Bind only `C-c t` (toggles) and `C-c a v` (review) by default; the author binds the windows
     and jump menus in `config.toml` to whichever physical keys their `s-` was.
     (b) The author names the keys now, and they become the defaults.
-    (c) No default keys but `C-x v r`; everything else through `M-x open-menu` or `config.toml`.
+    (c) No default keys but `C-c a v`; everything else through `M-x open-menu` or `config.toml`.
 
 ### The key list (which-key)
 

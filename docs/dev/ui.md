@@ -393,7 +393,8 @@ planned.
   - `jumps`: `t` the timed character jump, `l` and `h` a line, `e` a line's end, `n` a line by
     number.
   - `search`: `f` a project's file, `r` the project's lines.
-  - `review`, which `review-layout` on `C-x v r` opens with no review open or with `C-u`
+  - `review`, on `C-c a V`, which `review-layout` on `C-c a v` opens too with `C-u`, or with no
+    review ever left or saved
     (ADR 0122, ADR 0160): a review of each scope and the session's baseline, with each scope's
     count of files; see [Reviews](#reviews).
   - `space` on `S` in the Agents menu (ADR 0136): the space in front's repositories,
@@ -449,8 +450,8 @@ planned.
 ## Reviews
 
 An agent's changes are reviewed in a review buffer ([ADR 0122](adr/0122-agent-review.md)),
-`*review: <scope> <project>*`, opened from the `review` menu (`C-x v r` with no review open, or
-`C-u C-x v r`) in the review layout (below): `D` since the session's
+`*review: <scope> <project>*`, opened from the `review` menu (`C-c a V`, or
+`C-u C-c a v`) in the review layout (below): `D` since the session's
 baseline, `w` uncommitted, `u` unstaged, `s` staged, `b` the branch against its base (`C-u b`
 names it), `c` a commit, `r` a range `FROM..TO`, `p` a pull request by its number (step 12b),
 and `B` takes a baseline, keeping the menu open.
@@ -515,7 +516,7 @@ project and how long ago the baseline was taken. Only a trusted project runs git
   fifths. The slot shows one thing at a time: the source `RET` goes to, the side `M-RET` or
   `C-u RET` shows, the message `C-c C-c` makes and the session `Q` asks (ADR 0163), each in
   place of the last, except that the session goes below whatever else the slot shows but
-  `*Messages*`, the slot split in halves (ADR 0169): a later `RET` changes the top, a later `Q` the bottom. `C-x v r` (`review-layout`) goes
+  `*Messages*`, the slot split in halves (ADR 0169): a later `RET` changes the top, a later `Q` the bottom. `C-c a v` (`review-layout`) goes
   back from the slot to the review where the person left it, and in the review puts back the
   windows from before the layout, exactly, as `q` and closing the review do. The two panes take
   the layout's left, the files pane the review's left. The windows are found by name, so a slot

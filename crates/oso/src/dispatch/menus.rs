@@ -93,7 +93,7 @@ impl Dispatcher {
 
     /// Says whether the host opens `review-layout`'s menu itself, as in a space whose
     /// orchestrator is recorded, where a start asks for the repository first (ADR 0163). The
-    /// host says it at each sync, so a macro that enters another space and runs `C-x v r` in
+    /// host says it at each sync, so a macro that enters another space and runs `C-c a v` in
     /// one replay goes by the space it was in; and the host falls back to the review menu where
     /// no repository of the space is trusted.
     pub fn set_review_menu_by_host(&mut self, by_host: bool) {

@@ -150,7 +150,7 @@ fn a_send_goes_into_the_composer_escaped_and_a_reviews_question_goes_at_once() {
     fs::write(flow.project.join("notes.md"), "notes\nmore\n").unwrap();
     // From a buffer of the project, whose uncommitted changes the review shows.
     open_notes(&flow, &mut app);
-    app.send_keys("C-u C-x v r w");
+    app.send_keys("C-u C-c a v w");
     app.wait_for("the review", |state| {
         state["buffer"]["name"] == "*review: uncommitted proj*" && text(state).contains("+more")
     });

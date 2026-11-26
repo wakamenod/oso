@@ -108,6 +108,9 @@ pub(crate) struct Found {
     pub(super) pull: Option<u64>,
     /// A pull request's review's last review by the person (step 2).
     pub(super) checkpoint: Option<crate::review::commits::Checkpoint>,
+    /// When the person left it last, and in which space (ADR 0184).
+    pub(super) left: Option<u64>,
+    pub(super) space: Option<String>,
 }
 
 /// What the store found or did, for the UI thread.
@@ -472,6 +475,8 @@ fn read(directory: &Path, name: &str, asked: &Header) -> Result<Option<Found>, S
         left_out: read.left_out,
         pull: read.header.pull,
         checkpoint: read.header.checkpoint,
+        left: read.header.left,
+        space: read.header.space,
     }))
 }
 

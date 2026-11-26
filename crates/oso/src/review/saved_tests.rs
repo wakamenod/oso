@@ -46,6 +46,8 @@ fn header() -> Header {
         unsent: 1,
         pull: None,
         checkpoint: None,
+        left: None,
+        space: None,
     }
 }
 
@@ -108,6 +110,7 @@ fn round_trip(review: &Review, max: usize) -> (Vec<u8>, Decoded) {
         place: Some(Place {
             path: FILE.into(),
             line: Some((Side::New, 3)),
+            above: Some(7),
         }),
         filter: Filter::new("src todo"),
         files: true,
@@ -371,6 +374,39 @@ fn a_header_says_what_the_review_is_from_its_first_line_alone() {
     assert_eq!(super::header(&read), Some(pulled));
     let forged = String::from_utf8_lossy(&bytes).replace("\"pull\":12", "\"pull\":0");
     assert_eq!(super::header(forged.as_bytes()).map(|h| h.pull), Some(None));
+}
+
+#[test]
+fn when_and_where_a_review_was_left_come_back_and_a_file_saved_before_has_none() {
+    // ADR 0184: when the person left it, in which space, and the rows above its cursor.
+    let left = Header {
+        left: Some(1_700_000_100_000),
+        space: Some("0123456789abcdef0123456789abcdef".into()),
+        ..header()
+    };
+    let view = SavedView {
+        place: Some(Place {
+            path: FILE.into(),
+            line: None,
+            above: Some(12),
+        }),
+        ..SavedView::default()
+    };
+    let bytes = encode(&left, &Saved::default(), &view, &withheld, MAX_BYTES).unwrap();
+    let read = decode(&bytes).unwrap();
+    assert_eq!(read.header, left);
+    assert_eq!(read.view, view);
+    // A file saved before has none of them.
+    let before = br#"{"oso-review":1,"root":"/work/project","scope":{"kind":"uncommitted"},"opened":5,"comments":0,"unsent":0,"next_id":1}
+{"kept":{"choice":"auto","folded":false,"place":{"path":"src/a.rs","side":"new","line":2}}}
+"#;
+    let read = decode(before).unwrap();
+    assert_eq!((read.header.left, read.header.space), (None, None));
+    assert_eq!(read.view.place.unwrap().above, None);
+    // A space that is not an id is none; one forged long is not kept.
+    let text = String::from_utf8_lossy(&bytes)
+        .replace("0123456789abcdef0123456789abcdef", &"x".repeat(4096));
+    assert_eq!(super::header(text.as_bytes()).unwrap().space, None);
 }
 
 #[test]

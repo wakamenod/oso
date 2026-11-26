@@ -302,7 +302,7 @@ fn a_reviews_question_resumes_a_stopped_native_orchestrator_and_goes_once_it_run
                 .as_str()
                 .is_some_and(|line| line.contains("  proj  "))
     });
-    app.send_keys("C-u C-x v r");
+    app.send_keys("C-u C-c a v");
     app.wait_for("review-start's menu", |state| {
         state["menu"] == "review-start"
     });

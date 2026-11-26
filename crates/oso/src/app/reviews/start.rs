@@ -304,7 +304,9 @@ impl App {
     /// The review menu, for `project`, if it opens.
     fn review_menu_for(&mut self, project: ProjectId) {
         if self.editor.prompt().is_some() {
-            return self.editor.message("A prompt is open: C-x v r asks again");
+            return self
+                .editor
+                .message("A prompt is open: C-u C-c a v asks again");
         }
         self.editor.set_review_target(Some(project));
         let starting = &mut self.reviews.starting;
@@ -316,7 +318,9 @@ impl App {
     /// `review-start`'s menu, for the repository's project, if it opens.
     fn start_menu_for(&mut self, project: ProjectId) {
         if self.editor.prompt().is_some() {
-            return self.editor.message("A prompt is open: C-x v r asks again");
+            return self
+                .editor
+                .message("A prompt is open: C-u C-c a v asks again");
         }
         if let Some(chosen) = &mut self.reviews.starting.chosen {
             chosen.project = Some(project);
@@ -537,7 +541,7 @@ fn shown(path: &Path, home: Option<&Path>) -> String {
 }
 
 /// Why a step after the repository's has nothing to go on.
-const NOT_CHOSEN: &str = "No repository was chosen: C-x v r asks";
+const NOT_CHOSEN: &str = "No repository was chosen: C-u C-c a v asks";
 
 /// Where pull request `number`'s head is checked out in the repository at `root`, on
 /// `oso-review-head`; `None` on any failure, which the review then says itself.

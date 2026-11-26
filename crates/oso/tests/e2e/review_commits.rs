@@ -64,7 +64,7 @@ fn m_n_steps_to_each_commit_and_c_c_c_c_sends_them_grouped() {
     // From the project's file, as `review_pr` opens the menu: the status's own keys aside.
     app.send_keys(&format!("C-x b {} RET", typing("a.txt")));
     app.wait_for("the file", |state| state["buffer"]["name"] == "a.txt");
-    app.send_keys("C-u C-x v r");
+    app.send_keys("C-u C-c a v");
     app.wait_for("the review menu", |state| state["menu"] == "review");
     app.send_keys("p 7 RET");
     app.wait_for("the review", |state| state["buffer"]["name"] == WHOLE);
@@ -170,7 +170,7 @@ fn ret_in_a_commit_opens_the_file_now_else_its_side_and_m_ret_the_side() {
     let (mut app, first, _) = pull_request_of_two(&scratch);
     app.send_keys(&format!("C-x b {} RET", typing("a.txt")));
     app.wait_for("the file", |state| state["buffer"]["name"] == "a.txt");
-    app.send_keys("C-u C-x v r");
+    app.send_keys("C-u C-c a v");
     app.wait_for("the review menu", |state| state["menu"] == "review");
     app.send_keys("p 7 RET");
     app.wait_for("the review", |state| state["buffer"]["name"] == WHOLE);
@@ -195,7 +195,7 @@ fn ret_in_a_commit_opens_the_file_now_else_its_side_and_m_ret_the_side() {
 
     // A b.txt there now: that file, at the line carried, and what it is said.
     fs::write(scratch.path().join("proj-git/b.txt"), "top\nbee\n").unwrap();
-    app.send_keys("C-x v r");
+    app.send_keys("C-c a v");
     app.wait_for("the review again", |state| state["buffer"]["name"] == one);
     app.send_keys("RET");
     // Its cursor too: the state has none until the file has loaded and been judged.
@@ -205,7 +205,7 @@ fn ret_in_a_commit_opens_the_file_now_else_its_side_and_m_ret_the_side() {
     wait_echo(&mut app, "whose", "#7's head is not checked out here");
 
     // `M-RET`: the side all the same.
-    app.send_keys("C-x v r");
+    app.send_keys("C-c a v");
     app.wait_for("the review again", |state| state["buffer"]["name"] == one);
     app.send_keys("M-RET");
     app.wait_for("the side again", |state| state["buffer"]["name"] == *side);

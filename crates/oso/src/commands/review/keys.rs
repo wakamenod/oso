@@ -19,7 +19,7 @@ pub(super) fn review_keys(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError
     let text = keys_text(
         "Keys in a review buffer",
         KEYS,
-        "C-x v r goes back to the review from the layout's slot, and in the review puts back the windows from before it; C-u C-x v r opens the review menu; C-x k closes the review.",
+        "C-c a v goes back to the review from the layout's slot, in the review puts back the windows from before it, and elsewhere continues the review left last; C-c a V opens the review menu; C-x k closes the review.",
     );
     show_keys(ctx, KEYS_BUFFER, &text)
 }

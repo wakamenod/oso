@@ -79,7 +79,6 @@ const TABLES: &[&[(&str, &str)]] = &[
     projects::BINDINGS,
     recovery::BINDINGS,
     replace::BINDINGS,
-    review::BINDINGS,
     save::BINDINGS,
     scroll::BINDINGS,
     session::BINDINGS,

@@ -1,6 +1,8 @@
 # 0160. The review layout
 
-- Status: Accepted, amended by 0163, 0167 and 0169
+- Status: Accepted, amended by 0163, 0167, 0169 and 0184
+- Key changed by [ADR 0184](0184-continue-a-review-where-it-was-left.md): the review key is the
+  agents menu's `v`, `C-c a v`, and the review menu its `V`, `C-c a V`.
 - Date: 2026-11-19
 
 ## Context
@@ -16,7 +18,7 @@ The pieces to fix this exist. [ADR 0121](0121-agent-sessions-and-spaces.md) take
 tiled windows out of the frame and puts it back (`Editor::swap_window_tree`), with every window's
 cursors, views, places and pair kept: each space keeps its own tree, and `space-zoom` keeps the
 tree from before it. [ADR 0112](0112-window-splits.md) left rules for where a buffer is shown
-(Emacs's `display-buffer`) for later. `C-x v r` opened the review menu ([ADR 0117](0117-menus.md)).
+(Emacs's `display-buffer`) for later. `C-c a V` opened the review menu ([ADR 0117](0117-menus.md)).
 
 The author asked for a fixed layout: the review at the left, one slot at the right, one key back
 from the slot to the review, and the windows from before restored on `q`, as magit's quit and
@@ -48,14 +50,18 @@ The author chose (a) on each question below on 2026-11-19, through the coordinat
 ### One key (Q1)
 
 `review-layout` (`Person`: it takes the person's whole tree out and shows a review, whose looks
-run git) is bound to `C-x v r`, and any key may bind it:
+run git) is bound to `C-c a v`, and any key may bind it:
 
-| Where | What it does |
+| Where | What `C-c a v` does |
 |---|---|
-| no review open, or with a prefix argument | opens the review menu, at once as the command ends, as a menu key opens it, so that a keyboard macro's next key goes to it |
-| a review open, no layout | shows the layout of the review the selected window showed last of the selected buffer's project, else the one of that project opened last, else the one the window showed last of any project, else the one opened last |
-| in the slot, or any window but the review's | selects the review again where the person left it: the window a jump was asked in last, else the layout's |
-| in the review, its panes or its files pane | restores the windows from before the layout |
+| with a prefix argument | opens the review menu, at once as the command ends, as a menu key opens it, so that a keyboard macro's next key goes to it |
+| in the review, its panes or its files pane, while laid out | restores the windows from before the layout; the review is left, and its layout state is kept in memory and saved |
+| in the slot, or any window of the layout but the review's | selects the review again where the person left it: the window a jump was asked in last, else the layout's |
+| anywhere else, a review left or saved | continues the review left last ([ADR 0184](0184-continue-a-review-where-it-was-left.md)): its space first, then the review as it was left, from memory or from its saved file |
+| anywhere else, no review ever left or saved | opens the review menu |
+
+This table is ADR 0184's; it replaces the one first written here, whose second row laid out the
+review the selected window showed last, as opening a review is now a leaving.
 
 `q` in the review restores too, and so does `C-x k` of the layout's review (Q8). `C-x o` still
 goes through the windows.
@@ -67,7 +73,7 @@ goes through the windows.
 - **The restore comes after the key:** the host carries out the request once the dispatcher
   ends, as it does `space-zoom`'s, so keys sent with `q` in one batch, or after it in a keyboard
   macro's replay, run in the window `q` buried before the windows come back.
-- **The menu's prefix argument:** `C-u` before `C-x v r` now means the menu, so it goes to no
+- **The menu's prefix argument:** `C-u` before `C-c a v` now means the menu, so it goes to no
   head; a prefix typed inside the menu still builds one for the next head (ADR 0117, Q15).
 
 ### What is kept (Q3)
@@ -106,7 +112,7 @@ A restart hands over only the tree in the frame (ADR 0121, as built): the tree f
 not carried. The frame comes back as the layout's windows, the review opening again in its window
 (ADR 0122, Q-H), and the state's review entry gains an optional `slot`, the slot's place among the
 state's windows, so that the frame is still the layout. With nothing to restore, `q` and
-`C-x v r` in the review then leave the review's window alone, showing what it showed behind the
+`C-c a v` in the review then leave the review's window alone, showing what it showed behind the
 review. A reader before this ADR leaves `slot` out.
 
 ### Public items
@@ -127,7 +133,7 @@ over the editor and the stack). Nothing new is public in `oso_core::frame` or `o
 - [ADR 0122](0122-agent-review.md):
   - Step 3 part three, "The window (Q2, Q3)": in the review layout, the source and the sides go
     to its slot; outside it the rule stands.
-  - "The menu", `C-x v r`, and the Keys' "`q` bury": `C-x v r` runs `review-layout`, which opens
+  - "The menu", `C-c a v`, and the Keys' "`q` bury": `C-c a v` runs `review-layout`, which opens
     the menu with no review open or with `C-u`; `q` restores the windows from before the layout
     when the frame is one, and buries the review otherwise.
   - Step 12a, "`*review message*` opens in the selected window": in the layout, in its slot,
@@ -137,9 +143,9 @@ over the editor and the stack). Nothing new is public in `oso_core::frame` or `o
   - Step 3's "`review-quit` … is `Change`" holds: an agent's `q` buries the review, and only the
     person's restores the windows.
 - [ADR 0117](0117-menus.md), "Default keys (Q25)", and [ADR 0143](0143-agent-keys-on-c-c-a-and-an-agents-menu.md)'s
-  restatement of them: `C-x v r` is no longer one of the built-in menus' default keys; the review
+  restatement of them: the review key is no longer one of the built-in menus' default keys; the review
   menu keeps its name, `open-menu` and `config.toml` reach it, and `review-layout` opens it.
-  ADR 0117, "The prefix argument (Q15)": a prefix before `C-x v r` opens the menu and goes to no
+  ADR 0117, "The prefix argument (Q15)": a prefix before `C-c a v` opens the menu and goes to no
   head.
 - [ADR 0112](0112-window-splits.md), "rules for where a buffer is shown … are left for later": the
   review layout's slot is the first such rule, for a review's jumps and message only.
@@ -169,9 +175,9 @@ over the editor and the stack). Nothing new is public in `oso_core::frame` or `o
 
 ## Alternatives considered
 
-- **`C-x v r` stays the menu, with a head for the layout and a separate key back** (Q1 (b)): two
+- **`C-c a v` stays the menu, with a head for the layout and a separate key back** (Q1 (b)): two
   keys to learn for one place, and the menu would open on the way back.
-- **Only `C-x v r` makes the layout; the menu opens reviews in the selected window** (Q2 (b)):
+- **Only `C-c a v` makes the layout; the menu opens reviews in the selected window** (Q2 (b)):
   the windows would pile up again whenever a review is opened from the menu.
 - **Keep only the shape, the buffers and the positions, and rebuild them** (Q3 (b)): more code for
   the same result, and a pair or a window's places would be lost.
