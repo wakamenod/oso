@@ -92,17 +92,13 @@ fn switch_to_buffer(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 fn kill_buffer(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     super::not_in_prompt(ctx)?;
     let name = ctx.answer().unwrap_or_default();
-    // The current buffer when it is a review's, which `C-x k` lists first though no buffer list
-    // holds it: its kill closes the review (ADR 0122).
+    // The current buffer, which `C-x k` lists first though no buffer list may hold it: a
+    // review's, whose kill closes the review (ADR 0122), or one `kill` keeps and says so.
     let current = ctx.editor.window().buffer();
-    let review = (ctx.editor.review_of(current).is_some())
-        .then_some(current)
-        .filter(|id| {
-            ctx.editor
-                .buffer(*id)
-                .is_some_and(|buffer| buffer.name() == name)
-        });
-    let id = review
+    let named = (ctx.editor.buffer(current))
+        .is_some_and(|buffer| buffer.name() == name)
+        .then_some(current);
+    let id = named
         .or_else(|| ctx.editor.buffer_named(name))
         .ok_or_else(|| CommandError::new("No such buffer"))?;
     kill(ctx, id, false)
@@ -128,6 +124,12 @@ fn kill(
         .map(|buffer| buffer.name().to_owned())
         .unwrap_or_default();
     let (cut, more) = minibuffer::cut_to(&name, NAME_CELLS);
+    // A docked window's buffer, as a session's composer, is its host's (ADR 0170): kept.
+    let docked =
+        (ctx.editor.windows()).any(|window| window.docked().is_some() && window.buffer() == id);
+    if docked {
+        return Err(CommandError::new("A session's composer is kept"));
+    }
     match ctx.editor.kill_by_person(id, anyway) {
         Ok(()) => {
             ctx.request_redraw();
