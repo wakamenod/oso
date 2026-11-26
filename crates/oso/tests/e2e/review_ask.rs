@@ -446,14 +446,17 @@ fn a_restart_puts_back_the_side_the_slot_showed_from_the_saved_review() {
     let state = wait_saying(&mut new, "the old side back in the slot", |state| {
         state["buffer"]["name"] == OLD_SIDE && placed(state).len() >= 2
     });
-    let placed = placed(&state);
-    assert_eq!(
-        (placed.iter())
-            .filter(|(shows, ..)| shows == OLD_SIDE)
-            .count(),
-        1,
-        "{placed:?}"
-    );
+    // The side is an internal buffer the state lists by id alone: one window shows it, the
+    // slot, at the right of the review's.
+    let windows = state["windows"].as_array().cloned().unwrap_or_default();
+    let showing: Vec<_> = (windows.iter())
+        .filter(|window| window["buffer"] == state["buffer"]["id"])
+        .collect();
+    let right = (windows.iter())
+        .filter_map(|window| window["area"]["column"].as_u64())
+        .max();
+    assert_eq!(showing.len(), 1, "{windows:?}");
+    assert_eq!(showing[0]["area"]["column"].as_u64(), right, "{windows:?}");
     flow.exit_with(0);
 }
 

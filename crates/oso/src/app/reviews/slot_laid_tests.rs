@@ -12,6 +12,7 @@ use oso_core::buffer::{Baseline, Buffer, BufferId, Replacement};
 use oso_core::editor::{Editor, ReviewId};
 use oso_core::review::Side;
 
+use super::super::continued::side_ready;
 use super::super::laid::{SlotKinds, lay_out_kept, layout_state, put_at, slot_shows};
 use super::super::loaded::{Source, source_fits};
 use super::super::windows::fit_slot_to;
@@ -334,4 +335,26 @@ fn a_layout_continued_from_memory_gives_the_slot_back_its_own_cursor_mark_and_go
     let window = editor.window_by_id(windows(&editor)[1].0).unwrap();
     assert_eq!(window.selections.primary().cursor, text.line_start(102) + 3);
     assert_eq!(window.selections.primary().mark, None);
+}
+
+#[test]
+fn a_side_goes_back_once_the_review_shows_its_latest_text_and_waits_while_it_is_read_again() {
+    use std::sync::Arc;
+    let (first, again) = (Arc::new(1_u8), Arc::new(2_u8));
+    // Its latest text shown: asked at once, read once or not.
+    assert!(side_ready(Some(Some(&first)), Some(&first), false));
+    assert!(side_ready(Some(Some(&first)), Some(&first), true));
+    // Read again since what the review shows, as after a restart: it waits, even once every
+    // file was read, as the jump would be refused.
+    assert!(!side_ready(Some(Some(&again)), Some(&first), false));
+    assert!(!side_ready(Some(Some(&again)), Some(&first), true));
+    assert!(
+        !side_ready(Some(Some(&first)), None, true),
+        "no text shown yet"
+    );
+    // A reading not of text: at once, the jump saying why.
+    assert!(side_ready::<u8>(Some(None), None, false));
+    // No reading: once every file was read, the file then gone from the review.
+    assert!(!side_ready::<u8>(None, None, false));
+    assert!(side_ready::<u8>(None, None, true));
 }

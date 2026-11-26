@@ -87,8 +87,13 @@ before has none; one not read is left out alone, and a slot of a kind not known 
     as the agent channel opens a file, and goes in once it loaded, if it opens as no secret and
     the slot still shows what it was given meanwhile. A file gone says so, and no new file opens.
   - *A read-only side*, at its line: its buffer if it is still open, else asked of the review's
-    thread as `M-RET` asks it, after a quit once that file's text shows, or once every file was
-    read; what the jump refuses says why.
+    thread as `M-RET` asks it, after a quit or a restart once the review shows that file's latest
+    text, or, for a file gone from the review, once every file was read; what the jump refuses
+    says why. While the file is read again, as a restart's carried buffer makes it, it waits,
+    asking nothing. The wait ends once its layout left the frame, at the review's next text;
+    a file read again and again keeps its side from going back, and nothing else. A layout its
+    saved file kept stays judged as one from the file until the person leaves a layout of their
+    own: a file outside the review's root is not put back from memory either.
   - *The review message:* the message waiting, else made again from the comments not sent, as
     `review-send` makes it; what was typed in a message is not kept across its buffer's end.
   - *Nothing*, else: the slot shows what `first_slot_buffer` chooses.
