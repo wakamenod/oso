@@ -127,6 +127,10 @@ file it showed, after the same secret checks.
 **Never kept or shown:** a buffer that may hold secrets, is withheld from agents, or is among the
 paths held as secret while a review was open. A review buffer that may hold secrets gives no
 place. On a later put-back of a slot's file, the secret name check runs again before the visit.
+Of the paths held as secret while a review is open, a file whose buffer is not judged yet is held
+while it is not; one ever judged to hold secrets, or whose path cannot be resolved, stays held
+for the run. So a file a restart carries, read again from disk, is held while it loads and no
+longer once it is judged to hold none.
 
 ### The key's table
 
