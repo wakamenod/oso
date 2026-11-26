@@ -439,3 +439,6 @@ mod panes;
 
 #[path = "slot_laid_tests.rs"]
 mod laid;
+
+#[path = "slot_session_tests.rs"]
+mod session;

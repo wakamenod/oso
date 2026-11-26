@@ -12,9 +12,8 @@ use oso_core::buffer::{Baseline, Buffer, BufferId, Replacement};
 use oso_core::editor::{Editor, ReviewId};
 use oso_core::review::Side;
 
-use super::super::laid::{
-    SlotKinds, Source, lay_out_kept, layout_state, put_at, slot_shows, source_fits,
-};
+use super::super::laid::{SlotKinds, lay_out_kept, layout_state, put_at, slot_shows};
+use super::super::loaded::{Source, source_fits};
 use super::super::windows::fit_slot_to;
 use super::super::{enter, restore};
 use super::{columns, editor, windows};
@@ -50,6 +49,7 @@ fn plain<'a>(held: &'a HashSet<PathBuf>) -> SlotKinds<'a> {
         side: &|_| None,
         message: None,
         held,
+        session: &|_| None,
     }
 }
 
@@ -98,6 +98,7 @@ fn a_layout_left_comes_back_with_its_slot_s_line_rows_above_width_and_selection(
                 column: 3,
                 above: 10,
             },
+            session: None,
         }
     );
     // `q`: the layout goes, its state kept; continued, the layout comes back as it was.
@@ -155,6 +156,7 @@ fn nothing_that_may_hold_secrets_is_kept_or_shown_again() {
         side: &side,
         message: None,
         held: &none,
+        session: &|_| None,
     };
     assert!(matches!(
         slot_shows(&editor, slot, &kinds),
@@ -168,6 +170,7 @@ fn nothing_that_may_hold_secrets_is_kept_or_shown_again() {
         side: &|_| None,
         message: Some(source),
         held: &none,
+        session: &|_| None,
     };
     assert_eq!(slot_shows(&editor, slot, &kinds), SlotShows::Message);
     // Put back, the name is judged again: a file renamed to a secret name since, a file held
@@ -202,6 +205,7 @@ fn a_file_gone_or_a_side_no_longer_there_leaves_what_the_layout_shows_first() {
             column: 0,
             above: 1,
         },
+        session: None,
     };
     again(&mut editor, &mut kept, review, &gone, None);
     let shown = windows(&editor);
@@ -241,6 +245,7 @@ fn a_line_past_the_end_and_a_share_past_the_frame_are_held_in() {
             column: 999,
             above: 5_000,
         },
+        session: None,
     };
     again(&mut editor, &mut kept, review, &past, Some(source));
     let [(left, ..), (slot, shows, cursor)] = windows(&editor)[..] else {

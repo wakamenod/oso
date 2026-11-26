@@ -157,7 +157,7 @@ pub(super) fn ask_takes_size(
 
 /// Splits `window` into two stacked halves, the new one below, showing what it shows, leaving
 /// the selected window selected. None where either half would be too small.
-fn split_below(editor: &mut Editor, window: WindowId) -> Option<WindowId> {
+pub(super) fn split_below(editor: &mut Editor, window: WindowId) -> Option<WindowId> {
     let selected = editor.window().id();
     editor.select_window(window);
     let made = editor.split_window(Way::Down, false).ok();

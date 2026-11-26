@@ -371,6 +371,92 @@ fn a_restart_keeps_the_split_slot_and_a_question_after_it_reuses_the_window_belo
     flow.exit_with(0);
 }
 
+/// The old side of README.md, read-only, as `C-u RET` shows it in the slot.
+const OLD_SIDE: &str = "*old: README.md \u{b7} uncommitted*";
+
+/// Waits until `q` gave back the windows from before the layout: no review selected, fewer
+/// than the layout's three windows.
+fn layout_left(app: &mut App) {
+    wait_saying(app, "the windows from before", |state| {
+        state["buffer"]["name"] != REVIEW && placed(state).len() < 3
+    });
+}
+
+/// `q` keeps the layout's state and `C-c a v` puts it back, the session below the slot again
+/// (ADR 0184, amending ADR 0169); a session that ended meanwhile is only named, and nothing
+/// runs the fake again.
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn q_and_c_c_a_v_put_the_session_back_below_the_slot_and_an_ended_one_is_only_named() {
+    let flow = Flow::with_fake("review-continue-session", "", FAKE);
+    let (mut app, _bridge) = hosted(&flow);
+    empty_box(&mut app, &flow, "*claude: repo*");
+    back_to(&mut app, "README.md");
+    show_review(&mut app);
+    ask(&mut app, "Why");
+    fold_paste(&mut app, &flow, 0, "*claude: repo*");
+    submitted(&mut app, &flow, 1);
+    split_slot(&mut app, "README.md", "*claude: repo*");
+
+    app.send_keys("q");
+    layout_left(&mut app);
+    app.send_keys("C-c a v");
+    let state = split_slot(&mut app, "README.md", "*claude: repo*");
+    assert_eq!(state["buffer"]["name"], REVIEW, "{state}");
+
+    // Left again, and the session ends meanwhile.
+    app.send_keys("q");
+    layout_left(&mut app);
+    let runs = flow.wait_for_runs(1).len();
+    flow.exit_with(0);
+    app.wait_for("the session ended", |state| {
+        terminal(state, "*claude: repo*").is_none_or(|terminal| terminal["running"] != true)
+    });
+    app.send_keys("C-c a v");
+    let state = wait_saying(&mut app, "the session named", |state| {
+        echo(state) == "session repo ended: M-x session-resume"
+    });
+    assert_eq!(state["buffer"]["name"], REVIEW, "{state}");
+    std::thread::sleep(Duration::from_millis(500));
+    assert_eq!(
+        flow.wait_for_runs(runs).len(),
+        runs,
+        "nothing ran the fake again"
+    );
+}
+
+/// A restart carries the layout's windows; what its slot showed that no window carries, a
+/// read-only side, comes back from the review's saved file, with the slot still selected
+/// (ADR 0184).
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_restart_puts_back_the_side_the_slot_showed_from_the_saved_review() {
+    let flow = Flow::with_fake("review-continue-restart", "", FAKE);
+    let (mut old, _bridge) = hosted(&flow);
+    back_to(&mut old, "README.md");
+    show_review(&mut old);
+    old.send_keys("M-< n C-n C-u RET");
+    wait_saying(&mut old, "the old side in the slot", |state| {
+        state["buffer"]["name"] == OLD_SIDE
+    });
+
+    let mut new = flow.start_for_restart();
+    crate::terminal::restart::hand_over(&mut old, &mut new);
+    crate::terminal::restart::channel_on(&mut new);
+    let state = wait_saying(&mut new, "the old side back in the slot", |state| {
+        state["buffer"]["name"] == OLD_SIDE && placed(state).len() >= 2
+    });
+    let placed = placed(&state);
+    assert_eq!(
+        (placed.iter())
+            .filter(|(shows, ..)| shows == OLD_SIDE)
+            .count(),
+        1,
+        "{placed:?}"
+    );
+    flow.exit_with(0);
+}
+
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
 fn a_draft_in_the_box_goes_with_the_question_and_the_echo_says_so() {

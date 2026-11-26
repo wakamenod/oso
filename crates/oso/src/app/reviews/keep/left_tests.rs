@@ -112,6 +112,7 @@ fn layout() -> crate::review::saved::SavedLayout {
             column: 4,
             above: 6,
         },
+        session: None,
     }
 }
 

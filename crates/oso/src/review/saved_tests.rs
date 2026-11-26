@@ -124,6 +124,7 @@ fn round_trip(review: &Review, max: usize) -> (Vec<u8>, Decoded) {
                 column: 3,
                 above: 9,
             },
+            session: Some("oso-2".to_owned()),
         }),
     };
     let bytes = encode(&header(), &review.save(), &kept, &withheld, max).unwrap();
@@ -518,6 +519,7 @@ fn the_layout_kept_comes_back_and_a_slot_of_a_kind_not_known_shows_nothing() {
                 slot_permille: 400,
                 ask_permille: None,
                 slot,
+                session: None,
             }),
             ..SavedView::default()
         };
@@ -540,6 +542,22 @@ fn the_layout_kept_comes_back_and_a_slot_of_a_kind_not_known_shows_nothing() {
     );
     let torn = layout(serde_json::json!({ "kind": "source", "path": "/a" })).unwrap();
     assert_eq!(torn.slot, SlotShows::Nothing);
+    // The session below the slot, by its record name; none, one not text, or one too long:
+    // none (ADR 0184).
+    assert_eq!(unknown.session, None);
+    let named = |session: serde_json::Value| {
+        let shows = serde_json::json!({ "kind": "nothing" });
+        let mut layout = serde_json::json!({ "slot_selected": true, "slot": 400, "shows": shows });
+        layout["session"] = session;
+        let kept = serde_json::json!({
+            "choice": "auto", "folded": false, "place": null, "layout": layout,
+        });
+        super::view_of(&kept).unwrap().layout.unwrap().session
+    };
+    assert_eq!(named(serde_json::json!("oso-2")), Some("oso-2".to_owned()));
+    assert_eq!(named(serde_json::json!(7)), None);
+    assert_eq!(named(serde_json::json!("")), None);
+    assert_eq!(named(serde_json::json!("x".repeat(257))), None);
     // A layout not read is left out alone: the rest of the view stands.
     let kept = serde_json::json!({
         "choice": "panes", "folded": false, "place": null, "layout": { "slot": "wide" },
