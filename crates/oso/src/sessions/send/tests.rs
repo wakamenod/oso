@@ -503,10 +503,13 @@ fn rules_a_model_could_draw_inside_a_dialog_are_no_box() {
 /// oso's own `/add-dir PATH` goes unasked only while the box holds it alone (ADR 0185).
 #[test]
 fn the_box_holds_the_command_only_when_it_holds_it_alone_with_no_menu_under_it() {
-    let command = Command::add_dir(Path::new("/src/my web")).expect("a plain path");
+    // An absolute path on each system: Windows's has a drive.
+    let root = if cfg!(windows) { "C:" } else { "" };
+    let command = Command::add_dir(Path::new(&format!("{root}/src/my web"))).expect("a plain path");
     let rule = "─".repeat(40);
+    let at_root = |row: &str| row.replace("/add-dir /", &format!("/add-dir {root}/"));
     let boxed = |rows: &[&str], under: &str| {
-        let rows = rows.join("\n");
+        let rows = at_root(&rows.join("\n"));
         screen(&format!("talk\n{rule}\n{rows}\n{rule}\n{under}"))
     };
     let hint = "  ? for shortcuts";
@@ -542,7 +545,7 @@ fn the_box_holds_the_command_only_when_it_holds_it_alone_with_no_menu_under_it()
             &["❯\u{a0}/add-dir /src/my web"],
             "    /add-dir   Add a new working directory",
         ),
-        screen("❯ /add-dir /src/my web"),
+        screen(&at_root("❯ /add-dir /src/my web")),
     ] {
         assert!(!holds_command(&other, &command), "{other:?}");
     }
