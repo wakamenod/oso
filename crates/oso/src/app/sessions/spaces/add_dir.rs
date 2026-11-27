@@ -159,9 +159,11 @@ impl App {
         [enter, sent, pause].into_iter().flatten().min()
     }
 
-    /// Before the loop waits: the `/add-dir`s, once their deadline passed with no event.
+    /// Before the loop waits, after the screens of terminals no window shows were taken: the
+    /// `/add-dir`s, as [`looks_before_waiting`] says.
     pub(in crate::app) fn add_dirs_due(&mut self, now: Instant) {
-        if self.add_dirs_deadline().is_some_and(|due| due <= now) {
+        let queued = !self.hosting.spaces.add_dirs.due.is_empty();
+        if looks_before_waiting(self.add_dirs_deadline(), queued, now) {
             self.sync_add_dirs();
         }
     }
@@ -342,5 +344,40 @@ impl App {
         if done {
             self.hosting.spaces.add_dirs.sent = None;
         }
+    }
+}
+
+/// Whether the `/add-dir`s are looked at as the loop is about to wait: past their `deadline`,
+/// or while one is `queued`, whatever the deadline. A terminal no window shows takes its new
+/// screen in that pass, which is no event, so an empty box there would wait for some unrelated
+/// event else. It sets no wake of its own.
+fn looks_before_waiting(deadline: Option<Instant>, queued: bool, now: Instant) -> bool {
+    queued || deadline.is_some_and(|due| due <= now)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, Instant};
+
+    use super::looks_before_waiting;
+
+    /// A queued `/add-dir` is looked at each time the loop is about to wait, as a terminal no
+    /// window shows takes its new screen in that pass, which is no event; else only past the
+    /// deadline.
+    #[test]
+    fn a_queued_add_dir_is_looked_at_before_every_wait() {
+        let now = Instant::now();
+        let later = now + Duration::from_secs(1);
+        assert!(looks_before_waiting(None, true, now), "queued, no deadline");
+        assert!(
+            looks_before_waiting(Some(later), true, now),
+            "queued, deadline ahead"
+        );
+        assert!(!looks_before_waiting(None, false, now));
+        assert!(!looks_before_waiting(Some(later), false, now));
+        assert!(
+            looks_before_waiting(Some(now), false, now),
+            "deadline passed"
+        );
     }
 }
