@@ -38,6 +38,8 @@ pub(super) enum Plan {
         origin: Origin,
         /// The directories it also reads, as the job checked them, with their trust.
         reads: Vec<(Trust, PathBuf)>,
+        /// Its session's model (ADR 0121, "A start's model, as amended").
+        model: Option<String>,
     },
     /// A session to start, and for an orchestrator's call the space's repository whose trust
     /// is asked again before it starts.
@@ -90,10 +92,12 @@ enum Then {
         brief: String,
         name: Option<String>,
         base: Option<String>,
+        model: Option<String>,
     },
     Start {
         brief: Option<String>,
         name: Option<String>,
+        model: Option<String>,
     },
 }
 
@@ -106,6 +110,8 @@ pub(in crate::app) struct WorktreeCall {
     pub(in crate::app) name: Option<String>,
     /// The directories it also reads, each with its repository's trust (ADR 0136, step 4b).
     pub(in crate::app) with: Vec<(Trust, PathBuf)>,
+    /// Its session's model, which `is_model` took (ADR 0121, "A start's model, as amended").
+    pub(in crate::app) model: Option<String>,
 }
 
 /// `session_start`'s arguments.
@@ -116,6 +122,8 @@ pub(in crate::app) struct StartCall {
     pub(in crate::app) brief: Option<String>,
     /// As [`WorktreeCall::with`].
     pub(in crate::app) with: Vec<(Trust, PathBuf)>,
+    /// As [`WorktreeCall::model`].
+    pub(in crate::app) model: Option<String>,
 }
 
 /// A worktree being made after the person's `y`.
@@ -127,6 +135,8 @@ pub(in crate::app) struct Creating {
     pub(super) origin: Origin,
     /// The directories its session also reads, with their trust.
     pub(super) reads: Vec<(Trust, PathBuf)>,
+    /// Its session's model.
+    pub(super) model: Option<String>,
     /// What the echo area says once its session starts, for a start without asking.
     pub(super) said: Option<String>,
 }
@@ -153,11 +163,13 @@ impl App {
             brief,
             name,
             with,
+            model,
         } = call;
         let then = Then::Worktree {
             brief,
             name,
             base: base.clone(),
+            model,
         };
         let prepare = Prepare::Worktree {
             branch: branch.clone(),
@@ -182,6 +194,7 @@ impl App {
             name,
             brief,
             with,
+            model,
         } = call;
         // An orchestrator no more starts nothing: the space's directory is no repository.
         if caller.scoped() && caller.acting_at.is_none() {
@@ -194,7 +207,7 @@ impl App {
         // Another directory than the caller's own is looked at by git first, and so is a space's
         // repository an orchestrator names, whose root's identity the job checks on the disk.
         if directory != caller.runs_in || caller.acting_at.is_some() {
-            let then = Then::Start { brief, name };
+            let then = Then::Start { brief, name, model };
             let prepare = Prepare::Directory(directory);
             return self.tool_prepare(pending, tool, caller, target, (then, prepare, with));
         }
@@ -216,6 +229,7 @@ impl App {
             space: None,
             orchestrator_of: None,
             behind: false,
+            model,
         };
         // Without asking only in a project an open buffer has trusted now: the trust the session
         // began with may have been taken back since (ADR 0135, Q4).
@@ -258,6 +272,53 @@ impl App {
 
     /// The job looked at what `preparing`'s call would do: its question waits for the person.
     pub(super) fn tool_prepared(&mut self, preparing: Preparing, report: Report) {
+        let Report::Prepared { result, .. } = report else {
+            let why = "the call's check ended unexpectedly";
+            return preparing.pending.answer(Err(why.into()));
+        };
+        // Each directory to read was checked with the rest; its start thread checks it again.
+        let (prepared, trusted, _) = match result {
+            Ok(found) => found,
+            Err(why) => return preparing.pending.answer(Err(why)),
+        };
+        match (prepared, &preparing.then) {
+            (prepared @ Prepared::Worktree { .. }, Then::Worktree { .. }) => {
+                self.worktree_prepared(preparing, prepared);
+            }
+            (Prepared::Directory(directory), Then::Start { .. }) => {
+                let Preparing {
+                    pending,
+                    caller,
+                    target,
+                    then,
+                    with,
+                    ..
+                } = preparing;
+                let Then::Start { brief, name, model } = then else {
+                    unreachable!("matched above");
+                };
+                let begin = Begin {
+                    name,
+                    directory: Some(directory),
+                    brief,
+                    parent: Some(caller.id.clone()),
+                    origin: Origin::Answered,
+                    trusted,
+                    space: App::worker_reads(with),
+                    model,
+                    ..Begin::default()
+                };
+                // Its job, as a worktree's, looked at trust against the record as it is now.
+                let now = (target, begin.trusted.is_some());
+                self.queue_start_question(pending, &caller, now, begin);
+            }
+            _ => (preparing.pending).answer(Err("the call's check found something else".into())),
+        }
+    }
+
+    /// The job found where `preparing`'s worktree would go, `prepared`: its question waits for
+    /// the person.
+    fn worktree_prepared(&mut self, preparing: Preparing, prepared: Prepared) {
         let Preparing {
             pending,
             caller,
@@ -266,14 +327,6 @@ impl App {
             then,
             with,
         } = preparing;
-        let Report::Prepared { result, .. } = report else {
-            return pending.answer(Err("the call's check ended unexpectedly".into()));
-        };
-        // Each directory to read was checked with the rest; its start thread checks it again.
-        let (prepared, trusted, _) = match result {
-            Ok(found) => found,
-            Err(why) => return pending.answer(Err(why)),
-        };
         match (prepared, then) {
             (
                 Prepared::Worktree {
@@ -281,7 +334,12 @@ impl App {
                     branch,
                     start,
                 },
-                Then::Worktree { brief, name, base },
+                Then::Worktree {
+                    brief,
+                    name,
+                    base,
+                    model,
+                },
             ) => {
                 // The person's `n` is kept by the branch git resolved the name to, so that
                 // another spelling of the same branch is refused as well.
@@ -301,7 +359,13 @@ impl App {
                 let start = from.map_or(Branch::Existing, |from| Branch::New { from });
                 let paths: Vec<PathBuf> = with.iter().map(|(_, dir)| dir.clone()).collect();
                 let at: (&Path, &str, Branch<'_>) = (&place, &branch, start);
-                let words = worktree_words(&caller.name, at, &brief, &paths, &self.explain_key());
+                let words = worktree_words(
+                    &caller.name,
+                    at,
+                    (&brief, model.as_deref()),
+                    &paths,
+                    &self.explain_key(),
+                );
                 // The job that makes it resolves the start again, as the question named it: the
                 // base given, else the caller's `HEAD`.
                 let order = Order {
@@ -325,23 +389,9 @@ impl App {
                     parent: caller.id.clone(),
                     origin: Origin::Answered,
                     reads: with,
+                    model,
                 };
                 self.ask_or_start(pending, &caller, (target, true), words, plan);
-            }
-            (Prepared::Directory(directory), Then::Start { brief, name }) => {
-                let begin = Begin {
-                    name,
-                    directory: Some(directory),
-                    brief,
-                    parent: Some(caller.id.clone()),
-                    origin: Origin::Answered,
-                    trusted,
-                    space: App::worker_reads(with),
-                    ..Begin::default()
-                };
-                // Its job, as a worktree's, looked at trust against the record as it is now.
-                let now = (target, begin.trusted.is_some());
-                self.queue_start_question(pending, &caller, now, begin);
             }
             _ => pending.answer(Err("the call's check found something else".into())),
         }
@@ -384,6 +434,12 @@ impl App {
             rules::also_reads(said, &reads),
         );
         let details = rules::also_reads(details, &reads);
+        let model = begin.model.as_deref();
+        let (label, details, said) = (
+            rules::with_model(label, model),
+            rules::with_model(details, model),
+            rules::with_model(said, model),
+        );
         let by = rules::quoted(&caller.name);
         begin.brief = (begin.brief)
             .map(|brief| crate::sessions::worktree::brief::started(&by, &reads, &brief));
@@ -436,15 +492,15 @@ impl App {
 fn worktree_words(
     caller: &str,
     (place, branch, start): (&Path, &str, Branch<'_>),
-    brief: &str,
+    (brief, model): (&str, Option<&str>),
     reads: &[PathBuf],
     explain: &str,
 ) -> Words {
     let (place, lines) = (shown(place), rules::lines(brief));
     let label = rules::worktree_question(caller, &place, branch, start, lines);
-    let label = rules::also_reads(label, reads);
+    let label = rules::with_model(rules::also_reads(label, reads), model);
     let said = rules::worktree_started(caller, &place, branch, start, lines, explain);
-    let said = rules::also_reads(said, reads);
+    let said = rules::with_model(rules::also_reads(said, reads), model);
     let details = details(caller, &label, &brief_said(brief));
     Words(label, details, said)
 }

@@ -48,6 +48,9 @@ pub(in crate::app) struct Begin {
     /// Its terminal is not shown though the person started it: an orchestrator `space-new`
     /// started once the person had left its space (ADR 0159).
     pub behind: bool,
+    /// The model an agent's tool named, its own `--model` from now on (ADR 0121, "A start's
+    /// model, as amended"); `None` for the person's settings' own.
+    pub model: Option<String>,
 }
 
 impl Default for Begin {
@@ -64,6 +67,7 @@ impl Default for Begin {
             space: None,
             orchestrator_of: None,
             behind: false,
+            model: None,
         }
     }
 }

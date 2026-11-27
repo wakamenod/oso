@@ -146,6 +146,7 @@ fn order(gate: ByGate, space: Option<crate::sessions::start::SpaceStart>) -> sup
         steer_worktrees: false,
         check_shared: false,
         space,
+        model: None,
     }
 }
 

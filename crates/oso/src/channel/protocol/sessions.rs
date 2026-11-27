@@ -10,10 +10,12 @@
 //!   the space's member `repo` for a space's orchestrator (ADR 0136, step 4).
 //! - `worktree_remove`: `{"path": "/abs/repo/.claude/worktrees/x"}`.
 //! - `start_worktree_session`: `{"branch": "x", "base": "main", "brief": "…", "name": "x",
-//!   "repo": "api", "with_dirs": ["/abs/web"]}`; `base`, `name`, `repo` and `with_dirs` are
-//!   optional.
+//!   "repo": "api", "with_dirs": ["/abs/web"], "model": "sonnet"}`; `base`, `name`, `repo`,
+//!   `with_dirs` and `model` are optional.
 //! - `session_start`: `{"directory": "/abs/repo", "name": "x", "brief": "…", "repo": "api",
-//!   "with_dirs": ["/abs/web"]}`, each optional.
+//!   "with_dirs": ["/abs/web"], "model": "sonnet"}`, each optional.
+//! - `model`: the new session's `--model`, one word that [`is_model`] takes (ADR 0121, "A
+//!   start's model, as amended").
 //! - `with_dirs`: at most [`MAX_WITH_DIRS`] absolute paths the new session also reads (ADR
 //!   0136, step 4b).
 //! - `space_status`: the caller's space, its repositories and its sessions.
@@ -65,6 +67,8 @@ pub const MAX_SPACE_NAME: usize = 48;
 const MAX_ID: usize = 64;
 /// The most directories a call's `with_dirs` names.
 pub const MAX_WITH_DIRS: usize = 8;
+/// The longest model taken, in bytes, as a native session's choice keeps one.
+pub const MAX_MODEL: usize = 256;
 
 /// How long the app lets a worktree listing or a removal run before it replies with what it
 /// has: their jobs run git, and `gh` for a listing, each call bounded but a removal's own
@@ -95,6 +99,8 @@ pub enum Call {
         name: Option<String>,
         repo: Option<String>,
         with_dirs: Vec<PathBuf>,
+        /// Its `--model`, which [`is_model`] took.
+        model: Option<String>,
     },
     Start {
         directory: Option<PathBuf>,
@@ -102,6 +108,8 @@ pub enum Call {
         brief: Option<String>,
         repo: Option<String>,
         with_dirs: Vec<PathBuf>,
+        /// Its `--model`, which [`is_model`] took.
+        model: Option<String>,
     },
     SpaceStatus,
     /// The draft of a commit's message, for the request `id` (`kind` is always `commit`).
@@ -279,7 +287,15 @@ fn parse_start_worktree(params: &Map<String, Value>) -> Result<Call, String> {
     only(
         params,
         method,
-        &["branch", "base", "brief", "name", "repo", "with_dirs"],
+        &[
+            "branch",
+            "base",
+            "brief",
+            "name",
+            "repo",
+            "with_dirs",
+            "model",
+        ],
     )?;
     Ok(Call::StartWorktree {
         branch: text(params, method, "branch", MAX_NAME)?,
@@ -288,6 +304,7 @@ fn parse_start_worktree(params: &Map<String, Value>) -> Result<Call, String> {
         name: optional(params, method, "name", MAX_NAME)?,
         repo: optional(params, method, "repo", MAX_NAME)?,
         with_dirs: with_dirs(params, method)?,
+        model: model(params, method)?,
     })
 }
 
@@ -296,7 +313,7 @@ fn parse_start(params: &Map<String, Value>) -> Result<Call, String> {
     only(
         params,
         method,
-        &["directory", "name", "brief", "repo", "with_dirs"],
+        &["directory", "name", "brief", "repo", "with_dirs", "model"],
     )?;
     Ok(Call::Start {
         directory: path(params, method, "directory")?,
@@ -304,6 +321,7 @@ fn parse_start(params: &Map<String, Value>) -> Result<Call, String> {
         brief: brief(params, method)?,
         repo: optional(params, method, "repo", MAX_NAME)?,
         with_dirs: with_dirs(params, method)?,
+        model: model(params, method)?,
     })
 }
 
@@ -339,6 +357,27 @@ fn with_dirs(params: &Map<String, Value>, method: &str) -> Result<Vec<PathBuf>, 
         }
     }
     Ok(dirs)
+}
+
+/// Whether `text` can be a session's `--model`: not empty, at most [`MAX_MODEL`] bytes, only
+/// ASCII letters, digits and `._:/@[]-`, and no `-` first. An alias (`sonnet`, `opus`), an id
+/// (`claude-opus-5-5[1m]`) or a provider's (`us.anthropic.…-v1:0`, an ARN) reads so; no space,
+/// quote, `=`, control, invisible or look-alike character does. It goes on the line as one
+/// argument, `--model=TEXT`, so it can never be taken for an option either way.
+pub fn is_model(text: &str) -> bool {
+    let fits = |b: u8| b.is_ascii_alphanumeric() || b"._:/@[]-".contains(&b);
+    !text.is_empty() && text.len() <= MAX_MODEL && !text.starts_with('-') && text.bytes().all(fits)
+}
+
+/// `model` of `method`, if given: one that [`is_model`] takes.
+fn model(params: &Map<String, Value>, method: &str) -> Result<Option<String>, String> {
+    let model = optional(params, method, "model", MAX_MODEL)?;
+    if model.as_deref().is_some_and(|text| !is_model(text)) {
+        return Err(format!(
+            "{method}'s \"model\" must be a model's alias or id: ASCII letters, digits and ._:/@[]-, not starting with -"
+        ));
+    }
+    Ok(model)
 }
 
 /// The string `name` of `method`, of at most `max` bytes and not empty.
@@ -527,6 +566,59 @@ mod tests {
         assert!(start(json!([""])).is_err());
         assert!(start(json!("not a list")).is_err());
         assert!(start(json!([1])).is_err());
+    }
+
+    #[test]
+    fn a_model_is_one_word_of_a_models_characters_within_bounds() {
+        let model = |call: Call| match call {
+            Call::StartWorktree { model, .. } | Call::Start { model, .. } => model,
+            _ => None,
+        };
+        let start = |value: Value| call("session_start", json!({ "model": value }));
+        let worktree = |value: Value| {
+            call(
+                "start_worktree_session",
+                json!({ "branch": "x", "brief": "b", "model": value }),
+            )
+        };
+        assert_eq!(model(call("session_start", json!({})).unwrap()), None);
+        for good in [
+            "sonnet",
+            "opus",
+            "haiku",
+            "fable",
+            "claude-opus-5-5",
+            "claude-opus-5-5[1m]",
+            "us.anthropic.claude-sonnet-5-5-v1:0",
+            "arn:aws:bedrock:us-east-1:1:inference-profile/x",
+            "claude@2026",
+        ] {
+            assert_eq!(model(start(json!(good)).unwrap()).as_deref(), Some(good));
+            assert_eq!(model(worktree(json!(good)).unwrap()).as_deref(), Some(good));
+        }
+        let longest = "m".repeat(super::MAX_MODEL);
+        assert!(start(json!(longest)).is_ok());
+        let over = "m".repeat(super::MAX_MODEL + 1);
+        for bad in [
+            json!(""),
+            json!(over),
+            json!("-p"),
+            json!("--dangerously-skip-permissions"),
+            json!("sonnet opus"),
+            json!("sonnet\n"),
+            json!("so;rm"),
+            json!("$(x)"),
+            json!("a=b"),
+            json!("o\u{2064}pus"),
+            json!("ｏｐｕｓ"),
+            json!(3),
+            json!(["opus"]),
+        ] {
+            assert!(start(bad.clone()).is_err(), "{bad}");
+            assert!(worktree(bad.clone()).is_err(), "{bad}");
+        }
+        let why = start(json!("-p")).unwrap_err();
+        assert!(why.contains("\"model\""), "{why}");
     }
 
     #[test]

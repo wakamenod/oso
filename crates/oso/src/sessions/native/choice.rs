@@ -19,9 +19,11 @@
 //! - What is noted goes on a command line (`--model=`, `--effort=`): a model is one word that
 //!   reads as a model's id (`wire::status_line::Kind::Id`) and does not start with `-`; an
 //!   effort level is one of [`EFFORTS`], which `--effort` takes, in lower case.
-//! - A fork starts with its source's choice. Across an oso restart, the record holds no model,
-//!   but a session the restart resumes has it from the restart's state (part 4c, Q4-2), read
-//!   again by the rules above.
+//! - A fork starts with its source's choice. Across an oso restart, the record holds no model
+//!   chosen so, but a session the restart resumes has it from the restart's state (part 4c,
+//!   Q4-2), read again by the rules above. The record holds only the model a tool started the
+//!   session with, its own, which a line passes when no choice names one (ADR 0121, "A start's
+//!   model, as amended").
 
 use super::slash::{SlashCommands, ends_word};
 use super::wire::status_line::{Kind, Model, readable};

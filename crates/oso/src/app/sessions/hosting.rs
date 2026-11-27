@@ -87,6 +87,9 @@ pub(in crate::app) struct Hosting {
     /// How sessions being started by an agent's tool start, with the brief of one that starts
     /// without asking (ADR 0135).
     origins: HashMap<SessionKey, (Origin, Option<Arc<str>>)>,
+    /// The model each session being started was given, a tool's or its fork source's (ADR
+    /// 0121, "A start's model, as amended"), for its row once it is ready.
+    models: HashMap<SessionKey, String>,
     /// The questions asked as another session runs in a start's directory (ADR 0121).
     shared: shared::Shared,
     /// Worktree sessions: briefs, the jobs, `*Worktrees*` and a removal (ADR 0121 step 4).
@@ -152,6 +155,7 @@ impl Hosting {
             explain: None,
             parents: HashMap::new(),
             origins: HashMap::new(),
+            models: HashMap::new(),
             shared: shared::Shared::default(),
             worktrees: super::worktrees::Worktrees::default(),
             trusts: HashMap::new(),
@@ -291,6 +295,9 @@ impl App {
                 .then(|| Arc::from(begin.brief.as_deref().unwrap_or_default()));
             self.hosting.origins.insert(key, (begin.origin, brief));
         }
+        if let Some(model) = &begin.model {
+            self.hosting.models.insert(key, model.clone());
+        }
         if begin.check_shared {
             let directory = Some(directory.clone());
             let asked = Begin {
@@ -337,6 +344,7 @@ impl App {
             steer_worktrees: self.configuration.steer_worktrees(),
             check_shared: begin.check_shared,
             space,
+            model: begin.model,
         });
         Some(key)
     }
@@ -386,6 +394,7 @@ impl App {
                 self.session_not_started(token, &why);
                 self.hosting.parents.remove(&token);
                 self.hosting.origins.remove(&token);
+                self.hosting.models.remove(&token);
                 self.session_tool_started(token, Err(why.clone()));
                 // Said once for all of a restart's resumes (ADR 0165).
                 if !self.restart_resumes(token) {
@@ -416,6 +425,7 @@ impl App {
                 self.session_not_started(token, "another session runs there");
                 self.hosting.parents.remove(&token);
                 self.hosting.origins.remove(&token);
+                self.hosting.models.remove(&token);
                 if let Some(begin) = self.hosting.shared.take_under_way(token) {
                     self.ask_shared(begin);
                 }
@@ -511,6 +521,7 @@ impl App {
                     unasked_brief,
                     changed: now_ms(),
                     native: matches!(ready.started, start::Started::Native(_)),
+                    model: self.hosting.models.remove(&key),
                 },
             );
             if added.is_none() {
