@@ -31,7 +31,7 @@ pub const MAX_LISTED: usize = 8 * 1024;
 /// The most compiled size of one of the person's deny patterns, which is not oso's.
 const MAX_PATTERN_SIZE: usize = 1 << 20;
 
-/// What a Bash command is denied for unless the person gives a list of their own: what reaches
+/// What a Bash command is always denied for, whatever the person adds: what reaches
 /// another computer, pushes, merges or publishes, deletes a tree, runs as another user, starts
 /// an agent or drives oso, or names Claude Code's settings, a socket or a `config.toml`, as
 /// oso's is, which says what an orchestrator may answer. Each ignores case and crosses lines.
@@ -73,28 +73,32 @@ pub struct Rules {
 }
 
 impl Rules {
-    /// The rules for `tools`, and `deny`'s patterns, else [`DEFAULT_DENY`]. Each pattern ignores
-    /// case, as the disk on macOS and Windows finds a command, and `.` crosses lines; a
-    /// pattern's own `(?-i)` or `(?-s)` turns either off.
+    /// The rules for `tools`, with [`DEFAULT_DENY`] and `deny`'s patterns, which add to the
+    /// defaults and never take one away. Each pattern ignores case, as the disk on macOS and
+    /// Windows finds a command, and `.` crosses lines; a pattern's own `(?-i)` or `(?-s)` turns
+    /// either off.
     ///
     /// # Errors
     ///
     /// The first pattern of `deny` that does not compile, or is too large.
-    pub fn new(tools: &[String], deny: Option<&[String]>) -> Result<Self, regex::Error> {
-        let deny = match deny {
-            Some(patterns) => (patterns.iter())
-                .map(|pattern| pattern.as_str())
-                .map(compile)
-                .collect::<Result<_, _>>()?,
-            None => DEFAULT_DENY
-                .into_iter()
-                .map(compile)
-                .collect::<Result<_, _>>()?,
-        };
+    pub fn new(tools: &[String], deny: &[String]) -> Result<Self, regex::Error> {
+        let deny = (DEFAULT_DENY.into_iter())
+            .chain(deny.iter().map(String::as_str))
+            .map(compile)
+            .collect::<Result<_, _>>()?;
         Ok(Self {
             tools: tools.to_vec(),
             deny,
         })
+    }
+
+    /// Whether `pattern` is one [`Rules::new`] takes, by itself.
+    ///
+    /// # Errors
+    ///
+    /// Why it does not compile, or is too large.
+    pub fn check(pattern: &str) -> Result<(), regex::Error> {
+        compile(pattern).map(drop)
     }
 }
 

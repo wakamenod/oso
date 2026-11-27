@@ -186,6 +186,7 @@ mod tests {
             streamed: 0,
             state: ToolState::Done,
             approved: None,
+            allowed: None,
             result: Some(ToolResult {
                 tool_use_id: name.to_owned(),
                 error: false,

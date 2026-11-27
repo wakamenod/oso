@@ -142,21 +142,27 @@ it oso's own tools through `oso mcp`.
 | `D` | `review-session` | Review what changed in this project since its baseline. |
 | `V` | the review menu | The review menu, as `C-u C-c a v` opens it. |
 
-So `C-c a r` resumes a session, and A space's orchestrator can be let answer some of its native workers' permission requests for
+So `C-c a r` resumes a session, and `C-c a S` opens the space menu.
+
+A space's orchestrator can be let answer some of its native workers' permission requests for
 you. In `config.toml`, `[spaces] orchestrator-answers = ["Read", "Grep", "Glob", "Edit", "Write"]`
 lists the tools it may allow; none are listed unless you set it. It sees each worker's request
 with its input, and whether it may answer it: never questions, plans, MCP tools, a file whose
 name may hold secrets, a path outside the worker's directory or in its `.git`, `.claude` or
-`.mcp.json`, nor a command that matches `orchestrator-answers-deny` (patterns, case ignored, that
-replace the defaults: pushes, merges, `curl`, `ssh`, `sudo`, `rm -r`, `kill`, `claude`, `oso` and
-Claude's settings, among others). A file's path must be absolute, and a search must name its
+`.mcp.json`, nor a command that matches the built-in deny patterns (pushes, merges, `curl`,
+`ssh`, `sudo`, `rm -r`, `kill`, `claude`, `oso` and Claude's settings, among others) or one of
+yours in `orchestrator-answers-deny` (patterns, case ignored, that add to the built-in ones,
+which you cannot take away). A file's path must be absolute, and a search must name its
 `path`. These checks read names and commands as written, so they are a help, not a wall:
 list `Bash` only if you trust the orchestrator's judgment with any command. A bad value of
 either key is said in `*Messages*`, and the orchestrator answers nothing until you fix it.
-For now the orchestrator only sees the requests; the tool that answers them, `session_answer`,
-comes next.
 
-`C-c a S` opens the space menu.
+It answers with `session_answer`, once per request, and you see each answer: the call's row in
+the worker's buffer reads `allowed by` or `denied: by` and the orchestrator's name, and the echo
+area says it too. An allow lets that one call run and changes no permission for later ones. You
+can still answer first: a request you answered, or whose `C-u y` question or note you have
+open, is refused to the orchestrator. It may deny a request it may not allow, but never answers
+questions or plans.
 
 Inside a session's own buffer, the modeline says `Session`, and the most used heads are `C-c` and
 the head's letter with Control, `C-c C-n` for `n`:
@@ -634,6 +640,7 @@ tools besides oso's editing ones:
 | `session_resume` | For a space's orchestrator: resume a stopped session of its space with its conversation, as `C-c a r` does. Asks you first. |
 | `session_rename` | Rename its own session or one it started; a space's orchestrator also its space's sessions. Asks nothing, and the echo area says it. |
 | `session_archive` | Archive a session it started; a space's orchestrator also its space's sessions, never an orchestrator or a pinned one. A stopped session is archived with no question. One that runs is stopped first only when it is idle, done or ready for review and Claude Code says its process is idle, with no shell left running in the background; that stop asks you first. Its worktree is kept, and `A` under `Archived` brings the row back. |
+| `session_answer` | For a space's orchestrator: allow or deny, once, the permission request a native worker of its space shows you, for the tools you list in `orchestrator-answers` (none by default). Asks nothing; the call's row and the echo area say who answered. |
 | `space_add_repo` | For a space's orchestrator: add a repository's main checkout to its space, as the space menu's `a` does. Asks you first, unless the setting below allows it for a trusted repository oso already knows; any other always asks, and one oso does not trust joins restricted. Once it is trusted, oso types `/add-dir PATH` into the orchestrator and sends it once its turn ends, or resumes a native one with it, asking you nothing. |
 | `worktree_list` | List the repository's worktrees, as `M-x worktree-list` does. |
 | `worktree_remove` | Remove a finished worktree, under the same rules as `M-x worktree-remove`. |

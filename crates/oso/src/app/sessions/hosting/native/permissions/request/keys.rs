@@ -16,7 +16,9 @@ use super::gate::Pressed;
 use crate::app::App;
 use crate::app::sessions::hosting::native::carrier::carrier;
 use crate::app::sessions::hosting::native::permissions::DENIED;
-use crate::app::sessions::hosting::native::permissions::card::{Answer, BY_THE_PERSON, Writing};
+use crate::app::sessions::hosting::native::permissions::card::{
+    Answer, BY_THE_PERSON, By, Writing,
+};
 use crate::sessions::native::request::input::input;
 use crate::sessions::native::tail::Part;
 use crate::sessions::worker::SessionKey;
@@ -89,7 +91,7 @@ impl App {
             return;
         };
         if reading.allows() {
-            return self.answer_card(key, Answer::Allow);
+            return self.answer_card(key, Answer::Allow(By::Person));
         }
         let (unread, in_view, whole) = (
             reading.unread(),

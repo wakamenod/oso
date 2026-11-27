@@ -36,7 +36,7 @@ const MAX_ANSWERED: usize = 64;
 #[derive(Debug)]
 pub struct Asks<R> {
     waiting: VecDeque<Ask<R>>,
-    answered: VecDeque<(SessionKey, String)>,
+    answered: VecDeque<Answered>,
     /// The last [`RequestId`] given.
     last_id: u64,
 }
@@ -51,6 +51,23 @@ impl<R> Default for Asks<R> {
     }
 }
 
+/// Who answered a request (ADR 0186).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Answerer {
+    Person,
+    /// The space's orchestrator, standing in for the person.
+    StandIn,
+}
+
+/// A request answered lately: its session, its call, its id and who answered it.
+#[derive(Debug)]
+struct Answered {
+    key: SessionKey,
+    call: String,
+    id: RequestId,
+    by: Answerer,
+}
+
 /// oso's id of a request, `r1` the first taken, counted up for each (ADR 0186). The default,
 /// `r0`, is a request's until it is taken, and names none.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -59,10 +76,6 @@ pub struct RequestId(u64);
 impl RequestId {
     /// The id `text` writes, as [`RequestId`]'s `Display` writes it: `r` and a number with no
     /// sign or leading zero.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "session_answer reads ids (ADR 0186, PR 2)")
-    )]
     pub fn parse(text: &str) -> Option<Self> {
         let digits = text.strip_prefix('r')?;
         let plain = !digits.is_empty()
@@ -217,7 +230,14 @@ impl<R> Asks<R> {
 
     /// Whether session `key`'s call `tool_use_id` was answered lately, by whomever.
     pub fn answered_lately(&self, key: SessionKey, tool_use_id: &str) -> bool {
-        (self.answered.iter()).any(|(asked, answered)| *asked == key && answered == tool_use_id)
+        (self.answered.iter()).any(|answered| answered.key == key && answered.call == tool_use_id)
+    }
+
+    /// Who answered session `key`'s request `id` lately, if anyone did.
+    pub fn answered_by(&self, key: SessionKey, id: RequestId) -> Option<Answerer> {
+        (self.answered.iter())
+            .find(|answered| answered.key == key && answered.id == id)
+            .map(|answered| answered.by)
     }
 
     /// When the first request whose call has not shown is denied, if one waits.
@@ -318,15 +338,20 @@ impl<R> Asks<R> {
         (self.waiting.iter_mut()).find(|ask| ask.key == key && ask.shown.is_some())
     }
 
-    /// Session `key`'s request that is shown, answered: out of the queue, and its call
+    /// Session `key`'s request that is shown, answered `by`: out of the queue, and its call
     /// kept as answered.
-    pub fn take_shown(&mut self, key: SessionKey) -> Option<Ask<R>> {
+    pub fn take_shown(&mut self, key: SessionKey, by: Answerer) -> Option<Ask<R>> {
         let index = (self.waiting.iter()).position(|ask| ask.key == key && ask.shown.is_some())?;
         let ask = self.waiting.remove(index)?;
         if self.answered.len() == MAX_ANSWERED {
             self.answered.pop_front();
         }
-        (self.answered).push_back((ask.key, ask.call.tool_use_id.clone()));
+        (self.answered).push_back(Answered {
+            key: ask.key,
+            call: ask.call.tool_use_id.clone(),
+            id: ask.id,
+            by,
+        });
         Some(ask)
     }
 

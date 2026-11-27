@@ -960,6 +960,9 @@ The UI thread never blocks on I/O or parsing:
   (`Editor::rename_terminal_buffer`); a running `claude` keeps its own until it is resumed,
   kept as `Hosted::launched_as` and carried over a restart. What Claude Code's registry calls
   oso's running sessions, from each one's own `claude`, is `app/sessions/hosting/naming.rs`'.
+  `session_answer` ([ADR 0186](adr/0186-a-spaces-orchestrator-answers-its-workers-tool-calls.md))
+  is `app/sessions/tools/answer.rs`, over `sessions::tools::answer`'s rules and the accessors of
+  `app/sessions/hosting/native/permissions.rs`, which hold the request's input.
   `session_archive` ([ADR 0179](adr/0179-agents-archive-sessions.md)) is
   `app/sessions/tools/archive.rs`: `sessions::tools::archivable` says which session it takes,
   over what `App::reach_over` says the caller reaches, as a rename's, and whether it stops it
@@ -1292,7 +1295,9 @@ Full details are in [`security.md`](security.md).
     of requests is `sessions::native::asks`, each with oso's `RequestId`; which a space's
     orchestrator may answer, and how much of one it is listed, is `sessions::native::stand_in`
     ([ADR 0186](adr/0186-a-spaces-orchestrator-answers-its-workers-tool-calls.md)), its
-    `request` field `app/sessions/tools/reads.rs`'s; and the app finds each request's call in the
+    `request` field `app/sessions/tools/reads.rs`'s, and its `session_answer` the rules of
+    `sessions::tools::answer` and the app's `app/sessions/tools/answer.rs`, which answers as
+    the person's card does (`Answer::Allow(By)`); and the app finds each request's call in the
     session's rows (`app/sessions/hosting/native/permissions.rs`). A call is asked in the
     conversation ([ADR 0182](adr/0182-a-native-sessions-requests-in-its-conversation.md)):
     `sessions::native::request` makes its block on the socket's thread, over `review::diff`, and

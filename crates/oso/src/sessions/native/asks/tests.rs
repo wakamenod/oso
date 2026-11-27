@@ -6,7 +6,9 @@ use std::time::{Duration, Instant};
 
 use serde_json::json;
 
-use super::{Ask, Asks, Block, Denied, FIND_WITHIN, Look, Outcome, Question, Refused, RequestId};
+use super::{
+    Answerer, Ask, Asks, Block, Denied, FIND_WITHIN, Look, Outcome, Question, Refused, RequestId,
+};
 use crate::channel::Connection;
 use crate::channel::protocol::permission::Call;
 use crate::sessions::native::card::Card;
@@ -89,7 +91,13 @@ fn a_sessions_requests_on_two_connections_are_shown_one_at_a_time_in_turn() {
     asks.unshown().next().unwrap().shown = Some(start);
     // The second waits while the first card is shown, and is not shown with it.
     assert!(asks.unshown().next().is_none());
-    assert_eq!(asks.take_shown(7).unwrap().call.tool_use_id, "t1");
+    assert_eq!(
+        asks.take_shown(7, Answerer::Person)
+            .unwrap()
+            .call
+            .tool_use_id,
+        "t1"
+    );
     assert_eq!(asked(&asks), ["t2"]);
     let next: Vec<String> = (asks.unshown())
         .map(|a| a.call.tool_use_id.clone())
@@ -120,7 +128,7 @@ fn a_call_that_does_not_show_in_time_is_denied_and_one_found_is_asked_in_turn() 
     next.shown = Some(start);
     assert!(asks.unshown().next().is_none(), "its card is shown");
     assert!(asks.shown(7).is_none(), "another session's");
-    let answered = asks.take_shown(8).unwrap();
+    let answered = asks.take_shown(8, Answerer::Person).unwrap();
     assert_eq!(answered.call.tool_use_id, "t2");
     assert!(asks.is_empty());
     // Asked about once.
@@ -274,7 +282,15 @@ fn each_request_taken_gets_an_id_of_osos_that_reads_back() {
     assert_eq!(RequestId::parse("r0"), Some(RequestId::default()));
     // An answer keeps its call as answered lately, by whomever it came from.
     assert!(!asks.answered_lately(7, "t1"));
-    asks.take_shown(7);
+    let first = asks.shown(7).unwrap().id;
+    asks.take_shown(7, Answerer::Person);
     assert!(asks.answered_lately(7, "t1"));
     assert!(!asks.answered_lately(8, "t1"));
+    // And who answered it, by its id (ADR 0186): never another session's of that id.
+    assert_eq!(asks.answered_by(7, first), Some(Answerer::Person));
+    assert_eq!(asks.answered_by(8, first), None);
+    let second = asks.shown(8).unwrap().id;
+    assert_eq!(asks.answered_by(8, second), None);
+    asks.take_shown(8, Answerer::StandIn);
+    assert_eq!(asks.answered_by(8, second), Some(Answerer::StandIn));
 }

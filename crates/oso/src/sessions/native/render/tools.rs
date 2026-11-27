@@ -211,6 +211,12 @@ fn suffix(tool: &Tool, folded: bool) -> (String, Option<Face>) {
         };
         return (format!(" · approved{edited}{after}"), None);
     }
+    // The space's orchestrator's allow (ADR 0186), until it fails.
+    if let Some(allowed) = &tool.allowed
+        && matches!(tool.state, ToolState::Running | ToolState::Done)
+    {
+        return (format!(" · {}", one_line(allowed)), None);
+    }
     match &tool.state {
         ToolState::Streaming => (format!(" · {} bytes", tool.streamed), None),
         ToolState::Running => (String::new(), None),

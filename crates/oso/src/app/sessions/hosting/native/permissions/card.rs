@@ -46,6 +46,7 @@ use crate::app::App;
 use crate::channel::protocol::permission;
 use crate::commands::agent_sessions::{CARD_NOTE, CARD_OWN};
 use crate::git::printable;
+use crate::sessions::native::asks::Answerer;
 use crate::sessions::native::card::{self, Card, Questions, Shown, Step};
 use crate::sessions::state::Target;
 use crate::sessions::worker::SessionKey;
@@ -71,9 +72,17 @@ impl Writing {
     }
 }
 
+/// Who allows a request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum By {
+    Person,
+    /// The space's orchestrator of this name, which the person let answer the tool (ADR 0186).
+    Stand(String),
+}
+
 /// What a request's answer comes to.
 pub(super) enum Answer {
-    Allow,
+    Allow(By),
     /// Each question with its answer.
     Answers(Vec<(String, String)>),
     /// A plan approved: the person's edit of it, if any, and the mode after it (part 3d).
@@ -82,9 +91,12 @@ pub(super) enum Answer {
     Deny(String, String),
 }
 
-/// What an answered call's row says of the person's answer.
+/// What an answered call's row says of its answer.
+#[derive(Debug, PartialEq, Eq)]
 enum Mark {
     Denied(String),
+    /// Who allowed it, as its row says: "allowed by NAME" (ADR 0186).
+    Allowed(String),
     /// A plan's: whether the person edited it, and the mode after it (part 3d).
     Approved(bool, Approval),
 }
@@ -426,18 +438,14 @@ impl App {
     /// Answers session `key`'s shown request as `answer` says: its bridge is told, its call's
     /// row says a denial, and what it shows goes.
     pub(super) fn answer_card(&mut self, key: SessionKey, answer: Answer) {
-        let Some(ask) = self.hosting.natives.permissions.asks.take_shown(key) else {
+        let by = match &answer {
+            Answer::Allow(By::Stand(_)) => Answerer::StandIn,
+            _ => Answerer::Person,
+        };
+        let Some(ask) = self.hosting.natives.permissions.asks.take_shown(key, by) else {
             return;
         };
-        let (reply, mark, said) = match answer {
-            Answer::Allow => (permission::allow(), None, "allowed"),
-            Answer::Answers(answers) => (permission::allow_answering(&answers), None, "answered"),
-            Answer::Plan(edit, approval) => {
-                let (reply, mark, said) = plan::answered(edit.as_deref(), approval);
-                (reply, Some(mark), said)
-            }
-            Answer::Deny(why, row) => (permission::deny(&why), Some(Mark::Denied(row)), "denied"),
-        };
+        let (reply, mark, said) = replied(answer);
         self.agent_log(&format!(
             "a native session's {}: {said}",
             ask.call.tool_name
@@ -453,6 +461,7 @@ impl App {
         if let (Some(mark), Some(native)) = (mark, self.hosting.natives.map.get_mut(&key)) {
             let change = match mark {
                 Mark::Denied(row) => native.rows.denied(id, &row),
+                Mark::Allowed(row) => native.rows.allowed(id, &row),
                 Mark::Approved(edited, after) => native.rows.approved(id, edited, after),
             };
             super::super::draw(&mut self.editor, native, change);
@@ -510,9 +519,60 @@ impl App {
     }
 }
 
+/// What `answer` tells the bridge, what the call's row says of it, if anything, and what the
+/// agent log says. An allow, whoever gives it, is the one allow with no `updatedPermissions`.
+fn replied(answer: Answer) -> (serde_json::Value, Option<Mark>, &'static str) {
+    match answer {
+        Answer::Allow(By::Person) => (permission::allow(), None, "allowed"),
+        Answer::Allow(By::Stand(name)) => (
+            permission::allow(),
+            Some(Mark::Allowed(format!("allowed by {name}"))),
+            "allowed by the space's orchestrator",
+        ),
+        Answer::Answers(answers) => (permission::allow_answering(&answers), None, "answered"),
+        Answer::Plan(edit, approval) => {
+            let (reply, mark, said) = plan::answered(edit.as_deref(), approval);
+            (reply, Some(mark), said)
+        }
+        Answer::Deny(why, row) => (permission::deny(&why), Some(Mark::Denied(row)), "denied"),
+    }
+}
+
 /// What kind of card a key acts on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Kind {
     Questions,
     Plan,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Answer, By, Mark, replied};
+    use crate::channel::protocol::permission;
+    use crate::sessions::tools::answer::{denial, denied_row};
+
+    #[test]
+    fn the_orchestrators_allow_is_exactly_the_one_allow_and_marks_its_row() {
+        let (person, mark, _) = replied(Answer::Allow(By::Person));
+        assert_eq!(person, permission::allow());
+        assert_eq!(mark, None);
+        let (stand_in, mark, _) = replied(Answer::Allow(By::Stand("fix-login".into())));
+        // No `updatedPermissions`, nor anything else: nothing changes for later calls.
+        assert_eq!(stand_in, permission::allow());
+        assert_eq!(stand_in, serde_json::json!({ "behavior": "allow" }));
+        assert!(stand_in.get("updatedPermissions").is_none());
+        assert_eq!(mark, Some(Mark::Allowed("allowed by fix-login".into())));
+    }
+
+    #[test]
+    fn the_orchestrators_deny_reason_reaches_the_bridge() {
+        let why = denial("fix-login", Some("run the tests first"));
+        let (reply, mark, said) = replied(Answer::Deny(why, denied_row("fix-login")));
+        assert_eq!(reply["behavior"], "deny");
+        let message = reply["message"].as_str().unwrap();
+        assert!(message.contains("run the tests first"), "{message}");
+        assert!(message.contains("fix-login"), "{message}");
+        assert_eq!(mark, Some(Mark::Denied("by fix-login".into())));
+        assert_eq!(said, "denied");
+    }
 }

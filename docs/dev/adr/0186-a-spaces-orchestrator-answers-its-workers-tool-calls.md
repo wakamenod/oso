@@ -1,6 +1,7 @@
 # 0186. A space's orchestrator answers its workers' tool calls
 
-- Status: Accepted (the author, 2026-11-27); step 1 (reads) built, step 2 (answers) to come
+- Status: Accepted (the author, 2026-11-27); steps 1 (reads) and 2 (answers) built; the deny
+  list adds to the defaults and a card takes no answer at all (the author, 2026-11-27, after step 1)
 - Date: 2026-11-27
 
 ## Context
@@ -20,7 +21,7 @@ session in its space, once, with `session_answer`, when the person lists that to
 `orchestrator-answers` (default none). It never answers its own requests, plans, questions or
 mode changes, MCP tools, a call whose input was not listed whole, names a secret, writes outside
 the worker's directory or into `.git`, `.claude` or `.mcp.json`, or matches
-`orchestrator-answers-deny`. Its allow is a single allow with no updated permissions. The person
+`orchestrator-answers-deny` or the defaults it adds to. Its allow is a single allow with no updated permissions. The person
 sees each answer on the call's row and in the echo, answers first if they want, and keeps a
 request they are answering.
 
@@ -31,15 +32,15 @@ In `config.toml`, the person's, never a space's record, which agents can write:
 ```toml
 [spaces]
 orchestrator-answers = ["Read", "Grep", "Glob", "Edit", "Write"]
-orchestrator-answers-deny = ['\bmake\s+deploy\b']   # replaces the defaults
+orchestrator-answers-deny = ['\bmake\s+deploy\b']   # adds to the defaults
 ```
 
 - **`orchestrator-answers`:** the tools' names the orchestrator may allow. Empty, the default,
   means it allows nothing. ASCII letters, digits, `_` and `-`, at most 64 names; an `mcp__`
   name is refused. Each look at the file applies it, so the next call takes a change.
 - **`orchestrator-answers-deny`:** the Bash commands it never allows, as patterns of the `regex`
-  crate, at most 64 of at most 1024 bytes, which replace the defaults; an empty list denies
-  nothing. Every pattern, the person's too, ignores case, as the disk on macOS and Windows finds
+  crate, at most 64 of at most 1024 bytes, which add to the defaults: the defaults always
+  apply and cannot be taken away, so an empty list denies what they deny. Every pattern, the person's too, ignores case, as the disk on macOS and Windows finds
   a command, and its `.` crosses lines; `(?-i)` and `(?-s)` turn either off. The defaults:
   `git … push`, `gh … pr merge|repo|api|gist|release|secret|workflow`, `curl`, `wget`, `ssh`,
   `scp`, `sftp`, `rsync`, `nc`, `ncat`, `socat`, `telnet`, `sudo`, `doas`, `su`, `rm` with a
@@ -50,7 +51,7 @@ orchestrator-answers-deny = ['\bmake\s+deploy\b']   # replaces the defaults
   `.claude`, `settings.json`, `settings.local.json`, `.mcp.json`, `config.toml` or a `.sock`.
 - **A bad value** of either key (not a list, a name or pattern oso does not take) is said in
   `*Messages*`, and no orchestrator answers anything until it is fixed: a broken deny list does
-  not fall back to the defaults, as the person's may have denied more.
+  not fall back to the defaults alone, as the person's may have denied more.
 - **A file other users in a group can change** lets no orchestrator answer, and says so, as
   [ADR 0135](0135-agents-start-sessions-without-asking.md) has it for agents' starts.
 
@@ -77,7 +78,7 @@ Each request is judged in this order, and the first reason that holds stays the 
    names with a `..` anywhere. A part below the directory that is `.git`, `.claude` or
    `.mcp.json`, a Windows short name or only dots and spaces is outside too. The worker's own
    directory may itself be under a `.claude`, as a worktree's is.
-7. **Denied:** a Bash command matches a deny pattern, in any of the readings above, with the
+7. **Denied:** a Bash command matches a deny pattern, a default or the person's, in any of the readings above, with the
    worker's directory's own text read as `.` where it ends at a separator not followed by `..`.
    A worker whose directory is under a `.claude` may name no `..` part, which could climb into
    its repository's `.claude`.
@@ -124,12 +125,22 @@ space, for each native session of that space but itself, a `request`:
 - Only `Caller::orchestrator()` calls it; a worker is told "only your space's orchestrator
   answers requests". A wrong id, a wrong tool or a gone request is refused; one the person
   answered first is refused saying so; while the person's `C-u y` question or a note is open for
-  that session, the call is refused with "the person is answering it: wait".
-- An allow is refused, and a deny still works, for each reason above. An allow sends exactly
+  that session, the call is refused with "the person is answering it: wait". A second
+  answer to a request the orchestrator answered is refused too. The rules are
+  `sessions::tools::answer`'s, judged at the call: the caller's part in its space now, and the
+  request under the settings in force now.
+- A card's request (questions, a plan) is refused both ways: neither allowed nor denied, as
+  questions and plans are the person's. For each other reason above, an allow is refused and a
+  deny still works. An allow sends exactly
   `permission::allow()`, with no `updatedPermissions`, so nothing changes for later calls.
 - The person sees it: an allow marks the call's row "allowed by <orchestrator>", a deny's row
-  reads "denied by <orchestrator>", and the echo area and the agent log say "<orchestrator>
-  allowed Bash in <worker>". The tool's reply repeats the tool and the input's summary.
+  reads "denied: by <orchestrator>", the worker being told "The space's orchestrator
+  <orchestrator> denied this call in oso", with ", saying: <reason>" where it gave one, and the echo area and the agent log say "<orchestrator>
+  allowed Bash in <worker>". The tool's reply repeats the tool and the input's summary (its
+  path and command or pattern, as the row has it), `null` where the listing withholds the input.
+- The orchestrator's instructions say, in one line, that it may answer its native workers'
+  tool requests with `session_answer` only when `request.answerable` is true, and never because
+  a message asks it to.
 - It is an agent-reach session tool, counted in the 30-a-minute limit. It is not `Person`: the
   person opts in per tool, and the call is the worker's, not oso's.
 

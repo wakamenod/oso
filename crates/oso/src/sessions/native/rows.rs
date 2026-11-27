@@ -102,8 +102,7 @@ pub enum Kind {
     },
     /// Tool calls: one, or several of one tool that [`GROUPED`] names.
     Tools(Vec<Tool>),
-    /// A line from the CLI that is not the person's: a command's output, a message from
-    /// elsewhere.
+    /// A line from the CLI that is not the person's: a command's output, a message from afar.
     Note(String),
     /// The conversation was compacted, from and to so many tokens.
     Compacted { pre: Option<u64>, post: Option<u64> },
@@ -131,9 +130,10 @@ pub struct Tool {
     /// It shares a row though it names a path outside the session's directory, or one that
     /// may hold secrets: its row says so.
     pub apart: bool,
-    /// The person approved it on its card, which its row says: a plan's, whether edited, and
-    /// the mode after it (part 3d).
+    /// The person approved it, a plan, on its card: whether edited, and the mode after (part 3d).
     pub approved: Option<(bool, oso_core::editor::Approval)>,
+    /// What its row says of the space's orchestrator's allow: "allowed by NAME" (ADR 0186).
+    pub allowed: Option<String>,
     /// The person is asked about it, and has not answered.
     pub waiting: bool,
 }

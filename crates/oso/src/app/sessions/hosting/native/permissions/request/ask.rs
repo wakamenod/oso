@@ -99,7 +99,8 @@ impl App {
             return true;
         }
         if asked.waits(&self.hosting.natives.permissions.asks) {
-            self.answer_card(asked.key, super::super::card::Answer::Allow);
+            let allow = super::super::card::Answer::Allow(super::super::card::By::Person);
+            self.answer_card(asked.key, allow);
         } else {
             self.editor
                 .message("Not allowed: the call asked about no longer waits");
@@ -122,6 +123,15 @@ impl App {
         if let Some(asked) = self.hosting.natives.permissions.requests.asked.take() {
             self.close_question(asked.prompt);
         }
+    }
+
+    /// Whether the question before a call runs is open for session `key`'s call (ADR 0186).
+    pub(in crate::app::sessions::hosting::native::permissions) fn unread_question_for(
+        &self,
+        key: SessionKey,
+    ) -> bool {
+        let asked = self.hosting.natives.permissions.requests.asked.as_ref();
+        asked.is_some_and(|asked| asked.key == key)
     }
 
     /// Session `key`'s call went: the question about it, if one is open, closes.
@@ -166,7 +176,7 @@ mod tests {
     use super::{Asked, question};
     use crate::channel::Connection;
     use crate::channel::protocol::permission::Call;
-    use crate::sessions::native::asks::{Ask, Asks, Look, RequestId};
+    use crate::sessions::native::asks::{Answerer, Ask, Asks, Look, RequestId};
     use crate::sessions::native::request::{Block, Request};
 
     #[test]
@@ -207,7 +217,7 @@ mod tests {
             }
             assert_eq!(asked.waits(&asks), waits, "{key} {id}");
             if key == 7 {
-                asks.take_shown(key).unwrap();
+                asks.take_shown(key, Answerer::Person).unwrap();
             }
         }
     }

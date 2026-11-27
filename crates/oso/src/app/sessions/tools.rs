@@ -39,6 +39,7 @@ use crate::sessions::worker::SessionKey;
 use crate::sessions::worktree::jobs::Report;
 
 mod add_repo;
+mod answer;
 mod archive;
 mod asks;
 mod moving;
@@ -278,6 +279,26 @@ impl App {
             }
             (Call::SpaceAddRepo { path }, Some(caller)) => {
                 self.tool_space_add_repo(pending, &tool, &caller, path);
+            }
+            (
+                Call::Answer {
+                    session,
+                    request,
+                    tool: of,
+                    answer,
+                    reason,
+                },
+                caller,
+            ) => {
+                let reply = self.session_answer(
+                    caller.as_ref(),
+                    &session,
+                    &request,
+                    &of,
+                    &answer,
+                    reason.as_deref(),
+                );
+                pending.answer(reply);
             }
             (Call::DraftSet { id, text }, Some(caller)) => {
                 pending.answer(self.tool_draft_set(&tool, &caller, &id, &text));

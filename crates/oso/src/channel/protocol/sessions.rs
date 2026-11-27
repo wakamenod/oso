@@ -30,6 +30,9 @@
 //! - `space_add_repo`: `{"path": "/abs/web"}`, a repository's main checkout for the caller's
 //!   space (ADR 0161).
 //! - `session_archive`: `{"session": "ID or name"}`, a session's row to archive (ADR 0179).
+//! - `session_answer`: `{"session": "ID or name", "request": "r17", "tool": "Edit", "answer":
+//!   "allow", "reason": "…"}`, a space's orchestrator's answer to the request a native worker
+//!   of its space shows the person; `reason` is a deny's, and optional (ADR 0186).
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -39,7 +42,7 @@ use serde_json::{Map, Value};
 use super::{MAX_PATH, only, short};
 
 /// The methods of this module, as the tools that call them are named.
-pub const METHODS: [&str; 13] = [
+pub const METHODS: [&str; 14] = [
     "session_list",
     "session_state",
     "worktree_list",
@@ -53,6 +56,7 @@ pub const METHODS: [&str; 13] = [
     "session_rename",
     "space_add_repo",
     "session_archive",
+    "session_answer",
 ];
 
 /// The longest brief a session takes, in bytes, as the person's `*Brief*` (ADR 0121).
@@ -67,6 +71,10 @@ pub const MAX_SPACE_NAME: usize = 48;
 const MAX_ID: usize = 64;
 /// The most directories a call's `with_dirs` names.
 pub const MAX_WITH_DIRS: usize = 8;
+/// The longest deny's reason taken, in bytes: [`MAX_REASON_CHARS`] characters of four.
+pub const MAX_REASON: usize = 4 * MAX_REASON_CHARS;
+/// The most characters of a deny's reason, which the sessions' rules count (ADR 0186).
+pub const MAX_REASON_CHARS: usize = 200;
 /// The longest model taken, in bytes, as a native session's choice keeps one.
 pub const MAX_MODEL: usize = 256;
 
@@ -140,6 +148,15 @@ pub enum Call {
     Archive {
         session: String,
     },
+    /// A space's orchestrator's answer to the request `request`, of `tool`, that session
+    /// `session` shows the person: `allow` or `deny`, with a deny's `reason` (ADR 0186).
+    Answer {
+        session: String,
+        request: String,
+        tool: String,
+        answer: String,
+        reason: Option<String>,
+    },
 }
 
 /// How long the server holds a call's reply for the UI.
@@ -171,6 +188,7 @@ impl Call {
             Self::Rename { .. } => "session_rename",
             Self::SpaceAddRepo { .. } => "space_add_repo",
             Self::Archive { .. } => "session_archive",
+            Self::Answer { .. } => "session_answer",
         }
     }
 
@@ -181,7 +199,8 @@ impl Call {
             | Self::State { .. }
             | Self::SpaceStatus
             | Self::DraftSet { .. }
-            | Self::Rename { .. } => Hold::Usual,
+            | Self::Rename { .. }
+            | Self::Answer { .. } => Hold::Usual,
             Self::WorktreeList { .. } | Self::WorktreeRemove { .. } => Hold::Job(JOB_REPLY_WITHIN),
             // An archive that stops a session may ask (ADR 0179).
             Self::StartWorktree { .. }
@@ -207,6 +226,10 @@ impl std::fmt::Debug for Call {
             Self::Start { brief: text, .. } => f
                 .debug_struct("Start")
                 .field("brief", &brief(text.as_ref()))
+                .finish_non_exhaustive(),
+            Self::Answer { reason, .. } => f
+                .debug_struct("Answer")
+                .field("reason", &brief(reason.as_ref()))
                 .finish_non_exhaustive(),
             Self::DraftSet { text, .. } => f
                 .debug_struct("DraftSet")
@@ -254,6 +277,7 @@ pub fn parse(method: &str, params: &Map<String, Value>) -> Option<Result<Call, S
         "session_archive" => only(params, method, &["session"])
             .and_then(|()| text(params, method, "session", MAX_NAME))
             .map(|session| Call::Archive { session }),
+        "session_answer" => parse_answer(params),
         _ => return None,
     })
 }
@@ -268,6 +292,26 @@ fn parse_list(params: &Map<String, Value>) -> Result<Call, String> {
             .ok_or("session_list's \"offset\" must be a whole number")?,
     };
     Ok(Call::List { offset })
+}
+
+fn parse_answer(params: &Map<String, Value>) -> Result<Call, String> {
+    let method = "session_answer";
+    only(
+        params,
+        method,
+        &["session", "request", "tool", "answer", "reason"],
+    )?;
+    let answer = text(params, method, "answer", MAX_NAME)?;
+    if answer != "allow" && answer != "deny" {
+        return Err("session_answer's \"answer\" is \"allow\" or \"deny\"".to_owned());
+    }
+    Ok(Call::Answer {
+        session: text(params, method, "session", MAX_NAME)?,
+        request: text(params, method, "request", MAX_ID)?,
+        tool: text(params, method, "tool", super::permission::MAX_TOOL_NAME)?,
+        answer,
+        reason: optional(params, method, "reason", MAX_REASON)?,
+    })
 }
 
 fn parse_draft(params: &Map<String, Value>) -> Result<Call, String> {
@@ -481,12 +525,57 @@ mod tests {
                 json!({ "path": std::env::temp_dir().join("web").display().to_string() }),
             ),
             call("session_archive", json!({ "session": "api" })),
+            call(
+                "session_answer",
+                json!({ "session": "api", "request": "r1", "tool": "Edit", "answer": "allow" }),
+            ),
         ];
         assert_eq!(calls.len(), METHODS.len());
         for (call, method) in calls.into_iter().zip(METHODS) {
             assert_eq!(call.unwrap().name(), method);
         }
         assert!(parse("state", &Map::new()).is_none());
+    }
+
+    #[test]
+    fn an_answer_names_its_session_request_and_tool_and_allows_or_denies() {
+        let answer = |value: Value| call("session_answer", value);
+        let deny = answer(json!({
+            "session": "api", "request": "r7", "tool": "Bash", "answer": "deny",
+            "reason": "secret plans"
+        }))
+        .unwrap();
+        assert_eq!(
+            deny,
+            Call::Answer {
+                session: "api".into(),
+                request: "r7".into(),
+                tool: "Bash".into(),
+                answer: "deny".into(),
+                reason: Some("secret plans".into()),
+            }
+        );
+        assert_eq!(deny.hold(), Hold::Usual);
+        // Its reason is the agent's text, never logged.
+        assert!(!format!("{deny:?}").contains("secret plans"));
+        let whole = json!({ "session": "api", "request": "r7", "tool": "Bash", "answer": "allow" });
+        assert!(answer(whole.clone()).is_ok());
+        for missing in ["session", "request", "tool", "answer"] {
+            let mut part = whole.clone();
+            part.as_object_mut().unwrap().remove(missing);
+            assert!(answer(part).is_err(), "{missing}");
+        }
+        for bad in ["yes", "Allow", ""] {
+            let mut wrong = whole.clone();
+            wrong["answer"] = json!(bad);
+            assert!(answer(wrong).is_err(), "{bad:?}");
+        }
+        let mut extra = whole.clone();
+        extra["mode"] = json!("auto");
+        assert!(answer(extra).is_err());
+        let mut long = whole;
+        long["reason"] = json!("x".repeat(super::MAX_REASON + 1));
+        assert!(answer(long).is_err());
     }
 
     #[test]
