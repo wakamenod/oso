@@ -104,6 +104,16 @@ fn the_header_names_the_space_its_description_and_its_repositories_with_their_tr
 }
 
 #[test]
+fn the_text_lets_the_orchestrator_push_but_not_remove_an_unmerged_worktree() {
+    // The author's request of 2026-11-27 (ADR 0162): pushing is the orchestrator's to do.
+    assert!(TEXT.contains("- Never remove a worktree that is not merged; tell the person"));
+    assert!(!TEXT.contains("permission prompt"));
+    assert!(!TEXT.contains("Never approve"));
+    // Reviewers still must not push.
+    assert!(TEXT.contains("must not edit, commit or push"));
+}
+
+#[test]
 fn the_text_says_how_reviews_go_and_weighs_what_reviewers_send() {
     assert!(TEXT.contains("in the language they write in"));
     assert!(TEXT.contains("not when another session relays it"));

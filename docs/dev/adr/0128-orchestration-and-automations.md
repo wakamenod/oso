@@ -1,6 +1,6 @@
 # 0128. Orchestration and automations
 
-- Status: Accepted, amended by 0135, 0136 and 0177
+- Status: Accepted, amended by 0135, 0136, 0162 and 0177
 - Date: 2026-11-13
 
 ## Context
@@ -72,7 +72,10 @@ Fixed, compiled into oso, at most 4 KiB:
 - Review each finished branch (`run_status`, `git diff`), then merge with `merge_branches` into this
   worktree, resolve conflicts here, and run the checks.
 - Never approve a worker's prompt, push, or remove a worktree that is not merged; tell the person
-  what needs them.
+  what needs them. Amended on 2026-11-27, at the author's request: in a space orchestrator's
+  text this line reads "Never remove a worktree that is not merged; tell the person what needs
+  them.", so it may push ([ADR 0162](0162-orchestrator-review-rules.md), "The orchestrator may
+  push, as amended").
 
 ### Tools (Q2, Q3, Q4, Q5)
 

@@ -1,6 +1,6 @@
 # 0136. Issue spaces
 
-- Status: Accepted, amended by 0140, 0143, 0151, 0153, 0155, 0159, 0161, 0162, 0163, 0173, 0176, 0177 and 0185; "A chosen space is closed, as amended" (2026-11-24)
+- Status: Accepted, amended by 0140, 0143, 0151, 0153, 0155, 0159, 0161, 0162 (also 2026-11-27), 0163, 0173, 0176, 0177 and 0185; "A chosen space is closed, as amended" (2026-11-24)
 - Key changed by [ADR 0184](0184-continue-a-review-where-it-was-left.md): the review key is the
   agents menu's `v`, `C-c a v`, and the review menu its `V`, `C-c a V`.
 - Date: 2026-11-15
@@ -187,7 +187,10 @@ space's orchestrator and its workers.
   from a worker reaches the current orchestrator. A replaced orchestrator is renamed
   `<name>-was-<n>` in oso's record before its successor starts, and resumes under that name.
 - **The orchestrator's text** is fixed, compiled into oso, at most 4 KiB. ADR 0128's coordinator
-  text, plus:
+  text, plus the lines below. Since 2026-11-27, at the author's request, its "Never approve …"
+  line reads "Never remove a worktree that is not merged; tell the person what needs them.": the
+  orchestrator may push ([ADR 0162](0162-orchestrator-review-rules.md), "The orchestrator may
+  push, as amended").
   - "You orchestrate space NAME. Work only through sessions of this space; do not edit the
     repositories yourself except to review and merge."
   - "Start a worker with `start_worktree_session` or `workers_start`, naming the repository; call

@@ -1,6 +1,6 @@
 # 0162. Orchestrator review rules
 
-- Status: Accepted
+- Status: Accepted, amended on 2026-11-27 ("The orchestrator may push")
 - Key changed by [ADR 0184](0184-continue-a-review-where-it-was-left.md): the review key is the
   agents menu's `v`, `C-c a v`, and the review menu its `V`, `C-c a V`.
 - Date: 2026-11-19
@@ -87,7 +87,28 @@ or replacement, as the command line is built again then.
     made them. Each reviewer is one more agent that reads crafted code and can write to the tree
     the implementer then builds and runs.
 
+## The orchestrator may push, as amended
+
+Amended on 2026-11-27, at the author's request through the coordinator. The orchestrator's text
+said "Never approve a session's permission prompt, push, or remove a worktree that is not
+merged; tell the person what needs them." The author removed two of its three rules: the
+orchestrator may push, and the words about approving a session's permission prompt are gone. The
+line now reads:
+
+- "Never remove a worktree that is not merged; tell the person what needs them."
+
+- **Text only.** No tool answers another session's permission prompt; dropping the words adds
+  none. Nothing in oso enforced "no push" for an orchestrator, so nothing else changes: a push
+  from its Bash still goes through the person's own Claude Code permission settings.
+- **Reviewers are unchanged:** the brief still says a reviewer must not edit, commit or push.
+- A test pins the new line, the reviewers' rule, and that the removed words are gone. A running
+  orchestrator gets the new text at its next resume or replacement.
+
 ## Changes to accepted ADRs
+
+- **ADR 0136, "The orchestrator's text", and ADR 0128, "The coordinator's text" (2026-11-27):**
+  the space orchestrator's last rule from ADR 0128's text is "Never remove a worktree that is
+  not merged; tell the person what needs them." (above).
 
 - **ADR 0136, "The orchestrator's text":** the text also holds the language line and the
   reviews block above.
