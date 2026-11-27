@@ -103,6 +103,10 @@ impl App {
             return;
         }
         permissions.run += 1;
+        // Ids count on from oso's start, a thousand to the millisecond, so that an id an
+        // orchestrator kept from an instance before never names one of this (ADR 0186).
+        let start = super::super::super::hosting::now_ms().saturating_mul(1000);
+        permissions.asks.ids_after(start);
         let run = permissions.run;
         let waker = self.waker.clone();
         let spawned = std::thread::Builder::new()

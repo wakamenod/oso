@@ -18,6 +18,7 @@ fn allowed() -> Answering<'static> {
     Answering {
         orchestrator: true,
         of_its_space: true,
+        worker: true,
         own: false,
         native: true,
         request: Some(r("r3")),
@@ -73,6 +74,21 @@ fn another_spaces_orchestrator_is_refused() {
         ..allowed()
     };
     refused(&other, "not of your space");
+}
+
+#[test]
+fn a_session_of_the_space_that_is_no_worker_is_refused() {
+    // An earlier orchestrator, or a session in the space's own directory: never a worker.
+    let former = Answering {
+        worker: false,
+        ..allowed()
+    };
+    refused(&former, "not a worker");
+    let denying = Answering {
+        verdict: Verdict::Deny,
+        ..former
+    };
+    refused(&denying, "not a worker");
 }
 
 #[test]

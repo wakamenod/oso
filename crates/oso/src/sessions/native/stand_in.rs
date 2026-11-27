@@ -223,6 +223,15 @@ pub fn listing(
     })
 }
 
+/// Whether a reply may say what a request of `verdict` works on: not a card's, a secret's, nor
+/// one whose input is not listed whole, which may name a secret past what was judged.
+pub fn shows_summary(verdict: Result<(), PersonOnly>) -> bool {
+    !matches!(
+        verdict,
+        Err(PersonOnly::Card | PersonOnly::Secret | PersonOnly::NotShown)
+    )
+}
+
 /// `input` as a listing shows it: whole if it is at most `max` bytes as JSON, else nothing,
 /// and whether it was cut. An input the bridge did not pass is cut.
 pub fn listed(input: Option<&Value>, max: usize) -> (Option<Value>, bool) {

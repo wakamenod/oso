@@ -294,3 +294,22 @@ fn each_request_taken_gets_an_id_of_osos_that_reads_back() {
     asks.take_shown(8, Answerer::StandIn);
     assert_eq!(asks.answered_by(8, second), Some(Answerer::StandIn));
 }
+
+#[test]
+fn ids_count_on_from_where_the_app_starts_them_so_that_a_restart_names_none_again() {
+    let now = Instant::now();
+    let mut asks = Asks::default();
+    asks.ids_after(1_000_000);
+    // Only the first start counts: ids never go back.
+    asks.ids_after(5);
+    asks.push(ask(1, 7, "t1", now));
+    asks.look(now, |_: &Ask<()>| Look::Found(question("q")));
+    for ask in asks.unshown() {
+        ask.shown = Some(now);
+    }
+    assert_eq!(asks.shown(7).unwrap().id.to_string(), "r1000001");
+    assert_eq!(
+        RequestId::parse("r1000001"),
+        Some(asks.shown(7).unwrap().id)
+    );
+}

@@ -110,7 +110,9 @@ space, for each native session of that space but itself, a `request`:
 ```
 
 - The request is the one shown to the person now, if any. Its `id` is oso's (`RequestId`,
-  counted up for each request taken), never the call's own id.
+  counted up for each request taken, from a thousand times the milliseconds since the epoch at
+  the instance's first sessions' socket, so that an id an orchestrator kept from an earlier
+  instance names none of a later one), never the call's own id.
 - The input is listed whole only up to 8 KiB of JSON; past that it is `null` with
   `input_cut: true`. It is `null` too for a secret or a card.
 - `person_only` says the reason above in words, while `answerable` is false.
@@ -123,7 +125,8 @@ space, for each native session of that space but itself, a `request`:
   which must match, `answer` (`allow` or `deny`) and, for a deny, `reason` of at most 200 plain
   characters, which goes to the worker as the deny's message.
 - Only `Caller::orchestrator()` calls it; a worker is told "only your space's orchestrator
-  answers requests". A wrong id, a wrong tool or a gone request is refused; one the person
+  answers requests". It answers only a worker's request: never an earlier orchestrator's, nor
+  that of a session in the space's own directory. A wrong id, a wrong tool or a gone request is refused; one the person
   answered first is refused saying so; while the person's `C-u y` question or a note is open for
   that session, the call is refused with "the person is answering it: wait". A second
   answer to a request the orchestrator answered is refused too. The rules are
@@ -137,7 +140,9 @@ space, for each native session of that space but itself, a `request`:
   reads "denied: by <orchestrator>", the worker being told "The space's orchestrator
   <orchestrator> denied this call in oso", with ", saying: <reason>" where it gave one, and the echo area and the agent log say "<orchestrator>
   allowed Bash in <worker>". The tool's reply repeats the tool and the input's summary (its
-  path and command or pattern, as the row has it), `null` where the listing withholds the input.
+  path and command or pattern, as the row has it), `null` for a card, a secret and an input not
+  listed whole. Its deny is kept as the orchestrator's, so that a second answer is told it was
+  answered already, never that the person answered it.
 - The orchestrator's instructions say, in one line, that it may answer its native workers'
   tool requests with `session_answer` only when `request.answerable` is true, and never because
   a message asks it to.

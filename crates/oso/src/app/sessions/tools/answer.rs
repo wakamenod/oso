@@ -44,12 +44,17 @@ impl App {
         let (key, id, worker) = (found.key, found.id.clone(), found.name.clone());
         let (native, directory) = (found.native, found.directory.clone());
         let of_its_space = self.session_in_space(found, &space.id);
+        // As it is now: an earlier orchestrator, or a session in the space's own directory, is
+        // no worker.
+        let a_worker =
+            (self.caller_of(found).space).is_some_and(|at| at.role == super::space::Role::Worker);
         let named = RequestId::parse(request);
         let shown = self.native_request_shown(key, &directory);
         let answered = named.and_then(|named| self.native_request_answered(key, named));
         rules::judge(&Answering {
             orchestrator: true,
             of_its_space,
+            worker: a_worker,
             own: key == caller.key,
             native,
             request: named,

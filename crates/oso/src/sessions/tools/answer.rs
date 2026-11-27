@@ -5,7 +5,8 @@
 //! Must not depend on: the app or threads; the rules are plain data and functions over what
 //! the app found.
 //!
-//! - Only the current orchestrator of the worker's space answers, never its own request, and
+//! - Only the current orchestrator of the worker's space answers, a worker's request only, never
+//!   its own nor an earlier orchestrator's, and
 //!   only the request shown to the person now, named by oso's id and its tool.
 //! - A request the person answered, one answered already, and one whose session's person is
 //!   answering it now (their `C-u y` question or a note open) are refused.
@@ -69,6 +70,9 @@ pub struct Answering<'a> {
     pub orchestrator: bool,
     /// The session named is of the caller's space.
     pub of_its_space: bool,
+    /// The session named is a worker there: no orchestrator, current or earlier, and no
+    /// session in the space's own directory.
+    pub worker: bool,
     /// The session named is the caller.
     pub own: bool,
     /// The session named runs natively, with its requests asked in oso.
@@ -103,6 +107,12 @@ pub fn judge(call: &Answering<'_>) -> Result<(), String> {
     }
     if call.own {
         return Err("that is your own request: only the person answers it".into());
+    }
+    if !call.worker {
+        return Err(
+            "that session is not a worker of your space: only workers' requests are answered"
+                .into(),
+        );
     }
     if !call.native {
         return Err(

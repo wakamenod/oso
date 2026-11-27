@@ -62,12 +62,9 @@ impl App {
         let rules = self.configuration.stand_in();
         let tool = ask.call.tool_name.as_str();
         let verdict = stand_in::eligible(tool, ask.call.input.as_ref(), card, directory, rules);
-        // What the listing withholds, the reply does too.
-        let withheld = matches!(
-            verdict,
-            Err(stand_in::PersonOnly::Card | stand_in::PersonOnly::Secret)
-        );
-        let summary = (!withheld).then(|| summary(tool, ask.call.input.as_ref()));
+        // What the listing withholds, the reply does too, and more.
+        let summary =
+            stand_in::shows_summary(verdict).then(|| summary(tool, ask.call.input.as_ref()));
         Some(RequestShown {
             id: ask.id,
             tool: tool.to_owned(),
@@ -113,9 +110,11 @@ impl App {
         }
         let answer = match verdict {
             Verdict::Allow => card::Answer::Allow(card::By::Stand(name.to_owned())),
-            Verdict::Deny => {
-                card::Answer::Deny(answer::denial(name, reason), answer::denied_row(name))
-            }
+            Verdict::Deny => card::Answer::Deny(
+                answer::denial(name, reason),
+                answer::denied_row(name),
+                card::By::Stand(name.to_owned()),
+            ),
         };
         self.answer_card(key, answer);
         true

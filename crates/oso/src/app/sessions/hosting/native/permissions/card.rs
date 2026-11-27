@@ -87,8 +87,8 @@ pub(super) enum Answer {
     Answers(Vec<(String, String)>),
     /// A plan approved: the person's edit of it, if any, and the mode after it (part 3d).
     Plan(Option<String>, Approval),
-    /// What the CLI is told, and what the call's row says.
-    Deny(String, String),
+    /// What the CLI is told, what the call's row says, and who denied it.
+    Deny(String, String, By),
 }
 
 /// What an answered call's row says of its answer.
@@ -325,7 +325,10 @@ impl App {
                     Kind::Questions => "The person declined to answer in oso.",
                     Kind::Plan => "The person wants you to keep planning, in oso.",
                 };
-                self.answer_card(key, Answer::Deny(why.to_owned(), BY_THE_PERSON.to_owned()));
+                self.answer_card(
+                    key,
+                    Answer::Deny(why.to_owned(), BY_THE_PERSON.to_owned(), By::Person),
+                );
             }
             NativeAction::Note => self.write_for_card(Writing::Note(key)),
             NativeAction::Other if questions => self.write_for_card(Writing::Own(key)),
@@ -401,7 +404,7 @@ impl App {
             Writing::Note(key) => {
                 let note = printable(text, permission::MAX_MESSAGE / 2);
                 let said = format!("The person denied this in oso, saying: {note}");
-                self.answer_card(key, Answer::Deny(said, note));
+                self.answer_card(key, Answer::Deny(said, note, By::Person));
             }
             Writing::Own(key) => self.step_questions(key, |questions| questions.own(text)),
         }
@@ -438,10 +441,7 @@ impl App {
     /// Answers session `key`'s shown request as `answer` says: its bridge is told, its call's
     /// row says a denial, and what it shows goes.
     pub(super) fn answer_card(&mut self, key: SessionKey, answer: Answer) {
-        let by = match &answer {
-            Answer::Allow(By::Stand(_)) => Answerer::StandIn,
-            _ => Answerer::Person,
-        };
+        let by = answerer(&answer);
         let Some(ask) = self.hosting.natives.permissions.asks.take_shown(key, by) else {
             return;
         };
@@ -519,6 +519,14 @@ impl App {
     }
 }
 
+/// Who gave `answer`, as the queue keeps it.
+fn answerer(answer: &Answer) -> Answerer {
+    match answer {
+        Answer::Allow(By::Stand(_)) | Answer::Deny(_, _, By::Stand(_)) => Answerer::StandIn,
+        _ => Answerer::Person,
+    }
+}
+
 /// What `answer` tells the bridge, what the call's row says of it, if anything, and what the
 /// agent log says. An allow, whoever gives it, is the one allow with no `updatedPermissions`.
 fn replied(answer: Answer) -> (serde_json::Value, Option<Mark>, &'static str) {
@@ -534,7 +542,7 @@ fn replied(answer: Answer) -> (serde_json::Value, Option<Mark>, &'static str) {
             let (reply, mark, said) = plan::answered(edit.as_deref(), approval);
             (reply, Some(mark), said)
         }
-        Answer::Deny(why, row) => (permission::deny(&why), Some(Mark::Denied(row)), "denied"),
+        Answer::Deny(why, row, _) => (permission::deny(&why), Some(Mark::Denied(row)), "denied"),
     }
 }
 
@@ -547,8 +555,9 @@ enum Kind {
 
 #[cfg(test)]
 mod tests {
-    use super::{Answer, By, Mark, replied};
+    use super::{Answer, By, Mark, answerer, replied};
     use crate::channel::protocol::permission;
+    use crate::sessions::native::asks::Answerer;
     use crate::sessions::tools::answer::{denial, denied_row};
 
     #[test]
@@ -565,9 +574,24 @@ mod tests {
     }
 
     #[test]
+    fn an_answer_is_kept_as_whoever_gave_it() {
+        let stand = || By::Stand("fix-login".into());
+        assert_eq!(answerer(&Answer::Allow(By::Person)), Answerer::Person);
+        assert_eq!(answerer(&Answer::Allow(stand())), Answerer::StandIn);
+        let deny = |by| Answer::Deny("no".into(), "by x".into(), by);
+        assert_eq!(answerer(&deny(By::Person)), Answerer::Person);
+        assert_eq!(answerer(&deny(stand())), Answerer::StandIn);
+        assert_eq!(answerer(&Answer::Answers(Vec::new())), Answerer::Person);
+    }
+
+    #[test]
     fn the_orchestrators_deny_reason_reaches_the_bridge() {
         let why = denial("fix-login", Some("run the tests first"));
-        let (reply, mark, said) = replied(Answer::Deny(why, denied_row("fix-login")));
+        let (reply, mark, said) = replied(Answer::Deny(
+            why,
+            denied_row("fix-login"),
+            By::Stand("fix-login".into()),
+        ));
         assert_eq!(reply["behavior"], "deny");
         let message = reply["message"].as_str().unwrap();
         assert!(message.contains("run the tests first"), "{message}");

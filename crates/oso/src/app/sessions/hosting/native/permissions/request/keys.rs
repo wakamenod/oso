@@ -76,7 +76,7 @@ impl App {
             NativeAction::Unread => self.allow_unread(key, pressed),
             NativeAction::Note => self.write_for_card(Writing::Note(key)),
             _ => {
-                let denied = Answer::Deny(DENIED.to_owned(), BY_THE_PERSON.to_owned());
+                let denied = Answer::Deny(DENIED.to_owned(), BY_THE_PERSON.to_owned(), By::Person);
                 self.answer_card(key, denied);
             }
         }

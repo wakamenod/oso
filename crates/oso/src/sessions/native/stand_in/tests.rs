@@ -483,3 +483,22 @@ fn a_secret_among_the_words_or_keys_of_any_string_withholds_the_input() {
         );
     }
 }
+
+#[test]
+fn a_reply_summarizes_only_what_the_listing_could_show() {
+    use super::shows_summary;
+    assert!(shows_summary(Ok(())));
+    for shown in [
+        PersonOnly::Off,
+        PersonOnly::Tool,
+        PersonOnly::Outside,
+        PersonOnly::Denied,
+    ] {
+        assert!(shows_summary(Err(shown)), "{shown:?}");
+    }
+    // Neither a card's, a secret's, nor an input not listed whole, which may name one past
+    // its first 8 KiB.
+    for withheld in [PersonOnly::Card, PersonOnly::Secret, PersonOnly::NotShown] {
+        assert!(!shows_summary(Err(withheld)), "{withheld:?}");
+    }
+}

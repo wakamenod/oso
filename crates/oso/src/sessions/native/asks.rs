@@ -68,7 +68,8 @@ struct Answered {
     by: Answerer,
 }
 
-/// oso's id of a request, `r1` the first taken, counted up for each (ADR 0186). The default,
+/// oso's id of a request, counted up for each taken from where the app starts them, `r1` the
+/// first by default (ADR 0186). The default,
 /// `r0`, is a request's until it is taken, and names none.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct RequestId(u64);
@@ -226,6 +227,14 @@ impl<R> Asks<R> {
         self.last_id += 1;
         ask.id = RequestId(self.last_id);
         self.waiting.push_back(ask);
+    }
+
+    /// Counts the ids on from `base`, the next being `base` + 1, unless any was counted
+    /// already: ids never go back.
+    pub fn ids_after(&mut self, base: u64) {
+        if self.last_id == 0 {
+            self.last_id = base;
+        }
     }
 
     /// Whether session `key`'s call `tool_use_id` was answered lately, by whomever.
