@@ -1,6 +1,6 @@
 # 0163. Reviews in a space
 
-- Status: Accepted, amended by 0169 and 0176; "Submit once pasted, as amended" (2026-11-22); "A native
+- Status: Accepted, amended by 0169, 0176 and 0185; "Submit once pasted, as amended" (2026-11-22); "A native
   session's question, as amended" (2026-11-22)
 - Key changed by [ADR 0184](0184-continue-a-review-where-it-was-left.md): the review key is the
   agents menu's `v`, `C-c a v`, and the review menu its `V`, `C-c a V`.
@@ -312,7 +312,8 @@ and submitted as above.
 
 - **To a native session, the question is sent** as a user message once the person confirmed it
   in oso's prompt, or queued behind the turn under way: `send_confirmed`, the native route's
-  submit, beside `submit_paste`, the terminal's. These two are the only submits to a session.
+  submit, beside `submit_paste`, the terminal's. These two were the only submits to a session; ADR 0185 adds oso's own `/add-dir PATH`
+  through `submit_paste`.
   It is escaped as every send is (ADR 0121, "Composed text, as amended"); the composer's draft,
   a queued message edited there and a paused queue are left as they are.
 - **A stopped native session is refused**, "it has stopped: `session-resume` first", as it has no

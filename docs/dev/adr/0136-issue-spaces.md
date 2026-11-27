@@ -1,6 +1,6 @@
 # 0136. Issue spaces
 
-- Status: Accepted, amended by 0140, 0143, 0151, 0153, 0155, 0159, 0161, 0162, 0163, 0173, 0176 and 0177; "A chosen space is closed, as amended" (2026-11-24)
+- Status: Accepted, amended by 0140, 0143, 0151, 0153, 0155, 0159, 0161, 0162 (also 2026-11-27), 0163, 0173, 0176, 0177 and 0185; "A chosen space is closed, as amended" (2026-11-24)
 - Key changed by [ADR 0184](0184-continue-a-review-where-it-was-left.md): the review key is the
   agents menu's `v`, `C-c a v`, and the review menu its `V`, `C-c a V`.
 - Date: 2026-11-15
@@ -187,7 +187,10 @@ space's orchestrator and its workers.
   from a worker reaches the current orchestrator. A replaced orchestrator is renamed
   `<name>-was-<n>` in oso's record before its successor starts, and resumes under that name.
 - **The orchestrator's text** is fixed, compiled into oso, at most 4 KiB. ADR 0128's coordinator
-  text, plus:
+  text, plus the lines below. Since 2026-11-27, at the author's request, its "Never approve …"
+  line reads "Never remove a worktree that is not merged; tell the person what needs them.": the
+  orchestrator may push ([ADR 0162](0162-orchestrator-review-rules.md), "The orchestrator may
+  push, as amended").
   - "You orchestrate space NAME. Work only through sessions of this space; do not edit the
     repositories yourself except to review and merge."
   - "Start a worker with `start_worktree_session` or `workers_start`, naming the repository; call
@@ -266,7 +269,7 @@ space's orchestrator and its workers.
 | Command | Reach | Key | What it does |
 |---|---|---|---|
 | `space-new` | `Person` | `C-x a O` | asks for a name and title, then the repositories (completing known projects, at least one), makes the space and its directory and enters it; `space-orchestrator-start` starts its orchestrator |
-| `space-add-repo` | `Person` | menu `a` | adds a repository; offers to paste `/add-dir PATH` into the orchestrator's input, not submitted, as ADR 0121's `session-send` |
+| `space-add-repo` | `Person` | menu `a` | adds a repository; once trusted, oso types `/add-dir PATH` into the running orchestrator and sends it once it is idle, asking nothing (ADR 0185) |
 | `space-remove-repo` | `Person` | menu `r` | refuses while a session of the space runs in it; its worktrees stay |
 | `space-use-repo` | `Person` | menu `u` | the repository the project commands use from the orchestrator's buffer, when several are trusted (step 4a) |
 | `space-orchestrator-start` | `Person` | menu `o` | in a space with no live orchestrator |
@@ -346,7 +349,8 @@ space's orchestrator and its workers.
   `.claude/` does today; the person's Claude Code permissions decide that write.
 - **`--add-dir` paths** come only from the space's record, which only the person's commands
   change; each is a trusted member's main checkout, or for a worker a worktree of one, checked
-  again before the start.
+  again before the start. The same holds for the `/add-dir PATH` oso types into a running
+  orchestrator (ADR 0185).
 - **Agent reach:** see the commands table; no tool changes a space. `space_status` returns the
   instructions and the title, which the person wrote; the issue reference is shown as text.
 - **Names:** a space's name is a slug of the person's typing, so a directory name never holds `/`,
@@ -648,7 +652,8 @@ file agents in oso can edit too (Q2); the move of oso's own coordinator follows 
 (Q3); a command that needs a project, from the orchestrator's buffer, says to use a
 repository's row until step 4 (Q4). Q5 (b): a repository trusted later joins `--add-dir` at the
 next start or resume, and oso also offers to paste `/add-dir PATH` into the running
-orchestrator, as for a repository added while it runs.
+orchestrator, as for a repository added while it runs (since ADR 0185, typed and sent with no
+question once it is idle).
 
 - **The CLI,** 2.1.325, defines `--add-dir <directories...>`, a variadic option: one
   `--add-dir=PATH` a repository takes exactly one value each, and repeated ones add up. Started

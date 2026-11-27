@@ -38,7 +38,7 @@ use serde_json::{Value, json};
 
 use super::session_tools::{Bridge, FAKE, Run, answer, registered, run_in, runs, turn};
 use super::sessions::live_elsewhere;
-use super::spaces::{PrivateRoot, answer as reply_with, space, trust_restricted};
+use super::spaces::{PrivateRoot, answer as reply_with, echo, space, trust_restricted};
 use super::worktrees::{DEADLINE, Flow, asks, keys, terminal};
 
 /// A space of the flow's repository and an untrusted `other` one, made with `C-c a O`, which
@@ -132,13 +132,14 @@ fn an_orchestrator_works_through_the_repositories_of_its_space() {
         "{said}"
     );
 
-    // The other repository trusted now; its `/add-dir` offer is answered `n`.
+    // The other repository trusted now; its `/add-dir` waits for an input box the fake never
+    // shows, and nothing is asked (ADR 0185).
     app.open_file(&other.join("notes.md"));
     trust_restricted(&mut app, "other");
-    app.wait_for("the offer", |state| {
-        asks(state).is_some_and(|prompt| prompt.starts_with("Paste /add-dir"))
+    app.wait_for("other trusted", |state| {
+        (state["modeline"].as_str()).is_some_and(|line| !line.contains("  other  restricted  "))
     });
-    app.send_keys("n");
+    assert_eq!(app.state()["prompts"], json!([]), "nothing is asked");
 
     // A trusted one: the person is asked, and a worker starts in a worktree of it, also
     // reading the other repository.
@@ -222,8 +223,8 @@ fn refused_before_asking(flow: &Flow, bridge: &mut Bridge, scratch: &Path, web: 
     assert!(error && said.to_string().contains("already"), "{said}");
 }
 
-/// A trusted repository is added without asking, as the configuration allows, and the person
-/// is offered the `/add-dir` paste, which they refuse; the space holds it, trusted.
+/// A trusted repository is added without asking, as the configuration allows, and its
+/// `/add-dir` queued, asking no one (ADR 0185); the space holds it, trusted.
 fn added_without_asking(app: &mut crate::harness::App, bridge: &mut Bridge, lib: &Path) {
     fs::write(lib.join("notes.md"), "lib\n").unwrap();
     app.open_file(&lib.join("notes.md"));
@@ -234,12 +235,15 @@ fn added_without_asking(app: &mut crate::harness::App, bridge: &mut Bridge, lib:
     let (added, error) = add_repo(bridge, lib);
     assert!(!error, "{added}");
     assert_eq!(added["asked"], false, "{added}");
-    assert_eq!(added["add_dir"], "offered", "{added}");
-    assert!(added["note"].to_string().contains("/add-dir"), "{added}");
-    app.wait_for("the offer", |state| {
-        asks(state).is_some_and(|prompt| prompt.starts_with("Paste /add-dir"))
+    assert_eq!(added["add_dir"], "queued", "{added}");
+    assert!(
+        added["note"].to_string().contains("oso types /add-dir"),
+        "{added}"
+    );
+    app.wait_for("the add said", |state| {
+        echo(state).contains("; oso types /add-dir into it once its turn ends")
     });
-    app.send_keys("n");
+    assert_eq!(app.state()["prompts"], json!([]), "nothing is asked");
     let (status, _) = bridge.tool("space_status", json!({}));
     let repositories: Vec<(&str, bool)> = (status["repositories"].as_array().unwrap().iter())
         .map(|r| (r["name"].as_str().unwrap(), r["trusted"] == true))

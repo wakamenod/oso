@@ -329,8 +329,10 @@ read a space:
 The orchestrator is told the space's repositories, its description and its instructions, and to
 keep a `handoff.md` in its directory for whoever takes over. Its row is right under its
 space's, and `RET` on the space's row shows it. A repository added to the space, or trusted,
-while it runs is offered to it: `y` pastes `/add-dir PATH` into its prompt, not sent; a
-native orchestrator is resumed with it instead, once its turn ends. In
+while it runs is given to it with no question: once its turn ends and its input box is empty,
+oso types `/add-dir PATH` there and sends it; a native orchestrator is resumed with it instead,
+once its turn ends. If Claude Code then asks you to trust the folder, oso says so and leaves
+the answer to you. In
 Claude Code, `/permissions` and its Workspace tab list the directories it was given.
 
 A new orchestrator, whether `C-c a O`, `o` or `O` starts it, is a
@@ -632,7 +634,7 @@ tools besides oso's editing ones:
 | `session_resume` | For a space's orchestrator: resume a stopped session of its space with its conversation, as `C-c a r` does. Asks you first. |
 | `session_rename` | Rename its own session or one it started; a space's orchestrator also its space's sessions. Asks nothing, and the echo area says it. |
 | `session_archive` | Archive a session it started; a space's orchestrator also its space's sessions, never an orchestrator or a pinned one. A stopped session is archived with no question. One that runs is stopped first only when it is idle, done or ready for review and Claude Code says its process is idle, with no shell left running in the background; that stop asks you first. Its worktree is kept, and `A` under `Archived` brings the row back. |
-| `space_add_repo` | For a space's orchestrator: add a repository's main checkout to its space, as the space menu's `a` does. Asks you first, unless the setting below allows it for a trusted repository oso already knows; any other always asks, and one oso does not trust joins restricted. Once it is trusted, oso offers to paste `/add-dir PATH` into the orchestrator, or to resume a native one with it. |
+| `space_add_repo` | For a space's orchestrator: add a repository's main checkout to its space, as the space menu's `a` does. Asks you first, unless the setting below allows it for a trusted repository oso already knows; any other always asks, and one oso does not trust joins restricted. Once it is trusted, oso types `/add-dir PATH` into the orchestrator and sends it once its turn ends, or resumes a native one with it, asking you nothing. |
 | `worktree_list` | List the repository's worktrees, as `M-x worktree-list` does. |
 | `worktree_remove` | Remove a finished worktree, under the same rules as `M-x worktree-remove`. |
 | `space_status` | Read the session's issue space: its repositories, their trust, the orchestrator's name, its sessions. |

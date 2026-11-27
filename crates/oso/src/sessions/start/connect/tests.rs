@@ -323,6 +323,7 @@ fn order(scratch: &Scratch, remote: Leave, trusted: Option<TrustedRoot>) -> Orde
         steer_worktrees: false,
         check_shared: false,
         space: None,
+        model: None,
     }
 }
 

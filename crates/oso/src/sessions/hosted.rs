@@ -72,6 +72,9 @@ pub struct Hosted {
     pub space: Option<SpaceId>,
     /// The directories it also reads, as they were checked (ADR 0136, step 4b).
     pub reads: Vec<crate::sessions::spaces::Member>,
+    /// The model a tool started it with, its own `--model` on each of its lines (ADR 0121, "A
+    /// start's model, as amended"), kept in the record.
+    pub model: Option<String>,
     pub pinned: bool,
     /// Archived with `C-x k`: not brought back at start, until step 3's list restores it.
     pub archived: bool,
@@ -129,6 +132,7 @@ impl Hosted {
             baseline: self.baseline.clone(),
             space: self.space.clone(),
             reads: self.reads.clone(),
+            model: self.model.clone(),
         }
     }
 
@@ -171,6 +175,8 @@ pub struct New {
     pub changed: u64,
     /// A native session (ADR 0165).
     pub native: bool,
+    /// The model a tool started it with.
+    pub model: Option<String>,
 }
 
 impl Table {
@@ -221,6 +227,7 @@ impl Table {
             baseline: None,
             space: None,
             reads: Vec::new(),
+            model: new.model,
             pinned: false,
             archived: false,
             native: new.native,
@@ -252,6 +259,9 @@ impl Table {
                     if held.reads.is_empty() {
                         held.reads = session.reads;
                     }
+                    if held.model.is_none() {
+                        held.model = session.model;
+                    }
                 }
                 continue;
             }
@@ -275,6 +285,7 @@ impl Table {
                 baseline: session.baseline,
                 space: session.space,
                 reads: session.reads,
+                model: session.model,
                 pinned: session.pinned,
                 native: session.native,
                 archived: session.archived,
@@ -484,6 +495,7 @@ mod tests {
     fn new(n: u8) -> New {
         New {
             native: false,
+            model: None,
             id: SessionId::from_random([n; 16]),
             root: None,
             parent: None,
@@ -541,6 +553,7 @@ mod tests {
             baseline: None,
             space: None,
             reads: Vec::new(),
+            model: None,
         }
     }
 

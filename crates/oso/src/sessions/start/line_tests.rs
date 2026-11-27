@@ -56,6 +56,23 @@ fn terminal(handed: Option<Chosen>) -> Runs {
 /// The `--settings` of the line `kind` and `runs` start with, at most one; `gated` as in a
 /// space's own directory.
 fn settings(kind: Kind, runs: Runs, steer_worktrees: bool, gated: bool) -> Option<Value> {
+    let args = line(kind, runs, (steer_worktrees, gated), None);
+    let found: Vec<&str> = (args.iter())
+        .filter_map(|arg| arg.strip_prefix("--settings="))
+        .collect();
+    assert!(found.len() <= 1, "{found:?}");
+    found
+        .first()
+        .map(|text| serde_json::from_str(text).unwrap())
+}
+
+/// The arguments of the line `kind` and `runs` start with, the session's own model `model`.
+fn line(
+    kind: Kind,
+    runs: Runs,
+    (steer_worktrees, gated): (bool, bool),
+    model: Option<&str>,
+) -> Vec<String> {
     // Not a POSIX shell, so `claude` runs directly: any executable file stands in for both.
     let exe = std::env::current_exe().unwrap();
     let shell = Executable::absolute(&exe).unwrap();
@@ -74,15 +91,55 @@ fn settings(kind: Kind, runs: Runs, steer_worktrees: bool, gated: bool) -> Optio
         steer_worktrees,
         check_shared: false,
         space: None,
+        model: model.map(str::to_owned),
     };
     let launch = launch_of(&order, &id(1), &shell, &Extra::default(), gated).unwrap();
-    let found: Vec<&str> = (launch.args.iter())
-        .filter_map(|arg| arg.to_str()?.strip_prefix("--settings="))
-        .collect();
-    assert!(found.len() <= 1, "{found:?}");
-    found
-        .first()
-        .map(|text| serde_json::from_str(text).unwrap())
+    (launch.args.iter())
+        .map(|arg| arg.to_str().unwrap().to_owned())
+        .collect()
+}
+
+/// The `--model` arguments of a line.
+fn models(args: &[String]) -> Vec<&str> {
+    (args.iter())
+        .filter(|arg| arg.starts_with("--model"))
+        .map(String::as_str)
+        .collect()
+}
+
+/// A session a tool started with a model passes it on every line of its own, terminal and
+/// native alike, as one `--model=` argument; what the person chose since (a native session's
+/// `/model`, what it handed the TUI) wins (ADR 0121, "A start's model, as amended").
+#[test]
+fn a_sessions_own_model_goes_on_each_of_its_lines_unless_a_choice_since_names_one() {
+    let chose = |model: &str| match native() {
+        Runs::Native(order) => Runs::Native(NativeOrder {
+            model: Some(model.to_owned()),
+            ..order
+        }),
+        Runs::Terminal(_) => unreachable!(),
+    };
+    let handed = |model: Option<&str>| {
+        terminal(Some(Chosen {
+            model: model.map(str::to_owned),
+            ..Chosen::default()
+        }))
+    };
+    for kind in kinds() {
+        let own = Some("claude-opus-5-5[1m]");
+        for runs in [native(), terminal(None), handed(None)] {
+            let args = line(kind.clone(), runs, (false, false), own);
+            assert_eq!(models(&args), ["--model=claude-opus-5-5[1m]"], "{kind:?}");
+            let args = line(kind.clone(), native(), (false, false), None);
+            assert_eq!(models(&args), Vec::<&str>::new(), "{kind:?}");
+        }
+        let args = line(kind.clone(), chose("haiku"), (false, false), own);
+        assert_eq!(models(&args), ["--model=haiku"], "{kind:?}");
+        if matches!(kind, Kind::Resume(_)) {
+            let args = line(kind.clone(), handed(Some("haiku")), (false, false), own);
+            assert_eq!(models(&args), ["--model=haiku"], "{kind:?}");
+        }
+    }
 }
 
 #[test]

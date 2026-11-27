@@ -75,6 +75,8 @@ impl App {
                     baseline: session.baseline.clone(),
                     space: None,
                     reads: Vec::new(),
+                    // The record's, once it is read (`Table::recall`).
+                    model: None,
                 }]);
                 *back.first()?
             }

@@ -120,6 +120,10 @@ pub struct Order {
     /// An issue space's orchestrator: what it starts with and what its directory must pass
     /// (ADR 0136, step 3).
     pub space: Option<SpaceStart>,
+    /// The session's own model, which the tool that started it named (ADR 0121, "A start's
+    /// model, as amended"): its `--model` on every line of its own, unless a native session's
+    /// choice since, or what it handed the TUI, names one.
+    pub model: Option<String>,
 }
 
 /// What an orchestrator starts with, looked at again just before it starts (ADR 0136, step 3).
@@ -476,10 +480,12 @@ fn root_kept(order: &Order) -> Result<(), String> {
 
 /// The permission mode, model and effort a session's line passes: a native session's own, or
 /// what a native session held for the TUI it is handed to (ADR 0165, part 4d), which is a
-/// resume; none for any other terminal's start.
+/// resume; none for any other terminal's start. With no model chosen so, the session's `own`,
+/// which a tool started it with (ADR 0121, "A start's model, as amended").
 fn chosen_flags<'a>(
     kind: &Kind,
     runs: &'a Runs,
+    own: Option<&'a str>,
 ) -> (
     Option<crate::channel::protocol::mode::PermissionMode>,
     Option<&'a str>,
@@ -488,7 +494,7 @@ fn chosen_flags<'a>(
     match runs {
         Runs::Native(native) => (
             native.permission_mode,
-            native.model.as_deref(),
+            native.model.as_deref().or(own),
             native.effort,
         ),
         Runs::Terminal(TerminalOrder {
@@ -496,10 +502,10 @@ fn chosen_flags<'a>(
             ..
         }) if matches!(kind, Kind::Resume(_)) => (
             handed.permission_mode,
-            handed.model.as_deref(),
+            handed.model.as_deref().or(own),
             handed.effort,
         ),
-        Runs::Terminal(_) => (None, None, None),
+        Runs::Terminal(_) => (None, own, None),
     }
 }
 
@@ -530,7 +536,8 @@ fn launch_of(
         },
     )
     .map_err(|e| format!("The session did not start: {e}"))?;
-    let (permission_mode, model, effort) = chosen_flags(&order.kind, &order.runs);
+    let (permission_mode, model, effort) =
+        chosen_flags(&order.kind, &order.runs, order.model.as_deref());
     let line = Line {
         start,
         name: &order.name,
@@ -645,7 +652,7 @@ mod tests {
         };
         let handed = Runs::Terminal(terminal_order(buffer, Some(chosen)));
         assert_eq!(
-            chosen_flags(&Kind::Resume(id.clone()), &handed),
+            chosen_flags(&Kind::Resume(id.clone()), &handed, None),
             (
                 Some(PermissionMode::AcceptEdits),
                 Some("opus"),
@@ -653,11 +660,19 @@ mod tests {
             )
         );
         for kind in [Kind::New, Kind::Fork(id.clone())] {
-            assert_eq!(chosen_flags(&kind, &handed), (None, None, None), "{kind:?}");
+            assert_eq!(
+                chosen_flags(&kind, &handed, None),
+                (None, None, None),
+                "{kind:?}"
+            );
         }
         let plain = Runs::Terminal(terminal_order(buffer, None));
         for kind in [Kind::New, Kind::Resume(id.clone()), Kind::Fork(id)] {
-            assert_eq!(chosen_flags(&kind, &plain), (None, None, None), "{kind:?}");
+            assert_eq!(
+                chosen_flags(&kind, &plain, None),
+                (None, None, None),
+                "{kind:?}"
+            );
         }
     }
 
@@ -698,6 +713,7 @@ mod tests {
             steer_worktrees: false,
             check_shared: false,
             space: None,
+            model: None,
         };
         let (tx, reports) = std::sync::mpsc::channel();
         let tx = std::sync::Mutex::new(tx);

@@ -15,7 +15,9 @@
 //! review, as amended"). A worktree session whose agent never called oso is known by its
 //! process all the same, and its finished worktree is removed.
 //! A native worktree session with no file open uses its tools while its main repository is
-//! trusted, and no more once it is not.
+//! trusted, and no more once it is not. A session started with a model runs it, and its
+//! resume does too; a model that could pass for an option is refused (ADR 0121, "A start's
+//! model, as amended").
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test: the tools' table,
 //! the questions' wording and the refusals have their own tests.
@@ -1031,5 +1033,86 @@ fn a_worktree_session_with_no_file_open_loses_its_tools_trust_with_its_main_repo
     }
     assert!(!flow.repo.join(".claude/worktrees/e2e-next").exists());
     assert_eq!(runs(&flow).len(), 2, "a third fake ran");
+    flow.exit_with(0);
+}
+
+/// The fake's run whose arguments hold `arg`, once it is there.
+fn run_with(flow: &Flow, arg: &str) -> Run {
+    let deadline = Instant::now() + DEADLINE;
+    loop {
+        if let Some(run) = runs(flow)
+            .into_iter()
+            .find(|run| run.args.iter().any(|a| a == arg))
+        {
+            return run;
+        }
+        assert!(Instant::now() < deadline, "no fake ran with {arg}");
+        thread::sleep(Duration::from_millis(100));
+    }
+}
+
+/// The `--model` arguments of `run`.
+fn models(run: &Run) -> Vec<&str> {
+    (run.args.iter())
+        .filter(|arg| arg.starts_with("--model"))
+        .map(String::as_str)
+        .collect()
+}
+
+/// A terminal session an agent starts with a model runs `claude --model=MODEL`, one argument,
+/// and the question names it; a value that could pass for an option is refused before anything
+/// is asked or run; and the session's resume, once it stopped, starts with the model again, its
+/// own (ADR 0121, "A start's model, as amended").
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_session_started_with_a_model_runs_it_and_resumes_with_it() {
+    const MODEL: &str = "claude-opus-5-5[1m]";
+    let flow = Flow::with_fake("session-tools-model", "", FAKE);
+    let (mut app, mut bridge) = hosted(&flow);
+    let before = runs(&flow).len();
+    for bad in ["--dangerously-skip-permissions", "opus; true", ""] {
+        let (said, error) = bridge.tool("session_start", json!({ "model": bad }));
+        assert!(error, "{bad:?}: {said}");
+        assert!(said.to_string().contains("\\\"model\\\""), "{said}");
+    }
+    assert!(asks(&app.state()).is_none(), "a refused value asked");
+    assert_eq!(runs(&flow).len(), before, "a refused value ran");
+
+    let id = bridge.call(
+        "session_start",
+        json!({ "name": "e2e-model", "model": MODEL, "brief": "Use the model" }),
+    );
+    let question = answer(&mut app, &bridge, "y");
+    assert!(question.contains(&format!("Model: {MODEL}.")), "{question}");
+    let (started, error) = bridge.result(id);
+    assert!(!error, "{started}");
+    let run = run_with(&flow, "--name=e2e-model");
+    assert_eq!(models(&run), [format!("--model={MODEL}")], "{:?}", run.args);
+    let session = run
+        .args
+        .iter()
+        .find_map(|arg| arg.strip_prefix("--session-id="))
+        .expect("a session id")
+        .to_owned();
+
+    // It stops, and the person resumes it.
+    const BUFFER: &str = "*claude: e2e-model*";
+    flow.scratch.write(&format!("go.{}", run.pid), b"0");
+    app.wait_for("the session's stop", |state| {
+        terminal(state, BUFFER)
+            .is_some_and(|terminal| terminal["ended"] == "stopped: session-resume to continue")
+    });
+    app.send_keys("C-x b");
+    app.send_keys(&keys(BUFFER));
+    app.send_keys("RET");
+    app.wait_for(BUFFER, |state| state["buffer"]["name"] == BUFFER);
+    app.run_command("session-resume", None).unwrap();
+    let resumed = run_with(&flow, &format!("--resume={session}"));
+    assert_eq!(
+        models(&resumed),
+        [format!("--model={MODEL}")],
+        "{:?}",
+        resumed.args
+    );
     flow.exit_with(0);
 }

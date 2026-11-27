@@ -24,6 +24,7 @@ use crate::review::count::Counted;
 use crate::review::pr::PrFound;
 use crate::review::view::{Tell, Text};
 use crate::review::{Asked, Report, Request, Reviewer};
+pub(in crate::app) use ask::{ENTER_AFTER, ENTER_POLL, ENTER_RECHECK, ENTER_WAIT};
 pub(super) use open::Show;
 use scope::{fetching_said, found_said, scope_label, scope_of};
 pub(in crate::app) use state::Reviews;

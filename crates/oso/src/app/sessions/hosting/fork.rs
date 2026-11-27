@@ -131,9 +131,14 @@ impl App {
         // Native in a trusted project unless `mode = "tui"`, as a new start (ADR 0165), in
         // the permission mode, model and effort of the native session it copies (parts 3b and
         // 3c).
-        let forked = (self.hosting.table.iter())
-            .find(|session| session.id == from)
-            .and_then(|session| self.hosting.natives.forked(session.key));
+        let source = (self.hosting.table.iter()).find(|session| session.id == from);
+        let forked = source.and_then(|session| self.hosting.natives.forked(session.key));
+        // It starts with its source's own model too, and keeps it as its own (ADR 0121, "A
+        // start's model, as amended").
+        let model = source.and_then(|session| session.model.clone());
+        if let Some(model) = &model {
+            self.hosting.models.insert(key, model.clone());
+        }
         // It shows the turns it copies (ADR 0165, step 5).
         let native = self
             .start_native_fork(key, &from, &name, &directory, root.as_deref(), forked)
@@ -155,6 +160,7 @@ impl App {
             steer_worktrees: self.configuration.steer_worktrees(),
             check_shared: false,
             space,
+            model,
         });
     }
 

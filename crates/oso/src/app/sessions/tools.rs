@@ -282,17 +282,28 @@ impl App {
             (Call::DraftSet { id, text }, Some(caller)) => {
                 pending.answer(self.tool_draft_set(&tool, &caller, &id, &text));
             }
-            (
-                Call::StartWorktree {
-                    branch,
-                    base,
-                    brief,
-                    name,
-                    repo,
-                    with_dirs,
-                },
-                Some(caller),
-            ) => {
+            (call @ (Call::StartWorktree { .. } | Call::Start { .. }), Some(caller)) => {
+                self.carry_start(pending, &tool, call, caller);
+            }
+            // `session_tool` carried it out already.
+            (Call::MoveToSpace { .. }, _) | (_, None) => {
+                pending.answer(Err("this tool is only for a session oso started".into()));
+            }
+        }
+    }
+
+    /// Carries out `call` of `tool`, a start of a session, from `caller`.
+    fn carry_start(&mut self, pending: Pending, tool: &Tool, call: Call, caller: Caller) {
+        match call {
+            Call::StartWorktree {
+                branch,
+                base,
+                brief,
+                name,
+                repo,
+                with_dirs,
+                model,
+            } => {
                 let (caller, with) = match self.scoped_with(caller, repo.as_deref(), &with_dirs) {
                     Ok(scoped) => scoped,
                     Err(why) => return pending.answer(Err(why)),
@@ -303,19 +314,18 @@ impl App {
                     brief,
                     name,
                     with,
+                    model,
                 };
-                self.tool_start_worktree(pending, &tool, &caller, call);
+                self.tool_start_worktree(pending, tool, &caller, call);
             }
-            (
-                Call::Start {
-                    directory,
-                    name,
-                    brief,
-                    repo,
-                    with_dirs,
-                },
-                Some(caller),
-            ) => {
+            Call::Start {
+                directory,
+                name,
+                brief,
+                repo,
+                with_dirs,
+                model,
+            } => {
                 let (caller, with) = match self.scoped_with(caller, repo.as_deref(), &with_dirs) {
                     Ok(scoped) => scoped,
                     Err(why) => return pending.answer(Err(why)),
@@ -325,13 +335,11 @@ impl App {
                     name,
                     brief,
                     with,
+                    model,
                 };
-                self.tool_session_start(pending, &tool, &caller, call);
+                self.tool_session_start(pending, tool, &caller, call);
             }
-            // `session_tool` carried it out already.
-            (Call::MoveToSpace { .. }, _) | (_, None) => {
-                pending.answer(Err("this tool is only for a session oso started".into()));
-            }
+            _ => pending.answer(Err("not a start".into())),
         }
     }
 

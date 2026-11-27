@@ -325,6 +325,7 @@ impl App {
             steer_worktrees: self.configuration.steer_worktrees(),
             check_shared: false,
             space: None,
+            model: None,
         });
     }
 

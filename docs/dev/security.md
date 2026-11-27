@@ -1070,9 +1070,10 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     path also naming it with no link or `..` on the way, and looked at again at the person's
     `y`. It asks as a start does, past no start limit (only the rate below and 16 members), and goes without asking only for a trusted
     repository oso knew before the call, by device and inode; one oso does not trust always
-    asks and joins restricted. A running orchestrator reads it only after the person's `/add-dir` paste,
-    or, run natively, after their `y` to its resume with it, which oso judges again at each
-    event until the session is idle ([ADR 0176](adr/0176-native-orchestrators.md), part O-2).
+    asks and joins restricted. A running orchestrator reads it once oso has typed and sent its own
+    `/add-dir` there, or, run natively, resumed it with the repository, with no question, each
+    judged again at each event until the session is idle and its input box empty
+    ([ADR 0185](adr/0185-an-added-repository-is-given-to-the-orchestrator-without-asking.md)).
   - `session_rename` ([ADR 0155](adr/0155-renaming-sessions.md)) asks nothing, as it changes
     metadata only, and only the session tools' rate bounds how many it makes
     ([ADR 0178](adr/0178-a-rate-limit-on-the-session-tools.md)). An agent
@@ -1244,8 +1245,8 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     the start of a word; the brief oso composes for an orchestrator's successor, of names agents
     choose, is escaped too. An image kept after the person left the session goes in without
     taking the selected window, and a composer a yank turned secret takes nothing. A kept image's `@PATH` is oso's own and
-    goes as it is, as does what the person types. So does the space's `/add-dir PATH` offer to
-    its orchestrator's terminal, oso's own command, which only `Command::add_dir` makes, from
+    goes as it is, as does what the person types. So does the `/add-dir PATH` oso types into
+    its orchestrator's terminal and submits (ADR 0185), only while the box holds it alone, oso's own command, which only `Command::add_dir` makes, from
     a recorded repository the person trusts, while its path is absolute, in UTF-8 and one
     plain line, with no blank but a space, none at its end and no `@` after one, the command
     within 512 bytes; a native session is never given it (ADR 0165, part 2f, amended

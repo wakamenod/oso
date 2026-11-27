@@ -1,6 +1,6 @@
 # 0176. Native orchestrators
 
-- Status: Accepted, amended by 0181
+- Status: Accepted, amended by 0181 and 0185
 - Date: 2026-11-23
 
 ## Context
@@ -91,7 +91,10 @@ its own.
   is the space's orchestrator again, as nothing is left of it to resume.
 - **Project commands from the composer:** the repository `space-use-repo` chose is used from a
   native orchestrator's transcript and from its composer, as from its terminal.
-- **`/add-dir` (O-1, O-2, Q-O4 (a)):** `claude -p` has no `/add-dir`. Each resume of a native
+- **`/add-dir` (O-1, O-2, Q-O4 (a)):** amended by
+  [ADR 0185](0185-an-added-repository-is-given-to-the-orchestrator-without-asking.md): the
+  resume goes with no question, as if `y` were answered, and the reply says `resume queued`.
+  `claude -p` has no `/add-dir`. Each resume of a native
   orchestrator is given its space's trusted repositories with `--add-dir`, as every resume is.
   For a repository added or trusted while it runs, oso asks the person "Resume orchestrator
   NAME with REPO added, once its turn ends? (y or n)", in place of the paste, from the recorded

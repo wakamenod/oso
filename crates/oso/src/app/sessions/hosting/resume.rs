@@ -133,6 +133,8 @@ impl App {
             session.directory.clone(),
             session.root.clone(),
         );
+        // Its own, which a tool started it with (ADR 0121, "A start's model, as amended").
+        let model = session.model.clone();
         // A native session resumes natively, in its own buffer, only where its project is
         // trusted now (ADR 0165, step 2): looked at before anything changes.
         let native = self.hosting.natives.has(key);
@@ -184,6 +186,7 @@ impl App {
             steer_worktrees: self.configuration.steer_worktrees(),
             check_shared: false,
             space,
+            model,
         });
         Ok(())
     }

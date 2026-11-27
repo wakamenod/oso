@@ -6,7 +6,7 @@
 
 use serde_json::{Value, json};
 
-use super::super::protocol::sessions::METHODS;
+use super::super::protocol::sessions::{MAX_MODEL, METHODS};
 use super::tools::tool;
 
 /// The channel's method of the session tool `name`, which is named the same, and the
@@ -17,8 +17,16 @@ pub(super) fn method(name: &str) -> Option<(&'static str, &'static [&'static str
         "session_state" => &["session"],
         "worktree_list" => &["repo"],
         "worktree_remove" => &["path"],
-        "start_worktree_session" => &["branch", "base", "brief", "name", "repo", "with_dirs"],
-        "session_start" => &["directory", "name", "brief", "repo", "with_dirs"],
+        "start_worktree_session" => &[
+            "branch",
+            "base",
+            "brief",
+            "name",
+            "repo",
+            "with_dirs",
+            "model",
+        ],
+        "session_start" => &["directory", "name", "brief", "repo", "with_dirs", "model"],
         "space_status" => &[],
         "draft_set" => &["kind", "id", "text"],
         "move_to_space" => &["space"],
@@ -86,6 +94,16 @@ fn with_dirs() -> Value {
     json!({ "type": "array", "items": { "type": "string" }, "maxItems": 8, "description": "For a space's orchestrator only: up to 8 more directories the new session may read, each a trusted repository's root or one of its linked worktrees in your space, by absolute path, as worktree_list and space_status give them." })
 }
 
+/// What `model` says of itself (ADR 0121, "A start's model, as amended").
+fn model() -> Value {
+    json!({
+        "type": "string",
+        "maxLength": MAX_MODEL,
+        "pattern": "^[A-Za-z0-9._:/@\\[\\]][A-Za-z0-9._:/@\\[\\]-]*$",
+        "description": "The model the new session's claude runs, passed as --model: an alias such as sonnet, opus, haiku or fable, or a full model id such as claude-sonnet-5-5 or claude-opus-5-5[1m]; the person's settings' own if not given. ASCII letters, digits and ._:/@[]-, not starting with -, at most 256 bytes. It is the session's own: its later processes start with it, until /model changes it in a native session.",
+    })
+}
+
 /// The session tools that act.
 pub(super) fn acting() -> Vec<Value> {
     let mut tools = vec![
@@ -109,6 +127,7 @@ pub(super) fn acting() -> Vec<Value> {
                 "name": { "type": "string", "description": "The session's name; the worktree's if not given." },
                 "repo": repo(),
                 "with_dirs": with_dirs(),
+                "model": model(),
             }),
             &["branch", "brief"],
             false,
@@ -123,6 +142,7 @@ pub(super) fn acting() -> Vec<Value> {
                 "brief": { "type": "string", "description": "The task for the new session, at most 64 KiB." },
                 "repo": repo(),
                 "with_dirs": with_dirs(),
+                "model": model(),
             }),
             &[],
             false,
@@ -185,7 +205,7 @@ fn archive() -> Value {
 fn add_repo() -> Value {
     tool(
         "space_add_repo",
-        "For a space's orchestrator: add a git repository to your space, by the absolute real path of its main checkout (no link, no worktree). The person is asked first, unless their configuration lets your session start sessions without asking and the repository is one oso already knows and trusts; a repository oso does not trust always asks, and joins restricted: no worktrees, workers or --add-dir until the person trusts it. The call returns once it is added, and its `asked` says which happened. Your running claude cannot read the new repository until /add-dir, or, run natively, until it is resumed with it: the reply's `add_dir` and `note` say what oso offered the person, a paste into your input or that resume. If it offered the paste, ask the person to accept it in oso and send it.",
+        "For a space's orchestrator: add a git repository to your space, by the absolute real path of its main checkout (no link, no worktree). The person is asked first, unless their configuration lets your session start sessions without asking and the repository is one oso already knows and trusts; a repository oso does not trust always asks, and joins restricted: no worktrees, workers or --add-dir until the person trusts it. The call returns once it is added, and its `asked` says which happened. Your running claude cannot read the new repository until /add-dir runs in it, or, run natively, until it is resumed with it: oso does either itself once your turn ends, asking no one, and the reply's `add_dir` and `note` say which.",
         json!({
             "path": { "type": "string", "description": "The repository's main checkout, an absolute path with no link in it." },
         }),

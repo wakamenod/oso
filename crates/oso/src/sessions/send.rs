@@ -275,15 +275,9 @@ const MIN_BOX_RULE_CHARS: usize = 20;
 /// whose rows go on as a dialog's would (another sign, an option, no indent) read as
 /// [`InputBox::Other`], so that oso pastes and submits nothing there.
 pub fn input_box(rows: &[String]) -> InputBox {
-    let (Some(above), Some(below)) = super::screen::last_two_rules(rows) else {
+    let Some((above, below)) = box_rules(rows) else {
         return InputBox::Other(NoBox::NoRules);
     };
-    let long =
-        |row: &str| row.starts_with('─') && row.chars().nth(MIN_BOX_RULE_CHARS - 1).is_some();
-    let plain = rows[below].trim_end().chars().all(|c| c == '─');
-    if !long(&rows[above]) || !long(&rows[below]) || !plain {
-        return InputBox::Other(NoBox::NoRules);
-    }
     let inside = &rows[above + 1..below];
     let Some(first) = inside.first() else {
         return InputBox::Other(NoBox::NoRules);
@@ -300,6 +294,69 @@ pub fn input_box(rows: &[String]) -> InputBox {
         return InputBox::Empty;
     }
     InputBox::Held
+}
+
+/// The rows of the input box's two rules, as [`input_box`] holds them: the last two, at the
+/// row's start and at least [`MIN_BOX_RULE_CHARS`] long, the bottom one `─` alone.
+fn box_rules(rows: &[String]) -> Option<(usize, usize)> {
+    let (Some(above), Some(below)) = super::screen::last_two_rules(rows) else {
+        return None;
+    };
+    let long =
+        |row: &str| row.starts_with('─') && row.chars().nth(MIN_BOX_RULE_CHARS - 1).is_some();
+    let plain = rows[below].trim_end().chars().all(|c| c == '─');
+    (long(&rows[above]) && long(&rows[below]) && plain).then_some((above, below))
+}
+
+/// Whether Claude Code's input box, its rules read as [`input_box`] reads them, holds
+/// `command` and nothing else, on one row or wrapped over several, with no menu, picker or
+/// list of suggestions under it: what oso's unasked submit of `/add-dir PATH` waits for (ADR
+/// 0185). Each row must be the command's next characters exactly, the box's indent aside; a
+/// row may break only where the command has a space, which the break takes, or anywhere in a
+/// run with no space, as the TUI wraps. So a key the person typed meanwhile, or a paste that
+/// did not arrive, holds it back.
+pub fn holds_command(rows: &[String], command: &Command) -> bool {
+    let Some((above, below)) = box_rules(rows) else {
+        return false;
+    };
+    let inside = &rows[above + 1..below];
+    let Some(first) = inside.first().and_then(|row| row.strip_prefix('❯')) else {
+        return false;
+    };
+    // A command's menu, a picker or suggestions list their rows under the box.
+    let listed = (rows[below + 1..].iter()).any(|row| {
+        let row = row.trim_start();
+        row.starts_with(['❯', '/', '~', '.', '>'])
+    });
+    if listed {
+        return false;
+    }
+    // The sign is followed by a no-break space.
+    let first = first.strip_prefix(['\u{a0}', ' ']).unwrap_or(first);
+    let mut rest = command.as_str();
+    for (at, row) in std::iter::once(first)
+        .chain(inside[1..].iter().map(String::as_str))
+        .enumerate()
+    {
+        if at > 0 && row.trim().is_empty() {
+            continue;
+        }
+        let row = match at {
+            0 => row.trim_end(),
+            _ => match row.strip_prefix("  ") {
+                Some(row) => row.trim(),
+                None => return false,
+            },
+        };
+        if at > 0 {
+            rest = rest.strip_prefix(' ').unwrap_or(rest);
+        }
+        let Some(after) = rest.strip_prefix(row) else {
+            return false;
+        };
+        rest = after;
+    }
+    rest.is_empty()
 }
 
 /// Whether `text` is a dialog's option, `1. Yes`.
