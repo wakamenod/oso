@@ -192,9 +192,9 @@ fn order(here: &mut impl Here, there: &mut impl There) -> Ended {
 }
 
 mod start;
-#[cfg(test)]
-use start::inherited_names;
 pub use start::{Start, spawn};
+#[cfg(test)]
+use start::{app_marker, inherited_names};
 
 #[cfg(test)]
 mod tests;

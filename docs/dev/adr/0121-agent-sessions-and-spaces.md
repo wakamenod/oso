@@ -322,6 +322,9 @@ amended").
     for done and repeated until oso is focused for needs input. Banners in Notification Center need
     `UNUserNotificationCenter`, which works only for an app bundle, so they come when oso ships as
     one, through `objc2-user-notifications` (a new dependency, step 3 or later).
+    - Erratum (2026-11-28, [ADR 0187](0187-oso-starts-as-a-macos-app.md)): oso ships as an app
+      bundle from ADR 0187; banners do not come with it, but are still a later step, which needs
+      `objc2-user-notifications` and is asked first.
   - **Linux:** the window's urgency hint, through oso's window layer. Desktop banners over D-Bus
     wait, as they need either a D-Bus crate or a process per notification.
   - Text in a notification is the session's name and its state, never screen text.

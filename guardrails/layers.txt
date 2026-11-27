@@ -91,6 +91,8 @@ git
 # `dictation` asks TypeWhisper for a dictation's text over its local API, through curl, and says
 # what Claude is asked to fix it with (ADR 0175).
 dictation
+# `launch` takes the login shell's environment when oso starts as oso.app, before any thread (ADR 0187).
+launch
 
 [oso-syntax]
 crate

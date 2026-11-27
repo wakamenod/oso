@@ -1189,6 +1189,17 @@ thread. Once the file there is not the one this instance started from (device, i
 modification time or length), the echo area says once that it changed and that `oso-restart`
 would start it, or why it would refuse it. oso never restarts by itself.
 
+### Starting as a macOS app
+
+LaunchServices starts `oso.app` with launchd's environment, in `/`
+([ADR 0187](adr/0187-oso-starts-as-a-macos-app.md)). With the bundle's `OSO_LAUNCHED_AS_APP`,
+`main` has `crates/oso/src/launch.rs` run the account's login shell once, before any thread,
+through the process module: a fixed command, killed with its group at 2 s, whose environment is
+merged into oso's (its `PATH` replaces launchd's, other names only fill what is missing), and
+the directory becomes the home. A failure keeps launchd's environment and says why in
+`*Messages*`. The marker leaves oso's environment; `oso-restart` gives it to the instance it
+starts, which takes the environment again. Without the marker nothing runs.
+
 ## Security architecture (summary)
 
 - Projects open in **restricted mode** until trusted with `M-x trust-project`.

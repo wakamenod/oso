@@ -488,6 +488,16 @@ network features.
   entry, so one of the same word is written over and then taken for oso's. The learning log's
   buffer is withheld from agents, and its command and the forget are `Person`.
 - The environment is sanitized and every spawn is logged in a visible buffer.
+- An app launch on macOS takes the person's login-shell environment, once, before any thread
+  ([ADR 0187](adr/0187-oso-starts-as-a-macos-app.md)): only with `OSO_LAUNCHED_AS_APP`, which
+  the bundle's `LSEnvironment` sets and oso removes from its own environment, so no child
+  sees it (`oso-restart` sets it for the instance it starts). The shell is the user database's,
+  else `/bin/bash`, and its command a constant: nothing from the configuration, a project or an
+  agent reaches it. It runs through the process module, with its allowlist, in a group of its
+  own, killed at 2 s, its output capped at 1 MiB. Its `PATH` replaces launchd's; other names
+  only fill what oso lacks, and the loader's (`DYLD_*`, `LD_*`), names that are not portable
+  (exported shell functions) and the shell's own are dropped. Children still get only the
+  allowlist and a filtered `PATH`.
 
 ### Dependencies (T2, T8)
 
