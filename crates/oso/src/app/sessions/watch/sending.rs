@@ -4,8 +4,9 @@
 //! that cannot take it, and pastes it as the person's bracketed paste, not submitted, or puts it
 //! into a native session's composer at point, not sent (ADR 0165, part 2f), showing the session
 //! when asked; [`App::send_to_session`] is it, shown. The submits, for a review's question the
-//! person confirmed in oso's prompt (ADR 0163): [`App::submit_paste`] for a terminal, and a
-//! native session's `send_confirmed` (ADR 0165, part 2f). Also the completions of
+//! person confirmed in oso's prompt (ADR 0163), and for oso's own `/add-dir PATH` (ADR 0185):
+//! [`App::submit_paste`] for a terminal, and a native session's `send_confirmed` (ADR 0165,
+//! part 2f). Also the completions of
 //! `session-send` and `session-mention`, and who last messaged each session, for its row and
 //! `session-follow-message`. `images` keeps its own state here: the session an image is read
 //! for, and the thread that keeps the images (ADR 0142).
@@ -160,17 +161,6 @@ impl App {
         sent.map(|_| ())
     }
 
-    /// [`App::paste_into_session`] of oso's own `command`, not escaped, into session `key`'s
-    /// terminal, the session shown and selected in its space.
-    pub(in crate::app) fn send_command(
-        &mut self,
-        key: SessionKey,
-        command: &send::Command,
-    ) -> Result<(), String> {
-        let sent = self.paste_into_session(key, Outgoing::Command(command), Shown::Session);
-        sent.map(|_| ())
-    }
-
     /// How what was sent to session `key` goes from there: a native session's composer sends
     /// with its own key (ADR 0165, part 2f).
     pub(in crate::app) fn send_hint(&self, key: SessionKey) -> String {
@@ -221,8 +211,9 @@ impl App {
 
     /// Submits what was pasted into `buffer`, session `key`'s terminal: one Enter, as a key of
     /// its own, while the session still takes a paste there; else why not, and nothing is
-    /// sent. The only submit to a session: ADR 0163's exception to Q17, for a review's question
-    /// the person confirmed in oso's prompt.
+    /// sent. One of the two submits to a session, the exceptions to Q17: a review's question
+    /// the person confirmed in oso's prompt (ADR 0163), and oso's own `/add-dir PATH` for an
+    /// orchestrator given a trusted repository (ADR 0185).
     pub(in crate::app) fn submit_paste(
         &mut self,
         key: SessionKey,
@@ -286,6 +277,14 @@ impl App {
             Some(why) => Err(why),
             None => Ok(buffer),
         }
+    }
+
+    /// Session `key`'s state, once the worker judged a look at its screen in time since it
+    /// started; `None` before.
+    pub(in crate::app) fn judged_state(&self, key: SessionKey) -> Option<State> {
+        self.watch.sending.judged.get(&key).copied().flatten()?;
+        let session = self.hosting.table().get(key)?;
+        Some(self.state_of(session, Instant::now()).0)
     }
 
     /// The worker judged session `key`'s newest look in time, a hold rule matching it or not,

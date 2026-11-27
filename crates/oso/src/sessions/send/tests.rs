@@ -8,7 +8,8 @@ use std::path::{Path, PathBuf};
 use oso_core::editor::{SendExcerpt, SendPart};
 
 use super::{
-    InputBox, MAX_BYTES, NoBox, Standing, TooLarge, compose, fence, input_box, place, refusal,
+    Command, InputBox, MAX_BYTES, NoBox, Standing, TooLarge, compose, fence, holds_command,
+    input_box, place, refusal,
 };
 use crate::sessions::state::{Reason, State};
 
@@ -497,4 +498,54 @@ fn rules_a_model_could_draw_inside_a_dialog_are_no_box() {
     ];
     dialog.splice(at + 1..at + 1, forged);
     assert!(matches!(input_box(&dialog), InputBox::Other(_)));
+}
+
+/// oso's own `/add-dir PATH` goes unasked only while the box holds it alone (ADR 0185).
+#[test]
+fn the_box_holds_the_command_only_when_it_holds_it_alone_with_no_menu_under_it() {
+    let command = Command::add_dir(Path::new("/src/my web")).expect("a plain path");
+    let rule = "─".repeat(40);
+    let boxed = |rows: &[&str], under: &str| {
+        let rows = rows.join("\n");
+        screen(&format!("talk\n{rule}\n{rows}\n{rule}\n{under}"))
+    };
+    let hint = "  ? for shortcuts";
+    assert!(holds_command(
+        &boxed(&["❯\u{a0}/add-dir /src/my web"], hint),
+        &command
+    ));
+    // Wrapped at its space, indented as the TUI goes on a row.
+    let wrapped = boxed(&["❯\u{a0}/add-dir /src/my", "  web"], hint);
+    assert!(holds_command(&wrapped, &command));
+    // Wrapped inside a word, as a long path with no space is.
+    let inside = boxed(&["❯\u{a0}/add-dir /src/m", "  y web", ""], hint);
+    assert!(holds_command(&inside, &command));
+    for other in [
+        // A blank the box lost, or a break where the command has none, is other text.
+        boxed(&["❯\u{a0}/add-dir /src/myweb"], hint),
+        boxed(&["❯\u{a0}/add-dir /src/my", "  w eb"], hint),
+        // Suggestions under the box.
+        boxed(&["❯\u{a0}/add-dir /src/my web"], "  ~/src/my web2"),
+        boxed(&["❯\u{a0}/add-dir /src/my web"], "  ./my web"),
+        boxed(&["❯\u{a0}/add-dir /src/my webx"], hint),
+        boxed(&["❯\u{a0}x/add-dir /src/my web"], hint),
+        boxed(&["❯\u{a0}/add-dir /src/my"], hint),
+        boxed(&["❯\u{a0}"], hint),
+        boxed(&["❯\u{a0}/add-dir /src/my", "❯ web"], hint),
+        boxed(&["! /add-dir /src/my web"], hint),
+        // The command's menu under the box, or a picker.
+        boxed(
+            &["❯\u{a0}/add-dir /src/my web"],
+            "  ❯ /add-dir   Add a new working directory",
+        ),
+        boxed(
+            &["❯\u{a0}/add-dir /src/my web"],
+            "    /add-dir   Add a new working directory",
+        ),
+        screen("❯ /add-dir /src/my web"),
+    ] {
+        assert!(!holds_command(&other, &command), "{other:?}");
+    }
+    let working = screen(include_str!("../screens/working.txt"));
+    assert!(!holds_command(&working, &command));
 }

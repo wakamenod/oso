@@ -1,7 +1,6 @@
 //! A native orchestrator given a repository added to its space while it runs (ADR 0176, part
-//! O-2, the author's Q-O4 (a)): `claude -p` runs no `/add-dir`, so at the person's `y` to the
-//! space's offer it is stopped once idle and resumed with the repository given with
-//! `--add-dir`, as a mode change's respawn is (ADR 0165, part 3b), its row then saying
+//! O-2, the author's Q-O4 (a)): `claude -p` runs no `/add-dir`, so it is stopped once idle and
+//! resumed with the repository given with `--add-dir`, asking no one (ADR 0185), as a mode change's respawn is (ADR 0165, part 3b), its row then saying
 //! "Resumed with REPO added."
 //!
 //! Must not depend on: key presses or how a frame is drawn.
@@ -25,7 +24,7 @@ use crate::sessions::spaces::SpaceId;
 use crate::sessions::spaces::stored::same;
 use crate::sessions::worker::SessionKey;
 
-/// A resume with repositories added, at the person's `y`s.
+/// A resume with repositories added, as oso gives them (ADR 0185).
 #[derive(Debug)]
 pub(super) struct Adding {
     space: SpaceId,
@@ -45,8 +44,9 @@ enum Stage {
 }
 
 impl App {
-    /// `y` to a space's offer: native orchestrator `key` of `space` is resumed with `root`
-    /// added, now if it is free to stop, else once it is, with any other waiting.
+    /// A repository given to a space's running orchestrator (ADR 0185): native orchestrator
+    /// `key` of `space` is resumed with `root` added, now if it is free to stop, else once it
+    /// is, with any other waiting.
     pub(in crate::app) fn resume_with_dir(
         &mut self,
         key: SessionKey,

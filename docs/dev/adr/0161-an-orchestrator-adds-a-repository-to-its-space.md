@@ -1,6 +1,6 @@
 # 0161. An orchestrator adds a repository to its space
 
-- Status: Accepted, amended by 0176 and 0177
+- Status: Accepted, amended by 0176, 0177 and 0185
 - Date: 2026-11-19
 
 ## Context
@@ -80,6 +80,11 @@ goes without asking only for a repository oso knew before the call (Q9).
 
 ### After adding (Q5, Q6)
 
+- **Amended by [ADR 0185](0185-an-added-repository-is-given-to-the-orchestrator-without-asking.md)
+  (2026-11-27): nothing is asked.** oso types `/add-dir PATH` into a terminal orchestrator and
+  sends it once it is idle, or resumes a native one with it; the reply's `add_dir` is `queued`,
+  `resume queued`, `given`, `waits for trust`, `not queued` or `next resume`. The two bullets
+  below are what held before.
 - **The `/add-dir` offer is the one oso already makes (Q6):** once the repository is a trusted
   member and the orchestrator runs without it, oso asks the person, as a separate `y` or `n`,
   whether to paste `/add-dir PATH` into the orchestrator's input, not sent. For an agent's add

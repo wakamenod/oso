@@ -52,15 +52,15 @@ use crate::sessions::worker::SessionKey;
 
 /// How long after its paste a question's Enter may go, as a key of its own: a TUI may read a
 /// paste and a key that comes with it in one read as one paste.
-pub(super) const ENTER_AFTER: Duration = Duration::from_millis(150);
+pub(in crate::app) const ENTER_AFTER: Duration = Duration::from_millis(150);
 /// How long the Enter waits for a screen newer than the paste, as a terminal no window shows
 /// is looked at only a few times a second: past it, the question stays unsubmitted.
-pub(super) const ENTER_WAIT: Duration = Duration::from_secs(2);
+pub(in crate::app) const ENTER_WAIT: Duration = Duration::from_secs(2);
 /// How often the screen is looked at meanwhile.
-const ENTER_POLL: Duration = Duration::from_millis(100);
+pub(in crate::app) const ENTER_POLL: Duration = Duration::from_millis(100);
 /// How soon it is looked at again when a snapshot came: the terminal's thread builds the next
 /// from what came since, so that the Enter judges the newest screen, not one it held.
-const ENTER_RECHECK: Duration = Duration::from_millis(10);
+pub(in crate::app) const ENTER_RECHECK: Duration = Duration::from_millis(10);
 /// How long a question waits for an orchestrator being resumed to take it.
 pub(super) const HOLD_FOR: Duration = Duration::from_secs(120);
 
@@ -154,7 +154,15 @@ impl App {
         if self.hosting.natives.has(key) {
             return self.deliver_native_question(key, &name, beside, &question.text);
         }
-        let buffer = match self.paste_target(key) {
+        // An `/add-dir` oso typed waits for its Enter there (ADR 0185): the question would
+        // join it.
+        let target = match self.add_dir_typed_into(key) {
+            true => Err(format!(
+                "{name} is taking an /add-dir; ask again in a moment"
+            )),
+            false => self.paste_target(key),
+        };
+        let buffer = match target {
             Ok(buffer) => buffer,
             Err(why) => {
                 // So that the person sees what it asks.
@@ -227,7 +235,7 @@ impl App {
 
     /// What Claude Code's input box in the terminal `buffer` holds, as the screen the UI has
     /// shows it.
-    fn input_box_of(&self, buffer: BufferId) -> InputBox {
+    pub(in crate::app) fn input_box_of(&self, buffer: BufferId) -> InputBox {
         (self.terminals.map.get(buffer)).map_or(InputBox::Other(NoBox::NoRules), |hosted| {
             input_box(&hosted.grid.row_texts())
         })
@@ -307,6 +315,12 @@ impl App {
         if asked.is_some() && open != asked {
             self.reviews.asking.offer = None;
         }
+    }
+
+    /// Whether a question's Enter waits on session `key`'s terminal, so that no `/add-dir` is
+    /// typed after the question (ADR 0185).
+    pub(in crate::app) fn review_enter_waits(&self, key: SessionKey) -> bool {
+        (self.reviews.asking.enter.as_ref()).is_some_and(|enter| enter.key == key)
     }
 
     /// Drops the review's resume offer, as a space's question asked anew does.
@@ -426,7 +440,7 @@ impl App {
     /// Takes the snapshot the terminal `buffer`'s thread holds, if it holds one, whether or not
     /// a frame or the pace for terminals no window shows would take it now; whether one came.
     /// None coming means the screen the UI holds is the newest the thread built.
-    fn take_screen_now(&mut self, buffer: BufferId) -> bool {
+    pub(in crate::app) fn take_screen_now(&mut self, buffer: BufferId) -> bool {
         let Some(hosted) = self.terminals.map.get_mut(buffer) else {
             return false;
         };
@@ -440,7 +454,7 @@ impl App {
 
     /// The generation of the screen the UI holds of the terminal `buffer`: another number
     /// means other rows.
-    fn screen_generation(&self, buffer: BufferId) -> Option<u64> {
+    pub(in crate::app) fn screen_generation(&self, buffer: BufferId) -> Option<u64> {
         (self.terminals.map.get(buffer)).map(|hosted| hosted.grid.generation())
     }
 

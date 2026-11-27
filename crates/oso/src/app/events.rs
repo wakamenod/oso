@@ -210,6 +210,7 @@ impl App {
         self.review_layout_due();
         self.review_watch_due();
         self.review_ask_due();
+        self.add_dirs_due(std::time::Instant::now());
         self.held_starts_due();
         self.sync_restart_resumes();
         self.dictation_watches_due();
@@ -329,6 +330,7 @@ impl App {
             self.review_layout_deadline(),
             self.review_watch_deadline(),
             self.review_ask_deadline(),
+            self.add_dirs_deadline(),
             self.handover_deadline(),
             self.idle_quit.next_wake(),
             self.restart_wait_deadline(),

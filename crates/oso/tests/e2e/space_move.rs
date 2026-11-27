@@ -208,11 +208,8 @@ fn moving(test: &str) -> Moving {
     });
     let members = &space(&state, "fix-login-error").unwrap()["members"];
     assert_eq!(members.as_array().map(Vec::len), Some(2), "{members}");
-    // The space's running orchestrator is offered the trusted repository it just took: no.
-    app.wait_for("the offer", |state| {
-        asks(state).is_some_and(|prompt| prompt.starts_with("Paste /add-dir"))
-    });
-    app.send_keys("n");
+    // The space's running orchestrator gets the trusted repository it just took once it shows
+    // an empty input box, which the fake never does; nothing is asked (ADR 0185).
     Moving {
         flow,
         app,

@@ -6,6 +6,7 @@
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 
+mod add_dir;
 mod agent;
 mod handover;
 mod lists;
@@ -16,6 +17,7 @@ mod new_space;
 mod offers;
 mod orchestrator;
 
+pub(in crate::app) use offers::Gave;
 pub(in crate::app) use orchestrator::Orchestrator;
 
 use std::collections::{HashMap, HashSet};
@@ -79,11 +81,8 @@ pub(in crate::app) struct SpaceWork {
     pub(in crate::app) waiting: HashSet<SpaceId>,
     /// The sessions being got ready as an orchestrator, by key: their space.
     pub(in crate::app) starting: HashMap<crate::sessions::worker::SessionKey, SpaceId>,
-    /// What the question the host asked last offers, which `y` does (`SpaceRequest::Confirmed`):
-    /// dropped when another is asked or it is answered otherwise. A review's offer to resume
-    /// the orchestrator is the third kind (ADR 0163), kept by `reviews::ask`; every such
-    /// question is asked through `App::ask_confirm`, which drops the others.
-    pub(in crate::app) offer: Option<offers::Offer>,
+    /// The `/add-dir`s oso types into running terminal orchestrators (ADR 0185).
+    pub(in crate::app) add_dirs: add_dir::AddDirs,
     /// A replacement of an orchestrator asked about, which `y` does (step 5).
     pub(in crate::app) replace_asked: Option<handover::Asked>,
     /// The orchestrators being stopped for a successor, by key: what starts once each ended.
@@ -93,7 +92,7 @@ pub(in crate::app) struct SpaceWork {
     /// The open spaces' trusted repositories as last seen, to tell one trusted since; none
     /// while the trust list is unread.
     pub(in crate::app) trusted_seen: Option<Vec<(SpaceId, PathBuf)>>,
-    /// The repositories each space's orchestrator was given, at its start or pasted since.
+    /// The repositories each space's orchestrator was given, at its start or typed since.
     pub(in crate::app) given: HashMap<SpaceId, Vec<PathBuf>>,
     /// The repository `space-use-repo` chose for project commands from each space's
     /// orchestrator's buffer (ADR 0136, step 4).
@@ -235,8 +234,8 @@ impl App {
                 };
                 let shown = printable(&path.display().to_string());
                 match spaces.add_member(at, member, now) {
-                    // A running orchestrator not given it is offered it once trusted, after
-                    // this event (ADR 0136, Q5).
+                    // A running orchestrator not given it is given it once trusted, after
+                    // this event (ADR 0136, Q5; ADR 0185).
                     Ok(()) => self
                         .editor
                         .message(format!("Added {shown} to space {}", self.space_label(at))),

@@ -3,9 +3,10 @@
 //! person's is, and must also name the main checkout with no link on the way. The person is
 //! asked, or it goes without asking by ADR 0135's rules, past no limit; one oso does not trust
 //! always asks, and joins restricted. At the person's `y` the repository is looked at again, and
-//! must be the same, by its real path, device and inode. Once added and trusted, oso offers the
-//! person to paste `/add-dir` into the orchestrator, or to resume a native one with it
-//! (ADR 0176, part O-2), as for any repository added while it runs.
+//! must be the same, by its real path, device and inode. Once added and trusted, oso types
+//! `/add-dir PATH` into the orchestrator and sends it once its turn ends, or resumes a native
+//! one with it (ADR 0176, part O-2), asking no one, as for any repository added while it runs
+//! (ADR 0185).
 //!
 //! Must not depend on: key presses or how a frame is drawn. Nothing here touches the disk.
 
@@ -15,6 +16,7 @@ use std::time::Instant;
 use serde_json::json;
 
 use super::super::super::App;
+use super::super::spaces::Gave;
 use super::asks::{Plan, Words};
 use super::question::details;
 use super::{Caller, Pending, shown};
@@ -26,11 +28,12 @@ use crate::sessions::worker::SessionKey;
 
 /// What `?` shows of an add, after the question.
 const ADD_DETAILS: &str = "The repository is listed in the space. Once oso trusts it, the \
-orchestrator may start workers in its worktrees and give them it to read, and oso offers to \
-paste /add-dir PATH into the orchestrator's input, not sent, or to resume a native one with \
-it: Claude Code then loads that repository's CLAUDE.md, skills, commands and subagents into a \
-terminal's, and none of them into a native one, which reads the person's own settings alone. One oso does not trust stays \
-restricted until you trust it with trust-project.";
+orchestrator may start workers in its worktrees and give them it to read, and oso types \
+/add-dir PATH into the orchestrator's input and sends it once its turn ends and its input box \
+is empty, or resumes a native one with it then, asking you nothing more: Claude Code then \
+loads that repository's CLAUDE.md, skills, commands and subagents into a terminal's, and none \
+of them into a native one, which reads the person's own settings alone. One oso does not trust \
+stays restricted until you trust it with trust-project.";
 
 /// An agent's look at the repository its call names, on a thread of its own.
 #[derive(Debug)]
@@ -249,8 +252,8 @@ impl App {
     }
 
     /// Adds `adding`'s repository to its space, if its caller is still the space's
-    /// orchestrator and the space still takes it; a trusted one is offered to the running
-    /// orchestrator now, and the reply says what the agent can do next.
+    /// orchestrator and the space still takes it; a trusted one is given to the running
+    /// orchestrator, asking no one (ADR 0185), and the reply says what the agent can do next.
     fn add_for_agent(&mut self, pending: Pending, adding: Adding, said: Option<String>) {
         if let Err(why) = self.still_orchestrates(adding.caller, &adding.space) {
             return pending.answer(Err(why.into()));
@@ -277,12 +280,21 @@ impl App {
         let path = shown(&root);
         let said =
             said.unwrap_or_else(|| rules::add_repo_said(&adding.caller_name, &path, &space, false));
-        self.editor.message(format!("Agent: {said}"));
-        self.agent_log(&format!("{}: added", pending.tool));
         let given = self.was_given(&adding.space, &root);
-        let offered = trusted && !given && self.offer_added(at, &root);
+        let gave = match trusted && !given {
+            true => self.give_added(at, &root),
+            false => Gave::Nothing,
+        };
+        // After the resume's own echo, so that the agent's add is what the echo area shows.
+        let then = match gave {
+            Gave::Typed => "; oso types /add-dir into it once its turn ends",
+            Gave::Resumed => "; it resumes with it once its turn ends",
+            Gave::Nothing => "",
+        };
+        self.editor.message(format!("Agent: {said}{then}"));
+        self.agent_log(&format!("{}: added", pending.tool));
         let native = (self.live_orchestrator(at)).is_some_and(|key| self.hosting.natives.has(key));
-        let add_dir = rules::add_dir(trusted, given, offered, native);
+        let add_dir = rules::add_dir(trusted, given, gave != Gave::Nothing, native);
         let name = (self.watch.spaces().member_names(at).into_iter())
             .find(|(_, member)| same(member, &root))
             .map(|(name, _)| name);

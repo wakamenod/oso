@@ -5,10 +5,9 @@
 
 use oso_core::command::Reach;
 
-use super::add_repo::AddDir;
 use super::guard::{CALLS_A_MINUTE, RATE_WINDOW};
 use super::{
-    Asks, Branch, CallerStanding, Renamable, Resumable, StartLimit, TOOLS, Unasked, add_dir,
+    Asks, Branch, CallerStanding, Renamable, Resumable, StartLimit, TOOLS, Unasked,
     add_repo_question, add_repo_said, addable, quoted, renamable, rename_clash, rename_note,
     renamed_said, resumable, resume_question, resume_started, start_question, start_started,
     starts_without_asking, stops_without_asking, tool, worktree_question, worktree_started,
@@ -570,27 +569,4 @@ fn a_space_takes_a_repository_open_once_and_up_to_sixteen() {
     assert!(addable(false, false, 0).unwrap_err().contains("closed"));
     assert!(addable(true, true, 1).unwrap_err().contains("already"));
     assert!(addable(true, false, 16).unwrap_err().contains("at most 16"));
-}
-
-/// The reply says the agent cannot read a repository until the person's paste, and a
-/// restricted one until their trust (ADR 0161, Q5).
-#[test]
-fn the_reply_says_what_reads_the_added_repository() {
-    assert_eq!(add_dir(false, true, true, false), AddDir::WaitsForTrust);
-    assert_eq!(add_dir(true, true, false, false), AddDir::Given);
-    assert_eq!(add_dir(true, false, true, false), AddDir::Offered);
-    assert_eq!(add_dir(true, false, false, false), AddDir::NotOffered);
-    let native = add_dir(true, false, false, true);
-    assert_eq!(native, AddDir::NextResume);
-    let note = AddDir::Offered.note("/r/web", false);
-    assert!(
-        note.contains("/add-dir /r/web") && note.contains("ask them"),
-        "{note}"
-    );
-    assert!(
-        AddDir::WaitsForTrust
-            .note("/r/web", false)
-            .contains("trust-project")
-    );
-    assert_eq!(AddDir::NotOffered.word(), "not offered");
 }
