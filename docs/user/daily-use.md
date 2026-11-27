@@ -27,15 +27,45 @@ lock file changes.
 
 ## Install
 
+On macOS, make the signing certificate first (below). Then:
+
 ```sh
 just install
 ```
 
-This builds the release binary, as `just release` does, with no dev features, and puts it at
-`~/.local/bin/oso`. Give another directory as `just install DIR`. The binary is copied under a
-temporary name and then renamed, so an oso that is already running keeps working. The recipe
-prints where the binary went and its version and commit, and says if the directory is not on
-`PATH`. It never edits your shell profile.
+This builds the release binary, as `just release` does, with no dev features.
+
+- On macOS it puts the binary in an app, `~/Applications/oso.app`, signs it with your
+  certificate, and makes `~/.local/bin/oso` a link to the app's binary. `oso` in a shell and oso
+  from the Dock are then the same program.
+- On Linux it puts the binary at `~/.local/bin/oso`.
+
+Give another directory for `oso` as `just install DIR`, and on macOS another app as
+`just install DIR APP` (`just install "" APP` keeps the directory). The new files are put
+together under a temporary name and then renamed in, so an oso that is already running keeps
+working, and the Dock keeps its item. The recipe prints where things went and the version and
+commit, and says if the directory is not on `PATH`. It never edits your shell profile.
+
+### The signing certificate (macOS, once)
+
+macOS remembers what you allow an app, such as access to your Documents folder, by the app's
+signature. A certificate of your own keeps that signature the same from one install to the
+next, so macOS does not ask again after each `just install`. Make it in Keychain Access:
+
+1. Keychain Access › Certificate Assistant › Create a Certificate…. Name: `oso local signing`.
+   Identity Type: Self-Signed Root. Certificate Type: Code Signing. Tick "Let me override
+   defaults", and set the validity to 3650 days (the default 365 would make signing fail after a
+   year). Keep the rest as it is, with the login keychain. Create.
+2. Open Get Info on the certificate, then Trust › Code Signing: Always Trust. It asks for your
+   password.
+3. Check that `security find-identity -v -p codesigning` lists "oso local signing".
+4. On the first `just install`, macOS asks whether codesign may use the key: answer
+   "Always Allow".
+
+Without the certificate, `just install` stops before building and points here. To sign with
+another identity, set `OSO_SIGN_IDENTITY` to its name. `OSO_SIGN_IDENTITY=-` signs ad hoc, for
+a machine where you do not want the certificate. macOS then asks again for what it asked
+before, after each install.
 
 ## Run
 
@@ -43,7 +73,27 @@ prints where the binary went and its version and commit, and says if the directo
 oso            # or: oso FILE
 ```
 
-Start it from a shell. `oso --no-config` starts without your configuration file.
+Start it from a shell, or on macOS from the Dock, Spotlight or Finder, or with `open -a oso`.
+To keep it in the Dock, start it once, then Control-click its Dock icon and choose Options ›
+Keep in Dock. Starting the app while
+it runs brings the running oso to the front. The app opens no file: open files with
+`oso FILE` from a shell, or from inside oso. `oso --no-config` starts without your
+configuration file.
+
+### Your shell's environment in the app
+
+An app started from the Dock gets the bare environment macOS gives every app, not your shell's.
+So when started as an app, oso runs your login shell once and takes its `PATH`, and the
+variables the app lacks, as a shell start would see them. Your terminals, language servers and
+git then find the same programs either way. It uses the shell your account names (`bash` if that is missing).
+
+- `bash -l` reads `~/.bash_profile`, or `~/.bash_login` if that is missing, or else
+  `~/.profile`. It does not read `~/.bashrc`, so a `PATH` set only there counts only when
+  `~/.bash_profile` sources it.
+- zsh: a login shell reads `~/.zprofile` and `~/.zshenv`, not `~/.zshrc`.
+
+If the shell takes longer than 2 seconds or prints nothing usable, oso keeps the bare
+environment and says so in `*Messages*`.
 
 ## Trust a project
 
@@ -968,6 +1018,8 @@ To empty it, delete `recent-files` in the state directory below.
 
 ## Where things live
 
+- The program: `~/.local/bin/oso`. On macOS that is a link into the app,
+  `~/Applications/oso.app`.
 - Configuration: `~/.config/oso/config.toml`, or `$XDG_CONFIG_HOME/oso/config.toml` when that is
   set. oso never writes this file.
 - Trusted projects: `trusted-projects`, next to `config.toml`. oso writes it when you trust or
