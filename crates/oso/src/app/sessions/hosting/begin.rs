@@ -51,6 +51,9 @@ pub(in crate::app) struct Begin {
     /// The model an agent's tool named, its own `--model` from now on (ADR 0121, "A start's
     /// model, as amended"); `None` for the person's settings' own.
     pub model: Option<String>,
+    /// How an agent's tool asked it to run (ADR 0121, "A start's mode, as amended"); `None`
+    /// as `[sessions] mode` says.
+    pub mode: Option<crate::channel::protocol::sessions::RunMode>,
 }
 
 impl Default for Begin {
@@ -68,6 +71,7 @@ impl Default for Begin {
             orchestrator_of: None,
             behind: false,
             model: None,
+            mode: None,
         }
     }
 }

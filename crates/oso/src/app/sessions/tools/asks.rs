@@ -20,6 +20,7 @@ use super::super::super::App;
 use super::super::hosting::Begin;
 use super::question::details;
 use super::{Caller, Job, Pending, shown};
+use crate::channel::protocol::sessions::RunMode;
 use crate::sessions::identity::Origin;
 use crate::sessions::identity::SessionId;
 use crate::sessions::tools::{self as rules, Branch, Tool};
@@ -40,6 +41,8 @@ pub(super) enum Plan {
         reads: Vec<(Trust, PathBuf)>,
         /// Its session's model (ADR 0121, "A start's model, as amended").
         model: Option<String>,
+        /// How its session runs, if the call said (ADR 0121, "A start's mode, as amended").
+        mode: Option<RunMode>,
     },
     /// A session to start, and for an orchestrator's call the space's repository whose trust
     /// is asked again before it starts.
@@ -93,11 +96,13 @@ enum Then {
         name: Option<String>,
         base: Option<String>,
         model: Option<String>,
+        mode: Option<RunMode>,
     },
     Start {
         brief: Option<String>,
         name: Option<String>,
         model: Option<String>,
+        mode: Option<RunMode>,
     },
 }
 
@@ -112,6 +117,8 @@ pub(in crate::app) struct WorktreeCall {
     pub(in crate::app) with: Vec<(Trust, PathBuf)>,
     /// Its session's model, which `is_model` took (ADR 0121, "A start's model, as amended").
     pub(in crate::app) model: Option<String>,
+    /// How its session runs, if the call said (ADR 0121, "A start's mode, as amended").
+    pub(in crate::app) mode: Option<RunMode>,
 }
 
 /// `session_start`'s arguments.
@@ -124,6 +131,8 @@ pub(in crate::app) struct StartCall {
     pub(in crate::app) with: Vec<(Trust, PathBuf)>,
     /// As [`WorktreeCall::model`].
     pub(in crate::app) model: Option<String>,
+    /// As [`WorktreeCall::mode`].
+    pub(in crate::app) mode: Option<RunMode>,
 }
 
 /// A worktree being made after the person's `y`.
@@ -135,8 +144,9 @@ pub(in crate::app) struct Creating {
     pub(super) origin: Origin,
     /// The directories its session also reads, with their trust.
     pub(super) reads: Vec<(Trust, PathBuf)>,
-    /// Its session's model.
+    /// Its session's model and mode.
     pub(super) model: Option<String>,
+    pub(super) mode: Option<RunMode>,
     /// What the echo area says once its session starts, for a start without asking.
     pub(super) said: Option<String>,
 }
@@ -164,12 +174,14 @@ impl App {
             name,
             with,
             model,
+            mode,
         } = call;
         let then = Then::Worktree {
             brief,
             name,
             base: base.clone(),
             model,
+            mode,
         };
         let prepare = Prepare::Worktree {
             branch: branch.clone(),
@@ -195,6 +207,7 @@ impl App {
             brief,
             with,
             model,
+            mode,
         } = call;
         // An orchestrator no more starts nothing: the space's directory is no repository.
         if caller.scoped() && caller.acting_at.is_none() {
@@ -207,7 +220,12 @@ impl App {
         // Another directory than the caller's own is looked at by git first, and so is a space's
         // repository an orchestrator names, whose root's identity the job checks on the disk.
         if directory != caller.runs_in || caller.acting_at.is_some() {
-            let then = Then::Start { brief, name, model };
+            let then = Then::Start {
+                brief,
+                name,
+                model,
+                mode,
+            };
             let prepare = Prepare::Directory(directory);
             return self.tool_prepare(pending, tool, caller, target, (then, prepare, with));
         }
@@ -230,6 +248,7 @@ impl App {
             orchestrator_of: None,
             behind: false,
             model,
+            mode,
         };
         // Without asking only in a project an open buffer has trusted now: the trust the session
         // began with may have been taken back since (ADR 0135, Q4).
@@ -294,7 +313,13 @@ impl App {
                     with,
                     ..
                 } = preparing;
-                let Then::Start { brief, name, model } = then else {
+                let Then::Start {
+                    brief,
+                    name,
+                    model,
+                    mode,
+                } = then
+                else {
                     unreachable!("matched above");
                 };
                 let begin = Begin {
@@ -306,6 +331,7 @@ impl App {
                     trusted,
                     space: App::worker_reads(with),
                     model,
+                    mode,
                     ..Begin::default()
                 };
                 // Its job, as a worktree's, looked at trust against the record as it is now.
@@ -339,6 +365,7 @@ impl App {
                     name,
                     base,
                     model,
+                    mode,
                 },
             ) => {
                 // The person's `n` is kept by the branch git resolved the name to, so that
@@ -362,7 +389,7 @@ impl App {
                 let words = worktree_words(
                     &caller.name,
                     at,
-                    (&brief, model.as_deref()),
+                    (&brief, model.as_deref(), mode),
                     &paths,
                     &self.explain_key(),
                 );
@@ -390,6 +417,7 @@ impl App {
                     origin: Origin::Answered,
                     reads: with,
                     model,
+                    mode,
                 };
                 self.ask_or_start(pending, &caller, (target, true), words, plan);
             }
@@ -434,12 +462,9 @@ impl App {
             rules::also_reads(said, &reads),
         );
         let details = rules::also_reads(details, &reads);
-        let model = begin.model.as_deref();
-        let (label, details, said) = (
-            rules::with_model(label, model),
-            rules::with_model(details, model),
-            rules::with_model(said, model),
-        );
+        let (model, mode) = (begin.model.as_deref(), begin.mode);
+        let chosen = |said| rules::with_mode(rules::with_model(said, model), mode);
+        let (label, details, said) = (chosen(label), chosen(details), chosen(said));
         let by = rules::quoted(&caller.name);
         begin.brief = (begin.brief)
             .map(|brief| crate::sessions::worktree::brief::started(&by, &reads, &brief));
@@ -492,15 +517,16 @@ impl App {
 fn worktree_words(
     caller: &str,
     (place, branch, start): (&Path, &str, Branch<'_>),
-    (brief, model): (&str, Option<&str>),
+    (brief, model, mode): (&str, Option<&str>, Option<RunMode>),
     reads: &[PathBuf],
     explain: &str,
 ) -> Words {
     let (place, lines) = (shown(place), rules::lines(brief));
     let label = rules::worktree_question(caller, &place, branch, start, lines);
-    let label = rules::with_model(rules::also_reads(label, reads), model);
+    let chosen = |said| rules::with_mode(rules::with_model(said, model), mode);
+    let label = chosen(rules::also_reads(label, reads));
     let said = rules::worktree_started(caller, &place, branch, start, lines, explain);
-    let said = rules::with_model(rules::also_reads(said, reads), model);
+    let said = chosen(rules::also_reads(said, reads));
     let details = details(caller, &label, &brief_said(brief));
     Words(label, details, said)
 }

@@ -221,6 +221,7 @@ impl App {
             orchestrator_of: None,
             behind: false,
             model: None,
+            mode: None,
         };
         self.begin_session(begin, Then::Nothing);
     }
