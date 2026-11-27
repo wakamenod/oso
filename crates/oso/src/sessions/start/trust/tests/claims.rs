@@ -346,6 +346,7 @@ mod looks {
             steer_worktrees: false,
             check_shared: false,
             space: None,
+            model: None,
         }
     }
 

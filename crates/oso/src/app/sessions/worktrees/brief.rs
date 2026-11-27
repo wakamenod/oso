@@ -220,6 +220,7 @@ impl App {
             space: None,
             orchestrator_of: None,
             behind: false,
+            model: None,
         };
         self.begin_session(begin, Then::Nothing);
     }

@@ -6,7 +6,7 @@
   (2026-11-22); "An unverifiable registry entry is busy, as amended" (2026-11-22); "Every
   incomplete registry read refuses, as amended" (2026-11-22); "Registry entries and
   directories, as amended" (2026-11-22); "Composed text, as amended" (2026-11-22, 2026-11-23); "An
-  agent's brief, as amended" (2026-11-22)
+  agent's brief, as amended" (2026-11-22); "A start's model, as amended" (2026-11-27)
 - Date: 2026-11-12
 
 ## Context
@@ -1944,6 +1944,35 @@ successor's (ADR 0136).
   included.
 - **What the person sees:** the question before a start and `?`'s buffer show the brief as the
   agent gave it; the session gets it escaped.
+
+## A start's model, as amended
+
+Amended on 2026-11-27, the author's request through the coordinator ("session_start and
+start_worktree_session should take a model"): an agent could start a session only on the
+model the person's settings give, though a task may want a smaller or a larger one.
+
+- **`model`, optional, on both tools** (`session_start`, `start_worktree_session`): the
+  model the new session's `claude` runs, for terminal and native sessions alike. An alias
+  (`sonnet`, `opus`, `haiku`, `fable`) or a full id (`claude-opus-5-5[1m]`, a provider's
+  `us.anthropic.…-v1:0` or ARN). No list of names: ids change, and `claude` refuses one it
+  does not know.
+- **What is taken** (`channel::protocol::sessions::is_model`): ASCII letters, digits and
+  `._:/@[]-`, not empty, no `-` first, at most 256 bytes, the rule a native session's
+  `/model` is carried by. Anything else (another type, a space, a quote, `=`, a control,
+  invisible or look-alike character) is refused when the call is read, before any job or
+  question. It goes on the line as one argument, `--model=MODEL`, and a terminal's shell
+  gets it as a positional parameter, never as script text, so it cannot become an option
+  or shell text.
+- **It is the session's own.** The session's row and the record keep it, so each later
+  process of the session starts with it: a resume, the person's or `session_resume`, after
+  oso quits too, an `oso-restart`'s resume, an interrupt's, and a fork, which keeps its
+  source's. A native session's `/model` chosen since, and what a native session handed the
+  TUI, win over it. A terminal TUI's own `/model` is not seen, so its next resume starts
+  with the start's model again.
+- **What the person sees:** the question, `?`'s buffer and the echo of a start without
+  asking each end with ` Model: MODEL.`.
+- It reaches nothing new: which model runs is the session's only change. The tool, its
+  question, its trust checks and its limits are as before.
 
 ## Consequences
 

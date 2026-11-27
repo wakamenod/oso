@@ -477,5 +477,27 @@ pub fn also_reads(said: String, dirs: &[std::path::PathBuf]) -> String {
     format!("{said} It also reads {count}: {}.", dirs.join(", "))
 }
 
+/// `said`, a question or what the echo area says of a start, with the model the new session
+/// runs, which `is_model` took (ADR 0121, "A start's model, as amended"); as it was with none.
+pub fn with_model(said: String, model: Option<&str>) -> String {
+    match model {
+        Some(model) => format!("{said} Model: {model}."),
+        None => said,
+    }
+}
+
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod model_tests {
+    /// The question, `?` and the echo of a start without asking name the model a tool asked
+    /// for (ADR 0121, "A start's model, as amended"); none is said with none.
+    #[test]
+    fn a_question_names_the_model_the_new_session_runs() {
+        let said = super::with_model("let it start?".to_owned(), None);
+        assert_eq!(said, "let it start?");
+        let said = super::with_model("let it start?".to_owned(), Some("claude-opus-5-5[1m]"));
+        assert_eq!(said, "let it start? Model: claude-opus-5-5[1m].");
+    }
+}

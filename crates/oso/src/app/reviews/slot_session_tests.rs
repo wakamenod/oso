@@ -37,6 +37,7 @@ fn hosting(buffer: BufferId) -> Table {
         origin: Origin::Person,
         unasked_brief: None,
         changed: 1,
+        model: None,
     };
     let session = table.add(key, new).unwrap();
     session.buffer = Some(buffer);

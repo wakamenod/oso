@@ -6,7 +6,8 @@
 //! and runs nothing, its transcript, its row of `*Spaces*`, the echo area and `*Messages*`
 //! saying so, until it is trusted again and `session-resume` resumes it; one whose turn ends with
 //! changes is ready for review; and an orchestrator's `session_resume` resumes a stopped one
-//! without asking, and asks once its repository is untrusted.
+//! without asking, and asks once its repository is untrusted. One started with a model is
+//! resumed with it (ADR 0121, "A start's model, as amended").
 //!
 //! Must not depend on: the app's internals; each refusal of the claim has its own test. Driven
 //! by its control socket and the fake's files alone; no real key event is posted.
@@ -121,15 +122,23 @@ fn resumed_run(flow: &Flow, app: &mut App, id: &str) -> Run {
 /// An instance with a native session an agent started in a worktree, which answered its brief,
 /// and no file of the worktree open; the session's id and worktree.
 fn in_a_worktree(flow: &Flow) -> (App, String, PathBuf) {
+    let (app, id, worktree, _) = in_a_worktree_with(flow, None);
+    (app, id, worktree)
+}
+
+/// As [`in_a_worktree`], the session started with `model`, if given; and its first run and the
+/// question asked.
+fn in_a_worktree_with(flow: &Flow, model: Option<&str>) -> (App, String, PathBuf, (Run, String)) {
     let (mut app, _) = flow.start();
     app.run_command("claude", None).unwrap();
     let run = run_in(flow, &flow.repo);
     let mut bridge = Bridge::start(flow, &run);
-    let id = bridge.call(
-        "start_worktree_session",
-        json!({ "branch": "e2e-own", "brief": "Fix the parser" }),
-    );
-    answer(&mut app, &bridge, "y");
+    let mut call = json!({ "branch": "e2e-own", "brief": "Fix the parser" });
+    if let Some(model) = model {
+        call["model"] = json!(model);
+    }
+    let id = bridge.call("start_worktree_session", call);
+    let question = answer(&mut app, &bridge, "y");
     let (started, error) = bridge.result(id);
     assert!(!error, "{started}");
     let worktree = flow.repo.join(".claude/worktrees/e2e-own");
@@ -144,7 +153,7 @@ fn in_a_worktree(flow: &Flow) -> (App, String, PathBuf) {
     until(&mut app, "idle worktree session", |state| {
         settled(state, "e2e-own")
     });
-    (app, id, worktree)
+    (app, id, worktree, (run, question))
 }
 
 /// Session `name` as the dev state lists it.
@@ -212,6 +221,31 @@ fn a_turn_that_ends_with_changes_is_ready_for_review_with_no_file_open() {
         listed(state, "e2e-own").is_some_and(|session| session["state"] == "ready for review")
     });
     let _ = app.exchange("exit", None);
+}
+
+/// The `--model` arguments of `run`.
+fn models(run: &Run) -> Vec<&str> {
+    (run.args.iter())
+        .filter(|arg| arg.starts_with("--model"))
+        .map(String::as_str)
+        .collect()
+}
+
+/// A native worktree session an agent started with a model runs `claude -p --model=MODEL`,
+/// the question names it, and `oso-restart` resumes it with the model again, its own, which
+/// the record kept (ADR 0121, "A start's model, as amended").
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_native_session_started_with_a_model_keeps_it_over_oso_restart() {
+    let flow = native("worktree-resume-model", "");
+    let (mut old, id, _, (run, question)) = in_a_worktree_with(&flow, Some("haiku"));
+    assert!(question.contains("Model: haiku."), "{question}");
+    assert!(run.args.iter().any(|arg| arg == "-p"), "{:?}", run.args);
+    assert_eq!(models(&run), ["--model=haiku"], "{:?}", run.args);
+    let mut new = restarted(&mut old);
+    let resumed = resumed_run(&flow, &mut new, &id);
+    assert_eq!(models(&resumed), ["--model=haiku"], "{:?}", resumed.args);
+    let _ = new.exchange("exit", None);
 }
 
 #[test]

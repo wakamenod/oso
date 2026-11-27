@@ -70,6 +70,7 @@ impl App {
                 parent,
                 origin,
                 reads,
+                model,
             } => {
                 // As the reads stand at the person's `y`.
                 let reads = self.reads_now(reads);
@@ -92,6 +93,7 @@ impl App {
                         parent,
                         origin,
                         reads,
+                        model,
                         said,
                     }),
                 );
@@ -177,6 +179,7 @@ impl App {
                     space: App::worker_reads(reads),
                     orchestrator_of: None,
                     behind: false,
+                    model: creating.model,
                 };
                 let then = Then::Tool {
                     pending: creating.pending,

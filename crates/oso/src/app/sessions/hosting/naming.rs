@@ -135,6 +135,7 @@ mod tests {
                 origin: Origin::Person,
                 unasked_brief: None,
                 changed: 1,
+                model: None,
             };
             table.add(key, new).unwrap().run = run;
             key

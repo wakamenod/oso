@@ -6,8 +6,8 @@
 //! the UI thread.
 //!
 //! - It holds each session's id, name, directory, project root, parent, how it started (ADR
-//!   0135), pin and archive marks, when it last changed and its baseline. No screen text, no
-//!   transcript text and no brief.
+//!   0135), pin and archive marks, when it last changed, its baseline and the model a tool
+//!   started it with (ADR 0121). No screen text, no transcript text and no brief.
 //! - It is read only if the directory is private and the file a regular one of this user's
 //!   with one name, at most [`MAX_BYTES`] and [`MAX_SESSIONS`] sessions. A line that does not
 //!   hold a whole, valid session is left out, and only how many were is logged.
@@ -29,6 +29,7 @@ use serde_json::{Map, Value, json};
 
 use super::identity::{Origin, SessionId, clean_name};
 use super::spaces::SpaceId;
+use crate::channel::protocol::sessions::is_model;
 
 /// The file's name in its directory.
 const FILE: &str = "sessions";
@@ -72,6 +73,9 @@ pub struct Remembered {
     /// The directories it also reads, with the identities they were checked with, each
     /// checked again before a resume passes it (ADR 0136, step 4b).
     pub reads: Vec<super::spaces::Member>,
+    /// The model a tool started it with, its own `--model` (ADR 0121, "A start's model, as
+    /// amended"): one that `is_model` takes.
+    pub model: Option<String>,
 }
 
 /// What is remembered in `state_dir`. Anything the rules above refuse gives nothing.
@@ -201,6 +205,11 @@ fn parse_line(line: &[u8]) -> Option<Remembered> {
         Some(_) => return None,
         None => None,
     };
+    let model = match optional("model")? {
+        Some(model) if is_model(model) => Some(model.to_owned()),
+        Some(_) => return None,
+        None => None,
+    };
     Some(Remembered {
         id: SessionId::parse(text("id")?)?,
         name: name.to_owned(),
@@ -215,6 +224,7 @@ fn parse_line(line: &[u8]) -> Option<Remembered> {
         baseline,
         space,
         reads,
+        model,
     })
 }
 
@@ -257,6 +267,9 @@ fn line(session: &Remembered) -> Option<String> {
             .map(super::spaces::record::member_value)
             .collect::<Option<Vec<_>>>()?;
         object.insert("reads".into(), Value::Array(reads));
+    }
+    if let Some(model) = &session.model {
+        object.insert("model".into(), json!(model));
     }
     Some(Value::Object(object).to_string())
 }
@@ -452,6 +465,7 @@ mod tests {
             baseline: None,
             space: None,
             reads: Vec::new(),
+            model: None,
         }
     }
 
@@ -542,6 +556,8 @@ mod tests {
         // A native session (ADR 0165); a record without the key is a TUI's.
         full.native = true;
         full.baseline = Some("a".repeat(40));
+        // The model a tool started it with (ADR 0121, "A start's model, as amended").
+        full.model = Some("claude-opus-5-5[1m]".to_owned());
         full.space = Some(crate::sessions::spaces::SpaceId::from_random([7; 16]));
         full.reads = vec![
             crate::sessions::spaces::Member {
@@ -703,6 +719,19 @@ mod tests {
             ),
             // An id that is no UUID.
             r#"{"id":"x","name":"a","directory":"/w","changed":1}"#.to_owned(),
+            // A model that could pass for an option, or is no word.
+            format!(
+                r#"{{"id":"{}","name":"a","directory":"/w","changed":1,"model":"--x"}}"#,
+                id(5)
+            ),
+            format!(
+                r#"{{"id":"{}","name":"a","directory":"/w","changed":1,"model":"a b"}}"#,
+                id(6)
+            ),
+            format!(
+                r#"{{"id":"{}","name":"a","directory":"/w","changed":1,"model":3}}"#,
+                id(7)
+            ),
         ];
         std::fs::write(scratch.oso().join(FILE), lines.join("\n")).unwrap();
         assert_eq!(read(&scratch.oso()), std::slice::from_ref(&one));
