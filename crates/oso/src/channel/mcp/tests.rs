@@ -137,6 +137,7 @@ fn initializes_without_connecting_and_lists_its_tools() {
             "session_rename",
             "space_add_repo",
             "session_archive",
+            "session_answer",
         ]
     );
     let hint = |name: &str, hint: &str| {
@@ -158,6 +159,8 @@ fn initializes_without_connecting_and_lists_its_tools() {
     assert_eq!(hint("start_worktree_session", "readOnlyHint"), false);
     assert_eq!(hint("move_to_space", "readOnlyHint"), false);
     assert_eq!(hint("move_to_space", "destructiveHint"), false);
+    assert_eq!(hint("session_answer", "readOnlyHint"), false);
+    assert_eq!(hint("session_answer", "destructiveHint"), false);
     assert_eq!(
         asked.borrow().connects,
         0,

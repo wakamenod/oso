@@ -47,9 +47,9 @@ pub struct Spaces {
     /// `orchestrator-answers`: the tools a space's orchestrator may allow its native workers'
     /// calls of (ADR 0186). None unless set, which lets it allow nothing.
     pub answers: Vec<String>,
-    /// `orchestrator-answers-deny`: the Bash commands it never allows, as patterns that replace
-    /// the defaults, as written; `None` for the defaults.
-    pub answers_deny: Option<Vec<String>>,
+    /// `orchestrator-answers-deny`: the Bash commands it never allows besides the defaults, as
+    /// patterns, as written; the defaults are never taken away.
+    pub answers_deny: Vec<String>,
     /// Either key was given a value oso does not take: no orchestrator answers until it is
     /// fixed, as the person's list may have meant to deny more.
     pub answers_refused: bool,
@@ -68,7 +68,7 @@ impl Spaces {
         } else {
             &self.answers[..]
         };
-        Rules::new(tools, self.answers_deny.as_deref()).unwrap_or_default()
+        Rules::new(tools, &self.answers_deny).unwrap_or_default()
     }
 }
 
@@ -119,7 +119,7 @@ pub(super) fn spaces(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Spaces 
                 None => spaces.answers_refused = true,
             },
             "orchestrator-answers-deny" => match deny_patterns(value, found) {
-                Some(patterns) => spaces.answers_deny = Some(patterns),
+                Some(patterns) => spaces.answers_deny = patterns,
                 None => spaces.answers_refused = true,
             },
             other => unknown(found, name.span().start, other, "[spaces]"),
@@ -180,7 +180,7 @@ fn deny_patterns(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Option<Vec<
     for (pattern, at) in patterns {
         let said = if pattern.is_empty() || pattern.len() > MAX_DENY_PATTERN {
             format!("takes patterns of 1 to {MAX_DENY_PATTERN} bytes")
-        } else if let Err(e) = Rules::new(&[], Some(std::slice::from_ref(&pattern))) {
+        } else if let Err(e) = Rules::check(&pattern) {
             let e = e.to_string();
             let first = e.lines().last().unwrap_or_default().trim().to_owned();
             format!("cannot read {}: {}", quoted(cut(&pattern)), cut(&first))

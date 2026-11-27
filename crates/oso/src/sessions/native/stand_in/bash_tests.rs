@@ -63,20 +63,30 @@ fn the_default_deny_list_catches_what_it_names() {
 }
 
 #[test]
-fn the_persons_deny_list_replaces_the_defaults() {
+fn the_persons_deny_list_adds_to_the_defaults_which_stay() {
     let tools = vec!["Bash".to_owned()];
     let deny = vec!["\\bmake\\b".to_owned()];
-    let rules = Rules::new(&tools, Some(&deny)).unwrap();
+    let rules = Rules::new(&tools, &deny).unwrap();
     let judge = |command: &str| {
         let input = json!({ "command": command });
         eligible("Bash", Some(&input), false, &directory(), &rules)
     };
     assert_eq!(judge("make all"), Err(PersonOnly::Denied));
-    assert_eq!(judge("git push"), Ok(()), "the defaults are replaced");
-    assert!(Rules::new(&tools, Some(&["(".to_owned()])).is_err());
     assert_eq!(
-        Rules::new(&tools, None).unwrap().deny.len(),
-        DEFAULT_DENY.len()
+        judge("git push"),
+        Err(PersonOnly::Denied),
+        "the defaults stay"
+    );
+    assert_eq!(judge("cargo test"), Ok(()));
+    assert!(Rules::new(&tools, &["(".to_owned()]).is_err());
+    assert_eq!(rules.deny.len(), DEFAULT_DENY.len() + 1);
+    // An empty list of the person's leaves the defaults, never nothing.
+    let none = Rules::new(&tools, &[]).unwrap();
+    assert_eq!(none.deny.len(), DEFAULT_DENY.len());
+    let input = json!({ "command": "git push" });
+    assert_eq!(
+        eligible("Bash", Some(&input), false, &directory(), &none),
+        Err(PersonOnly::Denied)
     );
 }
 
@@ -160,7 +170,7 @@ fn a_command_that_climbs_from_a_worktree_into_its_repositorys_claude_is_denied()
 #[test]
 fn the_persons_patterns_ignore_case_and_cross_lines_as_the_defaults_do() {
     let tools = vec!["Bash".to_owned()];
-    let rules = Rules::new(&tools, Some(&["\\bcurl\\b".to_owned(), "a.b".to_owned()])).unwrap();
+    let rules = Rules::new(&tools, &["\\bcurl\\b".to_owned(), "a.b".to_owned()]).unwrap();
     for command in ["CURL x", "a\nb"] {
         let input = json!({ "command": command });
         assert_eq!(

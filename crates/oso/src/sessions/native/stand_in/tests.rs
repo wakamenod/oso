@@ -27,7 +27,7 @@ pub(super) fn under(rest: &str) -> String {
 
 pub(super) fn rules(tools: &[&str]) -> Rules {
     let tools: Vec<String> = tools.iter().map(|&tool| tool.to_owned()).collect();
-    Rules::new(&tools, None).unwrap()
+    Rules::new(&tools, &[]).unwrap()
 }
 
 pub(super) fn all() -> Rules {
@@ -338,7 +338,7 @@ pub(super) fn listing(tool: &str, input: Option<&Value>, card: bool, rules: &Rul
 
 #[test]
 fn a_request_is_listed_with_its_input_and_whether_it_is_answerable() {
-    let rules = Rules::new(&["Edit".to_owned()], None).unwrap();
+    let rules = Rules::new(&["Edit".to_owned()], &[]).unwrap();
     let edit = json!({ "file_path": "FILE", "old_string": "a", "new_string": "b" });
     let listed = listing("Edit", Some(&edit), false, &rules);
     assert_eq!(listed["id"], "r0");
@@ -357,7 +357,7 @@ fn a_request_is_listed_with_its_input_and_whether_it_is_answerable() {
 
 #[test]
 fn a_secret_or_a_cards_input_is_listed_as_null() {
-    let rules = Rules::new(&["Read".to_owned(), "Bash".to_owned()], None).unwrap();
+    let rules = Rules::new(&["Read".to_owned(), "Bash".to_owned()], &[]).unwrap();
     for (tool, input) in [
         ("Read", json!({ "file_path": "/w/.env" })),
         ("Bash", json!({ "command": "cat ~/.ssh/id_rsa" })),
@@ -378,7 +378,7 @@ fn a_secret_or_a_cards_input_is_listed_as_null() {
 
 #[test]
 fn an_input_past_the_most_is_listed_as_cut() {
-    let rules = Rules::new(&["Write".to_owned()], None).unwrap();
+    let rules = Rules::new(&["Write".to_owned()], &[]).unwrap();
     let big = json!({ "file_path": "FILE", "content": "x".repeat(MAX_LISTED) });
     let listed = listing("Write", Some(&big), false, &rules);
     assert_eq!(listed["input"], Value::Null);
@@ -481,5 +481,24 @@ fn a_secret_among_the_words_or_keys_of_any_string_withholds_the_input() {
             Err(PersonOnly::Secret),
             "{input}"
         );
+    }
+}
+
+#[test]
+fn a_reply_summarizes_only_what_the_listing_could_show() {
+    use super::shows_summary;
+    assert!(shows_summary(Ok(())));
+    for shown in [
+        PersonOnly::Off,
+        PersonOnly::Tool,
+        PersonOnly::Outside,
+        PersonOnly::Denied,
+    ] {
+        assert!(shows_summary(Err(shown)), "{shown:?}");
+    }
+    // Neither a card's, a secret's, nor an input not listed whole, which may name one past
+    // its first 8 KiB.
+    for withheld in [PersonOnly::Card, PersonOnly::Secret, PersonOnly::NotShown] {
+        assert!(!shows_summary(Err(withheld)), "{withheld:?}");
     }
 }

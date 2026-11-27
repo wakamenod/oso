@@ -881,13 +881,23 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     group can write; none while either key has a bad value), with absolute paths lexically under
     the worker's directory and not in its `.git`, `.claude` or `.mcp.json` (a relative path, or a
     search with no `path`, follows the worker's `cd`, so stays the person's), and a command that
-    matches no `orchestrator-answers-deny` pattern, case ignored, in any reading of its quotes,
-    continuations and empty expansions. Names are judged as the disk may fold them
+    matches no deny pattern, the built-in ones or the person's `orchestrator-answers-deny`, which
+    only add to them, case ignored, in any reading of its quotes, continuations and empty
+    expansions. Names are judged as the disk may fold them
     (ASCII case, letters macOS and Windows fold to ASCII, Windows' trailing dots, streams and
     short names), so a spelling only catches more. These checks are lexical and best-effort, not
     a boundary: a link in the worker's directory may lead out, and a command may spell a name
     or a command no pattern reads. Once Bash is listed, the orchestrator's judgment is the
-    guard. Step 2 adds the answer itself, a single allow with no updated permissions.
+    guard. It answers with `session_answer`, an agent-reach tool counted in the 30-a-minute
+    limit: only as its space's current orchestrator, judged at the call, never a worker or
+    another caller, never its own request, and only the request shown now, named by oso's id
+    and its tool, judged again under the rules in force then. Its allow is the single
+    `permission::allow()`, with no `updatedPermissions`, so nothing changes for later calls; a
+    deny carries at most 200 plain characters of its reason. Questions and plans are neither
+    allowed nor denied. A request the person answered, one answered already, and one whose
+    `C-u y` question or note is open are refused. The person sees each answer on the call's row
+    ("allowed by", "denied: by" and the orchestrator's name), in the echo area and in the agent
+    log.
   - **Only a key pressed now answers** a call, a question or a plan: no macro's, none held back while
     something else went on, no repeat of a held key, and no text an input method commits.
   - **Questions and plans** are asked on the session's card (step 2e-2), withheld from agents: oso's title

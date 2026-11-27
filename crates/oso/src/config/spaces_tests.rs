@@ -93,7 +93,7 @@ fn orchestrator_answers_are_off_unless_tools_are_listed() {
     let f = Fixture::new();
     let none = f.parse("[spaces]\n").settings.spaces;
     assert!(none.answers.is_empty());
-    assert_eq!(none.answers_deny, None);
+    assert!(none.answers_deny.is_empty());
     let rules = none.answer_rules();
     assert!(rules.tools.is_empty(), "off by default");
     assert_eq!(
@@ -107,8 +107,20 @@ fn orchestrator_answers_are_off_unless_tools_are_listed() {
     assert_eq!(messages(&loaded), Vec::<String>::new());
     let rules = loaded.settings.spaces.answer_rules();
     assert_eq!(rules.tools, ["Read", "Edit"]);
-    assert_eq!(rules.deny.len(), 1);
-    assert!(rules.deny[0].is_match("make all"));
+    // The person's patterns add to the defaults, which cannot be taken away.
+    let defaults = crate::sessions::native::stand_in::DEFAULT_DENY.len();
+    assert_eq!(rules.deny.len(), defaults + 1);
+    assert!(rules.deny[defaults].is_match("make all"));
+    assert!(
+        rules
+            .deny
+            .iter()
+            .any(|pattern| pattern.is_match("git push"))
+    );
+    let empty =
+        f.parse("[spaces]\norchestrator-answers = [\"Bash\"]\norchestrator-answers-deny = []\n");
+    assert_eq!(messages(&empty), Vec::<String>::new());
+    assert_eq!(empty.settings.spaces.answer_rules().deny.len(), defaults);
 }
 
 #[test]

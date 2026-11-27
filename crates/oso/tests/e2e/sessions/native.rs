@@ -508,6 +508,7 @@ fn answer_after_quiet(app: &mut App, key: &str) {
 }
 
 mod adopt;
+mod answers;
 mod card_focus;
 mod cards;
 mod carried;

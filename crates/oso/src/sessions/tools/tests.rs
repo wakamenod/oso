@@ -76,6 +76,8 @@ fn the_tools_and_their_reach() {
                 true,
                 false
             ),
+            // One answer to a native worker's call, of a tool the person lists (ADR 0186).
+            ("session_answer", Reach::Change, Asks::No, true, false),
         ]
     );
     let destructive: Vec<_> = TOOLS

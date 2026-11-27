@@ -141,6 +141,12 @@ impl Rows {
         self.update_call(id, |tool| tool.state = ToolState::Denied(note))
     }
 
+    /// The space's orchestrator allowed call `id` (ADR 0186): its row says `row`, who did.
+    pub fn allowed(&mut self, id: &str, row: &str) -> Option<RowChange> {
+        let row = row.to_owned();
+        self.update_call(id, |tool| tool.allowed = Some(row))
+    }
+
     /// The person approved call `id`, a plan, on its card (part 3d), `edited` or not, with
     /// `after` the mode after it: its row says so.
     pub fn approved(
@@ -190,6 +196,7 @@ pub(super) fn new_call(id: String, name: String, input: ToolInput, state: ToolSt
         folded: true,
         apart: false,
         approved: None,
+        allowed: None,
         waiting: false,
     }
 }

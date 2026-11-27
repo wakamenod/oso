@@ -17,8 +17,8 @@
 //! - Each session shows one request at a time; while one waits,
 //!   its session is `needs input` with reason `permission`, `question` or `plan`.
 //! - The bridge going, the session ending or the socket stopping denies: nothing runs unless
-//!   the person said `y`, or answered the questions (or, from ADR 0186's step 2, the space's
-//!   orchestrator the person let answer that tool allowed it).
+//!   the person said `y`, or answered the questions, or the space's orchestrator the person let
+//!   answer that tool allowed it, once, with `session_answer` (ADR 0186).
 //! - The request shown is listed to its space's orchestrator, by `sessions::native::stand_in`'s
 //!   rules (ADR 0186), and to no other agent. A second process that claims a session's slot,
 //!   as a command the session runs can, is told no, and the person is told.
@@ -27,6 +27,7 @@ use std::sync::mpsc::Sender;
 use std::time::Instant;
 
 mod card;
+mod orchestrator;
 pub(in crate::app::sessions::hosting::native) mod request;
 mod sight;
 
@@ -46,7 +47,6 @@ use crate::sessions::native::asks::{Ask, Asks, Denied, Look, Made, Outcome, Refu
 use crate::sessions::native::card::question;
 use crate::sessions::native::request::{Block, COMPARE_WITHIN, is_call};
 use crate::sessions::native::rows::Tool;
-use crate::sessions::native::stand_in;
 use crate::sessions::native::wire::tools::decode;
 use crate::sessions::state::{Reason, Target};
 use crate::sessions::worker::SessionKey;
@@ -95,24 +95,6 @@ impl App {
         self.hosting.natives.permissions.asks.shown(key).is_some()
     }
 
-    /// Native session `key`'s request shown to the person, if one is, as its space's
-    /// orchestrator is listed it at `now`, of the session in `directory` (ADR 0186). Only the
-    /// session tools' listing for that orchestrator calls this.
-    pub(in crate::app) fn native_request_listed(
-        &self,
-        key: SessionKey,
-        directory: &std::path::Path,
-        now: Instant,
-    ) -> Option<Value> {
-        let ask = self.hosting.natives.permissions.asks.shown(key)?;
-        let shown_s = (ask.shown).map_or(0, |shown| now.saturating_duration_since(shown).as_secs());
-        let card = ask.question().is_some();
-        let rules = self.configuration.stand_in();
-        Some(stand_in::listing(
-            ask.id, &ask.call, card, shown_s, directory, rules,
-        ))
-    }
-
     /// Starts the sessions' socket on a thread of its own, unless it runs or starts: a native
     /// session's bridge asks there, with the agent channel off or on.
     pub(super) fn start_sessions_socket(&mut self) {
@@ -121,6 +103,10 @@ impl App {
             return;
         }
         permissions.run += 1;
+        // Ids count on from oso's start, a thousand to the millisecond, so that an id an
+        // orchestrator kept from an instance before never names one of this (ADR 0186).
+        let start = super::super::super::hosting::now_ms().saturating_mul(1000);
+        permissions.asks.ids_after(start);
         let run = permissions.run;
         let waker = self.waker.clone();
         let spawned = std::thread::Builder::new()
