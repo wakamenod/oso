@@ -10,12 +10,14 @@
 //!   the space's member `repo` for a space's orchestrator (ADR 0136, step 4).
 //! - `worktree_remove`: `{"path": "/abs/repo/.claude/worktrees/x"}`.
 //! - `start_worktree_session`: `{"branch": "x", "base": "main", "brief": "…", "name": "x",
-//!   "repo": "api", "with_dirs": ["/abs/web"], "model": "sonnet"}`; `base`, `name`, `repo`,
-//!   `with_dirs` and `model` are optional.
+//!   "repo": "api", "with_dirs": ["/abs/web"], "model": "sonnet", "mode": "tui"}`; `base`,
+//!   `name`, `repo`, `with_dirs`, `model` and `mode` are optional.
 //! - `session_start`: `{"directory": "/abs/repo", "name": "x", "brief": "…", "repo": "api",
-//!   "with_dirs": ["/abs/web"], "model": "sonnet"}`, each optional.
+//!   "with_dirs": ["/abs/web"], "model": "sonnet", "mode": "tui"}`, each optional.
 //! - `model`: the new session's `--model`, one word that [`is_model`] takes (ADR 0121, "A
 //!   start's model, as amended").
+//! - `mode`: `"native"` or `"tui"`, how the new session runs ([`RunMode`]; ADR 0121, "A
+//!   start's mode, as amended").
 //! - `with_dirs`: at most [`MAX_WITH_DIRS`] absolute paths the new session also reads (ADR
 //!   0136, step 4b).
 //! - `space_status`: the caller's space, its repositories and its sessions.
@@ -109,6 +111,8 @@ pub enum Call {
         with_dirs: Vec<PathBuf>,
         /// Its `--model`, which [`is_model`] took.
         model: Option<String>,
+        /// How it runs, if the call says; else as `[sessions] mode` says.
+        mode: Option<RunMode>,
     },
     Start {
         directory: Option<PathBuf>,
@@ -118,6 +122,8 @@ pub enum Call {
         with_dirs: Vec<PathBuf>,
         /// Its `--model`, which [`is_model`] took.
         model: Option<String>,
+        /// How it runs, if the call says; else as `[sessions] mode` says.
+        mode: Option<RunMode>,
     },
     SpaceStatus,
     /// The draft of a commit's message, for the request `id` (`kind` is always `commit`).
@@ -157,6 +163,25 @@ pub enum Call {
         answer: String,
         reason: Option<String>,
     },
+}
+
+/// How a session a tool starts runs (ADR 0121, "A start's mode, as amended").
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RunMode {
+    /// `claude -p`, shown in oso's own buffer (ADR 0165).
+    Native,
+    /// Claude Code's terminal UI, in a terminal buffer.
+    Tui,
+}
+
+impl RunMode {
+    /// How a call names it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Native => "native",
+            Self::Tui => "tui",
+        }
+    }
 }
 
 /// How long the server holds a call's reply for the UI.
@@ -339,6 +364,7 @@ fn parse_start_worktree(params: &Map<String, Value>) -> Result<Call, String> {
             "repo",
             "with_dirs",
             "model",
+            "mode",
         ],
     )?;
     Ok(Call::StartWorktree {
@@ -349,6 +375,7 @@ fn parse_start_worktree(params: &Map<String, Value>) -> Result<Call, String> {
         repo: optional(params, method, "repo", MAX_NAME)?,
         with_dirs: with_dirs(params, method)?,
         model: model(params, method)?,
+        mode: mode(params, method)?,
     })
 }
 
@@ -357,7 +384,15 @@ fn parse_start(params: &Map<String, Value>) -> Result<Call, String> {
     only(
         params,
         method,
-        &["directory", "name", "brief", "repo", "with_dirs", "model"],
+        &[
+            "directory",
+            "name",
+            "brief",
+            "repo",
+            "with_dirs",
+            "model",
+            "mode",
+        ],
     )?;
     Ok(Call::Start {
         directory: path(params, method, "directory")?,
@@ -366,6 +401,7 @@ fn parse_start(params: &Map<String, Value>) -> Result<Call, String> {
         repo: optional(params, method, "repo", MAX_NAME)?,
         with_dirs: with_dirs(params, method)?,
         model: model(params, method)?,
+        mode: mode(params, method)?,
     })
 }
 
@@ -424,6 +460,16 @@ fn model(params: &Map<String, Value>, method: &str) -> Result<Option<String>, St
     Ok(model)
 }
 
+/// `mode` of `method`, if given: `"native"` or `"tui"`.
+fn mode(params: &Map<String, Value>, method: &str) -> Result<Option<RunMode>, String> {
+    match params.get("mode") {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(text)) if text == "native" => Ok(Some(RunMode::Native)),
+        Some(Value::String(text)) if text == "tui" => Ok(Some(RunMode::Tui)),
+        Some(_) => Err(format!("{method}'s \"mode\" must be \"native\" or \"tui\"")),
+    }
+}
+
 /// The string `name` of `method`, of at most `max` bytes and not empty.
 fn text(
     params: &Map<String, Value>,
@@ -480,7 +526,7 @@ fn path(params: &Map<String, Value>, method: &str, name: &str) -> Result<Option<
 mod tests {
     use serde_json::{Map, Value, json};
 
-    use super::{Call, Hold, MAX_BRIEF, MAX_NAME, METHODS, parse};
+    use super::{Call, Hold, MAX_BRIEF, MAX_NAME, METHODS, RunMode, parse};
 
     fn params(value: Value) -> Map<String, Value> {
         match value {
@@ -708,6 +754,40 @@ mod tests {
         }
         let why = start(json!("-p")).unwrap_err();
         assert!(why.contains("\"model\""), "{why}");
+    }
+
+    #[test]
+    fn a_mode_is_native_or_tui_and_none_when_not_given() {
+        let mode = |call: Call| match call {
+            Call::StartWorktree { mode, .. } | Call::Start { mode, .. } => mode,
+            _ => None,
+        };
+        let start = |value: Value| call("session_start", json!({ "mode": value }));
+        let worktree = |value: Value| {
+            call(
+                "start_worktree_session",
+                json!({ "branch": "x", "brief": "b", "mode": value }),
+            )
+        };
+        assert_eq!(mode(call("session_start", json!({})).unwrap()), None);
+        for (said, run) in [("native", RunMode::Native), ("tui", RunMode::Tui)] {
+            assert_eq!(mode(start(json!(said)).unwrap()), Some(run));
+            assert_eq!(mode(worktree(json!(said)).unwrap()), Some(run));
+            assert_eq!(run.name(), said);
+        }
+        for bad in [
+            json!(""),
+            json!("Native"),
+            json!("TUI"),
+            json!("terminal"),
+            json!(1),
+            json!(true),
+        ] {
+            assert!(start(bad.clone()).is_err(), "{bad}");
+            assert!(worktree(bad.clone()).is_err(), "{bad}");
+        }
+        let why = start(json!("auto")).unwrap_err();
+        assert!(why.contains("\"mode\""), "{why}");
     }
 
     #[test]

@@ -26,7 +26,7 @@ use std::time::Instant;
 use oso_core::buffer::BufferId;
 
 use super::super::App;
-use crate::channel::protocol::sessions::Call;
+use crate::channel::protocol::sessions::{Call, RunMode};
 use crate::channel::{Connection, Reply};
 use crate::config::AgentStarts;
 use crate::git::TrustedRoot;
@@ -101,6 +101,9 @@ pub(in crate::app) struct Pending {
     tool: &'static str,
     /// It starts without asking (ADR 0135), which its reply says.
     unasked: bool,
+    /// The mode it asked for, which its reply says when it was not given (ADR 0121, "A start's
+    /// mode, as amended").
+    mode: Option<RunMode>,
 }
 
 impl Tools {
@@ -224,6 +227,7 @@ impl App {
             reply,
             tool: tool.name,
             unasked: false,
+            mode: None,
         };
         if caller.is_none() && !tool.outside {
             return pending.answer(Err(format!(
@@ -314,7 +318,7 @@ impl App {
     }
 
     /// Carries out `call` of `tool`, a start of a session, from `caller`.
-    fn carry_start(&mut self, pending: Pending, tool: &Tool, call: Call, caller: Caller) {
+    fn carry_start(&mut self, mut pending: Pending, tool: &Tool, call: Call, caller: Caller) {
         match call {
             Call::StartWorktree {
                 branch,
@@ -324,7 +328,9 @@ impl App {
                 repo,
                 with_dirs,
                 model,
+                mode,
             } => {
+                pending.mode = mode;
                 let (caller, with) = match self.scoped_with(caller, repo.as_deref(), &with_dirs) {
                     Ok(scoped) => scoped,
                     Err(why) => return pending.answer(Err(why)),
@@ -336,6 +342,7 @@ impl App {
                     name,
                     with,
                     model,
+                    mode,
                 };
                 self.tool_start_worktree(pending, tool, &caller, call);
             }
@@ -346,7 +353,9 @@ impl App {
                 repo,
                 with_dirs,
                 model,
+                mode,
             } => {
+                pending.mode = mode;
                 let (caller, with) = match self.scoped_with(caller, repo.as_deref(), &with_dirs) {
                     Ok(scoped) => scoped,
                     Err(why) => return pending.answer(Err(why)),
@@ -357,6 +366,7 @@ impl App {
                     brief,
                     with,
                     model,
+                    mode,
                 };
                 self.tool_session_start(pending, tool, &caller, call);
             }

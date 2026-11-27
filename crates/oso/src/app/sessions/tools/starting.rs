@@ -71,6 +71,7 @@ impl App {
                 origin,
                 reads,
                 model,
+                mode,
             } => {
                 // As the reads stand at the person's `y`.
                 let reads = self.reads_now(reads);
@@ -94,6 +95,7 @@ impl App {
                         origin,
                         reads,
                         model,
+                        mode,
                         said,
                     }),
                 );
@@ -180,6 +182,7 @@ impl App {
                     orchestrator_of: None,
                     behind: false,
                     model: creating.model,
+                    mode: creating.mode,
                 };
                 let then = Then::Tool {
                     pending: creating.pending,
@@ -273,17 +276,29 @@ impl App {
         };
         let session = self.hosting.table.get(key);
         let reply = match (started, session) {
-            (Ok(()), Some(session)) if pending.unasked => Ok(json!({
-                "session": { "id": session.id.as_str(), "name": session.name },
-                "directory": session.directory.display().to_string(),
-                "asked": false,
-                "note": "started without asking, as the person's config.toml allows",
-            })),
-            (Ok(()), Some(session)) => Ok(json!({
-                "session": { "id": session.id.as_str(), "name": session.name },
-                "directory": session.directory.display().to_string(),
-                "asked": true,
-            })),
+            (Ok(()), Some(session)) => {
+                let mut reply = json!({
+                    "session": { "id": session.id.as_str(), "name": session.name },
+                    "directory": session.directory.display().to_string(),
+                    "asked": !pending.unasked,
+                    // How it runs, which a mode asked may not have been (ADR 0121, "A start's
+                    // mode, as amended").
+                    "mode": if session.native { "native" } else { "tui" },
+                });
+                let notes: Vec<&str> = [
+                    pending
+                        .unasked
+                        .then_some("started without asking, as the person's config.toml allows"),
+                    rules::mode_note(pending.mode, session.native),
+                ]
+                .into_iter()
+                .flatten()
+                .collect();
+                if !notes.is_empty() {
+                    reply["note"] = json!(notes.join("; "));
+                }
+                Ok(reply)
+            }
             (Ok(()), None) => Err("the session started, and ended at once".into()),
             (Err(why), _) => Err(format!("the session did not start: {why}")),
         };

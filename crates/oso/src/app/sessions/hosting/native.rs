@@ -300,9 +300,10 @@ impl App {
             Some(_) => self.native_trust_now(directory, Some(directory)).is_ok(),
             None => project.is_some_and(|id| starts_natively_in(&self.editor, id)),
         };
-        self.configuration.native_sessions()
-            && trusted
-            && (has_brief(begin.brief.as_deref()) || begin.origin == Origin::Person)
+        // A mode an agent's tool asked chooses as `[sessions] mode` would, under the same rule
+        // (ADR 0121, "A start's mode, as amended").
+        let may = trusted && (has_brief(begin.brief.as_deref()) || begin.origin == Origin::Person);
+        crate::sessions::tools::runs_natively(begin.mode, self.configuration.native_sessions(), may)
     }
 
     /// The start thread started native session `key`'s process. Returns whether its buffer
