@@ -13,7 +13,8 @@
 //!   `ExitPlanMode`'s, which takes the person's edit of the plan, with the session's mode after
 //!   it as a `setMode` in `updatedPermissions` (part 3d). Nothing else ever sets a mode.
 //! - Whatever goes wrong, the CLI is told `deny` with why: a call never runs unless the person
-//!   said `y`.
+//!   said `y`, or, from ADR 0186's step 2, the space's orchestrator the person let answer that
+//!   tool allowed it.
 
 use serde_json::{Map, Value, json};
 

@@ -6,13 +6,14 @@ use std::time::{Duration, Instant};
 
 use serde_json::json;
 
-use super::{Ask, Asks, Block, Denied, FIND_WITHIN, Look, Outcome, Question, Refused};
+use super::{Ask, Asks, Block, Denied, FIND_WITHIN, Look, Outcome, Question, Refused, RequestId};
 use crate::channel::Connection;
 use crate::channel::protocol::permission::Call;
 use crate::sessions::native::card::Card;
 
 fn ask(from: u64, key: u64, id: &str, came: Instant) -> Ask<()> {
     Ask {
+        id: RequestId::default(),
         from: Connection {
             run: 1,
             number: from,
@@ -236,4 +237,44 @@ fn what_the_queue_costs_a_key() {
         let each = started.elapsed() / rounds;
         println!("{waiting} waiting: {each:?} a key");
     }
+}
+
+#[test]
+fn each_request_taken_gets_an_id_of_osos_that_reads_back() {
+    let now = Instant::now();
+    let mut asks = Asks::default();
+    asks.push(ask(1, 7, "t1", now));
+    asks.push(ask(2, 8, "t1", now));
+    let found = |_: &Ask<()>| Look::Found(question("q"));
+    asks.look(now, found);
+    for ask in asks.unshown() {
+        ask.shown = Some(now);
+    }
+    let ids: Vec<String> = [7, 8]
+        .into_iter()
+        .map(|key| asks.shown(key).unwrap().id.to_string())
+        .collect();
+    assert_eq!(ids, ["r1", "r2"]);
+    assert_eq!(RequestId::parse("r2"), Some(asks.shown(8).unwrap().id));
+    for text in [
+        "",
+        "r",
+        "2",
+        "r-1",
+        "r+1",
+        "r01",
+        "R1",
+        "r1 ",
+        " r1",
+        "r1x",
+        "r99999999999999999999",
+    ] {
+        assert_eq!(RequestId::parse(text), None, "{text:?}");
+    }
+    assert_eq!(RequestId::parse("r0"), Some(RequestId::default()));
+    // An answer keeps its call as answered lately, by whomever it came from.
+    assert!(!asks.answered_lately(7, "t1"));
+    asks.take_shown(7);
+    assert!(asks.answered_lately(7, "t1"));
+    assert!(!asks.answered_lately(8, "t1"));
 }

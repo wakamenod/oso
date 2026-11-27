@@ -166,7 +166,7 @@ mod tests {
     use super::{Asked, question};
     use crate::channel::Connection;
     use crate::channel::protocol::permission::Call;
-    use crate::sessions::native::asks::{Ask, Asks, Look};
+    use crate::sessions::native::asks::{Ask, Asks, Look, RequestId};
     use crate::sessions::native::request::{Block, Request};
 
     #[test]
@@ -184,6 +184,7 @@ mod tests {
         // One call after another of the same session, and one of another.
         for (key, id, waits) in [(8, "t1", false), (7, "t1", true), (7, "t2", false)] {
             asks.push(Ask {
+                id: RequestId::default(),
                 from: Connection {
                     run: 1,
                     number: key,

@@ -1,6 +1,6 @@
 # 0182. A native session's requests in its conversation
 
-- Status: Accepted, amended by 0170 ("The line", 2026-11-24)
+- Status: Accepted, amended by 0170 ("The line", 2026-11-24) and 0186 ("Ordinary text", 2026-11-27)
 - Date: 2026-11-24
 
 ## Context
@@ -79,7 +79,8 @@ written.
   cut, as before; its block past 2000 lines says how many are not shown, and the plan opened has them.
 - **Ordinary text:** motion, copying, isearch and scrolling as in any row. It is not edited. `TAB`
   and `RET` do nothing on it. The transcript is withheld from agents, so the block is; a test holds
-  that no agent reads it.
+  that no agent reads it. A request's tool and input are listed to its space's orchestrator
+  alone, by [ADR 0186](0186-a-spaces-orchestrator-answers-its-workers-tool-calls.md)'s rules.
 
 ### The line
 

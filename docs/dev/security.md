@@ -869,6 +869,25 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     source turns out Japanese before the person did anything. The line then takes no key before 500 ms
     since a frame that shows point there was presented; till then text typed, where point came from the
     composer, goes there and point with it, and else is refused, and a key held as oso moved point does nothing. An `ExitPlanMode` whose plan cannot be read is denied unasked, and said.
+  - **A space's orchestrator** ([ADR 0186](adr/0186-a-spaces-orchestrator-answers-its-workers-tool-calls.md))
+    is listed, by `session_list`, `session_state` and `space_status`, the request each native
+    worker of its own space shows now: oso's id for it, its tool, its input up to 8 KiB of JSON,
+    and whether it may answer it. No other caller gets the field: not a worker, a former
+    orchestrator, another space's, nor for the orchestrator's own requests or a terminal
+    session. The input is `null` where any string of it, a Bash token as the shell may join it,
+    or a search's pattern of names may name a secret by ADR 0044's names, or for a question or
+    a plan. It may allow only a tool the person lists in
+    `[spaces] orchestrator-answers` (none by default; never an MCP tool; never from a file a
+    group can write; none while either key has a bad value), with absolute paths lexically under
+    the worker's directory and not in its `.git`, `.claude` or `.mcp.json` (a relative path, or a
+    search with no `path`, follows the worker's `cd`, so stays the person's), and a command that
+    matches no `orchestrator-answers-deny` pattern, case ignored, in any reading of its quotes,
+    continuations and empty expansions. Names are judged as the disk may fold them
+    (ASCII case, letters macOS and Windows fold to ASCII, Windows' trailing dots, streams and
+    short names), so a spelling only catches more. These checks are lexical and best-effort, not
+    a boundary: a link in the worker's directory may lead out, and a command may spell a name
+    or a command no pattern reads. Once Bash is listed, the orchestrator's judgment is the
+    guard. Step 2 adds the answer itself, a single allow with no updated permissions.
   - **Only a key pressed now answers** a call, a question or a plan: no macro's, none held back while
     something else went on, no repeat of a held key, and no text an input method commits.
   - **Questions and plans** are asked on the session's card (step 2e-2), withheld from agents: oso's title

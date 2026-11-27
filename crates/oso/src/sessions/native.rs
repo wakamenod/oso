@@ -19,6 +19,8 @@
 //!   change in it is compared until the time the caller gives.
 //! - `asks`: the permission requests of the sessions' bridges, from their coming to their
 //!   answer (step 2), at the times the caller gives.
+//! - `stand_in`: whether a space's orchestrator may allow a worker's request, and how much of it
+//!   it is shown (ADR 0186).
 //! - `queue`: the messages the person sent while a turn ran, held until the session is idle
 //!   (step 2).
 //! - `slash`: the slash commands a session's CLI offers, which run, and which are refused
@@ -65,6 +67,7 @@ pub mod request;
 pub mod rows;
 pub mod shown;
 pub mod slash;
+pub mod stand_in;
 pub mod status;
 pub mod suggest;
 pub mod switch;

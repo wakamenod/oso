@@ -105,13 +105,14 @@ mod tests {
     use crate::app::sessions::hosting::native::markdown::tests::native;
     use crate::channel::Connection;
     use crate::channel::protocol::permission::Call;
-    use crate::sessions::native::asks::Ask;
+    use crate::sessions::native::asks::{Ask, RequestId};
     use crate::sessions::worker::SessionKey;
 
     const KEY: SessionKey = 7;
 
     fn wait(natives: &mut NativeSessions, key: SessionKey, shown: bool) {
         natives.permissions.asks.push(Ask {
+            id: RequestId::default(),
             from: Connection {
                 run: 1,
                 number: key,

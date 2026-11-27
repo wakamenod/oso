@@ -1,6 +1,6 @@
 # 0165. Native Claude sessions: the route
 
-- Status: Accepted, amended by 0170, 0173, 0176, 0180, 0181 and 0182; "Worktrees' resumes", "Following the end, as amended", "Remote Control is off, as amended", "The composer's history, as amended", part 3f's suggestion and "The footer, as built" (2026-11-24)
+- Status: Accepted, amended by 0170, 0173, 0176, 0180, 0181, 0182 and 0186; "Worktrees' resumes", "Following the end, as amended", "Remote Control is off, as amended", "The composer's history, as amended", part 3f's suggestion and "The footer, as built" (2026-11-24)
 - Date: 2026-11-21
 
 ## Context
@@ -577,7 +577,10 @@ check's change.
   JSON, and gives the CLI back the input it sent, unchanged, as `updatedInput` on an `allow`
   (but an `AskUserQuestion`'s, which takes the person's answers, part 2e-2, and an
   `ExitPlanMode`'s, which takes the person's edit of the plan and a mode after it, part 3d).
-  Whatever fails, it answers `deny` with why.
+  Whatever fails, it answers `deny` with why. Amended by
+  [ADR 0186](0186-a-spaces-orchestrator-answers-its-workers-tool-calls.md): a call of a tool the
+  person lists in `[spaces] orchestrator-answers` may also be allowed, once, by its space's
+  orchestrator; nothing else is.
 - **What the person is asked:** the call as the session's own rows have it, found by its id
   and tool among the calls whose whole message came and that have no result, and only if the
   request's input reads to the same target. A request whose call does not show within 2 s, or

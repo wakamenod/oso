@@ -14,6 +14,7 @@ use oso_core::menu::Menus;
 
 use super::{App, UserEvent};
 use crate::config::{InForce, Look, MODES, Reader, Report, Settings, Source, outcome};
+use crate::sessions::native::stand_in::Rules;
 
 /// The configuration's thread, what has been said of the file, and the settings in force.
 pub(super) struct Configuration {
@@ -29,6 +30,9 @@ pub(super) struct Configuration {
     /// The settings in force: the compiled-in ones until a look applies the file's, with the
     /// default theme remembered with the theme shown last.
     in_force: InForce,
+    /// What a space's orchestrator may answer for its native workers, as the last look found
+    /// it (ADR 0186): nothing until one, or from a file other users in a group can change.
+    stand_in: Rules,
     /// Whether a look has applied settings.
     applied: bool,
     /// Whether the file was looked at once, or there is none: until then no open starts a
@@ -50,6 +54,7 @@ impl Configuration {
             name: String::new(),
             troubled: false,
             in_force: InForce::compiled(&names),
+            stand_in: Rules::default(),
             names,
             applied: false,
             looked: false,
@@ -122,6 +127,26 @@ impl Configuration {
     /// `[spaces] naming` in force: how a new space is named (ADR 0159).
     pub(super) fn spaces_naming(&self) -> crate::config::SpacesNaming {
         self.in_force.spaces.naming
+    }
+
+    /// `[spaces] orchestrator-answers` and `orchestrator-answers-deny` in force (ADR 0186).
+    pub(super) fn stand_in(&self) -> &Rules {
+        &self.stand_in
+    }
+
+    /// Takes what a space's orchestrator may answer as the settings in force say, on every look
+    /// so that the next call takes a change (ADR 0186); never from a file a group can change,
+    /// as ADR 0135 has it for agents' starts, which is then what to say.
+    fn take_stand_in(&mut self, group_writes: bool) -> Option<String> {
+        let rules = self.in_force.spaces.answer_rules();
+        let refused = group_writes && !rules.tools.is_empty();
+        self.stand_in = if refused { Rules::default() } else { rules };
+        refused.then(|| {
+            format!(
+                "{}: [spaces] orchestrator-answers not applied: other users in a group can change it",
+                self.name
+            )
+        })
     }
 
     /// `[sessions] env` in force: the variables a hosted session takes from oso's environment.
@@ -269,6 +294,7 @@ impl App {
         );
         configuration.in_force = now;
         configuration.applied = true;
+        let stand_in_refused = configuration.take_stand_in(look.group_writes);
         self.editor
             .set_trim_whitespace(configuration.in_force.trim_whitespace);
         self.editor.set_migemo(configuration.in_force.migemo);
@@ -324,6 +350,7 @@ impl App {
             self.start_agent_channel_as_configured(&name);
         }
         let mut said: Vec<String> = changes.later.into_iter().collect();
+        said.extend(stand_in_refused);
         // Only at oso's start, so that a session that writes the file gains nothing now
         // (ADR 0135).
         if let Some(starts) = changes.agent_starts {
