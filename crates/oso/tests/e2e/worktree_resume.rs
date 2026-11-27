@@ -7,7 +7,10 @@
 //! saying so, until it is trusted again and `session-resume` resumes it; one whose turn ends with
 //! changes is ready for review; and an orchestrator's `session_resume` resumes a stopped one
 //! without asking, and asks once its repository is untrusted. One started with a model is
-//! resumed with it (ADR 0121, "A start's model, as amended").
+//! resumed with it (ADR 0121, "A start's model, as amended"). A mode an agent asks for
+//! chooses as `[sessions] mode` would: `tui` runs a terminal where the configuration runs
+//! natively, `native` runs natively where it runs terminals, and `native` with no brief runs a
+//! terminal, the reply saying so (ADR 0121, "A start's mode, as amended").
 //!
 //! Must not depend on: the app's internals; each refusal of the claim has its own test. Driven
 //! by its control socket and the fake's files alone; no real key event is posted.
@@ -246,6 +249,89 @@ fn a_native_session_started_with_a_model_keeps_it_over_oso_restart() {
     let resumed = resumed_run(&flow, &mut new, &id);
     assert_eq!(models(&resumed), ["--model=haiku"], "{:?}", resumed.args);
     let _ = new.exchange("exit", None);
+}
+
+/// The session in the worktree `branch` the agent on `bridge` asks to start in `mode`, once the
+/// person said `y`: the question, the reply and the run.
+fn started_in(
+    flow: &Flow,
+    (app, bridge): (&mut App, &mut Bridge),
+    branch: &str,
+    mode: &str,
+) -> (String, Value, Run) {
+    let call = json!({ "branch": branch, "brief": "Fix the parser", "mode": mode });
+    let id = bridge.call("start_worktree_session", call);
+    let question = answer(app, bridge, "y");
+    let (started, error) = bridge.result(id);
+    assert!(!error, "{started}");
+    let run = run_in(flow, &flow.repo.join(".claude/worktrees").join(branch));
+    (question, started, run)
+}
+
+/// Where `[sessions] mode` runs sessions natively, one an agent asks to start as `tui` runs
+/// in a terminal: no `-p`, its brief on its line.
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_tui_start_asked_where_sessions_run_natively_runs_a_terminal() {
+    let flow = native("worktree-mode-tui", "");
+    let (mut app, _) = flow.start();
+    app.run_command("claude", None).unwrap();
+    let mut bridge = Bridge::start(&flow, &run_in(&flow, &flow.repo));
+    let (question, started, run) = started_in(&flow, (&mut app, &mut bridge), "e2e-tui", "tui");
+    assert!(question.contains("Mode: tui."), "{question}");
+    assert_eq!(started["mode"], "tui", "{started}");
+    assert_eq!(started.get("note"), None, "{started}");
+    assert!(!run.args.iter().any(|arg| arg == "-p"), "{:?}", run.args);
+    assert!(
+        (run.args.iter()).any(|arg| arg.ends_with("Fix the parser")),
+        "{:?}",
+        run.args
+    );
+    let _ = app.exchange("exit", None);
+}
+
+/// Where `[sessions] mode = "tui"`, one an agent asks to start as `native` runs natively; one
+/// with no brief, which a native start needs, runs in a terminal, and the reply says why.
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_native_start_asked_where_sessions_run_terminals_runs_natively_given_a_brief() {
+    let flow = Flow::with_fake("worktree-mode-native", "", FAKE);
+    let (mut app, _) = flow.start();
+    app.run_command("claude", None).unwrap();
+    let mut bridge = Bridge::start(&flow, &run_in(&flow, &flow.repo));
+    let at = (&mut app, &mut bridge);
+    let (question, started, run) = started_in(&flow, at, "e2e-native", "native");
+    assert!(question.contains("Mode: native."), "{question}");
+    assert_eq!(started["mode"], "native", "{started}");
+    assert!(run.args.iter().any(|arg| arg == "-p"), "{:?}", run.args);
+    sent(&flow, &run, "Fix the parser");
+
+    let before = runs(&flow).len();
+    let id = bridge.call(
+        "session_start",
+        json!({ "name": "e2e-bare", "mode": "native" }),
+    );
+    let question = answer(&mut app, &bridge, "y");
+    assert!(question.contains("Mode: native."), "{question}");
+    let (started, error) = bridge.result(id);
+    assert!(!error, "{started}");
+    assert_eq!(started["mode"], "tui", "{started}");
+    let note = started["note"].as_str().unwrap_or_default();
+    assert!(note.contains("started as tui"), "{started}");
+    let deadline = Instant::now() + DEADLINE;
+    let bare = loop {
+        let found = runs(&flow)
+            .into_iter()
+            .find(|run| run.args.iter().any(|arg| arg == "--name=e2e-bare"));
+        if let Some(run) = found {
+            break run;
+        }
+        assert!(Instant::now() < deadline, "no run of e2e-bare");
+        thread::sleep(Duration::from_millis(100));
+    };
+    assert!(runs(&flow).len() > before);
+    assert!(!bare.args.iter().any(|arg| arg == "-p"), "{:?}", bare.args);
+    let _ = app.exchange("exit", None);
 }
 
 #[test]

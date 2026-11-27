@@ -25,8 +25,17 @@ pub(super) fn method(name: &str) -> Option<(&'static str, &'static [&'static str
             "repo",
             "with_dirs",
             "model",
+            "mode",
         ],
-        "session_start" => &["directory", "name", "brief", "repo", "with_dirs", "model"],
+        "session_start" => &[
+            "directory",
+            "name",
+            "brief",
+            "repo",
+            "with_dirs",
+            "model",
+            "mode",
+        ],
         "space_status" => &[],
         "draft_set" => &["kind", "id", "text"],
         "move_to_space" => &["space"],
@@ -104,6 +113,15 @@ fn model() -> Value {
     })
 }
 
+/// What `mode` says of itself (ADR 0121, "A start's mode, as amended").
+fn mode() -> Value {
+    json!({
+        "type": "string",
+        "enum": ["native", "tui"],
+        "description": "How the new session runs: native, claude -p shown in oso's own buffer, or tui, Claude Code's terminal UI in a terminal buffer; the person's [sessions] mode if not given. A native session starts only in a trusted project and with a brief; asked otherwise, it starts as tui, and the reply's mode and note say so. It is the session's own: its resumes and oso-restart run it the same way.",
+    })
+}
+
 /// The session tools that act.
 pub(super) fn acting() -> Vec<Value> {
     let mut tools = vec![
@@ -128,6 +146,7 @@ pub(super) fn acting() -> Vec<Value> {
                 "repo": repo(),
                 "with_dirs": with_dirs(),
                 "model": model(),
+                "mode": mode(),
             }),
             &["branch", "brief"],
             false,
@@ -143,6 +162,7 @@ pub(super) fn acting() -> Vec<Value> {
                 "repo": repo(),
                 "with_dirs": with_dirs(),
                 "model": model(),
+                "mode": mode(),
             }),
             &[],
             false,
@@ -170,21 +190,26 @@ pub(super) fn acting() -> Vec<Value> {
             false,
             false,
         ),
-        tool(
-            "session_resume",
-            "For a space's orchestrator: resume a stopped or failed session of your space, by its id or name from session_list, in its own buffer, under its name and in its directory, with its conversation (claude --resume). It is refused while that conversation runs in another process: stop it there first; oso never forks it for you. The person is asked first, unless their configuration lets your session start sessions without asking; the call returns once the session runs again, and its `asked` says which happened. It sends the session no prompt: message it with SendMessage once it runs. The person resumes your space's earlier orchestrators and archived sessions themselves.",
-            json!({
-                "session": { "type": "string", "description": "A stopped session's id or name, from session_list." },
-            }),
-            &["session"],
-            false,
-            false,
-        ),
     ];
+    tools.push(resume());
     tools.push(rename());
     tools.push(add_repo());
     tools.push(archive());
     tools
+}
+
+/// `session_resume`, which resumes a stopped session of the caller's space (ADR 0153).
+fn resume() -> Value {
+    tool(
+        "session_resume",
+        "For a space's orchestrator: resume a stopped or failed session of your space, by its id or name from session_list, in its own buffer, under its name and in its directory, with its conversation (claude --resume). It is refused while that conversation runs in another process: stop it there first; oso never forks it for you. The person is asked first, unless their configuration lets your session start sessions without asking; the call returns once the session runs again, and its `asked` says which happened. It sends the session no prompt: message it with SendMessage once it runs. The person resumes your space's earlier orchestrators and archived sessions themselves.",
+        json!({
+            "session": { "type": "string", "description": "A stopped session's id or name, from session_list." },
+        }),
+        &["session"],
+        false,
+        false,
+    )
 }
 
 /// `session_archive`, which archives a session's row (ADR 0179).

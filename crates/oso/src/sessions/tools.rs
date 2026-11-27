@@ -32,6 +32,7 @@ pub use guard::{Guard, Refusal};
 pub use rename::{Renamable, renamable, rename_clash, rename_note, renamed_said};
 
 use super::identity::Origin;
+use crate::channel::protocol::sessions::RunMode;
 
 /// Whether a tool asks the person before it acts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -486,11 +487,41 @@ pub fn with_model(said: String, model: Option<&str>) -> String {
     }
 }
 
+/// `said`, a question or what the echo area says of a start, with the mode a tool asked the
+/// new session to run in (ADR 0121, "A start's mode, as amended"); as it was with none.
+pub fn with_mode(said: String, mode: Option<RunMode>) -> String {
+    match mode {
+        Some(mode) => format!("{said} Mode: {}.", mode.name()),
+        None => said,
+    }
+}
+
+/// Whether a start runs natively: as `asked`, else as `[sessions] mode` (`configured`) says,
+/// and only where it `may`, a trusted project with a brief for an agent's start (ADR 0165);
+/// `tui` always runs a terminal.
+pub fn runs_natively(asked: Option<RunMode>, configured: bool, may: bool) -> bool {
+    let wanted = match asked {
+        Some(RunMode::Native) => true,
+        Some(RunMode::Tui) => false,
+        None => configured,
+    };
+    wanted && may
+}
+
+/// What a start's reply notes of its mode: why a session `native` was asked for runs in a
+/// terminal, when it does.
+pub fn mode_note(asked: Option<RunMode>, native: bool) -> Option<&'static str> {
+    (asked == Some(RunMode::Native) && !native)
+        .then_some("native needs a trusted project and a brief: started as tui")
+}
+
 #[cfg(test)]
 mod tests;
 
 #[cfg(test)]
 mod model_tests {
+    use crate::channel::protocol::sessions::RunMode;
+
     /// The question, `?` and the echo of a start without asking name the model a tool asked
     /// for (ADR 0121, "A start's model, as amended"); none is said with none.
     #[test]
@@ -499,5 +530,41 @@ mod model_tests {
         assert_eq!(said, "let it start?");
         let said = super::with_model("let it start?".to_owned(), Some("claude-opus-5-5[1m]"));
         assert_eq!(said, "let it start? Model: claude-opus-5-5[1m].");
+    }
+
+    /// They name the mode a tool asked for only when it asked for one (ADR 0121, "A start's
+    /// mode, as amended").
+    #[test]
+    fn a_question_names_the_mode_only_when_one_was_asked() {
+        let said = super::with_mode("let it start?".to_owned(), None);
+        assert_eq!(said, "let it start?");
+        let said = super::with_mode("let it start?".to_owned(), Some(RunMode::Tui));
+        assert_eq!(said, "let it start? Mode: tui.");
+        let said = super::with_mode("let it start?".to_owned(), Some(RunMode::Native));
+        assert_eq!(said, "let it start? Mode: native.");
+    }
+
+    /// A start runs natively only where it may: a mode asked chooses as `[sessions] mode`
+    /// would, and `tui` always runs a terminal.
+    #[test]
+    fn a_mode_asked_chooses_as_the_configuration_would_within_the_same_rule() {
+        for may in [false, true] {
+            for configured in [false, true] {
+                let native = |asked| super::runs_natively(asked, configured, may);
+                assert_eq!(native(None), configured && may);
+                assert_eq!(native(Some(RunMode::Native)), may);
+                assert!(!native(Some(RunMode::Tui)));
+            }
+        }
+    }
+
+    /// The reply says how the session runs, and why when `native` was asked and it is not.
+    #[test]
+    fn the_reply_says_why_a_native_start_runs_in_a_terminal() {
+        assert_eq!(super::mode_note(Some(RunMode::Native), true), None);
+        assert_eq!(super::mode_note(Some(RunMode::Tui), false), None);
+        assert_eq!(super::mode_note(None, false), None);
+        let note = super::mode_note(Some(RunMode::Native), false).unwrap();
+        assert!(note.contains("started as tui"), "{note}");
     }
 }
