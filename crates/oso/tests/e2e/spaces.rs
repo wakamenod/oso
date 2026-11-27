@@ -933,13 +933,18 @@ fn the_orchestrator_starts_in_the_spaces_directory_with_its_trusted_repositories
         list(&state)
     );
 
-    // The other repository trusted now: its `/add-dir` is offered, not pasted unasked.
+    // The other repository trusted now: its `/add-dir` waits for an input box the fake never
+    // shows, and nothing is asked (ADR 0185).
     app.open_file(&other.join("notes.md"));
     trust_restricted(&mut app, "other");
-    app.wait_for("the offer", |state| {
-        super::worktrees::asks(state).is_some_and(|prompt| prompt.starts_with("Paste /add-dir"))
+    app.wait_for("other trusted", |state| {
+        (state["modeline"].as_str()).is_some_and(|line| !line.contains("restricted"))
     });
-    app.send_keys("n");
+    assert_eq!(
+        app.state()["prompts"],
+        serde_json::json!([]),
+        "nothing is asked"
+    );
     let _ = app.exchange("exit", None);
     app.wait_for_exit();
 

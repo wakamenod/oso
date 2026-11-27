@@ -1,6 +1,6 @@
 # 0121. Agent sessions and spaces
 
-- Status: Accepted, amended by 0126, 0128, 0131, 0132, 0135, 0136, 0138, 0140, 0141, 0143, 0145, 0151, 0153, 0155, 0160, 0161, 0162, 0163, 0165, 0170, 0173, 0176, 0177, 0179 and 0181;
+- Status: Accepted, amended by 0126, 0128, 0131, 0132, 0135, 0136, 0138, 0140, 0141, 0143, 0145, 0151, 0153, 0155, 0160, 0161, 0162, 0163, 0165, 0170, 0173, 0176, 0177, 0179, 0181 and 0185;
   "Merged work is not ready for review, as amended" (2026-11-17); "Removal archives its
   sessions, as amended" (2026-11-18); "An incomplete registry read refuses, as amended"
   (2026-11-22); "An unverifiable registry entry is busy, as amended" (2026-11-22); "Every
@@ -413,7 +413,10 @@ fetched.
 
 - **A bracketed paste into the session's terminal (Q17),** as ADR 0122 delivers review comments:
   cleaned as 0120 cleans any paste, and **not submitted**. The person reads it in the TUI's input
-  box and presses Enter. It is the person's typing, from the person's command.
+  box and presses Enter. It is the person's typing, from the person's command. (Two exceptions:
+  a review's question the person confirmed, ADR 0163, and oso's own `/add-dir PATH` for a
+  trusted repository of an orchestrator's space, [ADR
+  0185](0185-an-added-repository-is-given-to-the-orchestrator-without-asking.md).)
 - **Refused while the session needs input:** a paste into a permission dialog could choose an
   option. The echo area says "NAME is asking for permission; answer it first".
 - **`session-send` (`Person`, `C-x a m`)** sends the region, or with no region asks for a note in

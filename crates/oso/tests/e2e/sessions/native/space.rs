@@ -252,12 +252,9 @@ fn a_repository_trusted_while_a_native_orchestrator_runs_is_given_by_a_resume_wi
     assert!(native_in_space(&first), "{first:?}");
     assert_eq!(flag(&first, "add-dir"), None, "{first:?}");
 
-    // The space's repository trusted while it runs: no paste, but a resume with it.
+    // The space's repository trusted while it runs: no paste and no question, but a resume
+    // with it (ADR 0185).
     trust_project(&flow, &mut app);
-    app.wait_for("the offer", |state| {
-        asks(state).is_some_and(|prompt| prompt.starts_with("Resume orchestrator fix-login with "))
-    });
-    app.send_keys("y");
     let second = args(&flow, 2);
     assert!(native_in_space(&second), "{second:?}");
     let project = fs::canonicalize(&flow.project).unwrap();
