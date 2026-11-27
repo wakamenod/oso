@@ -58,18 +58,22 @@ turn ends, as its `y` did. Nothing is asked.
 - **Then one Enter, as a key of its own,** as a review's question gets one (ADR 0163, "Submit
   once pasted, as amended"): at least 150 ms after the paste, once the screen has changed since
   the paste, within 2 s. It goes only if the offer still holds, the person has typed nothing
-  since the paste, and the box holds the command and nothing else, with no menu or picker below
-  it (`sessions::send::holds_command`). Blanks are not compared, as the TUI wraps at one; every
-  other character is, in order. If any of these fails, the command stays in the box, not sent:
+  since the paste, and the box holds the command and nothing else, with no menu, picker or
+  suggestions below it (`sessions::send::holds_command`): each row the command's next
+  characters exactly, a break taking a space of the command or falling inside a run with none,
+  as the TUI wraps. If any of these fails, the command stays in the box, not sent:
   "/add-dir REPO waits in NAME's input box, not sent: WHY; press Enter there". Sent, it says
   "Typed /add-dir REPO into NAME and sent it", and the space notes the repository as given.
+- **Nothing more is typed for 1 s after an Enter,** into any terminal, nor is a review's
+  question pasted into that one: the TUI may draw an empty box for a frame before its own
+  question, which the next command would land in.
 - **Skipped, and said in the echo area:** a session gone or not running ("NAME is not running:
   /add-dir REPO was not typed; it gets REPO with --add-dir when it starts"), and an offer that
   no longer holds ("/add-dir REPO was not typed: the space or its orchestrator changed
   meanwhile"). A repository added while the orchestrator is stopped says "NAME is not running:
   it gets REPO with --add-dir when it starts".
-- **A review's question to a terminal whose `/add-dir` waits for its Enter** is refused: "NAME is
-  taking an /add-dir; ask again in a moment".
+- **A review's question to a terminal whose `/add-dir` waits for its Enter, or was sent less
+  than 1 s ago,** is refused: "NAME is taking an /add-dir; ask again in a moment".
 
 ### A native orchestrator
 
