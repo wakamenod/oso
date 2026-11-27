@@ -119,17 +119,20 @@ install dir="" app="":
         chmod 755 "$new/Contents/MacOS/oso"
         sed "s/@VERSION@/$crate/g" packaging/macos/Info.plist > "$new/Contents/Info.plist"
         plutil -lint -s "$new/Contents/Info.plist"
-        # The icon: small sizes are drawn apart (fewer, thicker lines), the rest scaled down
-        # from the 1024 px picture.
+        # The icon, scaled down from the 1024 px picture. A size drawn apart for small use
+        # (fewer, thicker lines), icon-small-16.png or icon-small-32.png, is taken as it is.
         set=$stage/oso.iconset
         mkdir "$set"
-        cp packaging/macos/icon-small-16.png "$set/icon_16x16.png"
-        cp packaging/macos/icon-small-32.png "$set/icon_16x16@2x.png"
-        cp packaging/macos/icon-small-32.png "$set/icon_32x32.png"
         cp packaging/macos/icon.png "$set/icon_512x512@2x.png"
-        for spec in 32x32@2x:64 128x128:128 128x128@2x:256 256x256:256 256x256@2x:512 512x512:512; do
-            sips -z "${spec#*:}" "${spec#*:}" packaging/macos/icon.png \
-                --out "$set/icon_${spec%:*}.png" >/dev/null
+        for spec in 16x16:16 16x16@2x:32 32x32:32 32x32@2x:64 128x128:128 128x128@2x:256 \
+            256x256:256 256x256@2x:512 512x512:512; do
+            px=${spec#*:}
+            small=packaging/macos/icon-small-$px.png
+            if [ -f "$small" ]; then
+                cp "$small" "$set/icon_${spec%:*}.png"
+            else
+                sips -z "$px" "$px" packaging/macos/icon.png --out "$set/icon_${spec%:*}.png" >/dev/null
+            fi
         done
         iconutil -c icns "$set" -o "$new/Contents/Resources/oso.icns"
         # Extended attributes, such as Finder information, make codesign refuse the bundle.
