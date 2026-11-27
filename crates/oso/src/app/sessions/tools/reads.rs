@@ -2,6 +2,9 @@
 //! from the hosted table, and `worktree_list` from a listing job whose rows it gathers.
 //!
 //! Must not depend on: key presses or how a frame is drawn.
+//!
+//! - A space's orchestrator is listed, under `request`, what each native worker of its space
+//!   asks the person now (ADR 0186), as `stand_in::listing` gives it. No other caller is.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -89,7 +92,7 @@ impl App {
         let sessions: Vec<Value> = seen
             .by_ref()
             .take(PAGE)
-            .map(|session| self.session_json(session, you, now))
+            .map(|session| self.session_json(session, caller, now))
             .collect();
         let more = seen.next().is_some();
         Ok(json!({
@@ -103,7 +106,7 @@ impl App {
     pub(super) fn session_state(&self, caller: Option<&Caller>, session: &str) -> Reply {
         let found = self.find_session(caller, session)?;
         let now = (Instant::now(), now_ms());
-        let mut state = self.session_json(found, caller.map(|c| &c.id), now);
+        let mut state = self.session_json(found, caller, now);
         // A review keyed to a session comes with ADR 0122's later steps.
         state["review"] = Value::Null;
         Ok(state)
@@ -140,7 +143,7 @@ impl App {
         let mut theirs = (table.iter()).filter(|s| self.session_in_space(s, &space.id));
         let sessions: Vec<Value> = (theirs.by_ref())
             .take(PAGE)
-            .map(|session| self.session_json(session, Some(&caller.id), now))
+            .map(|session| self.session_json(session, Some(caller), now))
             .collect();
         let more = theirs.next().is_some();
         let instructions = self.hosting.state_directory().map(|state| {
@@ -210,10 +213,11 @@ impl App {
     /// A reply for a session, as `session_list` and `session_state` give it, with its state as
     /// `*Spaces*` and `*Worktrees*` have it: the taxonomy's, or `starting` or `running` while
     /// its live state is not known. `now` is the time as an instant and in ms since the epoch.
+    /// The current orchestrator of the session's space is listed its request too.
     fn session_json(
         &self,
         session: &Hosted,
-        caller: Option<&SessionId>,
+        caller: Option<&Caller>,
         now: (Instant, u64),
     ) -> Value {
         let known = hosted_state(session, &self.watch);
@@ -227,7 +231,7 @@ impl App {
             Some(since) => now.0.saturating_duration_since(since).as_secs(),
             None => now.1.saturating_sub(session.changed) / 1000,
         };
-        json!({
+        let mut listed = json!({
             "id": session.id.as_str(),
             "name": session.name,
             // What Claude Code's SendMessage and ListAgents know its claude by: the registry's
@@ -243,8 +247,17 @@ impl App {
             "archived": session.archived,
             "parent": session.parent.as_ref().map(SessionId::as_str),
             "external": false,
-            "you": caller == Some(&session.id),
-        })
+            "you": caller.map(|caller| &caller.id) == Some(&session.id),
+        });
+        let orchestrator = (caller.filter(|caller| caller.orchestrator()))
+            .and_then(|caller| Some((caller.key, &caller.space.as_ref()?.id)));
+        let in_space = |space: &SpaceId| self.session_in_space(session, space);
+        if lists_request(orchestrator, session.key, session.native, in_space) {
+            listed["request"] =
+                (self.native_request_listed(session.key, &session.directory, now.0))
+                    .unwrap_or(Value::Null);
+        }
+        listed
     }
 
     /// `worktree_list`: the linked worktrees of the caller's repository, or of the selected
@@ -430,6 +443,19 @@ impl App {
     }
 }
 
+/// Whether a caller that is the current orchestrator `orchestrator` of a space, by its key and
+/// its space, is listed the request of the session of `key`, native if `native`, which
+/// `in_space` says is in a space or not: only of a native session of its own space, never its
+/// own (ADR 0186).
+fn lists_request(
+    orchestrator: Option<(SessionKey, &SpaceId)>,
+    key: SessionKey,
+    native: bool,
+    in_space: impl FnOnce(&SpaceId) -> bool,
+) -> bool {
+    orchestrator.is_some_and(|(own, space)| native && own != key && in_space(space))
+}
+
 /// Of the sessions at a merged worktree, each with the space it is in, those an agent's
 /// listing from `own_space` makes idle: only its own space's, and none for an agent in no space
 /// (the author's choice, ADR 0121, "Merged work is not ready for review, as amended").
@@ -480,8 +506,24 @@ fn worktree_row_json(row: &ListedRow, cut: bool, scoped: bool) -> Value {
 
 #[cfg(test)]
 mod tests {
-    use super::reached;
+    use super::{lists_request, reached};
     use crate::sessions::spaces::SpaceId;
+
+    #[test]
+    fn only_the_orchestrator_of_a_native_workers_space_is_listed_its_request() {
+        let ours = SpaceId::from_random([1; 16]);
+        let theirs = SpaceId::from_random([2; 16]);
+        let in_ours = |space: &SpaceId| *space == ours;
+        // The orchestrator of the worker's space, of a native worker.
+        assert!(lists_request(Some((1, &ours)), 2, true, in_ours));
+        // A worker, or any caller that is no current orchestrator, is not.
+        assert!(!lists_request(None, 2, true, in_ours));
+        // Another space's orchestrator is not.
+        assert!(!lists_request(Some((3, &theirs)), 2, true, in_ours));
+        // Nor of a terminal session, nor of its own requests.
+        assert!(!lists_request(Some((1, &ours)), 2, false, in_ours));
+        assert!(!lists_request(Some((1, &ours)), 1, true, in_ours));
+    }
 
     #[test]
     fn an_agents_listing_reaches_only_its_own_spaces_sessions() {

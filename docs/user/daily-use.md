@@ -142,7 +142,21 @@ it oso's own tools through `oso mcp`.
 | `D` | `review-session` | Review what changed in this project since its baseline. |
 | `V` | the review menu | The review menu, as `C-u C-c a v` opens it. |
 
-So `C-c a r` resumes a session, and `C-c a S` opens the space menu.
+So `C-c a r` resumes a session, and A space's orchestrator can be let answer some of its native workers' permission requests for
+you. In `config.toml`, `[spaces] orchestrator-answers = ["Read", "Grep", "Glob", "Edit", "Write"]`
+lists the tools it may allow; none are listed unless you set it. It sees each worker's request
+with its input, and whether it may answer it: never questions, plans, MCP tools, a file whose
+name may hold secrets, a path outside the worker's directory or in its `.git`, `.claude` or
+`.mcp.json`, nor a command that matches `orchestrator-answers-deny` (patterns, case ignored, that
+replace the defaults: pushes, merges, `curl`, `ssh`, `sudo`, `rm -r`, `kill`, `claude`, `oso` and
+Claude's settings, among others). A file's path must be absolute, and a search must name its
+`path`. These checks read names and commands as written, so they are a help, not a wall:
+list `Bash` only if you trust the orchestrator's judgment with any command. A bad value of
+either key is said in `*Messages*`, and the orchestrator answers nothing until you fix it.
+For now the orchestrator only sees the requests; the tool that answers them, `session_answer`,
+comes next.
+
+`C-c a S` opens the space menu.
 
 Inside a session's own buffer, the modeline says `Session`, and the most used heads are `C-c` and
 the head's letter with Control, `C-c C-n` for `n`:

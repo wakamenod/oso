@@ -13,6 +13,8 @@
 //!   lately, is refused.
 //! - A request whose call has not shown within [`FIND_WITHIN`] is denied unasked, and so is one
 //!   whose call stopped waiting, as it got its result, before it was asked.
+//! - Each request taken gets an id of oso's own, [`RequestId`], by which a space's orchestrator
+//!   names the one it answers (ADR 0186): never the call's own id, which the session chose.
 
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
@@ -35,6 +37,8 @@ const MAX_ANSWERED: usize = 64;
 pub struct Asks<R> {
     waiting: VecDeque<Ask<R>>,
     answered: VecDeque<(SessionKey, String)>,
+    /// The last [`RequestId`] given.
+    last_id: u64,
 }
 
 impl<R> Default for Asks<R> {
@@ -42,7 +46,35 @@ impl<R> Default for Asks<R> {
         Self {
             waiting: VecDeque::new(),
             answered: VecDeque::new(),
+            last_id: 0,
         }
+    }
+}
+
+/// oso's id of a request, `r1` the first taken, counted up for each (ADR 0186). The default,
+/// `r0`, is a request's until it is taken, and names none.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RequestId(u64);
+
+impl RequestId {
+    /// The id `text` writes, as [`RequestId`]'s `Display` writes it: `r` and a number with no
+    /// sign or leading zero.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "session_answer reads ids (ADR 0186, PR 2)")
+    )]
+    pub fn parse(text: &str) -> Option<Self> {
+        let digits = text.strip_prefix('r')?;
+        let plain = !digits.is_empty()
+            && digits.bytes().all(|b| b.is_ascii_digit())
+            && (digits == "0" || !digits.starts_with('0'));
+        plain.then(|| digits.parse().ok().map(Self)).flatten()
+    }
+}
+
+impl std::fmt::Display for RequestId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "r{}", self.0)
     }
 }
 
@@ -52,6 +84,8 @@ pub type Made = Option<Box<Block>>;
 /// One request, and what replies to it.
 #[derive(Debug)]
 pub struct Ask<R> {
+    /// oso's id of it, given as it is taken.
+    pub id: RequestId,
     pub from: Connection,
     pub key: SessionKey,
     pub call: Call,
@@ -166,17 +200,24 @@ impl<R> Asks<R> {
         }
         let again = (self.waiting.iter())
             .any(|waiting| waiting.key == key && waiting.call.tool_use_id == id)
-            || (self.answered.iter()).any(|(asked, answered)| *asked == key && answered == id);
+            || self.answered_lately(key, id);
         again.then_some(Refused::Again)
     }
 
-    /// Takes `ask`, which [`Asks::refuses`] does not refuse.
-    pub fn push(&mut self, ask: Ask<R>) {
+    /// Takes `ask`, which [`Asks::refuses`] does not refuse, with an id of its own.
+    pub fn push(&mut self, mut ask: Ask<R>) {
         debug_assert!(
             self.refuses(ask.from, ask.key, &ask.call.tool_use_id)
                 .is_none()
         );
+        self.last_id += 1;
+        ask.id = RequestId(self.last_id);
         self.waiting.push_back(ask);
+    }
+
+    /// Whether session `key`'s call `tool_use_id` was answered lately, by whomever.
+    pub fn answered_lately(&self, key: SessionKey, tool_use_id: &str) -> bool {
+        (self.answered.iter()).any(|(asked, answered)| *asked == key && answered == tool_use_id)
     }
 
     /// When the first request whose call has not shown is denied, if one waits.

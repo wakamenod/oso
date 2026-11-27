@@ -87,3 +87,67 @@ fn naming_is_claude_unless_local_and_anything_else_is_said_and_taken_as_local() 
         assert_eq!(loaded.settings.spaces.naming, Naming::Local, "fails closed");
     }
 }
+
+#[test]
+fn orchestrator_answers_are_off_unless_tools_are_listed() {
+    let f = Fixture::new();
+    let none = f.parse("[spaces]\n").settings.spaces;
+    assert!(none.answers.is_empty());
+    assert_eq!(none.answers_deny, None);
+    let rules = none.answer_rules();
+    assert!(rules.tools.is_empty(), "off by default");
+    assert_eq!(
+        rules.deny.len(),
+        crate::sessions::native::stand_in::DEFAULT_DENY.len()
+    );
+    let loaded = f.parse(
+        "[spaces]\norchestrator-answers = [\"Read\", \"Edit\", \"Read\"]\n\
+         orchestrator-answers-deny = ['\\bmake\\b']\n",
+    );
+    assert_eq!(messages(&loaded), Vec::<String>::new());
+    let rules = loaded.settings.spaces.answer_rules();
+    assert_eq!(rules.tools, ["Read", "Edit"]);
+    assert_eq!(rules.deny.len(), 1);
+    assert!(rules.deny[0].is_match("make all"));
+}
+
+#[test]
+fn a_bad_orchestrator_answers_key_is_said_and_answers_stay_off() {
+    let f = Fixture::new();
+    for (written, said) in [
+        (
+            "orchestrator-answers = \"Bash\"",
+            "takes a list of tools' names",
+        ),
+        ("orchestrator-answers = [1]", "takes a list of tools' names"),
+        (
+            "orchestrator-answers = [\"mcp__oso__open\"]",
+            "takes no MCP tool",
+        ),
+        ("orchestrator-answers = [\"Bash \"]", "of ASCII letters"),
+        ("orchestrator-answers-deny = ['(']", "cannot read"),
+        ("orchestrator-answers-deny = ['']", "takes patterns of 1 to"),
+        (
+            "orchestrator-answers-deny = true",
+            "takes a list of patterns",
+        ),
+    ] {
+        // A bad deny list turns off the tools listed beside it.
+        let tools = match written.starts_with("orchestrator-answers-deny") {
+            true => "orchestrator-answers = [\"Read\"]\n",
+            false => "",
+        };
+        let loaded = f.parse(&format!("[spaces]\n{tools}{written}\n"));
+        let messages = messages(&loaded);
+        assert_eq!(messages.len(), 1, "{written}: {messages:?}");
+        assert!(messages[0].contains(said), "{}", messages[0]);
+        let spaces = &loaded.settings.spaces;
+        assert!(spaces.answers_refused, "{written}");
+        assert!(spaces.answer_rules().tools.is_empty(), "{written}");
+    }
+    let long = format!(
+        "[spaces]\norchestrator-answers = [{}]\n",
+        vec!["\"Read\""; 65].join(", ")
+    );
+    assert!(messages(&f.parse(&long))[0].contains("takes at most 64"));
+}

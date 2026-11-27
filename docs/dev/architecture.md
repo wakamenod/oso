@@ -1289,7 +1289,10 @@ Full details are in [`security.md`](security.md).
     session's bridge, by its claim (`sessions/hosted/claims.rs`), and only `permission`
     (`channel/protocol/permission.rs`), held until the person answers. `oso mcp --permission`
     lists the tool (`channel/mcp/permission.rs`) and connects as `initialize` comes; the queue
-    of requests is `sessions::native::asks`, and the app finds each request's call in the
+    of requests is `sessions::native::asks`, each with oso's `RequestId`; which a space's
+    orchestrator may answer, and how much of one it is listed, is `sessions::native::stand_in`
+    ([ADR 0186](adr/0186-a-spaces-orchestrator-answers-its-workers-tool-calls.md)), its
+    `request` field `app/sessions/tools/reads.rs`'s; and the app finds each request's call in the
     session's rows (`app/sessions/hosting/native/permissions.rs`). A call is asked in the
     conversation ([ADR 0182](adr/0182-a-native-sessions-requests-in-its-conversation.md)):
     `sessions::native::request` makes its block on the socket's thread, over `review::diff`, and
