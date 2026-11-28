@@ -40,17 +40,46 @@ release:
     cargo build --locked --workspace --release
 
 # The copy is renamed into place, so a running oso keeps the binary it started with
-# (docs/user/daily-use.md). Shell profiles are left alone.
-# Build the release binary as `just release` does and install it in `dir`, by default ~/.local/bin
-install dir="":
+# (docs/user/daily-use.md). Shell profiles are left alone. On macOS the binary goes into
+# `app`, by default ~/Applications/oso.app, signed, and `dir`/oso links to it (ADR 0187).
+# Build the release binary as `just release` does and install it in `dir`, on macOS as `app`
+install dir="" app="":
     #!/usr/bin/env bash
     set -euo pipefail
-    case "$(uname -s)" in
+    os=$(uname -s)
+    case "$os" in
         Darwin|Linux) ;;
         *) echo "error: just install supports macOS and Linux only, for now"; exit 1;;
     esac
     dir="{{dir}}"
     dir="${dir:-$HOME/.local/bin}"
+    app="{{app}}"
+    if [ "$os" = Darwin ]; then
+        app="${app:-$HOME/Applications/oso.app}"
+        case "$app" in
+            *.app) ;;
+            *) echo "error: $app does not end in .app"; exit 1;;
+        esac
+        [ ! -L "$app" ] || { echo "error: $app is a symbolic link"; exit 1; }
+        [ ! -e "$app" ] || [ -d "$app/Contents" ] || [ -z "$(ls -A "$app")" ] \
+            || { echo "error: $app is there and is not an app bundle"; exit 1; }
+        [ ! -d "$app/Contents/MacOS/oso" ] && [ ! -d "$app/Contents/Info.plist" ] \
+            || { echo "error: $app holds a directory where a file goes"; exit 1; }
+        # `-` signs ad hoc (CI, other machines). Anything else must be in the keychain now,
+        # before the long build; this only lists identities.
+        identity="${OSO_SIGN_IDENTITY:-oso local signing}"
+        if [ "$identity" != - ] \
+            && ! security find-identity -v -p codesigning | grep -qF -- "$identity"; then
+            echo "error: no code signing identity \"$identity\" in the keychain"
+            echo "  Make the self-signed certificate once, as \"Install\" in docs/user/daily-use.md says:"
+            echo "  Keychain Access › Certificate Assistant › Create a Certificate…, name \"oso local signing\","
+            echo "  Self-Signed Root, Code Signing, 3650 days; then Trust › Code Signing: Always Trust."
+            echo "  Or set OSO_SIGN_IDENTITY to another identity, or to - to sign ad hoc."
+            exit 1
+        fi
+    elif [ -n "$app" ]; then
+        echo "error: an app bundle is macOS only"; exit 1
+    fi
     # The tarballs and the Zig that oso-term's build script needs (ADR 0120); it says the same,
     # but only after a long build.
     lock=crates/oso-term/ghostty-vt.lock
@@ -69,18 +98,84 @@ install dir="":
     bin=$(cargo build --locked --workspace --release --message-format=json-render-diagnostics \
         | sed -n 's|.*"executable":"\([^"]*/oso\)".*|\1|p' | tail -n 1)
     [ -f "$bin" ] || { echo "error: cargo reported no oso binary"; exit 1; }
-    mkdir -p "$dir"
-    dir=$(cd "$dir" && pwd)
-    [ ! -d "$dir/oso" ] || { echo "error: $dir/oso is a directory"; exit 1; }
-    tmp=$(mktemp "$dir/.oso.install.XXXXXX")
-    trap 'rm -f "$tmp"' EXIT
-    cp "$bin" "$tmp"
-    chmod 755 "$tmp"
-    mv -f "$tmp" "$dir/oso"
-    trap - EXIT
     commit=$(git describe --always --dirty 2>/dev/null || echo unknown)
     crate=$(cargo pkgid --locked -p oso | sed 's/.*[#@]//')
-    echo "installed oso $crate ($commit) at $dir/oso"
+    mkdir -p "$dir"
+    dir=$(cd "$dir" && pwd)
+    # `mv` would move into a directory, or through a link to one, instead of replacing it.
+    [ ! -d "$dir/oso" ] || { echo "error: $dir/oso is a directory"; exit 1; }
+    if [ "$os" = Darwin ]; then
+        # CFBundleVersion takes only numbers and dots.
+        [[ "$crate" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]] \
+            || { echo "error: the crate version $crate does not fit CFBundleVersion"; exit 1; }
+        mkdir -p "$(dirname "$app")"
+        app="$(cd "$(dirname "$app")" && pwd)/$(basename "$app")"
+        # The new bundle is put together beside the old one, so each part is renamed in.
+        stage=$(mktemp -d "$(dirname "$app")/.oso.install.XXXXXX")
+        trap 'rm -rf "$stage"' EXIT
+        new=$stage/oso.app
+        mkdir -p "$new/Contents/MacOS" "$new/Contents/Resources"
+        cp "$bin" "$new/Contents/MacOS/oso"
+        chmod 755 "$new/Contents/MacOS/oso"
+        sed "s/@VERSION@/$crate/g" packaging/macos/Info.plist > "$new/Contents/Info.plist"
+        plutil -lint -s "$new/Contents/Info.plist"
+        # The icon, scaled down from the 1024 px picture. A size drawn apart for small use
+        # (fewer, thicker lines), icon-small-16.png or icon-small-32.png, is taken as it is.
+        set=$stage/oso.iconset
+        mkdir "$set"
+        cp packaging/macos/icon.png "$set/icon_512x512@2x.png"
+        for spec in 16x16:16 16x16@2x:32 32x32:32 32x32@2x:64 128x128:128 128x128@2x:256 \
+            256x256:256 256x256@2x:512 512x512:512; do
+            px=${spec#*:}
+            small=packaging/macos/icon-small-$px.png
+            if [ -f "$small" ]; then
+                cp "$small" "$set/icon_${spec%:*}.png"
+            else
+                sips -z "$px" "$px" packaging/macos/icon.png --out "$set/icon_${spec%:*}.png" >/dev/null
+            fi
+        done
+        iconutil -c icns "$set" -o "$new/Contents/Resources/oso.icns"
+        # Extended attributes, such as Finder information, make codesign refuse the bundle.
+        xattr -cr "$new"
+        codesign --force --sign "$identity" --identifier io.github.wakamenod.oso "$new"
+        codesign --verify --strict "$new"
+        # Part by part, so a running oso keeps its binary (the old file stays while it runs)
+        # and the Dock keeps the bundle's path. Directories are swapped through an aside name,
+        # since `mv` onto a directory would move into it.
+        mkdir -p "$app/Contents/MacOS"
+        mv -f "$new/Contents/MacOS/oso" "$app/Contents/MacOS/oso"
+        mv -f "$new/Contents/Info.plist" "$app/Contents/Info.plist"
+        for part in Resources _CodeSignature; do
+            rm -rf "$app/Contents/.$part.old"
+            [ ! -e "$app/Contents/$part" ] || mv "$app/Contents/$part" "$app/Contents/.$part.old"
+            mv "$new/Contents/$part" "$app/Contents/$part"
+            rm -rf "$app/Contents/.$part.old"
+        done
+        rm -rf "$stage"
+        trap - EXIT
+        # LaunchServices caches the Info.plist, LSEnvironment included.
+        frameworks=/System/Library/Frameworks/CoreServices.framework/Frameworks
+        "$frameworks/LaunchServices.framework/Support/lsregister" -f "$app"
+        plutil -lint -s "$app/Contents/Info.plist"
+        codesign --verify --strict "$app" \
+            || { echo "error: $app does not verify; remove what the install did not put there"; exit 1; }
+        # One binary: `oso` from a shell runs the bundle's, so both are the same program.
+        tmp=$(mktemp "$dir/.oso.install.XXXXXX")
+        trap 'rm -f "$tmp"' EXIT
+        ln -sf "$app/Contents/MacOS/oso" "$tmp"
+        mv -f "$tmp" "$dir/oso"
+        trap - EXIT
+        signed=$([ "$identity" = - ] && echo "ad hoc" || echo "by \"$identity\"")
+        echo "installed oso $crate ($commit) as $app, signed $signed, linked from $dir/oso"
+    else
+        tmp=$(mktemp "$dir/.oso.install.XXXXXX")
+        trap 'rm -f "$tmp"' EXIT
+        cp "$bin" "$tmp"
+        chmod 755 "$tmp"
+        mv -f "$tmp" "$dir/oso"
+        trap - EXIT
+        echo "installed oso $crate ($commit) at $dir/oso"
+    fi
     case ":$PATH:" in
         *":$dir:"*) ;;
         *) echo "note: $dir is not on PATH; add it there, or run $dir/oso";;

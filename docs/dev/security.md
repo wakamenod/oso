@@ -1395,6 +1395,32 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   layout. What a language server sends is fuzzed through proptest targets in `oso-lsp`'s
   modules (framing, JSON, URIs, positions; [ADR 0138](adr/0138-language-servers.md)).
 
+### The macOS app (T1, T6)
+
+`just install` puts the release binary in `~/Applications/oso.app`
+([ADR 0187](adr/0187-oso-starts-as-a-macos-app.md)):
+
+- The Info.plist comes from a fixed template, `packaging/macos/Info.plist`. It
+  declares no document types and no URL schemes, so Finder, `open` and links
+  never hand oso a file or a URL, and starting the app opens nothing.
+- Its one environment entry, `OSO_LAUNCHED_AS_APP`, only tells oso that
+  LaunchServices started it. Children never get it, since they get only the
+  allowlisted environment.
+- The bundle is signed with the person's own self-signed certificate, so its
+  designated requirement stays the same across rebuilds. What macOS lets the
+  app do (Files & Folders access) carries over to the next install, and never
+  to a program signed otherwise. There is no hardened runtime and there are no
+  entitlements. The recipe only lists the keychain's identities and never
+  changes the keychain; codesign asks the person once before it uses the key.
+  `OSO_SIGN_IDENTITY=-` signs ad hoc instead.
+- The new bundle is put together in a fresh private directory beside the old
+  one, checked with `plutil -lint` and `codesign --verify --strict`, renamed
+  in part by part, and checked again in place. The recipe refuses a bundle
+  path that is a link or not a bundle.
+- There is one binary: `~/.local/bin/oso` is a link into the bundle. The agent
+  channel's question says whether a peer runs this program by its resolved
+  path, so `oso mcp` from a shell and an app-started oso count as one program.
+
 ### Development (T9)
 
 - The dev control socket and hot reload exist only behind cargo features that
