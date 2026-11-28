@@ -1,6 +1,7 @@
 # 0127. Source control and GitHub
 
-- Status: Accepted, amended by 0168 and 0177
+- Status: Accepted, amended by 0168 and 0177; "A message that a secret was yanked into, as
+  amended" (2026-11-28)
 - Key changed by [ADR 0184](0184-continue-a-review-where-it-was-left.md): the review key is the
   agents menu's `v`, `C-c a v`, and the review menu its `V`, `C-c a V`.
 - Date: 2026-11-13
@@ -630,7 +631,9 @@ request.
   and a second line that is not empty take `GitCommitOverlong`'s warning face, and `#` lines a
   comment's; the host highlights it as it changes, up to 256 KiB. `C-c C-c` commits,
   `C-c C-k` cancels, `M-p` and `M-n` put an earlier message kept in place of the text above the
-  `#` lines. The ring keeps the last 20 messages, committed or cancelled.
+  `#` lines. The ring keeps the last 20 messages, committed or cancelled. A message that a
+  secret was yanked into is neither committed nor kept in the ring (amended 2026-11-28): a text
+  that a secret was put in stays marked, and the ring marks nothing.
 - **Refused before git runs:** a commit or an extend with nothing staged (but with `- e`), an
   amend, extend or reword before the first commit, an empty message, a second message for the
   repository while one is open, and a second run while one goes (Q8): "git runs in this
@@ -1278,7 +1281,8 @@ The rest of step 5a's plan, on the answers of 5a-1 (Q6–Q9).
 - **`*pull request: BRANCH*`**, of `Mode::GitPrMessage`, is the person's to write, as a commit's
   message is: an agent's command does not change it. Its first line is the title, the rest the
   body; nothing is stripped (Q9). `C-c C-c` makes it, refusing an empty title or one past 256
-  characters; `C-c C-k` drops it; both keep its text for `M-p` and `M-n`, the last 20.
+  characters; `C-c C-k` drops it; both keep its text for `M-p` and `M-n`, the last 20. A
+  message that a secret was yanked into is neither sent nor kept (amended 2026-11-28).
 - **Pushing first:** a branch the remote's branch of its name lacks, or is behind, is pushed
   after a question, `Push BRANCH to REMOTE/BRANCH first?`, to that name, never to an upstream of
   another name (a branch made from `origin/main` would else push onto `main`), its upstream set

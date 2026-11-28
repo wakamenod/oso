@@ -6,7 +6,8 @@
   (2026-11-22); "An unverifiable registry entry is busy, as amended" (2026-11-22); "Every
   incomplete registry read refuses, as amended" (2026-11-22); "Registry entries and
   directories, as amended" (2026-11-22); "Composed text, as amended" (2026-11-22, 2026-11-23); "An
-  agent's brief, as amended" (2026-11-22); "A start's model, as amended" (2026-11-27)
+  agent's brief, as amended" (2026-11-22); "A start's model, as amended" (2026-11-27); "A brief
+  that a secret was yanked into, as amended" (2026-11-28)
 - Date: 2026-11-12
 
 ## Context
@@ -1209,7 +1210,8 @@ questions through the coordinator, (a) for each, and the coordinator approved th
   ahead of the other jobs. What the jobs make that touches the disk, such as the new worktree's
   trust, is made on them, never on the UI thread.
 - **`*Brief*` is withheld from agents** (the author's choice), as `*Session explain*` is. An
-  agent cannot read or rewrite the person's brief before `C-c C-c` sends it.
+  agent cannot read or rewrite the person's brief before `C-c C-c` sends it. A brief that a
+  secret was yanked into is not sent (amended 2026-11-28).
 - **The steering hook's reason** named `session-worktree (C-x a w)` until step 6 gave agents
   `start_worktree_session`, which it names now. `[sessions] steer_worktrees` puts it into the session's
   `--settings`, which is built from parts, so ADR 0126's `statusLine` can join it. `oso hook
