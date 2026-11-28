@@ -84,7 +84,7 @@ pub struct SpaceGate {
 
 impl SpaceGate {
     /// One for `directory`, for tests elsewhere.
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub fn for_tests(directory: PathBuf) -> Self {
         Self {
             directory,

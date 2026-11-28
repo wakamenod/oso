@@ -79,7 +79,7 @@ enum Was {
     /// Where the session was connected before `oso-restart`.
     Back(Back),
     /// Nothing: Claude Code's settings connect each session at start, as these files say.
-    AtStartup(at_startup::Files),
+    AtStartup(Box<at_startup::Files>),
 }
 
 /// A connection to come back to.
@@ -138,7 +138,7 @@ impl Connect {
     /// again for (ADR 0188).
     pub fn at_startup(files: at_startup::Files) -> Self {
         Self {
-            was: Was::AtStartup(files),
+            was: Was::AtStartup(Box::new(files)),
         }
     }
 
