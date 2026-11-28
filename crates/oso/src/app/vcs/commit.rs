@@ -11,7 +11,9 @@
 //! - What git would refuse anyway is refused before it runs, so that a hook is never blamed for
 //!   it: nothing staged, an amend before the first commit, an empty message, a second message
 //!   for the repository, and a run while another goes.
-//! - The ring keeps the last 20 messages committed or cancelled, for `M-p` and `M-n`.
+//! - The ring keeps the last 20 messages committed or cancelled, for `M-p` and `M-n`, but none
+//!   that a secret was yanked into: a text that a secret was put in stays marked, and the ring
+//!   marks nothing.
 
 use std::sync::Arc;
 
@@ -24,6 +26,7 @@ use super::super::App;
 use super::runs::{Pending, RUNNING, Repo, Running};
 use crate::commands::review::one_line;
 use crate::commands::vcs::RESTRICTED;
+use crate::commands::vcs::commit::SECRET_MESSAGE;
 use crate::git::TrustedRoot;
 use crate::vcs::Built;
 use crate::vcs::commit::{self, Ring, Staged};
@@ -233,6 +236,10 @@ impl App {
                 .editor
                 .message("This message's commit is gone: C-x k drops it");
         };
+        // Also here, where its text is taken: a yank may have turned it secret since.
+        if self.editor.buffer(buffer).is_some_and(Buffer::is_secret) {
+            return self.editor.message(SECRET_MESSAGE);
+        }
         let Some(text) = self.message_text(buffer) else {
             return self.editor.message(TOO_LONG);
         };
@@ -272,13 +279,13 @@ impl App {
                 .editor
                 .message("Its commit runs: C-g in the status or the log stops it");
         }
-        // A text longer than a message is not kept.
-        if let Some(text) = self.message_text(buffer) {
+        let shown = self.editor.buffer(buffer);
+        let says = cancelled_says("Commit cancelled", shown);
+        if let Some(text) = shown.and_then(|shown| ring_text(shown, commit::MAX_MESSAGE)) {
             self.gits.commits.ring.keep(commit::message_of(&text));
         }
         self.drop_draft(buffer);
-        self.editor
-            .message("Commit cancelled; M-p in the next message brings it back");
+        self.editor.message(says);
         self.request_redraw();
     }
 
@@ -413,3 +420,23 @@ impl App {
         (self.gits.commits.drafts.iter()).position(|draft| draft.buffer == buffer)
     }
 }
+
+/// The text of `shown`, a message buffer, that a ring keeps for `M-p`: none if it is longer
+/// than `max`, measured before it is copied, or if a yank of a secret entry turned it secret,
+/// as a text that a secret was put in stays marked and the ring marks nothing.
+pub(super) fn ring_text(shown: &Buffer, max: usize) -> Option<String> {
+    (!shown.is_secret() && shown.text().len() <= max).then(|| shown.text().to_string())
+}
+
+/// What the echo area says as a message is dropped, `cancelled` naming what: whether `M-p`
+/// in the next message brings it back.
+pub(super) fn cancelled_says(cancelled: &str, shown: Option<&Buffer>) -> String {
+    if shown.is_some_and(Buffer::is_secret) {
+        format!("{cancelled}; its message held secret text, which M-p does not bring back")
+    } else {
+        format!("{cancelled}; M-p in the next message brings it back")
+    }
+}
+
+#[cfg(test)]
+mod tests;
