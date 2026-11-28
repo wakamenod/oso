@@ -106,21 +106,25 @@ impl<P: Fn(Asked) -> bool> Here for UiThread<P> {
 }
 
 /// What the restart starts: the binary as read at start, the arguments before [`TAKE_OVER`]
-/// (a dev build's own), and whether this instance read the configuration file.
+/// (a dev build's own), whether this instance read the configuration file, and whether it
+/// was launched as `oso.app`, when the new instance gets `launch::MARKER` (ADR 0187).
 #[derive(Debug, Clone)]
 pub struct Start {
     pub binary: Option<PathBuf>,
     pub args: Vec<OsString>,
     pub read_config: bool,
+    pub launched_as_app: bool,
 }
 
 impl Start {
-    /// This process's own binary, as its path is now, with `args` and `read_config`.
-    pub fn this_binary(args: Vec<OsString>, read_config: bool) -> Self {
+    /// This process's own binary, as its path is now, with `args`, `read_config` and
+    /// `launched_as_app`.
+    pub fn this_binary(args: Vec<OsString>, read_config: bool, launched_as_app: bool) -> Self {
         Self {
             binary: binary::own_path(),
             args,
             read_config,
+            launched_as_app,
         }
     }
 }
@@ -152,6 +156,7 @@ impl NewInstance {
         }
         let names = inherited_names();
         let inherit: Vec<&str> = names.iter().map(String::as_str).collect();
+        let set = app_marker(start.launched_as_app);
         let child = spawn(&Spawn {
             executable: &executable,
             args: &args,
@@ -163,7 +168,7 @@ impl NewInstance {
             stderr: Sink::Inherit,
             own_process_group: true,
             own_session: false,
-            set: &[],
+            set: &set,
             terminal: None,
             pass_fd: Some(PassedFd::new(theirs.as_fd())),
             args_logged: true,
@@ -239,6 +244,16 @@ impl There for NewInstance {
             log::debug!("oso-restart: cannot stop the new instance: {e}");
         }
         let _ = self.child.wait();
+    }
+}
+
+/// What the new instance is given by value: `launch::MARKER` for one launched as `oso.app`,
+/// which took it out of its own environment (ADR 0187).
+pub fn app_marker(launched_as_app: bool) -> Vec<(&'static str, &'static std::ffi::OsStr)> {
+    if launched_as_app {
+        vec![(crate::launch::MARKER, std::ffi::OsStr::new("1"))]
+    } else {
+        Vec::new()
     }
 }
 

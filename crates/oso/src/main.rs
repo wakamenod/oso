@@ -20,6 +20,7 @@ mod emergency;
 mod git;
 mod grep;
 mod keys;
+mod launch;
 mod lister;
 mod loader;
 mod project;
@@ -49,13 +50,10 @@ fn helper_if_requested(core_dumps_failed: Option<String>) -> Option<i32> {
         .or_else(sessions::worktree::steer::main_if_requested)
 }
 
-fn main() {
-    let started = std::time::Instant::now();
-    // First of all, before any text can be here, also in `oso ctl`. A dump would hold every
-    // buffer (ADR 0028).
-    let core_dumps = oso_platform::privacy::disable_core_dumps();
+/// Runs what oso was started as instead of the editor, if anything, and exits with its
+/// status: `oso mcp` and `oso hook`, and `oso ctl` and `oso dev`, which only a dev build has.
+fn exit_unless_the_editor(core_dumps_failed: Option<String>) {
     // The agent channel's bridge, in every build; it opens no window (ADR 0085).
-    let core_dumps_failed = core_dumps.as_ref().err().map(ToString::to_string);
     if let Some(status) = helper_if_requested(core_dumps_failed) {
         std::process::exit(status);
     }
@@ -72,6 +70,16 @@ fn main() {
     {
         refuse_dev_tool();
     }
+}
+
+fn main() {
+    let started = std::time::Instant::now();
+    // First of all, before any text can be here, also in `oso ctl`. A dump would hold every
+    // buffer (ADR 0028).
+    let core_dumps = oso_platform::privacy::disable_core_dumps();
+    exit_unless_the_editor(core_dumps.as_ref().err().map(ToString::to_string));
+    // While this process has one thread, as it sets variables (ADR 0187).
+    let launched_as_app = launch::take_login_environment_if_app();
     let Options {
         args,
         emergency_directory,
@@ -109,7 +117,8 @@ fn main() {
     let config_reader = config::Reader::start(&config_source);
     let trust_file = config::TrustFile::start(config_source.trust_file());
     // The binary's path now, before an install can replace it.
-    let restart = carry::going::Start::this_binary(restart_args, read_config);
+    let restart =
+        carry::going::Start::this_binary(restart_args, read_config, launched_as_app.is_some());
     // And its identity, which a file put in its place is told from (ADR 0133, step 4).
     let own_binary =
         (restart.binary.as_deref()).and_then(|path| carry::notice::Identity::of(path).ok());
@@ -136,6 +145,7 @@ fn main() {
         #[cfg(feature = "dev")]
         app.set_dev(dev);
         app.check_emergency_directory();
+        app.note_launch(launched_as_app);
         // Loading starts before the window exists, so the file is read while
         // the GPU starts up.
         if let Some(file) = file {

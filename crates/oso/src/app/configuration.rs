@@ -181,6 +181,19 @@ impl Configuration {
 }
 
 impl App {
+    /// Logs how long an app launch's login shell took, and says in `*Messages*` why its
+    /// environment was not taken, if it was not (ADR 0187).
+    pub fn note_launch(&mut self, taken: Option<crate::launch::Taken>) {
+        let Some(taken) = taken else { return };
+        log::info!(
+            "oso.app: the login shell took {} ms",
+            taken.took.as_millis()
+        );
+        if let Some(note) = taken.note {
+            self.editor.note(note);
+        }
+    }
+
     /// Takes the configuration from `source`, which `reader` reads, and has it wake the event
     /// loop when it finds something new. Called once, before the window opens.
     pub fn set_configuration(&mut self, source: &Source, reader: Option<Reader>) {

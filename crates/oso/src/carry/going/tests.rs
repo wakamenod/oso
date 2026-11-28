@@ -255,3 +255,16 @@ fn the_names_passed_leave_the_loader_and_path_out() {
             .any(|name| name == "PATH" || name.starts_with("DYLD_"))
     );
 }
+
+#[test]
+fn an_app_launched_instance_gives_the_new_one_the_marker() {
+    let set = super::app_marker(true);
+    assert_eq!(
+        set,
+        [(crate::launch::MARKER, std::ffi::OsStr::new("1"))].as_slice()
+    );
+    // The process module takes it by value.
+    assert!(oso_platform::process::may_pass(crate::launch::MARKER));
+    assert!(super::app_marker(false).is_empty());
+    assert!(super::Start::this_binary(Vec::new(), true, true).launched_as_app);
+}

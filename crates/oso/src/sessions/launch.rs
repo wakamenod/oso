@@ -2,8 +2,8 @@
 //! as the person's login shell would run it, so that their `PATH`, version managers and
 //! proxies apply; which `claude`; and which variables it takes.
 //!
-//! Must not depend on: `app` or the UI thread; [`launch`] may look on `PATH`, which stats
-//! files, so it runs on the session's start thread, or the naming run's.
+//! Must not depend on: `app` or the UI thread; finding the program ([`launch()`]) may look on
+//! `PATH`, which stats files, so it runs on the session's start thread, or the naming run's.
 //!
 //! - For `sh`, `bash`, `zsh`, `dash` and `ksh`, by the shell's file name, the program is
 //!   `SHELL -l -c SCRIPT PROJECT CLAUDE ARGS…`. The arguments are positional parameters, never
