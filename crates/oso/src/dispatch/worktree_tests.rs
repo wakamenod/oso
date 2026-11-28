@@ -6,6 +6,7 @@
 
 use oso_core::buffer::{Buffer, Mode};
 use oso_core::editor::{Editor, SessionRequest};
+use oso_core::kill::FromClipboard;
 
 use super::Dispatcher;
 use super::motion_tests::send;
@@ -26,6 +27,47 @@ fn c_c_a_w_waits_for_the_branches() {
             base: None
         }]
     );
+}
+
+#[test]
+fn a_branch_or_base_that_a_secret_was_yanked_into_starts_nothing() {
+    let yank = |d: &mut Dispatcher, editor: &mut Editor| {
+        send(d, editor, "C-y");
+        assert!(d.take_clipboard_request().is_some());
+        d.clipboard_answered(editor, &FromClipboard::Own);
+    };
+    // Into the branch with no prefix, into it with `C-u`, and into the base after it.
+    for (prefix, into_branch) in [("", true), ("C-u ", true), ("C-u ", false)] {
+        let (mut d, mut editor) = (Dispatcher::new(), Editor::default());
+        editor.kill_new("hunter2", true);
+        send(&mut d, &mut editor, &format!("{prefix}C-c a w"));
+        assert!(d.take_branches_request());
+        d.branches_answered(&mut editor, Ok(vec!["main".into()]));
+        if into_branch {
+            yank(&mut d, &mut editor);
+        } else {
+            send(&mut d, &mut editor, "f i x");
+        }
+        send(&mut d, &mut editor, "RET");
+        if !prefix.is_empty() {
+            assert_eq!(editor.prompt().unwrap().label(), "Base:");
+            if into_branch {
+                send(&mut d, &mut editor, "m a i n");
+            } else {
+                yank(&mut d, &mut editor);
+            }
+            send(&mut d, &mut editor, "RET");
+        }
+        assert!(editor.prompt().is_none());
+        assert!(
+            editor.take_session_requests().is_empty(),
+            "{prefix}{into_branch}"
+        );
+        assert_eq!(
+            crate::commands::kept_messages(&editor).pop().as_deref(),
+            Some("A branch or base holding what may be secret is not used")
+        );
+    }
 }
 
 #[test]

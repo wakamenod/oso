@@ -173,6 +173,19 @@ fn not_in_prompt(ctx: &Ctx<'_>) -> Result<(), CommandError> {
     }
 }
 
+/// Why a revision read in a prompt that a secret was yanked into is refused.
+const SECRET_REVISION: &str = "A revision holding what may be secret is not given to git";
+
+/// Refuses a command whose answer, read in a prompt, a secret was yanked into, saying `why`: a
+/// name, a title or a message it gives git, `gh`, a language server or a session's record would
+/// lose the mark there, and a text that a secret was put in stays marked.
+fn refuse_secret_answer(ctx: &Ctx<'_>, why: &'static str) -> Result<(), CommandError> {
+    if ctx.answer_secret() {
+        return Err(CommandError::new(why));
+    }
+    Ok(())
+}
+
 /// `place` as the person reads it in a question or a message: under `home` as `~`, and only its
 /// last `cells` characters, after `…`, when it is longer, as its end tells it from others.
 pub(crate) fn shown_place(
@@ -215,6 +228,9 @@ pub fn registry() -> Registry {
     }
     registry
 }
+
+#[cfg(test)]
+mod secret_answers_tests;
 
 #[cfg(test)]
 mod tests {

@@ -239,7 +239,7 @@ impl App {
         if buffer.is_secret() {
             return self
                 .editor
-                .message("The message holds secret text, which is not sent: take it out");
+                .message("The message holds secret text, which is not sent: C-x k drops it");
         }
         // Measured before it is copied.
         if buffer.text().len() > MAX_MESSAGE {

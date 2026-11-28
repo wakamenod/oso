@@ -498,4 +498,6 @@ impl Editor {
 }
 
 #[cfg(test)]
+mod checked_tests;
+#[cfg(test)]
 mod tests;

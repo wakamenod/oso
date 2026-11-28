@@ -277,7 +277,7 @@ fn a_message_that_a_secret_was_yanked_into_is_not_committed() {
     let (result, _) = run(&mut editor, "git-commit-finish", Args::NONE);
     assert_eq!(
         result.unwrap_err(),
-        "The message holds secret text, which is not committed: take it out, or C-c C-k"
+        "The message holds secret text, which is not committed: C-c C-k drops it"
     );
     // It can still be dropped: the host keeps no secret message in the ring.
     let (result, _) = run(&mut editor, "git-commit-cancel", Args::NONE);

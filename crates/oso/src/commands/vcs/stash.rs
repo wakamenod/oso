@@ -97,6 +97,10 @@ fn push(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 }
 
 fn message(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    super::super::refuse_secret_answer(
+        ctx,
+        "A stash message holding what may be secret is not kept",
+    )?;
     let text = ctx.answer().unwrap_or_default().to_owned();
     ask(ctx, StashAction::Message(text))
 }

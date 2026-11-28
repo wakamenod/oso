@@ -338,9 +338,8 @@ impl App {
         // A yank of a secret entry turns the message secret: what it holds stays here, as a
         // draft's does (step 3).
         if shown.is_secret() {
-            self.editor.message(
-                "The message holds secret text, which is not sent: take it out, or C-c C-k",
-            );
+            self.editor
+                .message("The message holds secret text, which is not sent: C-c C-k drops it");
             return None;
         }
         // Its length is looked at before anything is copied.

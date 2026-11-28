@@ -15,6 +15,14 @@ use oso_core::minibuffer::PromptError;
 use super::super::{Dispatcher, Step};
 use super::{ProjectPrompt, Reading, TextPrompt, Then};
 
+/// The first answer of a command that reads two, kept for the second's.
+pub(super) struct First {
+    pub(super) text: String,
+    /// Whether its prompt's buffer may have held secrets, which the command is told with the
+    /// second's (ADR 0044).
+    pub(super) secret: bool,
+}
+
 /// Whether `spec` is read in a prompt [`Dispatcher::read_listed`] opens: a mark, the list of
 /// diagnostics, a path, a project's file or search, or a search of conversations (ADR 0145).
 pub(super) fn reads_listed(spec: ArgSpec) -> bool {
@@ -107,7 +115,7 @@ impl Dispatcher {
         if buffer.mode() != Mode::Composer {
             editor.message("This buffer is no native session's composer");
         } else if buffer.is_secret() {
-            editor.message("The composer holds secret text: take it out");
+            editor.message("The composer holds secret text: C-x k drops it");
         } else {
             match editor.open_past_prompts(prompt) {
                 Ok(prompt) => self.reading.push(Reading::run(id, prefix, prompt)),
@@ -411,21 +419,24 @@ impl Dispatcher {
         redraw()
     }
 
-    /// Takes the directory read for `reading`, and opens its text prompt, which runs the
-    /// command with both.
+    /// Takes the directory read for `reading`, which a secret was yanked into if `secret`, and
+    /// opens its text prompt, which runs the command with both.
     pub(super) fn open_text_after(
         &mut self,
         editor: &mut Editor,
         reading: &Reading,
         then: TextPrompt,
-        directory: String,
+        (directory, secret): (String, bool),
     ) -> Effects {
         let kind = oso_core::minibuffer::Kind::Text {
             history: Some(then.history),
         };
         match editor.open_prompt(then.prompt, kind) {
             Ok(prompt) => self.reading.push(Reading {
-                then: Then::TextAfter(directory),
+                then: Then::TextAfter(First {
+                    text: directory,
+                    secret,
+                }),
                 ..Reading::run(reading.id, reading.prefix, prompt)
             }),
             Err(error) => editor.prompt_says(error.to_string()),

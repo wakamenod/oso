@@ -7,12 +7,12 @@
 //!
 //! - Only the newest request of a message buffer (Q3), from the session it was pasted into, in
 //!   that buffer's worktree of a trusted project, while no commit runs there, within
-//!   [`ASKED_FOR`], once.
+//!   [`ASKED_FOR`], once; never into one that a secret was yanked into.
 
 use std::path::Path;
 use std::time::Duration;
 
-use oso_core::buffer::Replacement;
+use oso_core::buffer::{Buffer, Replacement};
 use oso_core::project::same_place;
 use serde_json::{Value, json};
 
@@ -56,6 +56,7 @@ impl App {
                     .is_some_and(|asked| asked.session == caller),
             trusted: !repo.root.revoked() && self.editor.project_trusted(project),
             runs: repo.run.is_some(),
+            secret: self.editor.buffer(buffer).is_some_and(Buffer::is_secret),
             age: (self.gits.commits.drafts[at].asked.as_ref()).map(|asked| asked.at.elapsed()),
         };
         if let Err(why) = found.check() {
@@ -101,6 +102,9 @@ struct Found {
     trusted: bool,
     /// Whether a commit runs in the repository.
     runs: bool,
+    /// Whether a yank of a secret entry turned the message secret: it is withheld from the
+    /// agent, which is told nothing of it, not even its size.
+    secret: bool,
     /// How long ago the request was sent.
     age: Option<Duration>,
 }
@@ -116,6 +120,9 @@ impl Found {
         }
         if self.runs {
             return Err("its commit runs now; nothing was changed");
+        }
+        if self.secret {
+            return Err("that commit message takes no draft now; nothing was changed");
         }
         match self.age {
             Some(age) if age <= ASKED_FOR => Ok(()),

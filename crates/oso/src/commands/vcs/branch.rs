@@ -143,8 +143,12 @@ fn delete(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     ask(ctx, BranchAction::Delete)
 }
 
-/// The answer read, trimmed, or why there is none.
+/// The answer read, trimmed, or why there is none or it is refused.
 fn answer(ctx: &Ctx<'_>) -> Result<String, CommandError> {
+    super::super::refuse_secret_answer(
+        ctx,
+        "A branch or name holding what may be secret is not given to git",
+    )?;
     let answer = ctx.answer().unwrap_or_default().trim().to_owned();
     if answer.is_empty() {
         return Err(CommandError::new("No branch was named"));

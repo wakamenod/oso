@@ -247,7 +247,7 @@ fn a_message_that_a_secret_was_yanked_into_is_not_sent() {
     let (result, _) = run(&mut editor, "git-pr-create-finish", Args::NONE);
     assert_eq!(
         result.unwrap_err(),
-        "The message holds secret text, which is not sent: take it out, or C-c C-k"
+        "The message holds secret text, which is not sent: C-c C-k drops it"
     );
     let (result, _) = run(&mut editor, "git-pr-create-cancel", Args::NONE);
     assert!(result.is_ok());
