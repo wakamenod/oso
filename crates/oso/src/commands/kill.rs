@@ -271,7 +271,7 @@ fn only_blanks(text: &Rope, range: Range<usize>, left: &mut usize) -> bool {
 }
 
 /// Which way a kill goes for a count of `n`.
-fn direction_of(n: isize) -> Direction {
+pub(super) fn direction_of(n: isize) -> Direction {
     if n > 0 {
         Direction::Forward
     } else {
@@ -280,7 +280,7 @@ fn direction_of(n: isize) -> Direction {
 }
 
 /// Kills `ranges`, one per cursor, and asks for a frame if that changed anything.
-fn kill(
+pub(super) fn kill(
     ctx: &mut Ctx<'_>,
     ranges: Vec<Range<usize>>,
     direction: Direction,

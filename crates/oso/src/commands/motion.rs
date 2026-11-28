@@ -133,7 +133,7 @@ pub const COMMANDS: &[Command] = &[
 /// (ADR 0071). Asks for a redraw if a cursor moved or the region hid, and fails
 /// with the first buffer edge a cursor hit, after moving them all as far as they
 /// go.
-fn move_cursors(
+pub(super) fn move_cursors(
     ctx: &mut Ctx<'_>,
     motion: impl FnMut(&DisplaySnapshot, &mut Selection) -> Result<(), Edge>,
 ) -> Result<(), CommandError> {
