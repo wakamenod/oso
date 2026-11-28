@@ -310,8 +310,8 @@ Built on 2026-11-29; the author approved the changes through the space's orchest
 - **`beginning-of-defun` goes to the head's first non-blank character;** `defun_bounds` covers
   whole lines, from the comment just above (and in Rust the `#[…]` attributes) to the start of
   the line after the end. Past the last defun the cursor goes to the buffer's edge with no
-  error, as Emacs's does and as step 4's paragraphs do; the motions keep `Result<(), Edge>` and
-  return `Ok`.
+  message, as Emacs's does and as step 4's paragraphs do; as theirs, the functions fail with
+  `Edge` only when a step starts there.
 - **A head holds those indented under it** (a Markdown section those of a greater level): from
   between two methods `end-of-defun` goes past the next, and after the last past what holds
   them.
@@ -331,6 +331,28 @@ Built on 2026-11-29; the author approved the changes through the space's orchest
 - **What the commands ask goes through a private `Find` trait** (the start before or after a
   place, the end after or before it, and the bounds), so that step 7's ranges can answer before
   the lines do. No new public item.
+
+## Step 4, as built
+
+Built on 2026-11-29.
+
+- **Emacs's stops.** `forward-paragraph` stops at the first separating line after the paragraph,
+  `backward-paragraph` at the last one before it, and from a paragraph's first line at the one
+  just above. `forward-sentence` stops after the closers, `backward-sentence` after the space.
+  `forward-page` from a line's start passes a form feed there, as Emacs's does.
+- **No message at the buffer's edge,** as Emacs's commands give none. The functions still fail
+  with `Edge` when a step starts there.
+- **A step past the budget does not move:** the cursor stays where the step before left it, and
+  the command says "Count too large", as a sexp does. Lines and sentences are read a character
+  at a time at the cost of their bytes, with no seek per line: a paragraph motion crosses about
+  4 MiB, and a sentence motion, which reads its paragraph to find its end and then searches it,
+  a paragraph of about 2 MiB. A kill whose step ran out kills nothing at that cursor.
+- **Sentences read paragraphs as Fundamental's,** as `forward_sentence` has no Markdown flag: a
+  heading with no blank line after it starts its paragraph's first sentence.
+- **Fences are not followed across lines:** a line that starts with `#` inside a fenced block
+  counts as a heading.
+- **`mark-page` is Emacs's:** with N it marks the page N pages away, and point goes to the page's
+  start. Again, or while a region shows, it moves the mark N pages on, one with no N.
 
 ## Changes to accepted ADRs
 

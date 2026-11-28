@@ -19,8 +19,15 @@ use crate::selection::{Goal, Selection};
 use crate::sum_tree::Bias;
 
 mod mwim;
+mod page;
+mod paragraph;
+mod sentence;
+mod text;
 
 pub use mwim::{toggle_line_end, toggle_line_start};
+pub use page::forward_page;
+pub use paragraph::{forward_paragraph, paragraph_bounds};
+pub use sentence::forward_sentence;
 
 /// A motion reached the start or the end of the buffer before it was done.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

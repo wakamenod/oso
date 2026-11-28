@@ -72,14 +72,13 @@ fn move_by_defuns(ctx: &mut Ctx<'_>, n: isize, motion: Motion) -> Result<(), Com
     let display = buffer.display();
     let syntax = Syntax::new(&display, buffer.highlights(), Table::of(buffer.mode()));
     let mut budget = WalkBudget::for_cursors(window.selections.len());
-    let update = window
-        .selections
-        .update(|selection| motion(&syntax, selection, n, &mut budget));
+    // The buffer's edge stops it with no signal, as in Emacs and as paragraphs do.
+    let update = window.selections.update(|selection| {
+        let _ = motion(&syntax, selection, n, &mut budget);
+        Ok::<(), ()>(())
+    });
     if update.changed {
         ctx.request_redraw();
-    }
-    if let Some(edge) = update.error {
-        return Err(CommandError::new(edge.message()));
     }
     budget_left(budget)
 }
@@ -110,8 +109,8 @@ fn mark_defun(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
         Some(mark) if repeated || shows => {
             // The mark goes N more defuns on, and point stays.
             let mut on = Selection::at(mark);
-            sexp::end_of_defun(&syntax, &mut on, n, &mut budget)
-                .map_err(|edge| CommandError::new(edge.message()))?;
+            // At the buffer's edge it stays, with no signal.
+            let _ = sexp::end_of_defun(&syntax, &mut on, n, &mut budget);
             (primary.cursor, on.cursor)
         }
         _ => {

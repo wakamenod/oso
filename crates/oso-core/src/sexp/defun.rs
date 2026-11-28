@@ -34,8 +34,7 @@ use crate::syntax::Highlight;
 ///
 /// # Errors
 ///
-/// None yet: the buffer's edge is reached quietly, as Emacs's is. The signature keeps the
-/// `Edge` of the other motions (ADR 0190).
+/// The buffer's edge, if a step starts there.
 pub fn beginning_of_defun(
     syntax: &Syntax<'_>,
     selection: &mut Selection,
@@ -59,7 +58,7 @@ pub fn beginning_of_defun(
 ///
 /// # Errors
 ///
-/// None yet, as [`beginning_of_defun`].
+/// The buffer's edge, if a step starts there.
 pub fn end_of_defun(
     syntax: &Syntax<'_>,
     selection: &mut Selection,
@@ -90,8 +89,11 @@ pub fn defun_bounds(
 }
 
 /// Moves `selection` to what `next` finds from where it is, `n` times. Past the last, it goes
-/// to the buffer's edge with no error, as Emacs's does and as paragraphs do; past the budget,
-/// it stays at the last found.
+/// to the buffer's edge, as Emacs's does; past the budget, it stays at the last found.
+///
+/// # Errors
+///
+/// The edge, if a step starts there, as the motions by paragraphs fail.
 fn step(
     syntax: &Syntax<'_>,
     selection: &mut Selection,
@@ -100,19 +102,26 @@ fn step(
     budget: &mut WalkBudget,
     mut next: impl FnMut(usize, &mut WalkBudget) -> Result<Option<usize>, ScanError>,
 ) -> Result<(), Edge> {
+    let (edge, end) = if forward {
+        (Edge::End, syntax.display.len())
+    } else {
+        (Edge::Start, 0)
+    };
     let mut at = selection.cursor;
+    let mut result = Ok(());
     for _ in 0..n.unsigned_abs() {
+        if at == end {
+            result = Err(edge);
+            break;
+        }
         match next(at, budget) {
             Ok(Some(to)) => at = to,
-            Ok(None) => {
-                at = if forward { syntax.display.len() } else { 0 };
-                break;
-            }
+            Ok(None) => at = end,
             Err(_) => break,
         }
     }
     selection.move_to(at);
-    Ok(())
+    result
 }
 
 /// What finds defuns for the commands. Each answer is an offset past or before `offset`, or

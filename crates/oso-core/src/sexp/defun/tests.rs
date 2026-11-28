@@ -48,8 +48,10 @@ fn go_in(
         &text[..selection.cursor],
         &text[selection.cursor..]
     );
-    assert_eq!(result, Ok(()), "the edge is quiet");
-    shown
+    match result {
+        Ok(()) => shown,
+        Err(edge) => format!("{shown} !{edge:?}"),
+    }
 }
 
 fn go(table: Table, case: &str, motion: Motion, n: isize) -> String {
@@ -131,8 +133,13 @@ fn beginning_of_defun_goes_to_the_head_before_at_any_indentation() {
     // `mod m;` is no head, and `mod n {` is.
     assert!(begin("const C", 0, 1).contains("|mod n {"));
     assert!(begin("const C", 2, 1).contains("|const C"));
-    // Nothing above: the buffer's start.
+    // Nothing above: the buffer's start, and a step from there says so, as paragraphs do.
     assert_eq!(begin("pub struct", 0, 1), format!("|{RUST}"));
+    assert_eq!(begin("pub struct", 0, 2), format!("|{RUST} !Start"));
+    assert_eq!(
+        go(Table::Rust, &format!("|{RUST}"), BEGIN, 1),
+        format!("|{RUST} !Start")
+    );
     assert_eq!(begin("pub struct", 0, 0), rust_at("pub struct", 0));
     // A count, and a negative one going forward to the next heads' starts.
     assert!(begin("two()", 0, 3).contains("|impl S"));
@@ -141,6 +148,7 @@ fn beginning_of_defun_goes_to_the_head_before_at_any_indentation() {
     assert!(begin("use a", 0, -3).contains("|pub fn one"));
     assert!(begin("mod n", 0, -1).ends_with("|const C: [u8; 2] = [1, 2];\n}\n"));
     assert_eq!(begin("mod n", 0, -2), format!("{RUST}|"));
+    assert_eq!(begin("mod n", 0, -3), format!("{RUST}| !End"));
 }
 
 #[test]
@@ -156,11 +164,13 @@ fn end_of_defun_goes_past_the_end_of_the_one_at_point_or_the_next() {
     assert!(before_point(&end("fn two", 0, 1)).ends_with("fn two() {}\n"));
     assert!(before_point(&end("fn two", 0, 2)).ends_with("fn two() {}\n}\n"));
     assert!(before_point(&end("mod m", 0, 1)).ends_with("[1, 2];\n}\n"));
-    assert_eq!(end("mod n", 0, 2), format!("{RUST}|"));
+    assert_eq!(end("mod n", 0, 1), format!("{RUST}|"));
+    assert_eq!(end("mod n", 0, 2), format!("{RUST}| !End"));
     // Backward, to the ends of the ones before.
     assert!(before_point(&end("let s", 0, -1)).ends_with(after_s));
     assert!(before_point(&end("impl S", 0, -1)).ends_with(after_s));
-    assert!(before_point(&end("pub struct", 0, -1)).is_empty());
+    assert_eq!(end("pub struct", 0, -1), format!("|{RUST}"));
+    assert_eq!(end("pub struct", 0, -2), format!("|{RUST} !Start"));
 }
 
 #[test]

@@ -163,6 +163,10 @@ fn c_m_h_marks_the_defun_with_its_comment_and_again_the_next() {
     // Again: the mark goes on past the next defun, and point stays.
     send(&mut d, &mut editor, "C-M-h");
     assert_eq!(region(&editor), offset("// S.")..RUST.len());
+    // At the end, again: it stays, and says nothing.
+    send(&mut d, &mut editor, "C-M-h");
+    assert_eq!(region(&editor), offset("// S.")..RUST.len());
+    assert!(!messages(&editor).iter().any(|said| said == "End of buffer"));
     // A count from a defun in an impl, and a negative one.
     place_at(&mut editor, &[offset("x();")]);
     send(&mut d, &mut editor, "C-g C-u 2 C-M-h");
