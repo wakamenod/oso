@@ -1,7 +1,9 @@
 //! A native session's resume and fork (ADR 0165, step 2, R1 and Q2 (a)), with a fake
 //! `claude -p` that logs each run's arguments and answers each message at once: a stopped
 //! session resumes natively in its own buffer, keeping its rows, with the composer selected;
-//! a fork of it is native in a new buffer.
+//! a fork of it is native in a new buffer; and from its composer, `C-c a K` stops it and
+//! `C-c a r` resumes it, as in its transcript (ADR 0170, "Session commands from a docked
+//! window").
 //!
 //! Must not depend on: the app's internals.
 
@@ -11,7 +13,7 @@ use serde_json::Value;
 
 use super::super::super::spaces::trust_restricted;
 use super::super::super::worktrees::keys;
-use super::{Flow, MESSAGE, end_turn, in_composer, text};
+use super::{Flow, MESSAGE, end_turn, in_composer, text, tracked};
 
 /// The fake: run `N` from 1 logs its arguments to `run.N`, and for each line of its input
 /// replays it and replies `reply N.M`: at once, but the first, which ends once the flow writes
@@ -211,6 +213,44 @@ fn a_native_session_resumes_with_no_file_of_its_project_open() {
     app.send_keys(&keys("again"));
     app.send_keys("C-c C-c");
     assert_eq!(flow.wait_for_file("sent.2.1").trim(), "again");
+    let _ = app.exchange("exit", None);
+    app.wait_for_exit();
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn from_its_composer_c_c_a_stops_and_resumes_a_native_session() {
+    let flow = Flow::new("native-composer-session-keys");
+    let fake = flow.scratch.path().join("fake-claude");
+    let script = RESUME_FAKE.replace("DIR", &flow.scratch.path().display().to_string());
+    fs::write(&fake, script).unwrap();
+    let init = r#"{"type":"system","subtype":"init","cwd":"/w","session_id":"s","model":"m"}"#;
+    flow.scratch
+        .write("stream.jsonl", format!("{init}\n").as_bytes());
+    let mut app = flow.start();
+    app.open_file(&flow.project.join("notes.md"));
+    trust_restricted(&mut app, "proj");
+    app.wait_for("the project trusted", |state| {
+        !modeline(state).contains("restricted")
+    });
+    app.run_command("claude", None).unwrap();
+    app.wait_for("the composer", in_composer);
+    app.send_keys(&keys(MESSAGE));
+    app.send_keys("C-c C-c");
+    assert_eq!(flow.wait_for_file("sent.1.1").trim(), MESSAGE);
+    end_turn(&flow, &mut app, "release.1.1");
+
+    // Still in the composer: the Agents menu's keys act on its session.
+    app.wait_for("the composer", in_composer);
+    app.send_keys("C-c a K");
+    // The footer, not the modeline, says how it is while the composer is selected.
+    let state = app.wait_for("the session stopped", |state| tracked(state) == "stopped");
+    assert!(in_composer(&state), "the composer stays selected: {state}");
+    app.send_keys("C-c a r");
+    let args = flow.wait_for_file("run.2");
+    assert!(args.contains("arg --resume="), "{args}");
+    app.wait_for("the resumed session", |state| tracked(state) != "stopped");
+    app.wait_for("the composer of the resumed session", in_composer);
     let _ = app.exchange("exit", None);
     app.wait_for_exit();
 }

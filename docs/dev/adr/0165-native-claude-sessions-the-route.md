@@ -3160,6 +3160,9 @@ Each passage stays in its ADR as written; what holds now follows it.
 - ADR 0100, "`oso dev` carries each buffer's setting to the instance that replaces it": not that
   of a buffer whose entry stands for `*scratch*`, as a composer's. ADR 0103's "a buffer that wraps
   says `"wraps": true`" is the same.
+- ADR 0170, "**The tree's commands act on the host**": so do the `C-c a` commands on the session in
+  front, from a native session's composer, card, request line or strip, as in its transcript (ADR
+  0170, "Session commands from a docked window, as amended").
 
 ## Consequences
 

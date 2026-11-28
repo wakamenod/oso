@@ -6,10 +6,13 @@
 //! Must not depend on: winit, the GPU or `bindings`; the dispatcher writes the keys
 //! `session-help` says, as only it holds the keymaps.
 //!
+//! From a window docked under a native session's transcript, its composer, card or strip, the
+//! session in front is the transcript's, as if the command ran there ([`here`], ADR 0170).
+//!
 //! Pinning and archiving change which sessions ask for the person: `Person`, as their rows'
 //! are. Saying the keys only looks.
 
-use oso_core::buffer::BufferId;
+use oso_core::buffer::{Buffer, BufferId};
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
 use oso_core::editor::{Editor, RowAction, SessionRequest};
 use oso_core::menu::{Note, Notes, Open};
@@ -58,7 +61,7 @@ pub const COMMANDS: &[Command] = &[
 /// archiving the session in front are dim and say why; stopping stays, as `session-stop` also
 /// stops the session on a row of the pane.
 pub fn agents_menu(editor: &Editor, open: &Open) -> Notes {
-    if editor.current().1.hosts_session() {
+    if here(editor).1.hosts_session() {
         return Notes::default();
     }
     let heads = open
@@ -81,14 +84,25 @@ pub fn agents_menu(editor: &Editor, open: &Open) -> Notes {
     }
 }
 
-/// The current buffer, if its terminal hosts a session.
+/// The buffer whose session is in front: the selected window's, or, in a window docked under
+/// another buffer, as a native session's composer, card and strip are, that host's (ADR 0170,
+/// "Session commands from a docked window"). A docked buffer shows nowhere else.
+pub(super) fn here(editor: &Editor) -> (BufferId, &Buffer) {
+    let docked = editor.window().docked().map(|(host, _)| host);
+    match docked.and_then(|host| Some((host, editor.buffer(host)?))) {
+        Some(host) => host,
+        None => (editor.window().buffer(), editor.current().1),
+    }
+}
+
+/// The buffer [`here`] gives, if its terminal or transcript hosts a session.
 pub(super) fn session_buffer(ctx: &Ctx<'_>) -> Result<BufferId, CommandError> {
     super::super::not_in_prompt(ctx)?;
-    let (window, buffer) = ctx.editor.current();
+    let (id, buffer) = here(ctx.editor);
     if !buffer.hosts_session() {
         return Err(CommandError::new(NO_SESSION));
     }
-    Ok(window.buffer())
+    Ok(id)
 }
 
 fn on_buffer(ctx: &mut Ctx<'_>, action: RowAction) -> Result<(), CommandError> {
@@ -110,3 +124,6 @@ fn archive(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 fn help(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     session_buffer(ctx).map(|_| ())
 }
+
+#[cfg(test)]
+mod tests;
