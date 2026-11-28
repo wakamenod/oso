@@ -302,6 +302,28 @@ Built on 2026-11-29; the author approved the changes through the space's orchest
   bounded cost.
 - **`up_list` leaves a comment as it leaves a string,** as its first level.
 
+## Step 4, as built
+
+Built on 2026-11-29.
+
+- **Emacs's stops.** `forward-paragraph` stops at the first separating line after the paragraph,
+  `backward-paragraph` at the last one before it, and from a paragraph's first line at the one
+  just above. `forward-sentence` stops after the closers, `backward-sentence` after the space.
+  `forward-page` from a line's start passes a form feed there, as Emacs's does.
+- **No message at the buffer's edge,** as Emacs's commands give none. The functions still fail
+  with `Edge` when a step starts there.
+- **A step past the budget does not move:** the cursor stays where the step before left it, and
+  the command says "Count too large", as a sexp does. Lines and sentences are read a character
+  at a time at the cost of their bytes, with no seek per line: a paragraph motion crosses about
+  4 MiB, and a sentence motion, which reads its paragraph to find its end and then searches it,
+  a paragraph of about 2 MiB. A kill whose step ran out kills nothing at that cursor.
+- **Sentences read paragraphs as Fundamental's,** as `forward_sentence` has no Markdown flag: a
+  heading with no blank line after it starts its paragraph's first sentence.
+- **Fences are not followed across lines:** a line that starts with `#` inside a fenced block
+  counts as a heading.
+- **`mark-page` is Emacs's:** with N it marks the page N pages away, and point goes to the page's
+  start. Again, or while a region shows, it moves the mark N pages on, one with no N.
+
 ## Changes to accepted ADRs
 
 - [ADR 0138](0138-language-servers.md), "Keys (Q15)" and the key table: `lsp-next-diagnostic`
