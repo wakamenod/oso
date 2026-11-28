@@ -10,9 +10,11 @@ as amended):
 | `oso-mac`   | `[self-hosted, macOS, ARM64, oso]`    | `just e2e (macos)` | `~/actions-runner`   |
 | `oso-mac-2` | `[self-hosted, macOS, ARM64, oso-ci]` | `just ci (macos)`  | `~/actions-runner-2` |
 
-Both jobs run on pushes to `main`; a pull request runs neither, except `just e2e` when it
-is labelled `e2e`
-([ADR 0174](adr/0174-fast-checks-on-pull-requests.md)). So the two jobs run at once, and only
+Both jobs run on every push to `main`, and on a branch when its workflow is started by hand;
+a pull request runs neither
+([ADR 0188](adr/0188-no-ci-on-pull-requests-and-every-commit-on-main-checked.md)). No push
+cancels another's run, so with several merges in a row the jobs wait in line, one of each at
+a time: about 17.5 minutes per `just e2e (macos)`. So the two jobs run at once, and only
 `oso-mac` opens windows. Both runners run as the same
 macOS user and use the same hooks. The first runner keeps `oso`, the label every macOS job
 asked for before, so a branch that has not merged `main` since still runs both jobs there,
@@ -96,7 +98,7 @@ the runner was registered with:
 - It stops the `oso` and `fake-lsp-server` processes whose executable lies in that runner's
   kept builds, `~/ci-target/<runner>/`. `just ci` starts `fake-lsp-server` too, so stopping
   every process of that name would break the other runner's job.
-- It keeps that folder under its runner's cap, removing pull requests' builds first, then
+- It keeps that folder under its runner's cap, removing branches' builds (`pr`) first, then
   `main`'s. It never removes the other runner's builds, which may be in use, and it trims
   nothing when its folder is a link.
 - The runner named by `e2e_runner`, the first one, has the cap `cap_gb_e2e`; any other
@@ -228,7 +230,7 @@ grep -E '^(e2e_runner|cap_gb_e2e|cap_gb_ci)=' /usr/local/libexec/oso-ci/clean.sh
 ```
 
 `e2e_runner` must be the first runner's name. The kept builds take up to the two caps
-together. Each runner keeps a build for pull requests and one for `main`, and a `just ci`
+together. Each runner keeps a build for branches (`pr`) and one for `main`, and a `just ci`
 build is several times larger than a `just e2e` one, so the ci runner's cap is the larger.
 
 To change a cap, edit `cap_gb_ci=` or `cap_gb_e2e=` with `sudo`; the next job uses it.
@@ -353,7 +355,7 @@ and `-`.
 
 A macOS job stays "Queued" until its runner is back, and GitHub fails a job that waits more
 than 24 hours. No check is required yet, so nothing blocks a merge mechanically. On `main`,
-`ci-ok` waits for them; a pull request's `ci-ok` waits for no job on the Mac.
+`ci-ok` waits for them; pull requests run none.
 
 To run both jobs on GitHub's runners instead:
 

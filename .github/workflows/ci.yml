@@ -1,73 +1,41 @@
 # CI for oso (ADR 0018, ADR 0021). Actions are pinned by commit SHA; update
-# the SHA and the version comment together.
+# the SHA and the version comment together. It runs on every push to main, and on a branch
+# only when started by hand; pull requests run none of it (ADR 0188).
 name: CI
 
 on:
   push:
     branches: [main]
-  pull_request:
+  # On a branch, for a change worth a full run before it merges: gh workflow run ci.yml --ref <branch>.
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Each push to main has a group of its own, so the next push never cancels it and every
+  # commit on main has a result (ADR 0188). A run started by hand on a branch cancels the
+  # branch's earlier one.
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.event_name == 'push' && format('main-{0}', github.run_id) || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' || github.event_name != 'push' }}
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # Whether a pull request changes nothing but docs: files under docs/ and Markdown files at
-  # the root. Then only the jobs that read docs run (the secrets scan, the conflict markers
-  # and structure.yml's adr-cited), and the jobs that build are skipped. Markdown elsewhere is
-  # not docs: tests read crates/oso-term/third-party.md and patches/README.md. A push to main
-  # always runs everything (ADR 0166).
-  changes:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      docs-only: ${{ steps.diff.outputs.docs-only }}
-    steps:
-      - uses: actions/checkout@v7.0.1
-        if: github.event_name == 'pull_request'
-        with:
-          # The base and the head, for the merge base between them.
-          fetch-depth: 0
-          persist-credentials: false
-      - id: diff
-        env:
-          BASE: ${{ github.event.pull_request.base.sha }}
-          HEAD: ${{ github.event.pull_request.head.sha }}
-        run: |
-          docs_only=false
-          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
-            # What the pull request changes, from where it left the base.
-            changed=$(git diff --name-only "$BASE...$HEAD")
-            if [ -n "$changed" ] && ! printf '%s\n' "$changed" | grep -qvE '^docs/|^[^/]+\.md$'; then
-              docs_only=true
-            fi
-          fi
-          echo "docs-only=$docs_only" | tee -a "$GITHUB_OUTPUT"
-
   ci:
     name: just ci (${{ matrix.os }})
-    needs: changes
-    if: needs.changes.outputs.docs-only != 'true'
     strategy:
       fail-fast: false
       matrix:
-        # macOS on pushes to main only (ADR 0174): the commit hook runs the same just ci on
-        # the author's Mac for commits made through Claude Code, though not for merges.
-        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest", "windows-latest"]' || '["ubuntu-latest", "macos", "windows-latest"]') }}
-    # macOS runs on the author's self-hosted Mac (docs/dev/ci-runner.md, ADR 0166), except
-    # for a pull request from a fork, which gets a GitHub-hosted runner. The Mac has two
-    # runners: this job asks for oso-ci, the second one's label, and e2e asks for oso, the
-    # first one's, so that the two run at once and only one opens windows. The repository
+        os: [ubuntu-latest, macos, windows-latest]
+    # macOS runs on the author's self-hosted Mac (docs/dev/ci-runner.md, ADR 0166). The Mac
+    # has two runners: this job asks for oso-ci, the second one's label, and e2e asks for oso,
+    # the first one's, so that the two run at once and only one opens windows. The repository
     # variable OSO_MACOS_RUNNER, a runner label such as macos-latest, overrides the Mac while
-    # it is offline. The runner's own job-started hook refuses a fork's job all the same,
-    # since a fork can edit this line.
-    runs-on: ${{ matrix.os != 'macos' && matrix.os || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'macos-latest' || vars.OSO_MACOS_RUNNER || fromJSON('["self-hosted", "macOS", "ARM64", "oso-ci"]') }}
+    # it is offline. No pull request runs this workflow (ADR 0188); the runner's own
+    # job-started hook refuses a fork's job all the same.
+    runs-on: ${{ matrix.os != 'macos' && matrix.os || vars.OSO_MACOS_RUNNER || fromJSON('["self-hosted", "macOS", "ARM64", "oso-ci"]') }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7.0.1
@@ -78,12 +46,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2.9.3
         if: runner.environment == 'github-hosted'
         with:
-          # Only main writes the cache, so pull requests cannot poison it.
+          # Only main writes the cache, so a branch cannot poison it.
           save-if: ${{ github.ref == 'refs/heads/main' }}
       # The self-hosted Mac keeps its build between jobs instead, outside the workspace, which
-      # checkout cleans: pull requests and main each have their own, so main never builds on
-      # what a branch left (ADR 0166). Each runner has its own folder, named as the runner, and
-      # its hooks clean only that one. git clean removes only the link.
+      # checkout cleans: branches (the pr folder) and main each have their own, so main never
+      # builds on what a branch left (ADR 0166). Each runner has its own folder, named as the
+      # runner, and its hooks clean only that one. git clean removes only the link.
       - name: Keep the build on the runner
         if: runner.environment == 'self-hosted'
         env:
@@ -138,22 +106,16 @@ jobs:
         if: runner.os == 'Linux'
         run: just test-time 60
 
-  # End-to-end tests (e2e.yml), on pushes to main only (ADR 0174). A pull request runs
-  # them from e2e.yml itself, only when labelled e2e, and its ci-ok does not wait for them. Keep this call off pull requests:
-  # there e2e.yml skips its job without the label, and ci-ok would count that as passed.
+  # End-to-end tests (e2e.yml), on every run (ADR 0174, ADR 0188).
   e2e:
-    needs: changes
-    if: github.event_name != 'pull_request' && needs.changes.outputs.docs-only != 'true'
     uses: ./.github/workflows/e2e.yml
 
-  # The one check that says whether a pull request's CI passed (ADR 0166): it fails when a
-  # job above failed or was cancelled, and passes when each succeeded or was skipped, as the
-  # code jobs are for a change to docs alone. It runs even when the run is cancelled, so a
-  # cancelled run never reads as passed. On a pull request it covers the fast checks only, as
-  # macOS just ci and e2e do not run there; on main it covers every job.
+  # The one check that says whether a commit's CI passed (ADR 0166, ADR 0188): it fails when
+  # a job above failed or was cancelled, and passes when each succeeded or was skipped. It
+  # runs even when the run is cancelled, so a cancelled run never reads as passed.
   ci-ok:
     if: always()
-    needs: [changes, ci, e2e, release-safety, public-api, deny, audit, markers, secrets]
+    needs: [ci, e2e, release-safety, public-api, deny, audit, markers, secrets]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -167,8 +129,6 @@ jobs:
   # Release builds must not contain the dev control socket or other dev-only
   # code (ADR 0016, ADR 0032).
   release-safety:
-    needs: changes
-    if: needs.changes.outputs.docs-only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -189,8 +149,6 @@ jobs:
   # The public API must match guardrails/public-api (ADR 0038). Nightly is
   # installed only here, for rustdoc JSON; versions come from the Justfile.
   public-api:
-    needs: changes
-    if: needs.changes.outputs.docs-only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -213,8 +171,6 @@ jobs:
       - run: just public-api-check
 
   deny:
-    needs: changes
-    if: needs.changes.outputs.docs-only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -242,8 +198,6 @@ jobs:
       - run: cargo deny check
 
   audit:
-    needs: changes
-    if: needs.changes.outputs.docs-only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

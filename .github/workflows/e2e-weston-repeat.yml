@@ -1,7 +1,8 @@
 # The headless-Wayland flows again and again, each run under a new Weston, to catch a crash
 # such as the one Weston's pixman renderer had (.github/scripts/e2e-weston.sh). A job stops at
-# the first crash and prints its backtrace. It runs by hand, or on a pull request
-# labelled weston-repeat, and gates nothing. The token stays read-only (ADR 0021).
+# the first crash and prints its backtrace. It runs by hand only, on any branch (gh workflow
+# run e2e-weston-repeat.yml --ref <branch>), and gates nothing; no pull request runs it
+# (ADR 0188). The token stays read-only (ADR 0021).
 name: E2E under Weston, repeated
 
 on:
@@ -25,8 +26,6 @@ on:
         description: "Log every Wayland message Weston handles (WAYLAND_DEBUG=server)"
         type: boolean
         default: true
-  pull_request:
-    types: [labeled, synchronize]
 
 permissions:
   contents: read
@@ -41,7 +40,6 @@ env:
 jobs:
   repeat:
     name: e2e under Weston, repeated (${{ matrix.copy }})
-    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'weston-repeat')
     strategy:
       fail-fast: false
       matrix:
