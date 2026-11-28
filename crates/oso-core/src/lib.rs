@@ -35,6 +35,7 @@ pub mod rope;
 mod search;
 mod secret;
 pub mod selection;
+pub mod sexp;
 pub mod sum_tree;
 pub mod syntax;
 mod undo;

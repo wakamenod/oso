@@ -286,6 +286,22 @@ that the steps touch few lines in common. Each step updates `docs/dev/ui.md` for
    and `C-x C-t`, as Emacs does at a line's end and at the buffer's edges. Tests: clusters,
    Japanese words, several cursors, N and 0.
 
+## Step 1, as built
+
+Built on 2026-11-29; the author approved the changes through the space's orchestrator.
+
+- **No `Rope::reversed_chunks_in_range`.** The scanner reads a display snapshot, not a rope, so
+  it reads backward through crate-private helpers, `DisplaySnapshot::text_before` and
+  `Highlights::runs_before`. No new public item does it.
+- **`Syntax`'s `Debug` is written by hand** and shows its table and whether it has highlights,
+  as a display snapshot has no `Debug`.
+- **A highlighted string or comment costs what it holds, at most `SEEK_COST`.** A full budget
+  of 4 MiB reads in 16 to 21 ms in a release build, forward or backward, with highlights,
+  lexed lines or neither.
+- **A line longer than 64 KiB is all code** where lines are lexed, so a lexed line has a
+  bounded cost.
+- **`up_list` leaves a comment as it leaves a string,** as its first level.
+
 ## Changes to accepted ADRs
 
 - [ADR 0138](0138-language-servers.md), "Keys (Q15)" and the key table: `lsp-next-diagnostic`

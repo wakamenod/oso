@@ -87,6 +87,19 @@ impl Highlights {
         }
     }
 
+    /// The runs before `end`, the nearest first, the one that holds `end` cut to it, with what
+    /// each is. O(log n) to the first, and O(1) each after that.
+    pub(crate) fn runs_before(&self, end: usize) -> RunsBefore<'_> {
+        let end = end.min(self.len());
+        let mut cursor = self.runs.cursor::<usize>();
+        cursor.seek(&end, Bias::Left);
+        RunsBefore {
+            cursor,
+            end,
+            done: end == 0,
+        }
+    }
+
     /// The whole run that holds the byte at `offset`, with what it is, or `None` past the end.
     /// O(log n). Neighbouring runs never have the same highlight, so it is all the text around
     /// `offset` that is what that byte is, such as a whole comment.
@@ -277,6 +290,27 @@ impl Iterator for Runs<'_> {
         let range = self.at..run_end;
         self.at = run_end;
         self.cursor.next();
+        Some((range, run.highlight))
+    }
+}
+
+/// The runs before an offset, the nearest first ([`Highlights::runs_before`]).
+pub(crate) struct RunsBefore<'a> {
+    cursor: Cursor<'a, Run, usize>,
+    end: usize,
+    done: bool,
+}
+
+impl Iterator for RunsBefore<'_> {
+    type Item = (Range<usize>, Option<Highlight>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.done {
+            return None;
+        }
+        let run = self.cursor.item()?;
+        let range = *self.cursor.start()..self.cursor.end().min(self.end);
+        self.done = !self.cursor.prev();
         Some((range, run.highlight))
     }
 }
