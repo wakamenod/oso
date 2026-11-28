@@ -110,6 +110,7 @@ pub(in crate::app::sessions::hosting::native) fn native(buffer: BufferId) -> Nat
         remote_control: crate::app::sessions::hosting::native::remote::RemoteControl::default(),
         not_resumed: None,
         may_have_gone_on: false,
+        stopped_past: super::super::stopped::StoppedPast::None,
     }
 }
 

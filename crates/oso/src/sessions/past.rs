@@ -21,6 +21,9 @@
 //!   nothing is shown, and the rows say why.
 //! - Each line is placed by its top-level fields only; then only the lines shown are read
 //!   again and decoded, at most `native::past`'s limits. Nothing of what was read is logged.
+//! - A session brought back stopped at oso's start reads them once its buffer is first shown
+//!   (part 5c), with no process: on `oso-native-past` too, by the same rules, but nothing
+//!   waits for it; a read a mount holds leaves that thread alone.
 
 use std::fs::File;
 use std::io::{self, BufReader, Read as _, Seek as _, SeekFrom};
@@ -76,6 +79,36 @@ fn read_on_its_thread(ask: &PastAsk, directory: &Path) -> Past {
     }
     read.recv_timeout(DEADLINE + GRACE)
         .unwrap_or_else(|_| missing(Missing::TooSlow))
+}
+
+/// The whole conversation `ask` names, of a stopped session in `directory`, read on
+/// `oso-native-past` within [`DEADLINE`] and handed to `out` there (part 5c). Nothing waits
+/// for it. Whether the thread started.
+pub fn read_for_stopped(
+    ask: PastAsk,
+    directory: PathBuf,
+    out: impl FnOnce(Past) + Send + 'static,
+) -> io::Result<()> {
+    read_stopped_in(super::transcripts::directory(), ask, directory, out)
+}
+
+/// [`read_for_stopped`] with the transcripts under `projects`, if known.
+pub(crate) fn read_stopped_in(
+    projects: Option<PathBuf>,
+    ask: PastAsk,
+    directory: PathBuf,
+    out: impl FnOnce(Past) + Send + 'static,
+) -> io::Result<()> {
+    std::thread::Builder::new()
+        .name("oso-native-past".into())
+        .spawn(move || {
+            let deadline = Instant::now() + DEADLINE;
+            out(match projects {
+                Some(projects) => read_in(&projects, &ask, &directory, deadline),
+                None => Past::missing(Missing::NotFound),
+            });
+        })
+        .map(drop)
 }
 
 /// [`read`] with the transcripts under `projects`, until `deadline`.

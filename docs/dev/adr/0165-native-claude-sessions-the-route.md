@@ -2423,7 +2423,8 @@ renderer and folding of live turns: a resume in a new instance, the person's or 
 `session_resume`, `oso-restart`'s resume (part 4c), a fork, an adoption (part 4e), which says
 "Adopted." after them, and a switch back from the TUI with no transcript set aside, as after an
 oso restart (part 4d-2). A stopped buffer brought back at
-oso's start keeps its one row until it is resumed (Q5-1). A resume whose rows hold the
+oso's start kept its one row until it was resumed (Q5-1); as amended by part 5c, it reads them
+once its buffer is first shown. A resume whose rows hold the
 conversation already, and a switch back into the transcript set aside, wait for part 5b.
 
 - **Where** (a probe of 2026-11-23, CLI 2.1.330, Haiku, in an empty directory with no oso
@@ -2536,6 +2537,58 @@ transcript holds after them, when the conversation may have gone on elsewhere si
   The read places the whole transcript again at each such start, though only what follows is
   decoded: hidden under the CLI's start for the median transcript, not measured at the largest.
 - **New public items:** none.
+
+### Part 5c: a stopped session's earlier turns, as amended
+
+The author's ask of 2026-11-28, which amends Q5-1: after oso quits and starts again, or the
+machine restarts, a stopped native session's buffer showed nothing of its conversation until it
+was resumed; it shows its earlier turns with no resume. The space's orchestrator approved the
+plan below the same day.
+
+- **When.** A native session brought back stopped at oso's start (`bring_back_native`) reads its
+  earlier turns once a window first shows its buffer, as after each event oso looks at the
+  windows only while one such session is unread. Not at oso's start for each one listed: with
+  many stopped sessions that would read every transcript (a median of 1.1 MB, p90 6.2 MB) and
+  keep up to 8 MiB of rows each for buffers nobody opens. Each is read at most once an instance;
+  one that did not read says why, and its resume asks again as part 5a's does. A layout that
+  shows its buffer at oso's start reads it at once. Nothing runs: no process starts.
+- **Where.** On a thread of its own, `oso-native-past`, by part 5a's read as it is
+  (`sessions::past::read_for_stopped`): the same file found the same way, within the same
+  `DEADLINE` (1 s) and limits (`MAX_READ`, `MAX_INDEXED`, `MAX_BYTES`, `MAX_LINES`, the chain from
+  the newest line through `parentUuid` and `logicalParentUuid`, a cut at a message of the
+  person's) and the same rules of trust, so nothing new is read: only `<id>.jsonl` of the
+  session's own id, a regular file of this user's with one name, opened without following a
+  link, in a project directory that is not a link, whose first line naming a directory names
+  the session's; nothing of it logged. No start waits for it, so the UI thread waits for
+  nothing; a read a mount holds leaves that thread, one a session at most.
+- **The rows.** "Stopped. Its conversation is kept by Claude Code." stays first; then part 5a's
+  note and its turns, drawn as a start's are in one change of the buffer, and last "Stopped:
+  C-c a r resumes it here, or r on its row in *Spaces*." A read that fails says why with part
+  5a's note ("Its earlier turns are not shown: …"), then the same last row.
+- **At the resume.** The rows hold the conversation now, and it may have gone on elsewhere
+  since, so the resume asks only for what follows them (part 5b): nothing new adds no row. A
+  start of any kind (a resume, a fork, an adoption, a hand-off to the TUI) while the read runs
+  ends its turn: what it gives after is dropped, and the start reads for itself, so the rows it
+  draws come before anything the process says. A session archived or forgotten meanwhile has
+  no rows to draw it in: it is dropped. An archived session is not brought back, so it is not
+  read; one whose transcript is gone says it was not found.
+- **Who can show it.** The person, or an agent the person let in, as `switch-to-buffer` is a
+  Look command: an agent can so have a stopped session's transcript read without a resume, at
+  most once a session an instance, but cannot read the rows, which native transcripts withhold
+  from agents as a resume's.
+- **TUI sessions** are out: a stopped TUI session's buffer is a terminal.
+- **Tests.** `sessions::past` (the read for a stopped session on its own thread, the whole
+  conversation, no transcripts' directory or file). End to end (`sessions::native::past`): a
+  session stopped and kept in the record, its stand-in transcript written, shows its turns once
+  its buffer is shown at the next start, before the last row, with nothing run; its resume adds
+  none of them again.
+- **Not tested:** a start, a hand-off to the TUI or an archive while the read runs, whose result
+  is then dropped, as the app has no test of its own outside the end-to-end flows; a read on a
+  mount that hangs; that a buffer never shown is never read.
+- **New public items:** none in a library crate. In `oso`:
+  `pub fn read_for_stopped(ask: PastAsk, directory: PathBuf, out: impl FnOnce(Past) + Send +
+  'static) -> std::io::Result<()>` in `sessions::past`, and `UserEvent::StoppedPast(SessionKey,
+  Box<Past>)`.
 
 ## The rows' look, as built
 
@@ -2993,7 +3046,8 @@ Each passage stays in its ADR as written; what holds now follows it.
   stream-json, and writes the five control requests of "The route" with their fallbacks. The Agent
   SDK and ACP stay unused. A native session's earlier turns are read from its transcript once, at
   a start whose rows hold none of them (part 5a), and the turns after its rows at a start whose
-  conversation may have gone on elsewhere (part 5b); what it says live comes from its stream. "The conversation UI is Claude Code's own TUI, not a native oso view.
+  conversation may have gone on elsewhere (part 5b), and a stopped one's once its buffer is
+  shown (part 5c); what it says live comes from its stream. "The conversation UI is Claude Code's own TUI, not a native oso view.
   Permission prompts and dialogs appear inside the TUI": only for a TUI session; a native session's
   conversation and questions are oso buffers.
 - [ADR 0085](0085-agent-channel-and-oso-mcp.md), "**Off by default.**" and "The channel answers

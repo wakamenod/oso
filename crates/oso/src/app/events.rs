@@ -140,6 +140,7 @@ impl App {
             UserEvent::Sessions(out) => self.sessions_reported(out),
             UserEvent::SessionStart(report) => self.session_start_reported(report),
             UserEvent::NativeSession(key, out) => self.native_reported(key, out),
+            UserEvent::StoppedPast(key, past) => self.native_stopped_past(key, *past),
             UserEvent::RemoteLooked(looked) => self.remote_looked(looked),
             UserEvent::ImageKept(key, kept) => self.image_kept(key, *kept),
             UserEvent::Adoptable(found) => self.adoptable_found(*found),
@@ -213,6 +214,7 @@ impl App {
         self.add_dirs_due(std::time::Instant::now());
         self.held_starts_due();
         self.sync_restart_resumes();
+        self.stopped_pasts_due();
         self.dictation_watches_due();
         self.quit_if_idle(event_loop);
         self.restart_if_idle(event_loop);

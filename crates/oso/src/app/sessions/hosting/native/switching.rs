@@ -127,6 +127,8 @@ impl App {
         key: SessionKey,
     ) -> Option<Chosen> {
         let name = self.hosting.table.get(key)?.name.clone();
+        // A stopped one's read of its earlier turns gives way, as to any start (part 5c).
+        self.native_stopped_past_over(key);
         let mut native = self.hosting.natives.map.remove(&key)?;
         let held = chosen_of(&native);
         // Nothing of it asks, runs or is shown as running any more.

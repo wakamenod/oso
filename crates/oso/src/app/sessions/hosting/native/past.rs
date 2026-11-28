@@ -32,6 +32,8 @@ impl App {
     /// hold none of it; what follows their newest messages when it may have gone on elsewhere
     /// since (part 5b); else nothing. Then the notes said meanwhile wait for what is read.
     pub(super) fn native_wants_past(&mut self, key: SessionKey, id: &SessionId) -> Option<PastAsk> {
+        // A stopped one's read, if under way, gives way to this (part 5c).
+        self.native_stopped_past_over(key);
         let from = self.hosting.table.started_by(id);
         let native = self.hosting.natives.map.get_mut(&key)?;
         let after = match native.rows.holds_conversation() {

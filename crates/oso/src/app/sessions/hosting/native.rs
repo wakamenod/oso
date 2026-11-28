@@ -37,7 +37,7 @@
 //!   `switching`'s (part 4d).
 //! - Its earlier turns, read from Claude Code's transcript at a start whose rows hold none of
 //!   them, and the turns after its rows when its conversation may have gone on elsewhere, are
-//!   `past`'s (step 5).
+//!   `past`'s (step 5); a stopped one's, read once its buffer is shown, `stopped`'s (part 5c).
 //! - Its bridge asks the person's permission for its calls on the sessions' socket, in
 //!   `permissions` (step 2).
 //! - Its first message is its brief, if it was given one; else the person writes it in its
@@ -70,6 +70,7 @@ mod resumed;
 mod sending;
 mod slash;
 mod status;
+mod stopped;
 mod suggesting;
 mod switching;
 mod todo;
@@ -214,6 +215,8 @@ struct Native {
     /// Its conversation may have gone on elsewhere since its rows: its process ended other
     /// than to resume at once, or the TUI ran it (part 5b).
     may_have_gone_on: bool,
+    /// Brought back stopped, where the read of its earlier turns is (part 5c).
+    stopped_past: stopped::StoppedPast,
 }
 
 impl Native {
