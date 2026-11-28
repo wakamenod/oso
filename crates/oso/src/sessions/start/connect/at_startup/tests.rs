@@ -106,6 +106,40 @@ fn what_cannot_be_read_is_off_and_says_which_file() {
     );
 }
 
+/// A pipe in a file's place is not opened, so that no writer can hold the thread that reads.
+#[cfg(unix)]
+#[test]
+fn a_pipe_is_refused_and_never_waited_for() {
+    use oso_platform::process::{Executable, Sink, Source, Spawn, spawn};
+    let scratch = Scratch::new("pipe");
+    let fifo = scratch.0.join("config/settings.json");
+    let mkfifo = Executable::from_path("mkfifo", None).expect("mkfifo is on PATH");
+    let status = spawn(&Spawn {
+        executable: &mkfifo,
+        args: &[fifo.clone().into_os_string()],
+        cwd: None,
+        project: None,
+        inherit: &[],
+        stdin: Source::Closed,
+        stdout: Sink::Null,
+        stderr: Sink::Null,
+        own_process_group: false,
+        own_session: false,
+        set: &[],
+        terminal: None,
+        pass_fd: None,
+        args_logged: true,
+    })
+    .and_then(|mut child| child.wait())
+    .expect("cannot run mkfifo");
+    assert!(status.success());
+    assert!(matches!(scratch.files().read(), Reading::Unread(_)));
+    let project = scratch.0.join("project");
+    fs::create_dir_all(project.join(".claude")).unwrap();
+    fs::rename(&fifo, project.join(".claude/settings.json")).unwrap();
+    assert!(project_off(&project).is_err());
+}
+
 #[test]
 fn a_managed_value_comes_before_the_person_s() {
     let scratch = Scratch::new("managed");

@@ -181,17 +181,14 @@ fn value_in(file: &Path) -> Result<Option<bool>, String> {
 }
 
 /// The text of `file` through links, a regular file of at most [`MAX_BYTES`] of UTF-8; `None`
-/// where there is none.
+/// where there is none. A pipe or a device is not opened, nor waited for if swapped in.
 fn read_bounded(file: &Path) -> Result<Option<String>, &'static str> {
-    let opened = match std::fs::File::open(file) {
-        Ok(opened) => opened,
+    let (opened, metadata) = match oso_platform::file_meta::open_for_reading(file) {
+        Ok(Some(opened)) => opened,
+        Ok(None) => return Err("it is not a regular file"),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(_) => return Err("it cannot be opened"),
     };
-    let metadata = opened.metadata().map_err(|_| "it cannot be looked at")?;
-    if !metadata.is_file() {
-        return Err("it is not a regular file");
-    }
     if metadata.len() > MAX_BYTES {
         return Err("it is too large");
     }
