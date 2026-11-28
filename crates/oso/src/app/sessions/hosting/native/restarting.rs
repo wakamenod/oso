@@ -141,7 +141,6 @@ impl App {
             model,
             effort: effort.map(str::to_owned),
             remote: self.remote_carried(key),
-            remote_off: self.hosting.natives.remotes.turned_off.contains(&key),
         })
     }
 
@@ -165,7 +164,6 @@ impl App {
                     .map_or(resume.mode, |native| native.mode.carried()),
                 // Turned off, stopped or moved since, it is not connected again (ADR 0181).
                 remote: resume.remote.clone().filter(|_| self.remote_still_on(*key)),
-                remote_off: self.hosting.natives.remotes.turned_off.contains(key),
                 ..resume.clone()
             })
             .collect()
@@ -261,9 +259,6 @@ impl App {
             native.choice = Choice::restarted(resume.model.as_deref(), resume.effort.as_deref());
         }
         self.native_resumes_for(key, ResumeFor::Restarted(resume.mode));
-        if resume.remote_off {
-            self.hosting.natives.remotes.turned_off.insert(key);
-        }
         let connect = self.remote_again(key, resume.remote.as_ref());
         let connects = connect.is_some();
         let how = How {

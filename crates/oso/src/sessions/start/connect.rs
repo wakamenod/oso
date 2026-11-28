@@ -156,6 +156,16 @@ impl Leave {
     pub fn blocked(&self) -> bool {
         matches!(self, Self::Blocked)
     }
+
+    /// Whether it is the leave of Claude Code's settings (ADR 0189).
+    pub fn by_settings(&self) -> bool {
+        matches!(
+            self,
+            Self::Connect(Connect {
+                was: Was::AtStartup(_)
+            })
+        )
+    }
 }
 
 /// Settles native `order`'s Remote Control, its trust or its space's `gate` judged already:

@@ -63,11 +63,14 @@ other than ssh's `git`, is never connected, as before.
   turns it off for this session." A start that stays off for its remotes says why, as before.
 - **Secret text.** A session whose transcript or composer holds secret text
   ([ADR 0044](0044-control-socket-trust-and-secret-buffers.md)) is not connected at its start,
-  as its start would send what was said.
+  as its start would send what was said. This is judged as the start is ordered, again as a held
+  start goes, and again before oso asks to connect, once the earlier turns of a resume or a fork
+  are in its rows: one they made secret is not asked, and is turned off.
 - **The person's key** turns a marked session off, as before. That off holds for the session
   from then on: its respawns, its resumes and its resume across `oso-restart` stay blocked, until
-  the person turns it on again with the key, which asks RC-2's question. oso turns it off in the
-  same way when:
+  the person turns it on again with the key, which asks RC-2's question. A fork of it is off
+  too, and `oso-restart` carries the off for every conversation, stopped ones too. Quitting oso
+  does not keep it. oso turns it off in the same way when:
   - claude.ai answers another session's id;
   - a restart's reconnection is refused.
 - **Resumes and respawns** follow the setting, as new processes of the TUI would. A respawn asks
@@ -76,7 +79,8 @@ other than ssh's `git`, is never connected, as before.
 - **Forks** follow it too, as a new session. Where the setting is on, the source is no longer
   turned off before the fork. One answered with another session's id is turned off, as before.
 - **`oso-restart`** comes back to the session there as RC-2 has it. The restart's state also
-  carries that the person turned a session off.
+  carries the conversations turned off (`native_remote_off`). One that does not read turns all
+  of them off.
 - **Agents' sessions, their forks and orchestrators** are connected like any other (the author,
   2026-11-28). RC-2's refusals of them at the key go, and so does the record of the
   conversations forked from an agent's session (`native_agents` in the restart's state). At the
@@ -125,7 +129,16 @@ other than ssh's `git`, is never connected, as before.
     configuration lets them, with no question of oso's for being connected, as with a TUI
     session connected by the same setting.
   - An orchestrator's other repositories, given with `--add-dir`, are not judged for their
-    remotes. What it reads of them is sent, as anything a session reads is.
+    remotes. What it reads of them is sent, as anything a session reads is. Whether the CLI
+    sends their remotes as it connects is not measured.
+  - Not measured, and a probe needs the author:
+    - whether a managed `true` comes before `--settings`' `remoteControlAtStartup: false`, so that
+      the CLI connects an unblocked process by itself before oso asks;
+    - whether `disableRemoteControl` holds against it, in a blocked line. Where it does not, the
+      canary says so once.
+  - The space directory's rule looks at the path's ancestors as written: a space directory
+    that is a link into a repository would pass. oso makes those directories.
+  - The person's off is not kept across a quit and a new start of oso.
 - `docs/dev/security.md` says what connects a session.
 
 ## Alternatives considered

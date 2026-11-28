@@ -121,11 +121,11 @@ impl Files {
         let entries = match std::fs::read_dir(&dir) {
             Ok(entries) => entries,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-            Err(_) => return Err(format!("{} could not be listed", dir.display())),
+            Err(_) => return Err(format!("{} could not be listed", shown(&dir))),
         };
         let mut documents: Vec<PathBuf> = Vec::new();
         for entry in entries {
-            let entry = entry.map_err(|_| format!("{} could not be listed", dir.display()))?;
+            let entry = entry.map_err(|_| format!("{} could not be listed", shown(&dir)))?;
             let name = entry.file_name();
             let json = Path::new(&name)
                 .extension()
@@ -134,7 +134,7 @@ impl Files {
                 documents.push(entry.path());
             }
             if documents.len() > MAX_DOCUMENTS {
-                return Err(format!("{} holds too many documents", dir.display()));
+                return Err(format!("{} holds too many documents", shown(&dir)));
             }
         }
         documents.sort();
@@ -160,7 +160,7 @@ pub fn project_off(directory: &Path) -> Result<bool, String> {
 
 /// The setting's value in `file`: `None` where the file or the key is missing.
 fn value_in(file: &Path) -> Result<Option<bool>, String> {
-    let shown = file.display();
+    let shown = shown(file);
     let text = match read_bounded(file) {
         Ok(Some(text)) => text,
         Ok(None) => return Ok(None),
@@ -178,6 +178,15 @@ fn value_in(file: &Path) -> Result<Option<bool>, String> {
             "{shown} could not be read: its {KEY} is not true or false"
         )),
     }
+}
+
+/// The most characters of a path said.
+const MAX_SHOWN: usize = 200;
+
+/// `path` as a row or the echo area may say it: escaped, as a directory's name may hold
+/// anything.
+fn shown(path: &Path) -> String {
+    crate::git::printable(&path.display().to_string(), MAX_SHOWN)
 }
 
 /// The text of `file` through links, a regular file of at most [`MAX_BYTES`] of UTF-8; `None`

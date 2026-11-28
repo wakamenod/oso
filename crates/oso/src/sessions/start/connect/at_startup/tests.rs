@@ -171,6 +171,19 @@ fn a_managed_value_comes_before_the_person_s() {
 }
 
 #[test]
+fn a_file_is_named_escaped() {
+    let scratch = Scratch::new("escaped");
+    let project = scratch.0.join("pro\u{1b}[31mject\u{202e}");
+    fs::create_dir_all(project.join(".claude")).unwrap();
+    fs::write(project.join(".claude/settings.json"), "{").unwrap();
+    let why = project_off(&project).unwrap_err();
+    assert!(
+        !why.contains('\u{1b}') && !why.contains('\u{202e}'),
+        "{why:?}"
+    );
+}
+
+#[test]
 fn a_project_s_false_turns_it_off_and_its_true_does_nothing() {
     let scratch = Scratch::new("project");
     let project = scratch.0.join("project");

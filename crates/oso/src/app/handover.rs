@@ -76,6 +76,7 @@ impl App {
     /// the restart (ADR 0165, part 4c), and the windows after all else (part 4c-2).
     pub(super) fn add_natives(&self, state: &mut Value) {
         carry::natives::add(state, &self.native_resumes());
+        carry::natives::add_turned_off(state, &self.remote_turned_off());
         carry::native_windows::add(state, &self.editor, &self.native_transcripts());
     }
 

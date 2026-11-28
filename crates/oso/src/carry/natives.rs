@@ -41,9 +41,6 @@ pub struct NativeResume {
     /// How it is connected to claude.ai, if the person has it on (ADR 0181). One that does not read
     /// is none: the session resumes off.
     pub remote: Option<RemoteResume>,
-    /// The person turned it off, so that Claude Code's settings do not connect it as it
-    /// resumes (ADR 0189). One that does not read is off too.
-    pub remote_off: bool,
 }
 
 /// How a session is connected to claude.ai (ADR 0181): what must be as it was for the new instance
@@ -85,7 +82,6 @@ fn state(resumes: &[NativeResume]) -> Value {
                     "place": remote.place,
                     "repository": remote.repository,
                 })),
-                "remote_off": resume.remote_off,
             })
         })
         .collect()
@@ -124,6 +120,40 @@ pub(super) fn parse(state: &Map<String, Value>) -> Vec<NativeResume> {
     resumes
 }
 
+/// The most conversations turned off that a state names.
+const MAX_TURNED_OFF: usize = 1024;
+
+/// Adds the conversations the person turned off (ADR 0189) to the exported `state`, after the
+/// resumes; where they do not fit, all are off (`true`).
+pub fn add_turned_off(state: &mut Value, ids: &[String]) {
+    if ids.is_empty() {
+        return;
+    }
+    state["native_remote_off"] = match ids.len() <= MAX_TURNED_OFF {
+        true => json!(ids),
+        false => json!(true),
+    };
+    if super::fits(state).is_err() {
+        state["native_remote_off"] = json!(true);
+    }
+}
+
+/// The conversations `state` says were turned off; `Err` where it says all, or does not read, so
+/// that every one is off: what it says only turns off.
+///
+/// # Errors
+///
+/// Where every conversation is off.
+pub(super) fn parse_turned_off(state: &Map<String, Value>) -> Result<Vec<String>, ()> {
+    match state.get("native_remote_off") {
+        None => Ok(Vec::new()),
+        Some(Value::Array(ids)) if ids.len() <= MAX_TURNED_OFF => {
+            ids.iter().map(|id| session_id(id).ok_or(())).collect()
+        }
+        Some(_) => Err(()),
+    }
+}
+
 /// A session's id, 36 hexadecimal digits and dashes (ADR 0121), which the app reads as one.
 pub(super) fn session_id(value: &Value) -> Option<String> {
     let id = value.as_str()?;
@@ -151,9 +181,6 @@ fn parse_entry(entry: &Map<String, Value>) -> Option<NativeResume> {
         model: text("model", MAX_MODEL)?,
         effort: text("effort", MAX_EFFORT)?,
         remote: entry.get("remote").and_then(parse_remote),
-        remote_off: entry
-            .get("remote_off")
-            .is_some_and(|off| off.as_bool() != Some(false)),
     })
 }
 
@@ -202,7 +229,6 @@ mod tests {
             model: None,
             effort: None,
             remote: None,
-            remote_off: false,
         }
     }
 
@@ -254,25 +280,23 @@ mod tests {
     }
 
     #[test]
-    fn the_person_s_off_goes_and_comes_back_and_what_does_not_read_is_off() {
-        let resumes = vec![NativeResume {
-            remote_off: true,
-            ..resume(ID)
-        }];
-        assert_eq!(parsed(state(&resumes)), resumes);
-        for (field, off) in [
-            (json!(false), false),
-            (json!(true), true),
-            (json!("no"), true),
-            (json!(null), true),
-        ] {
-            let read = parsed(json!([{ "id": ID, "remote_off": field }]));
-            assert_eq!(read[0].remote_off, off, "{field}");
-        }
-        assert!(
-            !parsed(json!([{ "id": ID }]))[0].remote_off,
-            "an older instance's"
+    fn the_conversations_turned_off_go_and_come_back_and_what_does_not_read_is_all() {
+        let ids = vec![ID.to_owned(), OTHER.to_owned()];
+        let mut state = json!({});
+        add_turned_off(&mut state, &ids);
+        assert_eq!(parse_turned_off(state.as_object().unwrap()), Ok(ids));
+        assert_eq!(
+            parse_turned_off(json!({}).as_object().unwrap()),
+            Ok(Vec::new())
         );
+        for odd in [json!(7), json!(["x"]), json!([ID, 7]), json!(null)] {
+            let state = json!({ "native_remote_off": odd });
+            assert_eq!(
+                parse_turned_off(state.as_object().unwrap()),
+                Err(()),
+                "{odd}"
+            );
+        }
     }
 
     #[test]
@@ -284,7 +308,6 @@ mod tests {
                 model: Some("sonnet".into()),
                 effort: Some("low".into()),
                 remote: None,
-                remote_off: false,
             },
             resume(OTHER),
         ];
@@ -356,7 +379,6 @@ mod tests {
             model: Some("opus".into()),
             effort: None,
             remote: None,
-            remote_off: false,
         };
         add(&mut exported, std::slice::from_ref(&resume));
         assert_eq!(
@@ -370,7 +392,6 @@ mod tests {
             model: Some("m".repeat(200)),
             effort: None,
             remote: None,
-            remote_off: false,
         };
         let mut state = export_value(&editor, &[], None, None).unwrap();
         // Within the line by 100 bytes, which the entry is not.

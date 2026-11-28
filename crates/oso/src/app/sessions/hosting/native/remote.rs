@@ -73,6 +73,10 @@ pub(super) struct Remotes {
     /// Sessions turned off, by the person or as oso had to: their next starts are not
     /// connected by those settings, until the person turns it on again.
     pub(super) turned_off: HashSet<SessionKey>,
+    /// Conversations the instance before turned off, carried by `oso-restart`.
+    pub(super) carried_off: HashSet<SessionId>,
+    /// The state before said that all were, or said so in a way that does not read.
+    pub(super) all_carried_off: bool,
     /// Sessions told that those settings connect them.
     told_at_startup: HashSet<SessionKey>,
 }
@@ -242,7 +246,7 @@ impl App {
     }
 
     /// `native-remote-control` of a marked session: turned off, or, going off, ended now.
-    fn remote_off(&mut self, key: SessionKey) {
+    pub(super) fn remote_off(&mut self, key: SessionKey) {
         let name = self.remote_name(key);
         self.hosting.natives.remotes.turned_off.insert(key);
         let Some(native) = self.hosting.natives.map.get_mut(&key) else {
@@ -372,7 +376,7 @@ impl App {
     }
 
     /// Native session `key` did not start, or may not connect after all: no mark stays.
-    pub(super) fn remote_not_started(&mut self, key: SessionKey) {
+    pub(in crate::app::sessions::hosting) fn remote_not_started(&mut self, key: SessionKey) {
         if let Some(native) = self.hosting.natives.map.get_mut(&key) {
             native.remote = Remote::default();
             native.remote_control = RemoteControl::default();
@@ -383,6 +387,13 @@ impl App {
     /// Asks to connect native session `key`, once it is known that it can be asked: after its
     /// events, and once its process's stream is there.
     pub(super) fn remote_ready(&mut self, key: SessionKey) {
+        if !self.remote_marked(key) {
+            return;
+        }
+        // Its earlier turns came before its stream: one they made secret is not asked.
+        if self.remote_at_startup_secret(key) {
+            return;
+        }
         let Hosting { natives, table, .. } = &mut self.hosting;
         let Some(native) = natives.map.get_mut(&key) else {
             return;

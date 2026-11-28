@@ -85,6 +85,8 @@ pub struct State {
     pub reviews: Vec<super::reviews::ReviewEntry>,
     /// The native sessions it resumes once the instance before has gone (ADR 0165, part 4c).
     pub native_resumes: Vec<super::natives::NativeResume>,
+    /// The conversations turned off for Remote Control, or all where it says so (ADR 0189).
+    pub native_remote_off: Result<Vec<String>, ()>,
     /// The native sessions its windows showed (ADR 0165, part 4c-2).
     pub native_windows: Vec<super::native_windows::NativeWindows>,
 }
@@ -274,6 +276,7 @@ pub fn parse(state: &Value) -> Result<State, String> {
         follows: super::terminals::parse_follows(state)?,
         reviews,
         native_resumes: super::natives::parse(state),
+        native_remote_off: super::natives::parse_turned_off(state),
     })
 }
 

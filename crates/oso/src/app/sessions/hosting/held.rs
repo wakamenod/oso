@@ -63,6 +63,11 @@ impl App {
                 native.settings = settings;
                 native.env = env.to_vec();
                 self.native_control_from_now(order.token);
+                // Turned off, or turned secret, while it waited (ADR 0189).
+                if native.remote.by_settings() && !self.remote_at_startup_holds(order.token) {
+                    native.remote = start::connect::Leave::Blocked;
+                    self.remote_not_started(order.token);
+                }
             }
         }
         self.order_session(order);

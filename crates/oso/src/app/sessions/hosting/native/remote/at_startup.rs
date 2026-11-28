@@ -5,6 +5,7 @@
 //! Must not depend on: key presses or the files: the configuration's thread reads them.
 
 use crate::app::App;
+use crate::sessions::identity::SessionId;
 use crate::sessions::start::connect::Connect;
 use crate::sessions::start::connect::at_startup::{Files, Reading};
 use crate::sessions::worker::SessionKey;
@@ -28,22 +29,93 @@ impl App {
     }
 
     /// Leave for native session `key`'s next start to connect as Claude Code's settings say, if
-    /// they do and it may: one turned off is not, nor one whose transcript or composer holds
-    /// secret text, which its start would send.
+    /// they do and it may.
     pub(in crate::app::sessions::hosting::native) fn remote_at_startup(
         &self,
         key: SessionKey,
     ) -> Option<Connect> {
+        let on = self.hosting.natives.remotes.at_startup.on();
+        (on && self.remote_at_startup_holds(key)).then(|| Connect::at_startup(Files::person()))
+    }
+
+    /// Whether native session `key` may be connected as Claude Code's settings say: not one
+    /// turned off, nor one whose transcript or composer holds secret text, which its start would
+    /// send; as it is ordered, as a held order goes, and before it is asked to connect.
+    pub(in crate::app::sessions::hosting) fn remote_at_startup_holds(
+        &self,
+        key: SessionKey,
+    ) -> bool {
         let remotes = &self.hosting.natives.remotes;
-        if !remotes.at_startup.on() || remotes.turned_off.contains(&key) {
-            return None;
+        let id = self.hosting.table.get(key).map(|session| &session.id);
+        let carried = |id: &SessionId| remotes.all_carried_off || remotes.carried_off.contains(id);
+        if remotes.turned_off.contains(&key) || id.is_some_and(carried) {
+            return false;
         }
-        let native = self.hosting.natives.map.get(&key)?;
+        let Some(native) = self.hosting.natives.map.get(&key) else {
+            return false;
+        };
         let secret = |id| (self.editor.buffer(id)).is_some_and(oso_core::buffer::Buffer::is_secret);
-        if secret(native.buffer) || native.composing.buffer.is_some_and(secret) {
-            return None;
+        !secret(native.buffer) && !native.composing.buffer.is_some_and(secret)
+    }
+
+    /// Native session `key`, connected as Claude Code's settings say, turned secret since it was
+    /// ordered, as its earlier turns came: it is not asked to connect, and is turned off, so that
+    /// its process ends and resumes blocked. Whether it was.
+    pub(in crate::app::sessions::hosting::native) fn remote_at_startup_secret(
+        &mut self,
+        key: SessionKey,
+    ) -> bool {
+        let at_startup = (self.hosting.natives.map.get(&key))
+            .is_some_and(|native| native.remote_control.at_startup && !native.remote_control.off());
+        if !at_startup || self.remote_at_startup_holds(key) {
+            return false;
         }
-        Some(Connect::at_startup(Files::person()))
+        self.remote_stays_off(key, "its transcript or composer holds secret text");
+        self.remote_off(key);
+        true
+    }
+
+    /// The fork `key` of the conversation `from`: turned off where that is (ADR 0189).
+    pub(in crate::app::sessions::hosting) fn remote_off_for_a_fork_of(
+        &mut self,
+        from: &SessionId,
+        key: SessionKey,
+    ) {
+        let remotes = &self.hosting.natives.remotes;
+        let source = (self.hosting.table.iter()).find(|session| session.id == *from);
+        let off = remotes.all_carried_off
+            || remotes.carried_off.contains(from)
+            || source.is_some_and(|source| remotes.turned_off.contains(&source.key));
+        if off {
+            self.hosting.natives.remotes.turned_off.insert(key);
+        }
+    }
+
+    /// The conversations turned off, for a restart's state: running or not.
+    pub(in crate::app) fn remote_turned_off(&self) -> Vec<String> {
+        let remotes = &self.hosting.natives.remotes;
+        let mut ids: Vec<String> = (self.hosting.table.iter())
+            .filter(|session| {
+                remotes.all_carried_off
+                    || remotes.turned_off.contains(&session.key)
+                    || remotes.carried_off.contains(&session.id)
+            })
+            .map(|session| session.id.as_str().to_owned())
+            .collect();
+        ids.sort();
+        ids.dedup();
+        ids
+    }
+
+    /// The instance before turned off the conversations `ids`, or all of them.
+    pub(in crate::app) fn remote_turned_off_carried(&mut self, ids: Result<Vec<String>, ()>) {
+        let remotes = &mut self.hosting.natives.remotes;
+        match ids {
+            Ok(ids) => remotes
+                .carried_off
+                .extend(ids.iter().filter_map(|id| SessionId::parse(id))),
+            Err(()) => remotes.all_carried_off = true,
+        }
     }
 
     /// Whether Claude Code's settings connect each native session at start.
