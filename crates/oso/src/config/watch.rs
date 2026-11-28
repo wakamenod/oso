@@ -76,7 +76,7 @@ struct State {
     report: Option<Report>,
     /// What the last look at the agent rules file found, until it is taken (ADR 0121).
     rules: Option<RulesReport>,
-    /// What Claude Code's settings say of Remote Control at start, when it changed (ADR 0188).
+    /// What Claude Code's settings say of Remote Control at start, when it changed (ADR 0189).
     claude: Option<Reading>,
     /// Whether that is the launch's: the first look, which no later one replaced before it was
     /// taken. Only it starts the agent channel (ADR 0108).
@@ -168,7 +168,7 @@ impl Reader {
     }
 
     /// What Claude Code's settings say of Remote Control at start, if it changed since this was
-    /// last asked: the first look says it too (ADR 0188).
+    /// last asked: the first look says it too (ADR 0189).
     pub fn take_claude(&self) -> Option<Reading> {
         self.shared.take_claude()
     }
@@ -226,8 +226,10 @@ fn watch(file: &Path, mut rules: Option<RulesWatch>, mut claude: ClaudeWatch, sh
     let mut said: Option<Said> = None;
     let mut poked = false;
     loop {
-        // Before the file's report, so that the first look has both (ADR 0173).
-        look_at_claude(&mut claude, poked, shared);
+        // Before the file's report, so that the first look has both (ADR 0173), and one wake
+        // says both.
+        let claude_new = look_at_claude(&mut claude, poked, shared);
+        let mut woke = false;
         let now = look(file);
         let refused = matches!(said, Some(Said::Refused(..)));
         if (poked && refused) || seen.as_ref() != Some(&now) {
@@ -255,7 +257,11 @@ fn watch(file: &Path, mut rules: Option<RulesWatch>, mut claude: ClaudeWatch, sh
             if said.as_ref() != Some(&saying) {
                 said = Some(saying);
                 deliver(shared, report);
+                woke = true;
             }
+        }
+        if claude_new && !woke {
+            wake(shared);
         }
         if let Some(watch) = &mut rules {
             look_at_rules(watch, poked, shared);
@@ -344,16 +350,22 @@ fn look_at_rules(watch: &mut RulesWatch, poked: bool, shared: &Shared) {
     }
 }
 
-/// Looks at Claude Code's settings, and hands what is new to the app. A panic there reads as off.
-fn look_at_claude(watch: &mut ClaudeWatch, poked: bool, shared: &Shared) {
+/// Looks at Claude Code's settings, and keeps what is new for the app, whom the caller wakes.
+/// Whether there is something new. A panic there reads as off.
+fn look_at_claude(watch: &mut ClaudeWatch, poked: bool, shared: &Shared) -> bool {
     let reading = catch_unwind(AssertUnwindSafe(|| watch.look(poked)))
         .unwrap_or_else(|_| Some(Reading::Unread("reading them failed".to_owned())));
-    if let Some(reading) = reading {
-        let mut state = shared.lock();
-        state.claude = Some(reading);
-        if let Some(wake) = &state.wake {
-            wake();
-        }
+    let Some(reading) = reading else {
+        return false;
+    };
+    shared.lock().claude = Some(reading);
+    true
+}
+
+/// Wakes the app, to take what is new.
+fn wake(shared: &Shared) {
+    if let Some(wake) = &shared.lock().wake {
+        wake();
     }
 }
 

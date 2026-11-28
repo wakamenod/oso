@@ -158,13 +158,7 @@ fn only_a_stop_asks_as_the_table_says() {
 /// one started without asking asks, as its own starts do.
 #[test]
 fn a_stop_goes_unasked_only_for_the_persons_caller_with_the_setting_on() {
-    let stops = |allowed, caller| {
-        stops_without_asking(CallerStanding {
-            allowed,
-            caller,
-            connected: false,
-        })
-    };
+    let stops = |allowed, caller| stops_without_asking(CallerStanding { allowed, caller });
     assert!(stops(true, Origin::Person));
     assert!(stops(true, Origin::Answered));
     assert!(!stops(true, Origin::Unasked));

@@ -103,7 +103,7 @@ pub fn archive_asks(archive: Archive, tool: &Tool) -> Asks {
 }
 
 /// Whether an archive's stop goes without asking (ADR 0179): as the person's configuration
-/// lets a start, from a session the person started, `caller`, that is not connected to claude.ai. No project's trust is
+/// lets a start, from a session the person started, `caller`. No project's trust is
 /// asked, as a stop runs nothing in a project, and no start limit counts it.
 pub fn stops_without_asking(caller: CallerStanding) -> bool {
     caller.goes_unasked()

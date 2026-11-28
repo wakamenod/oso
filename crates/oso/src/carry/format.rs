@@ -85,8 +85,6 @@ pub struct State {
     pub reviews: Vec<super::reviews::ReviewEntry>,
     /// The native sessions it resumes once the instance before has gone (ADR 0165, part 4c).
     pub native_resumes: Vec<super::natives::NativeResume>,
-    /// The conversations forked from an agent's session (ADR 0181).
-    pub native_agents: super::natives::Agents,
     /// The native sessions its windows showed (ADR 0165, part 4c-2).
     pub native_windows: Vec<super::native_windows::NativeWindows>,
 }
@@ -276,7 +274,6 @@ pub fn parse(state: &Value) -> Result<State, String> {
         follows: super::terminals::parse_follows(state)?,
         reviews,
         native_resumes: super::natives::parse(state),
-        native_agents: super::natives::parse_agents(state),
     })
 }
 

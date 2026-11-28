@@ -109,7 +109,7 @@ impl App {
         buffer: BufferId,
         connect: Option<Connect>,
     ) -> NativeOrder {
-        // A start given no other leave connects as Claude Code's settings say (ADR 0188).
+        // A start given no other leave connects as Claude Code's settings say (ADR 0189).
         let at_startup = connect.is_none();
         let connect = connect.or_else(|| self.remote_at_startup(key));
         let at_startup = at_startup && connect.is_some();

@@ -1,4 +1,4 @@
-//! Claude Code's settings that connect each session to claude.ai as it starts (ADR 0188): looked
+//! Claude Code's settings that connect each session to claude.ai as it starts (ADR 0189): looked
 //! at on the configuration's thread beside `config.toml`, by the same stamps, so that a native
 //! start knows them as it is ordered. How they are read is `sessions::start::connect::at_startup`'s;
 //! a start thread reads them again before its line.
@@ -16,9 +16,16 @@ pub(super) struct ClaudeWatch {
 }
 
 impl ClaudeWatch {
-    /// Watches this user's files.
+    /// Watches this user's files; in a test, none, so that no test reads the person's own.
     pub(super) fn person() -> Self {
-        Self::of(Files::person())
+        #[cfg(not(test))]
+        let files = Files::person();
+        #[cfg(test)]
+        let files = Files {
+            user: None,
+            managed: std::env::temp_dir().join("oso-test-no-managed-settings"),
+        };
+        Self::of(files)
     }
 
     pub(super) fn of(files: Files) -> Self {

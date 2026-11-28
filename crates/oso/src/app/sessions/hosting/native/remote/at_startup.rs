@@ -1,4 +1,4 @@
-//! Remote Control at a native session's start, as Claude Code's settings say (ADR 0188): what the
+//! Remote Control at a native session's start, as Claude Code's settings say (ADR 0189): what the
 //! configuration's thread read of them, and the leave a start is given by them. The start thread
 //! reads them again (`sessions::start::connect`).
 //!
@@ -9,7 +9,7 @@ use crate::sessions::start::connect::Connect;
 use crate::sessions::start::connect::at_startup::{Files, Reading};
 use crate::sessions::worker::SessionKey;
 
-/// What a session is told the first time Claude Code's settings connect it (ADR 0188).
+/// What a session is told the first time Claude Code's settings connect it (ADR 0189).
 pub(super) const TOLD: &str = "Remote Control connects this session to claude.ai, as \
      remoteControlAtStartup in your Claude Code settings says: its conversation and tool output, \
      earlier ones too, its name, git remotes, branch and directory are sent there and kept, and \
@@ -17,7 +17,7 @@ pub(super) const TOLD: &str = "Remote Control connects this session to claude.ai
 
 impl App {
     /// What Claude Code's settings say of connecting each session at start, as the
-    /// configuration's thread read them: an unread file is said in `*Messages*` (ADR 0188).
+    /// configuration's thread read them: an unread file is said in `*Messages*` (ADR 0189).
     pub(in crate::app) fn remote_at_startup_read(&mut self, reading: Reading) {
         if let Reading::Unread(why) = &reading {
             self.editor.note(format!(

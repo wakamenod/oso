@@ -1,5 +1,5 @@
 //! Whether Claude Code's settings connect each session to claude.ai as it starts,
-//! `remoteControlAtStartup` (ADR 0188), read as CLI 2.1.331 reads it: a managed settings
+//! `remoteControlAtStartup` (ADR 0189), read as CLI 2.1.331 reads it: a managed settings
 //! document's value before the person's own, on only for `true`, and a `false` in the project's
 //! or the local settings of the session's directory turns it off. A project's `true` does nothing.
 //!

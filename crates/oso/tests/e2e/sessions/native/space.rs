@@ -152,8 +152,12 @@ fn an_orchestrator_resumes_and_forks_natively_in_its_spaces_directory() {
     let shown = text(&app.wait_for("the row", |state| text(state).contains("Resumed.")));
     assert!(!shown.contains("did not"), "{shown}");
 
-    // Neither it nor an agent's session is connected to claude.ai (ADR 0181).
-    remote_refused(&mut app, "Session fix-login is an orchestrator");
+    // It may be connected to claude.ai, as any session (ADR 0189): the person is asked.
+    app.run_command("native-remote-control", None).unwrap();
+    app.wait_for("the question", |state| {
+        state["card"]["question_takes_answer"] == true
+    });
+    app.send_keys("n");
 
     // A fork of it runs natively there too, judged by the orchestrator it copies.
     app.run_command("session-fork", None).unwrap();
@@ -163,7 +167,7 @@ fn an_orchestrator_resumes_and_forks_natively_in_its_spaces_directory() {
 
     // A session an agent started in the directory does not resume natively there.
     select(&mut app, "*claude: helper*");
-    remote_refused(&mut app, "Session helper was started by an agent");
+    remote_refused(&mut app, "Session helper runs no claude");
     app.run_command("session-resume", None).unwrap();
     app.wait_for("the refusal", |state| {
         state["echo"].as_str().is_some_and(|echo| {

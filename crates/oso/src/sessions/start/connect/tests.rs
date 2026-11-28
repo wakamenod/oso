@@ -444,6 +444,14 @@ fn a_space_s_directory_connects_under_its_gate_in_no_repository() {
         settle(&mut below, Some(&gate)),
         Settled::Refused(IN_REPOSITORY.to_owned())
     );
+    // The person's question looks so too.
+    let looked = super::look_space_directory(&scratch.root);
+    assert_eq!(looked, Err(IN_REPOSITORY.to_owned()));
+    fs::remove_dir(scratch.dir.join(".git")).unwrap();
+    assert_eq!(
+        super::look_space_directory(&scratch.root),
+        Ok(Sent::default())
+    );
 }
 
 #[test]

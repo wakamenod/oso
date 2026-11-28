@@ -131,9 +131,13 @@ impl App {
         else {
             return;
         };
-        let judged = match self.native_trust_listed(&directory, root.as_deref(), true) {
-            Ok(judged) => judged,
-            Err(_) => return self.editor.message("Its project is not trusted now"),
+        // A space's own directory is in no project: its start runs under the space's gate.
+        let judged = match self.is_space_directory(&directory) {
+            true => None,
+            false => match self.native_trust_listed(&directory, root.as_deref(), true) {
+                Ok(judged) => Some(judged),
+                Err(_) => return self.editor.message("Its project is not trusted now"),
+            },
         };
         // In the transcript's window, whose composer goes with it.
         self.composer_go(key, false);
@@ -184,9 +188,12 @@ impl App {
         let spawned = std::thread::Builder::new()
             .name("oso-remote-look".into())
             .spawn(move || {
-                let sent = trust::look(judged)
-                    .and_then(|root| connect::look(&root, &directory, state.as_deref()))
-                    .map(|(sent, _)| sent);
+                let sent = match judged {
+                    Some(judged) => trust::look(judged)
+                        .and_then(|root| connect::look(&root, &directory, state.as_deref()))
+                        .map(|(sent, _)| sent),
+                    None => connect::look_space_directory(&directory),
+                };
                 waker.send(UserEvent::RemoteLooked(Looked { token, sent }));
             });
         if let Err(e) = spawned {

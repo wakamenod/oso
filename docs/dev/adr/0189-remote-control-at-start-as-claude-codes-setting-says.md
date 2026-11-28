@@ -1,4 +1,4 @@
-# 0188. Remote Control at start, as Claude Code's setting says
+# 0189. Remote Control at start, as Claude Code's setting says
 
 - Status: Accepted (the author, 2026-11-28, through the orchestrator session); amends 0181
 - Date: 2026-11-28
@@ -62,8 +62,8 @@ other than ssh's `git`, is never connected, as before.
   are sent there and kept, and whoever holds the account can drive it. native-remote-control
   turns it off for this session." A start that stays off for its remotes says why, as before.
 - **Secret text.** A session whose transcript or composer holds secret text
-  ([ADR 0044](0044-control-socket-trust-and-secret-buffers.md)) is not connected at its start, as its start would send
-  what was said.
+  ([ADR 0044](0044-control-socket-trust-and-secret-buffers.md)) is not connected at its start,
+  as its start would send what was said.
 - **The person's key** turns a marked session off, as before. That off holds for the session
   from then on: its respawns, its resumes and its resume across `oso-restart` stay blocked, until
   the person turns it on again with the key, which asks RC-2's question. oso turns it off in the
@@ -77,6 +77,14 @@ other than ssh's `git`, is never connected, as before.
   turned off before the fork. One answered with another session's id is turned off, as before.
 - **`oso-restart`** comes back to the session there as RC-2 has it. The restart's state also
   carries that the person turned a session off.
+- **Agents' sessions, their forks and orchestrators** are connected like any other (the author,
+  2026-11-28). RC-2's refusals of them at the key go, and so does the record of the
+  conversations forked from an agent's session (`native_agents` in the restart's state). At the
+  key, an orchestrator's space directory needs no trust: it must be in no repository, nor below
+  one, as at its start.
+- **Session tools** no longer ask because their caller is connected (the author, 2026-11-28):
+  they ask, or go unasked, as the configuration says, as a TUI session's do. RC-2's five asks
+  go, and RC-3's asks for `worktree_remove` and a stopped row's archive are not built.
 
 ## Changes to accepted ADRs
 
@@ -84,15 +92,20 @@ other than ssh's `git`, is never connected, as before.
   - "Off by default, everywhere … No configuration, project, agent, session tool or channel
     method turns it on: one command" now reads: off unless the person's Claude Code settings
     connect each session at start, or the person's command does.
-  - "A session an agent started is never connected": it is, by the setting.
+  - "A session an agent started is never connected": it is.
   - "Turning it on asks each time": at the person's key alone.
   - "Before a fork … it is turned off": unless the setting connects the fork.
+  - "Session tools ask": they do not, for being connected.
 - **ADR 0181, "Part RC-2, as built":**
-  - In "Refused", an agent's session and its forks and an orchestrator: the setting connects
-    them. The key still refuses them, as RC-2 has it.
+  - In "Refused", an agent's session and its forks and an orchestrator: no longer refused.
   - "A fork turns its source off first": as above.
-- **ADR 0181,** the parts: RC-3's orchestrators come by the setting, and its session tools' asks
-  stay as RC-2 built them.
+  - "Brought forward from RC-3", the five calls that ask: they no longer do.
+- **ADR 0181, "Where the security review asked for more":** "The session tools ask the person
+  while the session is connected" is undone, as is "No orchestrators … agents' sessions".
+- **ADR 0181,** the parts: RC-3 keeps only the rows of messages and mode changes from
+  elsewhere.
+- **ADR 0135,** "What it covers" and "As built", **ADR 0153**, **ADR 0121** Q14 and step 6, and
+  **ADR 0179**, "Asking": ADR 0181's changes to them are undone.
 - **ADR 0165, "Remote Control is off, as amended":** off unless the setting or the person
   connects it.
 
@@ -107,8 +120,10 @@ other than ssh's `git`, is never connected, as before.
   - An organization's `remoteControlAtStartup` set only in a plist, a policy key or served
     settings is not seen. A `disableRemoteControl` there still refuses oso's request, in the CLI.
   - Agents' sessions and orchestrators are connected. Whoever holds the account, or another
-    session of it, can send them a message, and their session tools then ask as ADR 0181's
-    part RC-2 built them.
+    session of it, can send any connected session a message, an orchestrator's among them. Its
+    session tools then start, resume, add repositories, remove worktrees and archive as the
+    configuration lets them, with no question of oso's for being connected, as with a TUI
+    session connected by the same setting.
   - An orchestrator's other repositories, given with `--add-dir`, are not judged for their
     remotes. What it reads of them is sent, as anything a session reads is.
 - `docs/dev/security.md` says what connects a session.

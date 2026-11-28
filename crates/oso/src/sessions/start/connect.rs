@@ -7,7 +7,7 @@
 //!
 //! - A start is [`Leave::Blocked`] unless the app gives it a [`Connect`], which is made for one
 //!   start and cannot be copied: at the person's `y`, from the parent's restart state, or as
-//!   Claude Code's settings connect each session at start (`at_startup`, ADR 0188), which are
+//!   Claude Code's settings connect each session at start (`at_startup`, ADR 0189), which are
 //!   read again here: no longer on, it starts blocked and says nothing.
 //! - Judged just before the line is built, under the trust the start was judged by, or in a
 //!   space's own directory under its gate, which must be in no repository. Refused, it starts
@@ -135,16 +135,11 @@ impl Connect {
     }
 
     /// Leave as Claude Code's settings connect each session at start, which `files` are read
-    /// again for (ADR 0188).
+    /// again for (ADR 0189).
     pub fn at_startup(files: at_startup::Files) -> Self {
         Self {
             was: Was::AtStartup(Box::new(files)),
         }
-    }
-
-    /// Whether it is Claude Code's settings' leave, which no question or restart gave.
-    pub fn by_settings(&self) -> bool {
-        matches!(self.was, Was::AtStartup(_))
     }
 
     /// The session's id there, if it comes back.
@@ -160,11 +155,6 @@ impl Leave {
     /// Whether the line blocks it.
     pub fn blocked(&self) -> bool {
         matches!(self, Self::Blocked)
-    }
-
-    /// Whether it may connect as Claude Code's settings say (ADR 0188).
-    pub fn by_settings(&self) -> bool {
-        matches!(self, Self::Connect(connect) if connect.by_settings())
     }
 }
 
@@ -232,6 +222,19 @@ fn still_at_startup(files: &at_startup::Files, directory: &Path) -> Result<bool,
         at_startup::Reading::Unread(why) => return Err(why),
     }
     at_startup::project_off(directory).map(|off| !off)
+}
+
+/// What is sent of a space's own `directory` as a session there connects, for the person's
+/// question: nothing of git's, as it must be in no repository, nor below one (ADR 0189).
+///
+/// # Errors
+///
+/// Why a session there does not connect.
+pub fn look_space_directory(directory: &Path) -> Result<Sent, String> {
+    match in_repository(directory) {
+        true => Err(IN_REPOSITORY.to_owned()),
+        false => Ok(Sent::default()),
+    }
 }
 
 /// Where a session in a space's own `directory`, under its `gate`, runs: a directory in no

@@ -1044,7 +1044,7 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   nor the person connect
   ([ADR 0165](adr/0165-native-claude-sessions-the-route.md), as amended,
   [ADR 0181](adr/0181-remote-control-of-native-sessions.md),
-  [ADR 0188](adr/0188-remote-control-at-start-as-claude-codes-setting-says.md)): each other native
+  [ADR 0189](adr/0189-remote-control-at-start-as-claude-codes-setting-says.md)): each other native
   start's, and each one-shot run's, `--settings` has `disableRemoteControl`, so the CLI refuses a
   request to connect it to claude.ai, whatever the project's settings say. Connected, the
   conversation is stored there, and messages and mode changes come from outside oso's window,
@@ -1062,11 +1062,11 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   - The person's command connects one, by a question with a report of what is sent; leave for it
     is for one resume. Either leave is judged again under the trust of that start, or a space
     directory's gate, where the git remotes' addresses must hold no password and no user name
-    but ssh's `git`. The command refuses an agent's session and an orchestrator. The session is marked
+    but ssh's `git`; a space's own directory must be in no repository. The session is marked
     until its process ended. Whoever holds the account then drives it: its messages are no
-    person's at oso, its questions are answered in oso alone, its starts, resumes, added
-    repositories and archives' stops ask, and it may
-    set a mode in which calls run unasked. What the session read stays on Anthropic's servers.
+    person's at oso, its questions are answered in oso alone, its session tools ask or go
+    unasked as the configuration says, as a TUI session's do, and it may set a mode in which
+    calls run unasked. What the session read stays on Anthropic's servers.
     `oso-restart` connects it again only where the session there, the directory, its repository
     and the trust are the same.
   - What the stream says of it is read strictly, and a process started blocked is off whatever it

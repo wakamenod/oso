@@ -10,7 +10,7 @@ use super::{
     Asks, Branch, CallerStanding, Renamable, Resumable, StartLimit, TOOLS, Unasked,
     add_repo_question, add_repo_said, addable, quoted, renamable, rename_clash, rename_note,
     renamed_said, resumable, resume_question, resume_started, start_question, start_started,
-    starts_without_asking, stops_without_asking, tool, worktree_question, worktree_started,
+    starts_without_asking, tool, worktree_question, worktree_started,
 };
 use crate::sessions::identity::Origin;
 
@@ -225,48 +225,7 @@ fn a_start_says_what_started_without_asking() {
 const PERSONS: CallerStanding = CallerStanding {
     allowed: true,
     caller: Origin::Person,
-    connected: false,
 };
-
-/// A session that may be connected to claude.ai asks at every call that goes without asking
-/// otherwise (ADR 0181): a start, a worktree's, a resume, a repository added, and an archive's stop.
-#[test]
-fn a_connected_session_asks_at_each_call() {
-    let covered: Vec<&str> = (TOOLS.iter())
-        .filter(|tool| tool.asks == Asks::UnlessAllowed)
-        .map(|tool| tool.name)
-        .collect();
-    assert_eq!(
-        covered,
-        [
-            "start_worktree_session",
-            "session_start",
-            "session_resume",
-            "space_add_repo",
-            "session_archive",
-        ]
-    );
-    for name in covered {
-        let goes = |connected| {
-            let standing = CallerStanding {
-                connected,
-                ..PERSONS
-            };
-            match name {
-                "session_archive" => stops_without_asking(standing),
-                _ => starts_without_asking(Unasked {
-                    tool: tool(name).unwrap().asks,
-                    standing,
-                    trusted: true,
-                    live_unasked: 0,
-                    limit: StartLimit::Unlimited,
-                }),
-            }
-        };
-        assert!(goes(false), "{name}");
-        assert!(!goes(true), "{name}");
-    }
-}
 
 #[test]
 fn only_the_person_s_session_starts_without_asking_trusted_and_below_its_limit() {

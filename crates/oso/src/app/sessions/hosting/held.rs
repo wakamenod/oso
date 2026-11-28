@@ -88,16 +88,6 @@ impl App {
                 }
             }
         }
-        // Leave to connect holds only for a session it would still be given for (ADR 0181); the
-        // settings' for any (ADR 0188).
-        let token = order.token;
-        if let Runs::Native(native) = &mut order.runs
-            && !native.remote.blocked()
-            && !native.remote.by_settings()
-            && (!matches!(native.gate, start::space_gate::ByGate::No) || self.remote_never(token))
-        {
-            native.remote = start::connect::Leave::Blocked;
-        }
         if order.space.is_some() {
             order.space = self.orchestrator_start_for(order.token)?;
         }

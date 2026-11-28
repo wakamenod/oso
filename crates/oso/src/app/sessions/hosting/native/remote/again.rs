@@ -12,49 +12,19 @@
 //!   same id. Any of these otherwise, it resumes off, and says so.
 
 use crate::app::App;
-use crate::carry::natives::{Agents, RemoteResume};
-use crate::sessions::identity::SessionId;
+use crate::carry::natives::RemoteResume;
 use crate::sessions::native::wire::remote::RemoteId;
 use crate::sessions::start::connect::{Back, Connect, Place};
 use crate::sessions::worker::SessionKey;
 
 impl App {
-    /// The conversations forked from an agent's session that oso still has, for a restart's state.
-    pub(in crate::app) fn natives_of_agents(&self) -> Agents {
-        let natives = &self.hosting.natives;
-        if natives.remotes.any_may_be_agents {
-            return Agents::Unknown;
-        }
-        let named: Vec<String> = (self.hosting.table.iter())
-            .filter(|session| natives.remotes.from_agents.contains(&session.id))
-            .map(|session| session.id.as_str().to_owned())
-            .collect();
-        match named.is_empty() {
-            true => Agents::None,
-            false => Agents::Named(named),
-        }
-    }
-
-    /// The instance before named `agents` so.
-    pub(in crate::app) fn natives_of_agents_carried(&mut self, agents: Agents) {
-        let natives = &mut self.hosting.natives;
-        match agents {
-            Agents::None => {}
-            Agents::Named(ids) => {
-                let ids = ids.iter().filter_map(|id| SessionId::parse(id));
-                natives.remotes.from_agents.extend(ids);
-            }
-            Agents::Unknown => natives.remotes.any_may_be_agents = true,
-        }
-    }
-
     /// How native session `key` is connected, for a restart's state.
     pub(in crate::app::sessions::hosting::native) fn remote_carried(
         &self,
         key: SessionKey,
     ) -> Option<RemoteResume> {
         let native = (self.hosting.natives.map.get(&key)).filter(|native| !native.moved)?;
-        if native.remote_control.respawns() || self.remote_never(key) {
+        if native.remote_control.respawns() {
             return None;
         }
         let place = native.remote_control.place?;
@@ -81,11 +51,10 @@ impl App {
             Some(_) if here.as_deref() != Some(carried.directory.as_ref()) => {
                 Some("its directory is not the one it was connected in")
             }
-            Some(_) if self.remote_never(key) => Some("it is a session that is never connected"),
             Some(_) => None,
         };
         if let Some(why) = refused {
-            // Nor connected afresh as Claude Code's settings say: it stays off (ADR 0188).
+            // Nor connected afresh as Claude Code's settings say: it stays off (ADR 0189).
             self.hosting.natives.remotes.turned_off.insert(key);
             self.remote_stays_off(key, why);
             return None;

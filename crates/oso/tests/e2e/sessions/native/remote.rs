@@ -426,7 +426,7 @@ fn off_pressed_while_oso_restart_waits_is_not_connected_again() {
     let _ = new.exchange("exit", None);
 }
 
-/// A flow whose person's Claude Code settings connect each session at start (ADR 0188), with
+/// A flow whose person's Claude Code settings connect each session at start (ADR 0189), with
 /// its session started and idle after one turn; and the transcript then.
 fn at_startup(test: &str, remote: Option<&str>) -> (Flow, App) {
     let flow = Flow::with(test, REMOTE_FAKE, "");
