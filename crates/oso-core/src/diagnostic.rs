@@ -276,7 +276,7 @@ impl Diagnostics {
         self.in_range(offset..offset)
     }
 
-    /// Where a move from `offset` goes, as `C-M-n` and `C-M-p` do (Q15): the first diagnostic
+    /// Where a move from `offset` goes, as `M-g n` and `M-g p` do (Q15, ADR 0190): the first diagnostic
     /// that is not a hint and starts after it, `forward`, or the last that starts before it;
     /// past either end, the first or the last, with `true` for the wrap. `None` with only
     /// hints, or none. O(log n), plus the hints passed.
