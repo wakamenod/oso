@@ -291,6 +291,25 @@ impl TabMap {
         })
     }
 
+    /// The text before `end`, a chunk's piece at a time, the nearest first. `end` must fall on
+    /// a character's boundary.
+    pub(crate) fn text_before(&self, end: usize) -> impl Iterator<Item = &str> + '_ {
+        let end = end.min(self.summary().bytes);
+        let mut cursor = self.tree.cursor::<usize>();
+        cursor.seek(&end, Bias::Left);
+        let mut done = end == 0;
+        std::iter::from_fn(move || {
+            if done {
+                return None;
+            }
+            let start = *cursor.start();
+            let item = cursor.item()?;
+            let to = (end - start).min(item.text.len());
+            done = !cursor.prev();
+            item.text.get(..to)
+        })
+    }
+
     /// Adds invalid bytes at `base` plus each entry's offset, before the
     /// [`TabMap::sync`] of the append that brought them.
     pub(crate) fn extend_invalid(&mut self, base: usize, entries: &[(usize, u8)]) {

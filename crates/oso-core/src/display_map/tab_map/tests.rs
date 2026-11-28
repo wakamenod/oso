@@ -152,6 +152,17 @@ proptest! {
         let map = TabMap::with_invalid(&rope, &invalid, tab_width);
         answers_as_scanned(&map, &rope, &invalid, tab_width)?;
     }
+
+    #[test]
+    fn text_before_an_offset_reads_back_to_the_start(text in pieces()) {
+        let map = TabMap::new(&Rope::from(text.as_str()), TabWidth::default());
+        for end in (0..=text.len()).filter(|&end| text.is_char_boundary(end)) {
+            let mut back: Vec<&str> = map.text_before(end).collect();
+            back.reverse();
+            prop_assert_eq!(back.concat(), &text[..end]);
+        }
+        prop_assert_eq!(map.text_before(text.len() + 9).collect::<String>().len(), text.len());
+    }
 }
 
 proptest! {

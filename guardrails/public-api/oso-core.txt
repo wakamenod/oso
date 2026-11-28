@@ -6554,6 +6554,65 @@ pub fn oso_core::selection::UpdateOutcome<E>::fmt(&self, &mut core::fmt::Formatt
 impl<E> core::marker::StructuralPartialEq for oso_core::selection::UpdateOutcome<E>
 pub const oso_core::selection::MARK_RING_SIZE: usize
 pub const oso_core::selection::MAX_CURSORS: usize
+pub mod oso_core::sexp
+pub enum oso_core::sexp::ScanError
+pub oso_core::sexp::ScanError::EndsPrematurely
+pub oso_core::sexp::ScanError::NothingToTranspose
+pub oso_core::sexp::ScanError::TooFar
+pub oso_core::sexp::ScanError::Unbalanced
+impl oso_core::sexp::ScanError
+pub fn oso_core::sexp::ScanError::message(self) -> &'static str
+impl core::clone::Clone for oso_core::sexp::ScanError
+pub fn oso_core::sexp::ScanError::clone(&self) -> oso_core::sexp::ScanError
+impl core::cmp::Eq for oso_core::sexp::ScanError
+impl core::cmp::PartialEq for oso_core::sexp::ScanError
+pub fn oso_core::sexp::ScanError::eq(&self, &oso_core::sexp::ScanError) -> bool
+impl core::fmt::Debug for oso_core::sexp::ScanError
+pub fn oso_core::sexp::ScanError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::sexp::ScanError
+pub fn oso_core::sexp::ScanError::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::sexp::ScanError
+impl core::marker::StructuralPartialEq for oso_core::sexp::ScanError
+pub enum oso_core::sexp::Table
+pub oso_core::sexp::Table::Css
+pub oso_core::sexp::Table::Fundamental
+pub oso_core::sexp::Table::Go
+pub oso_core::sexp::Table::Html
+pub oso_core::sexp::Table::Json
+pub oso_core::sexp::Table::Latex
+pub oso_core::sexp::Table::Markdown
+pub oso_core::sexp::Table::Rust
+pub oso_core::sexp::Table::Script
+pub oso_core::sexp::Table::Swift
+pub oso_core::sexp::Table::Toml
+pub oso_core::sexp::Table::Yaml
+impl oso_core::sexp::Table
+pub fn oso_core::sexp::Table::of(oso_core::buffer::Mode) -> Self
+impl core::clone::Clone for oso_core::sexp::Table
+pub fn oso_core::sexp::Table::clone(&self) -> oso_core::sexp::Table
+impl core::cmp::Eq for oso_core::sexp::Table
+impl core::cmp::PartialEq for oso_core::sexp::Table
+pub fn oso_core::sexp::Table::eq(&self, &oso_core::sexp::Table) -> bool
+impl core::fmt::Debug for oso_core::sexp::Table
+pub fn oso_core::sexp::Table::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::sexp::Table
+pub fn oso_core::sexp::Table::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::sexp::Table
+impl core::marker::StructuralPartialEq for oso_core::sexp::Table
+pub struct oso_core::sexp::Syntax<'a>
+impl<'a> oso_core::sexp::Syntax<'a>
+pub fn oso_core::sexp::Syntax<'a>::new(&'a oso_core::display_map::DisplaySnapshot, core::option::Option<&'a oso_core::syntax::Highlights>, oso_core::sexp::Table) -> Self
+impl core::fmt::Debug for oso_core::sexp::Syntax<'_>
+pub fn oso_core::sexp::Syntax<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<'a> core::clone::Clone for oso_core::sexp::Syntax<'a>
+pub fn oso_core::sexp::Syntax<'a>::clone(&self) -> oso_core::sexp::Syntax<'a>
+impl<'a> core::marker::Copy for oso_core::sexp::Syntax<'a>
+pub fn oso_core::sexp::down_list(&oso_core::sexp::Syntax<'_>, &mut oso_core::selection::Selection, isize, &mut oso_core::motion::WalkBudget) -> core::result::Result<(), oso_core::sexp::ScanError>
+pub fn oso_core::sexp::forward_list(&oso_core::sexp::Syntax<'_>, &mut oso_core::selection::Selection, isize, &mut oso_core::motion::WalkBudget) -> core::result::Result<(), oso_core::sexp::ScanError>
+pub fn oso_core::sexp::forward_sexp(&oso_core::sexp::Syntax<'_>, &mut oso_core::selection::Selection, isize, &mut oso_core::motion::WalkBudget) -> core::result::Result<(), oso_core::sexp::ScanError>
+pub fn oso_core::sexp::sexp_end(&oso_core::sexp::Syntax<'_>, usize, isize, &mut oso_core::motion::WalkBudget) -> core::result::Result<usize, oso_core::sexp::ScanError>
+pub fn oso_core::sexp::transpose_ranges(&oso_core::sexp::Syntax<'_>, usize, isize, &mut oso_core::motion::WalkBudget) -> core::result::Result<(core::ops::range::Range<usize>, core::ops::range::Range<usize>), oso_core::sexp::ScanError>
+pub fn oso_core::sexp::up_list(&oso_core::sexp::Syntax<'_>, &mut oso_core::selection::Selection, isize, &mut oso_core::motion::WalkBudget) -> core::result::Result<(), oso_core::sexp::ScanError>
 pub mod oso_core::sum_tree
 pub enum oso_core::sum_tree::Bias
 pub oso_core::sum_tree::Bias::Left

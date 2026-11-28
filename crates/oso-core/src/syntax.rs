@@ -8,6 +8,7 @@ mod compose;
 mod highlights;
 
 pub use compose::compose;
+pub(crate) use highlights::RunsBefore;
 pub use highlights::{Highlights, Runs};
 
 /// The largest text highlighted: a larger buffer stays plain, and keeps no log of its edits. A

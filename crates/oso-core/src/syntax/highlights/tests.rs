@@ -51,6 +51,30 @@ fn a_range_reads_its_runs_cut_to_it() {
 }
 
 #[test]
+fn runs_before_an_offset_come_nearest_first_cut_to_it() {
+    let mut highlights = Highlights::new(10);
+    highlights.replace(
+        2..8,
+        [(3, Some(Highlight::String)), (3, Some(Highlight::Comment))],
+    );
+    let runs: Vec<_> = highlights.runs_before(7).collect();
+    assert_eq!(
+        runs,
+        [
+            (5..7, Some(Highlight::Comment)),
+            (2..5, Some(Highlight::String)),
+            (0..2, None),
+        ]
+    );
+    assert_eq!(
+        highlights.runs_before(5).next(),
+        Some((2..5, Some(Highlight::String)))
+    );
+    assert_eq!(highlights.runs_before(0).count(), 0);
+    assert_eq!(highlights.runs_before(99).next(), Some((8..10, None)));
+}
+
+#[test]
 fn typed_text_takes_the_highlight_before_it() {
     let mut highlights = Highlights::new(10);
     highlights.replace(0..4, [(4, Some(Highlight::String))]);

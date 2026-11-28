@@ -29,7 +29,8 @@ command
 editor
 minibuffer jump
 frame
-window word
+# `sexp` reads expressions over a display snapshot and highlights (ADR 0190).
+window word sexp
 buffer motion search
 undo kill indent
 # `diagnostic` holds a buffer's diagnostics from a language server (ADR 0138, step 6).

@@ -322,6 +322,12 @@ impl DisplaySnapshot {
         self.tab_map.text_in(range)
     }
 
+    /// The text before `end`, a piece at a time, the nearest first. `end` must fall on a
+    /// character's boundary.
+    pub(crate) fn text_before(&self, end: usize) -> impl Iterator<Item = &str> + '_ {
+        self.tab_map.text_before(end)
+    }
+
     /// The buffer's length in bytes.
     pub(crate) fn len(&self) -> usize {
         self.tab_map.summary().bytes
