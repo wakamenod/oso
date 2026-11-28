@@ -582,7 +582,7 @@ only when started by hand (`gh workflow run ci.yml --ref <branch>`). Pull reques
 but `adr-cited`: a pull request merges once its local checks pass (`just ci` by the commit
 hook, `just clippy-windows`, `just public-api-check`, the e2e flows it needs), and what
 `main`'s run then finds is fixed forward
-([ADR 0188](adr/0188-no-ci-on-pull-requests-and-every-commit-on-main-checked.md)). See
+([ADR 0188](adr/0188-no-ci-on-pull-requests-and-mains-runs-never-cancelled.md)). See
 [ADR 0021](adr/0021-development-tooling.md) and
 [ADR 0166](adr/0166-macos-ci-on-a-self-hosted-mac-and-fewer-jobs-per-pull-request.md).
 Its macOS jobs run on a self-hosted Mac, set up as in [ci-runner.md](ci-runner.md).
@@ -619,15 +619,17 @@ On pushes to `main`, in `ci.yml`, and on a branch when started by hand:
   `gh workflow run e2e.yml --ref <branch>` runs them alone on a branch.
 
 On pushes to `main`, nightly at 17:00 UTC, and when started by hand, not on pull requests.
-On `main` none cancels a running run: a newer push replaces only a waiting one (ADR 0188).
+On `main` none cancels a running run. Each push runs `perf.yml`, in order, one run at a
+time, and `e2e-wayland.yml`, beside the others. Coverage and CodeQL analyse only the newest
+waiting commit: a newer push replaces a waiting run (ADR 0188, as amended).
 
 - the performance workflow (`perf.yml`): the benchmarks on Linux and macOS and the build
   time on all three, on GitHub's runners. Results go to the job summary and to JSON
   artifacts, compared with the last result of a push to `main`
   ([ADR 0046](adr/0046-performance-regression-checks.md)). A regression fails the run and
   opens or updates the issue "Performance regression on main"; a push's result becomes the
-  baseline all the same. The nightly run measures only a head of `main` no push run
-  measured. `gh workflow run perf.yml --ref <branch>` measures a branch; a change to the
+  baseline all the same. After a burst of five merges the last result comes about 3.5
+  hours later. The nightly run measures only a head of `main` no push run measured. `gh workflow run perf.yml --ref <branch>` measures a branch; a change to the
   input, render or load paths is measured that way or with `just perf-remote`
   ([ADR 0081](adr/0081-macos-benchmarks-off-pull-requests.md))
 - the coverage workflow (`coverage.yml`), in the job summary; it cannot fail the build

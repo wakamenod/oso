@@ -16,7 +16,7 @@ on:
     paths-ignore: ["docs/**"]
   schedule:
     # Nightly, 17:00 UTC. It measures only a head of main that no push run measured, as
-    # when a newer push replaced its waiting run (ADR 0166, ADR 0188).
+    # when one was cancelled by hand (ADR 0166, ADR 0188).
     - cron: "0 17 * * *"
   workflow_dispatch:
 
