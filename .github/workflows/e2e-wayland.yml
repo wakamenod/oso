@@ -17,10 +17,10 @@ permissions:
   contents: read
 
 concurrency:
-  # A push to main never cancels a running run: the next one waits, and GitHub replaces
-  # only a waiting run with a newer one (ADR 0188). The event is in the group, so a nightly
-  # run does not wait for a push's.
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  # Each push to main has a group of its own, so no push cancels or replaces another's run,
+  # and every commit on main has a result (ADR 0188). The nightly run and a run started by
+  # hand share a group per event and branch.
+  group: ${{ github.workflow }}-${{ github.event_name == 'push' && format('push-{0}', github.run_id) || format('{0}-{1}', github.event_name, github.ref) }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
