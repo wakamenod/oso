@@ -137,6 +137,10 @@ fn push_elsewhere(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 }
 
 fn push_named(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    super::super::refuse_secret_answer(
+        ctx,
+        "A remote or branch holding what may be secret is not given to git",
+    )?;
     let answer = ctx.answer().unwrap_or_default().trim().to_owned();
     if answer.is_empty() {
         return Err(CommandError::new("No remote was named"));

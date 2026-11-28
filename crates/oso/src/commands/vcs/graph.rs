@@ -232,6 +232,10 @@ fn graph_other(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 }
 
 fn graph_of(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    super::super::refuse_secret_answer(
+        ctx,
+        "A ref holding what may be secret is not given to git",
+    )?;
     let answer = ctx.answer().unwrap_or_default().trim().to_owned();
     if answer.is_empty() {
         return Err(CommandError::new("No ref was named"));
@@ -294,6 +298,10 @@ fn confirmed(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 
 /// A graph's prompt's answer, which goes to the host as read.
 fn answered(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    super::super::refuse_secret_answer(
+        ctx,
+        "A name or message holding what may be secret is not given to git",
+    )?;
     let text = ctx.answer().unwrap_or_default().to_owned();
     let buffer = graph(ctx)?;
     ctx.editor

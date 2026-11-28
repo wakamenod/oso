@@ -18,7 +18,7 @@ pub const ALLOW_EMPTY: &str = "allow-empty";
 
 /// Why a message that a secret was yanked into is not committed, by the command and the host.
 pub(crate) const SECRET_MESSAGE: &str =
-    "The message holds secret text, which is not committed: take it out, or C-c C-k";
+    "The message holds secret text, which is not committed: C-c C-k drops it";
 
 macro_rules! command {
     ($name:literal, $doc:literal, $run:ident) => {

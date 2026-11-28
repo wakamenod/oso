@@ -41,7 +41,7 @@ pub(super) fn refuses(buffer: &Buffer) -> Result<(), String> {
         return Err("The composer is no longer one".to_owned());
     }
     if buffer.is_secret() {
-        return Err("The composer holds secret text, which is not sent: take it out".to_owned());
+        return Err("The composer holds secret text, which is not sent: C-x k drops it".to_owned());
     }
     Ok(())
 }

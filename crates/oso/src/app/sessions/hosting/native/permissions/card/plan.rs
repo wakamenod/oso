@@ -265,7 +265,7 @@ impl App {
         if buffer.is_secret() {
             return self
                 .editor
-                .message("The plan holds secret text, which is not sent: take it out");
+                .message("The plan holds secret text, which is not sent: C-c C-k drops it");
         }
         // Measured before it is copied, and never cut.
         if buffer.text().len() > permission::MAX_PLAN {

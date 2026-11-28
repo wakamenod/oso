@@ -19,6 +19,7 @@ use oso_core::minibuffer::{Kind, Outcome, PromptError, PromptId};
 
 use super::branches::BasePrompt;
 use super::{Dispatcher, Step, extended};
+use paths::First;
 
 mod buffer;
 mod note;
@@ -60,12 +61,12 @@ enum Then {
     DirectoryThenText(TextPrompt),
     /// The text a `DirectoryAndTextOnPrefix` or `ListedAndNoteUnlessRegion` command reads
     /// after this first answer.
-    TextAfter(String),
+    TextAfter(First),
     /// The branch a `BranchAndBaseOnPrefix` command read after a prefix argument; its base
     /// prompt follows (ADR 0121).
     BranchThenBase(BasePrompt),
     /// The base a `BranchAndBaseOnPrefix` command reads after this branch.
-    BaseAfter(String),
+    BaseAfter(First),
 }
 
 /// The text prompt that follows a directory's (ADR 0121).
@@ -111,10 +112,13 @@ impl Reading {
     }
 
     /// The same command, with its prefix argument, waiting for the base `prompt` reads after
-    /// `branch`.
-    pub(super) fn base_after(&self, prompt: PromptId, branch: String) -> Self {
+    /// `branch`, which a secret was yanked into if `secret`.
+    pub(super) fn base_after(&self, prompt: PromptId, (branch, secret): (String, bool)) -> Self {
         Self {
-            then: Then::BaseAfter(branch),
+            then: Then::BaseAfter(First {
+                text: branch,
+                secret,
+            }),
             ..Self::run(self.id, self.prefix, prompt)
         }
     }
@@ -432,16 +436,16 @@ impl Dispatcher {
             Then::Replace(stage) => self.replace_answered(editor, reading, stage, (text, secret)),
             Then::Directory(project) => self.directory_answered(editor, reading, *project, text),
             Then::DirectoryThenText(then) => {
-                self.open_text_after(editor, reading, *then, text.to_owned())
+                self.open_text_after(editor, reading, *then, (text.to_owned(), secret))
             }
             Then::BranchThenBase(base) => {
-                self.open_base_after(editor, reading, base, text.to_owned())
+                self.open_base_after(editor, reading, base, (text.to_owned(), secret))
             }
             Then::TextAfter(first) | Then::BaseAfter(first) => {
                 let invocation = Invocation {
-                    answer: Some(first),
+                    answer: Some(&first.text),
                     second: Some(text),
-                    answer_secret: secret,
+                    answer_secret: secret || first.secret,
                     ..Invocation::default()
                 };
                 self.execute(editor, reading.id, args, invocation, Step::MayJoin)

@@ -13,6 +13,7 @@ fn found() -> Found {
         same_worktree: true,
         trusted: true,
         runs: false,
+        secret: false,
         age: Some(Duration::from_secs(60)),
     }
 }
@@ -51,4 +52,26 @@ fn another_worktree_an_untrusted_project_a_run_or_an_old_request_is_refused() {
         let old = Found { age, ..found() };
         assert!(old.check().is_err());
     }
+}
+
+#[test]
+fn a_message_a_secret_was_yanked_into_takes_no_draft_and_says_nothing_of_it() {
+    let secret = Found {
+        secret: true,
+        ..found()
+    };
+    let refused = secret.check().unwrap_err();
+    assert_eq!(
+        refused,
+        "that commit message takes no draft now; nothing was changed"
+    );
+    // Another worktree's caller learns no more than before.
+    let other = Found {
+        same_worktree: false,
+        ..secret
+    };
+    assert_eq!(
+        other.check(),
+        Err("that commit message is another worktree's, or asked another session")
+    );
 }

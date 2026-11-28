@@ -13,13 +13,13 @@ use oso_core::editor::SessionRequest;
 
 /// Why a brief that a secret was yanked into is not sent, by the command and the host.
 pub(crate) const SECRET_BRIEF: &str =
-    "The brief holds secret text, which is not sent: take it out, or C-c C-k";
+    "The brief holds secret text, which is not sent: C-c C-k drops it";
 
 /// The worktree commands.
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "session-worktree",
-        doc: "Start a Claude Code session in a new git worktree of this project, from a brief written in `*Brief*`.\n\nIt reads a branch, completing over the project's local branches; a name that is none of them makes a new branch, which starts at `HEAD`, or with `C-u` at a base read after it. `*Brief*` opens for the brief, sent with `C-c C-c` and dropped with `C-c C-k`. Sending runs `git worktree add` in `.claude/worktrees/` of the repository, copies the files `.worktreeinclude` names that git ignores, and starts a session there with the brief as its first prompt. It needs a trusted project whose main repository is trusted too, as git writes there and runs the filters its configuration names; no hook of the repository runs. It refuses a branch checked out elsewhere.\n\nIn `*Spaces*` (`w`), the project is the row's: from a worktree's row, the new branch starts at that worktree's branch, or at `HEAD` if it is on none; from a session's row, also the session is its parent.",
+        doc: "Start a Claude Code session in a new git worktree of this project, from a brief written in `*Brief*`.\n\nIt reads a branch, completing over the project's local branches; a name that is none of them makes a new branch, which starts at `HEAD`, or with `C-u` at a base read after it. `*Brief*` opens for the brief, sent with `C-c C-c` and dropped with `C-c C-k`. Sending runs `git worktree add` in `.claude/worktrees/` of the repository, copies the files `.worktreeinclude` names that git ignores, and starts a session there with the brief as its first prompt. It needs a trusted project whose main repository is trusted too, as git writes there and runs the filters its configuration names; no hook of the repository runs. It refuses a branch checked out elsewhere, and a branch or base that a secret was yanked into.\n\nIn `*Spaces*` (`w`), the project is the row's: from a worktree's row, the new branch starts at that worktree's branch, or at `HEAD` if it is on none; from a session's row, also the session is its parent.",
         args: ArgSpec::BranchAndBaseOnPrefix {
             prompt: "Worktree branch:",
             base_prompt: "Base:",
@@ -113,6 +113,10 @@ pub const COMMANDS: &[Command] = &[
 
 fn session_worktree(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     super::not_in_prompt(ctx)?;
+    super::refuse_secret_answer(
+        ctx,
+        "A branch or base holding what may be secret is not used",
+    )?;
     let Some((branch, base)) = ctx.branch_and_base() else {
         return Err(CommandError::new(
             "session-worktree reads its branch from the keyboard",
@@ -316,7 +320,7 @@ mod tests {
         assert_eq!(
             run_as(&mut editor, "brief-send", Invocation::default()),
             Err(
-                "brief-send: The brief holds secret text, which is not sent: take it out, or C-c C-k"
+                "brief-send: The brief holds secret text, which is not sent: C-c C-k drops it"
                     .to_owned()
             )
         );
