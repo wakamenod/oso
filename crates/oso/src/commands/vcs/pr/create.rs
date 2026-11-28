@@ -18,6 +18,10 @@ pub const BASE: &str = "pr-base";
 /// The merge menu's switch that deletes the branch on the remote.
 pub const DELETE_BRANCH: &str = "pr-delete-branch";
 
+/// Why a message that a secret was yanked into is not sent, by the command and the host.
+pub(crate) const SECRET_MESSAGE: &str =
+    "The message holds secret text, which is not sent: take it out, or C-c C-k";
+
 /// The keys of a pull request's message and their commands, which `bindings` binds.
 pub const MESSAGE_KEYS: &[(&str, &str)] = &[
     ("C-c C-c", "git-pr-create-finish"),
@@ -58,13 +62,13 @@ pub const COMMANDS: &[Command] = &[
     ),
     command!(
         "git-pr-create-finish",
-        "In a pull request's message, make it through `gh` (`C-c C-c`).",
+        "In a pull request's message, make it through `gh` (`C-c C-c`).\n\nA message that a secret was yanked into is not sent.",
         ArgSpec::None,
         finish
     ),
     command!(
         "git-pr-create-cancel",
-        "In a pull request's message, drop it, keeping its text for `M-p` (`C-c C-k`).",
+        "In a pull request's message, drop it, keeping its text for `M-p` (`C-c C-k`), unless a secret was yanked into it.",
         ArgSpec::None,
         cancel
     ),
@@ -151,6 +155,10 @@ fn create_base(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 
 fn finish(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     let buffer = message(ctx)?;
+    // A yank of a secret entry turns it secret: a text that a secret was put in stays marked.
+    if ctx.editor.current().1.is_secret() {
+        return Err(CommandError::new(SECRET_MESSAGE));
+    }
     ask(ctx, GitRequest::PrCreateFinish { buffer })
 }
 

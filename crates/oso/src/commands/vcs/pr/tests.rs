@@ -233,3 +233,26 @@ fn an_issue_s_keys_act_at_the_primary_cursor_and_mean_nothing_elsewhere() {
         ]
     );
 }
+
+#[test]
+fn a_message_that_a_secret_was_yanked_into_is_not_sent() {
+    let (mut editor, _) = crate::commands::review::tests::in_project(true);
+    let mut buffer = oso_core::buffer::Buffer::from_text("*pull request: b*", "Title\n");
+    buffer.set_mode(oso_core::buffer::Mode::GitPrMessage);
+    let id = editor.add_buffer(buffer);
+    editor.show(id);
+    editor.kill_new("hunter2", true);
+    editor.yank(0, false).unwrap();
+    assert!(editor.current().1.is_secret());
+    let (result, _) = run(&mut editor, "git-pr-create-finish", Args::NONE);
+    assert_eq!(
+        result.unwrap_err(),
+        "The message holds secret text, which is not sent: take it out, or C-c C-k"
+    );
+    let (result, _) = run(&mut editor, "git-pr-create-cancel", Args::NONE);
+    assert!(result.is_ok());
+    assert_eq!(
+        editor.take_git_requests(),
+        [GitRequest::PrCreateCancel { buffer: id }]
+    );
+}

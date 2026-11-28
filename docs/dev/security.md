@@ -618,7 +618,9 @@ shown, boxed or escaped.
   ([ADR 0175](adr/0175-dictation-through-typewhisper.md)). A kill from a buffer that may hold secrets
   goes there marked concealed for clipboard managers, never shows over the socket, and
   makes the buffer it is yanked into secret, also after a round trip through another app;
-  query-replace and `insert` refuse a text it was yanked into unless the buffer counts as secret
+  query-replace and `insert` refuse a text it was yanked into unless the buffer counts as secret,
+  and a brief or a commit's or pull request's message that it was put in is not sent, committed
+  or kept for `M-p`: a text that a secret was put in stays marked
   ([ADR 0074](adr/0074-the-kill-ring-and-the-clipboard.md)). An image is read only on
   `session-yank-image` and never decoded in oso's process: it is copied into a new `0600` file
   in a `0700` directory under the cache, a TIFF is converted by `/usr/bin/sips` in a child

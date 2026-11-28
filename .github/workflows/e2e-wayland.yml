@@ -1,6 +1,6 @@
 # The end-to-end flows under a headless Wayland compositor (ADR 0070), on pushes to main and
-# nightly, as it gates nothing yet. The flows that gate pull requests are in ci.yml
-# (ADR 0166). Nothing here reads a baseline or writes anything back, so the token stays
+# nightly, as it gates nothing yet. The flows that gate main are in e2e.yml, which ci.yml
+# calls (ADR 0174, ADR 0188). Nothing here reads a baseline or writes anything back, so the token stays
 # read-only (ADR 0021).
 name: E2E under Wayland
 
@@ -17,9 +17,11 @@ permissions:
   contents: read
 
 concurrency:
-  # The event is in the group, so a nightly run does not cancel a push's.
+  # A push to main never cancels a running run: the next one waits, and GitHub replaces
+  # only a waiting run with a newer one (ADR 0188). The event is in the group, so a nightly
+  # run does not wait for a push's.
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
   CARGO_TERM_COLOR: always
