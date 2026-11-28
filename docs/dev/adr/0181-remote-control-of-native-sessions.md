@@ -1,6 +1,7 @@
 # 0181. Remote Control of native sessions
 
-- Status: Accepted, amended by 0165 ("The mark", 2026-11-24)
+- Status: Accepted, amended by 0165 ("The mark", 2026-11-24) and by 0188 (connected at start, as
+  Claude Code's `remoteControlAtStartup` says, 2026-11-28)
 - Date: 2026-11-24
 
 ## Context

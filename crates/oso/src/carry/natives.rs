@@ -41,6 +41,9 @@ pub struct NativeResume {
     /// How it is connected to claude.ai, if the person has it on (ADR 0181). One that does not read
     /// is none: the session resumes off.
     pub remote: Option<RemoteResume>,
+    /// The person turned it off, so that Claude Code's settings do not connect it as it
+    /// resumes (ADR 0188). One that does not read is off too.
+    pub remote_off: bool,
 }
 
 /// How a session is connected to claude.ai (ADR 0181): what must be as it was for the new instance
@@ -82,6 +85,7 @@ fn state(resumes: &[NativeResume]) -> Value {
                     "place": remote.place,
                     "repository": remote.repository,
                 })),
+                "remote_off": resume.remote_off,
             })
         })
         .collect()
@@ -190,6 +194,9 @@ fn parse_entry(entry: &Map<String, Value>) -> Option<NativeResume> {
         model: text("model", MAX_MODEL)?,
         effort: text("effort", MAX_EFFORT)?,
         remote: entry.get("remote").and_then(parse_remote),
+        remote_off: entry
+            .get("remote_off")
+            .is_some_and(|off| off.as_bool() != Some(false)),
     })
 }
 
@@ -238,6 +245,7 @@ mod tests {
             model: None,
             effort: None,
             remote: None,
+            remote_off: false,
         }
     }
 
@@ -289,6 +297,28 @@ mod tests {
     }
 
     #[test]
+    fn the_person_s_off_goes_and_comes_back_and_what_does_not_read_is_off() {
+        let resumes = vec![NativeResume {
+            remote_off: true,
+            ..resume(ID)
+        }];
+        assert_eq!(parsed(state(&resumes)), resumes);
+        for (field, off) in [
+            (json!(false), false),
+            (json!(true), true),
+            (json!("no"), true),
+            (json!(null), true),
+        ] {
+            let read = parsed(json!([{ "id": ID, "remote_off": field }]));
+            assert_eq!(read[0].remote_off, off, "{field}");
+        }
+        assert!(
+            !parsed(json!([{ "id": ID }]))[0].remote_off,
+            "an older instance's"
+        );
+    }
+
+    #[test]
     fn resumes_go_and_come_back_as_they_were() {
         let resumes = vec![
             NativeResume {
@@ -297,6 +327,7 @@ mod tests {
                 model: Some("sonnet".into()),
                 effort: Some("low".into()),
                 remote: None,
+                remote_off: false,
             },
             resume(OTHER),
         ];
@@ -394,6 +425,7 @@ mod tests {
             model: Some("opus".into()),
             effort: None,
             remote: None,
+            remote_off: false,
         };
         add(&mut exported, std::slice::from_ref(&resume));
         assert_eq!(
@@ -407,6 +439,7 @@ mod tests {
             model: Some("m".repeat(200)),
             effort: None,
             remote: None,
+            remote_off: false,
         };
         let mut state = export_value(&editor, &[], None, None).unwrap();
         // Within the line by 100 bytes, which the entry is not.

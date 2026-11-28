@@ -32,10 +32,12 @@ use crate::sessions::native::remote::off::Off;
 use crate::sessions::native::remote::refusal::{At, Refused, Whose};
 use crate::sessions::native::wire::control::Request;
 use crate::sessions::native::wire::remote::Enable;
+use crate::sessions::start::connect::at_startup::Reading;
 use crate::sessions::start::connect::{Connect, Place, Sent, Settled};
 use crate::sessions::worker::SessionKey;
 
 mod again;
+mod at_startup;
 mod question;
 
 pub(crate) use question::Looked;
@@ -71,6 +73,14 @@ pub(super) struct Remotes {
     from_agents: HashSet<SessionId>,
     forks_of_agents: HashSet<SessionKey>,
     any_may_be_agents: bool,
+    /// What Claude Code's settings say of connecting each session at start, as the
+    /// configuration's thread last read them (ADR 0188).
+    pub(super) at_startup: Reading,
+    /// Sessions turned off, by the person or as oso had to: their next starts are not
+    /// connected by those settings, until the person turns it on again.
+    pub(super) turned_off: HashSet<SessionKey>,
+    /// Sessions told that those settings connect them.
+    told_at_startup: HashSet<SessionKey>,
 }
 
 /// Remote Control of a session beside its process's state.
@@ -87,6 +97,8 @@ pub(super) struct RemoteControl {
     told_off: bool,
     /// Where its process runs, for a restart.
     pub(super) place: Option<Place>,
+    /// Its process was started to connect as Claude Code's settings say (ADR 0188).
+    pub(super) at_startup: bool,
 }
 
 impl RemoteControl {
@@ -264,6 +276,7 @@ impl App {
         };
         native.remote_control.connect = Some(Connect::asked(sent));
         stop(native);
+        self.hosting.natives.remotes.turned_off.remove(&key);
         self.native_note_row(
             key,
             "Turning Remote Control on: claude ends, and resumes its conversation to connect.",
@@ -275,6 +288,7 @@ impl App {
     /// `native-remote-control` of a marked session: turned off, or, going off, ended now.
     fn remote_off(&mut self, key: SessionKey) {
         let name = self.remote_name(key);
+        self.hosting.natives.remotes.turned_off.insert(key);
         let Some(native) = self.hosting.natives.map.get_mut(&key) else {
             return self
                 .editor
@@ -359,23 +373,35 @@ impl App {
         match &settled {
             Settled::Connects(place) => {
                 native.remote_control.place = *place;
+                let at_startup = native.remote_control.at_startup;
+                if at_startup && self.hosting.natives.remotes.told_at_startup.insert(key) {
+                    self.native_note_row(key, at_startup::TOLD);
+                }
                 self.remote_ready(key);
                 return self.sweep_remote_off();
             }
             Settled::Blocked if !native.remote.marked() => return,
             // Nothing is left to turn off.
-            Settled::Blocked | Settled::Refused(_) => native.remote_control.off = false,
+            Settled::Blocked | Settled::Refused(_) | Settled::NotAtStartup => {
+                native.remote_control.off = false;
+            }
         }
-        let why = match settled {
-            Settled::Refused(why) => Some(why),
-            Settled::Blocked | Settled::Connects(_) => None,
-        };
         // One that ended and resumes already is another start's.
         let canary = native.remote.marked() && native.remote.start_blocked();
         if canary {
             self.follow(key, super::control::Follow::Canary);
         }
-        self.remote_stays_off(key, why.as_deref().unwrap_or("it was started blocked"));
+        match settled {
+            Settled::Refused(why) => self.remote_stays_off(key, &why),
+            // Claude Code's settings no longer connect it: as any start of theirs.
+            Settled::NotAtStartup => {
+                self.native_note_changed(key);
+                self.sessions_touched();
+            }
+            Settled::Blocked | Settled::Connects(_) => {
+                self.remote_stays_off(key, "it was started blocked");
+            }
+        }
     }
 
     /// Remote Control of native session `key` stays off, as `why` says: in its rows and the echo
@@ -433,6 +459,7 @@ impl App {
     /// The session there is not the one native session `key` comes back to, or is another
     /// session's here: it is turned off at once.
     pub(super) fn remote_elsewhere(&mut self, key: SessionKey) {
+        self.hosting.natives.remotes.turned_off.insert(key);
         if let Some(native) = self.hosting.natives.map.get_mut(&key) {
             native.remote_control.off = true;
             stop(native);

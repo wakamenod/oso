@@ -23,8 +23,10 @@ use oso_core::buffer::FileStamp;
 
 use super::agent_rules::{RulesReport, RulesWatch};
 use super::checked::{Unread, read};
+use super::claude_settings::ClaudeWatch;
 use super::{Builtin, Loaded, STACK, Source, parse};
 use crate::loader::stamp_of;
+use crate::sessions::start::connect::at_startup::Reading;
 use crate::{bindings, commands};
 
 /// The largest file read (ADR 0110).
@@ -74,6 +76,8 @@ struct State {
     report: Option<Report>,
     /// What the last look at the agent rules file found, until it is taken (ADR 0121).
     rules: Option<RulesReport>,
+    /// What Claude Code's settings say of Remote Control at start, when it changed (ADR 0188).
+    claude: Option<Reading>,
     /// Whether that is the launch's: the first look, which no later one replaced before it was
     /// taken. Only it starts the agent channel (ADR 0108).
     launch: bool,
@@ -109,6 +113,10 @@ impl Shared {
     fn take_rules(&self) -> Option<RulesReport> {
         self.lock().rules.take()
     }
+
+    fn take_claude(&self) -> Option<Reading> {
+        self.lock().claude.take()
+    }
 }
 
 impl Reader {
@@ -124,10 +132,11 @@ impl Reader {
         let shared = Arc::new(Shared::default());
         let thread_shared = Arc::clone(&shared);
         let rules = RulesWatch::beside(&file);
+        let claude = ClaudeWatch::person();
         let spawned = thread::Builder::new()
             .name("oso-config".into())
             .stack_size(STACK)
-            .spawn(move || run(&file, rules, &thread_shared));
+            .spawn(move || run(&file, rules, claude, &thread_shared));
         if let Err(e) = spawned {
             log::warn!("cannot read the configuration: {e}");
             return None;
@@ -138,7 +147,7 @@ impl Reader {
     /// Calls `wake` whenever a look finds something new to take, and now if it already has.
     pub fn set_wake(&self, wake: impl Fn() + Send + 'static) {
         let mut state = self.shared.lock();
-        if state.report.is_some() || state.rules.is_some() {
+        if state.report.is_some() || state.rules.is_some() || state.claude.is_some() {
             wake();
         }
         state.wake = Some(Box::new(wake));
@@ -158,6 +167,12 @@ impl Reader {
         self.shared.take_rules()
     }
 
+    /// What Claude Code's settings say of Remote Control at start, if it changed since this was
+    /// last asked: the first look says it too (ADR 0188).
+    pub fn take_claude(&self) -> Option<Reading> {
+        self.shared.take_claude()
+    }
+
     /// Looks at the file now: oso gained the focus, or saved a file. A file refused is read
     /// again whatever it looks like.
     pub fn look_again(&self) {
@@ -175,9 +190,9 @@ impl Drop for Reader {
 
 /// The thread: reads `file` at once, and again whenever it is found changed. A panic anywhere
 /// on it, as the loader and the saver catch theirs, is said, and ends it.
-fn run(file: &Path, rules: Option<RulesWatch>, shared: &Shared) {
+fn run(file: &Path, rules: Option<RulesWatch>, claude: ClaudeWatch, shared: &Shared) {
     dev_delay_first_look();
-    if catch_unwind(AssertUnwindSafe(|| watch(file, rules, shared))).is_err() {
+    if catch_unwind(AssertUnwindSafe(|| watch(file, rules, claude, shared))).is_err() {
         let refused = Report::Refused("reading it failed".to_owned());
         let _ = catch_unwind(AssertUnwindSafe(|| deliver(shared, refused)));
     }
@@ -197,8 +212,8 @@ fn dev_delay_first_look() {
 fn dev_delay_first_look() {}
 
 /// Reads `file` whenever it is found changed, or a look is asked for, and says what is new; and
-/// the agent rules file beside it, in the same way.
-fn watch(file: &Path, mut rules: Option<RulesWatch>, shared: &Shared) {
+/// the agent rules file beside it and Claude Code's settings, in the same way.
+fn watch(file: &Path, mut rules: Option<RulesWatch>, mut claude: ClaudeWatch, shared: &Shared) {
     let registry = commands::registry();
     let defaults = bindings::global_keymap(&registry);
     let session = bindings::session_keymap(&registry);
@@ -211,6 +226,8 @@ fn watch(file: &Path, mut rules: Option<RulesWatch>, shared: &Shared) {
     let mut said: Option<Said> = None;
     let mut poked = false;
     loop {
+        // Before the file's report, so that the first look has both (ADR 0173).
+        look_at_claude(&mut claude, poked, shared);
         let now = look(file);
         let refused = matches!(said, Some(Said::Refused(..)));
         if (poked && refused) || seen.as_ref() != Some(&now) {
@@ -323,6 +340,19 @@ fn look_at_rules(watch: &mut RulesWatch, poked: bool, shared: &Shared) {
                 crate::sessions::rules::LOCAL_FILE
             )];
             deliver_rules(shared, RulesReport { rules: None, notes });
+        }
+    }
+}
+
+/// Looks at Claude Code's settings, and hands what is new to the app. A panic there reads as off.
+fn look_at_claude(watch: &mut ClaudeWatch, poked: bool, shared: &Shared) {
+    let reading = catch_unwind(AssertUnwindSafe(|| watch.look(poked)))
+        .unwrap_or_else(|_| Some(Reading::Unread("reading them failed".to_owned())));
+    if let Some(reading) = reading {
+        let mut state = shared.lock();
+        state.claude = Some(reading);
+        if let Some(wake) = &state.wake {
+            wake();
         }
     }
 }

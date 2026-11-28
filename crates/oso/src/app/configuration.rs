@@ -247,6 +247,10 @@ impl App {
         if let Some(rules) = rules {
             self.agent_rules_reported(rules);
         }
+        let claude = (self.configuration.reader.as_ref()).and_then(Reader::take_claude);
+        if let Some(reading) = claude {
+            self.remote_at_startup_read(reading);
+        }
         let configuration = &self.configuration;
         let Some((report, launch)) = configuration.reader.as_ref().and_then(Reader::take) else {
             return;

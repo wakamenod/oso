@@ -85,6 +85,8 @@ impl App {
             Some(_) => None,
         };
         if let Some(why) = refused {
+            // Nor connected afresh as Claude Code's settings say: it stays off (ADR 0188).
+            self.hosting.natives.remotes.turned_off.insert(key);
             self.remote_stays_off(key, why);
             return None;
         }

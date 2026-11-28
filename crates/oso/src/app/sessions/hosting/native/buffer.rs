@@ -109,6 +109,10 @@ impl App {
         buffer: BufferId,
         connect: Option<Connect>,
     ) -> NativeOrder {
+        // A start given no other leave connects as Claude Code's settings say (ADR 0188).
+        let at_startup = connect.is_none();
+        let connect = connect.or_else(|| self.remote_at_startup(key));
+        let at_startup = at_startup && connect.is_some();
         if let Some(native) = self.hosting.natives.map.get_mut(&key) {
             native.control = Some(Control::started(std::time::Instant::now()));
             native.interrupt = Interrupt::new(interrupting::SIGNALS);
@@ -122,6 +126,7 @@ impl App {
                 None => Remote::default(),
             };
             native.remote_control = super::remote::RemoteControl::default();
+            native.remote_control.at_startup = at_startup;
         }
         // The mode it was in, as `--resume` keeps none (part 3b), and the model and effort
         // chosen (part 3c).
