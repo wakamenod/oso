@@ -173,7 +173,12 @@ fn a_managed_value_comes_before_the_person_s() {
 #[test]
 fn a_file_is_named_escaped() {
     let scratch = Scratch::new("escaped");
-    let project = scratch.0.join("pro\u{1b}[31mject\u{202e}");
+    // Windows takes no control character in a name, so there the bidi mark alone.
+    let name = match cfg!(windows) {
+        true => "project\u{202e}",
+        false => "pro\u{1b}[31mject\u{202e}",
+    };
+    let project = scratch.0.join(name);
     fs::create_dir_all(project.join(".claude")).unwrap();
     fs::write(project.join(".claude/settings.json"), "{").unwrap();
     let why = project_off(&project).unwrap_err();

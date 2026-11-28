@@ -18,6 +18,9 @@ perf_target := "target/perf-build"
 # `perf-remote` builds both sides here, apart from those, with the features asked for, the
 # base's own if given.
 perf_remote_target := "target/perf-remote"
+# `e2e-remote` builds here, apart from target/debug, which the hook's `just ci` rebuilds
+# without the dev feature, so builds may go on during a run.
+e2e_remote_target := "target/e2e-remote"
 # The whole test run stays within this on the author's Mac (ADR 0037).
 test_budget_s := "30"
 # The design health report lists this many surviving mutants.
@@ -396,6 +399,124 @@ e2e runs="1":
         cargo test --locked -p oso --features dev --test e2e -- --ignored --test-threads=1 \
             || { echo "e2e: run $run of {{runs}} failed"; exit 1; }
     done
+
+# Run the e2e flows TESTS (names, space-separated, as cargo test's filters) on the ssh host OSO_PERF_HOST, from the working tree or REF. It builds here and only runs there, once no e2e job of that Mac's CI runner, perf run or other e2e-remote is running
+[positional-arguments]
+e2e-remote tests ref="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    host="${OSO_PERF_HOST:?set OSO_PERF_HOST to an ssh host, a Mac that runs what is built here}"
+    ref=${2:-}
+    read -r -a filters <<< "$1"
+    [ "${#filters[@]}" -gt 0 ] || { echo "error: name at least one flow"; exit 1; }
+    for f in "${filters[@]}"; do
+        [[ "$f" =~ ^[A-Za-z0-9_:]+$ ]] || { echo "error: not a test name: $f"; exit 1; }
+    done
+    root="{{e2e_remote_target}}"
+    run=$(date +%Y%m%d-%H%M%S)
+    out="$root/runs/$run"
+    mkdir -p "$out"
+    if [ -z "$ref" ]; then
+        manifest=Cargo.toml
+        target="$root/tree"
+        what="the working tree at $(git rev-parse --short HEAD)"
+        git diff --quiet HEAD || what="$what with changes"
+    else
+        rev=$(git rev-parse --verify "$ref^{commit}")
+        src="$root/ref-src"
+        rm -rf "$src" && mkdir -p "$src"
+        git archive "$rev" | tar -x -C "$src"
+        # Before it, the flows run the binaries at the paths they were built at, which are here.
+        grep -q OSO_E2E_BIN_DIR "$src/crates/oso/tests/e2e/harness.rs" \
+            || { echo "error: $ref has no OSO_E2E_BIN_DIR in the e2e harness"; exit 1; }
+        manifest="$src/Cargo.toml"
+        target="$root/ref"
+        what="$ref at ${rev:0:9}"
+    fi
+    # cargo test builds the flows' bins too: oso, fake-lsp-server and fake-typewhisper.
+    exe=$(cargo test --locked --no-run --manifest-path "$manifest" --target-dir "$PWD/$target" \
+            -p oso --features dev --test e2e --message-format=json-render-diagnostics \
+        | jq -r 'select(.reason == "compiler-artifact" and .target.name == "e2e" and .profile.test) | .executable // empty' \
+        | tail -n 1)
+    [ -n "$exe" ] || { echo "error: cargo named no e2e test binary"; exit 1; }
+    echo "e2e-remote: ${filters[*]} from $what; host: $host; run: $run" | tee "$out/what.txt"
+    # Runs there as the ssh user, never as the CI runner's, in a directory of its own (ADR 0166).
+    cat > "$out/run.sh" <<'REMOTE'
+    set -euo pipefail
+    run=$1
+    shift
+    cd "$HOME/oso-e2e"
+    base=$PWD
+    dir="$base/$run"
+    lock="$base/lock"
+    own=0
+    # The CI runner that opens windows runs from actions-runner (its second, actions-runner-2,
+    # runs just ci). Its job's worker lives as long as the job; processes from its work folder
+    # may outlive a job, so they do not count.
+    ci_job() { pgrep -f 'actions-runner/bin/Runner\.Worker' >/dev/null; }
+    busy() {
+        if ci_job; then echo "an e2e job of the CI runner"; return 0; fi
+        if pgrep -f 'perf run --oso' >/dev/null; then echo "a perf run"; return 0; fi
+        return 1
+    }
+    cleanup() {
+        [ -z "${watcher:-}" ] || kill "$watcher" 2>/dev/null || true
+        # Instances a flow left when it was stopped before its own cleanup ran.
+        pkill -f "^$dir/bin/" 2>/dev/null || true
+        [ "$own" = 0 ] || rm -rf "$lock"
+        rm -rf "$dir"
+    }
+    trap cleanup EXIT
+    trap 'exit 129' HUP
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    waited=0
+    while :; do
+        if mkdir "$lock" 2>/dev/null; then
+            echo $$ > "$lock/pid"
+            own=1
+            why=$(busy) || break
+            rm -rf "$lock"
+            own=0
+        else
+            pid=$(cat "$lock/pid" 2>/dev/null || true)
+            # A run that was stopped hard left its lock.
+            if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
+                rm -rf "$lock"
+                continue
+            fi
+            why="another e2e-remote run"
+        fi
+        [ "$waited" -lt 2400 ] || { echo "e2e-remote: gave up after 40 min waiting for $why"; exit 75; }
+        [ "$waited" -gt 0 ] || echo "e2e-remote: waiting for $why to end"
+        sleep 30
+        waited=$((waited + 30))
+    done
+    mkdir -m 700 "$dir/home" "$dir/state" "$dir/tmp"
+    # A job cannot be held off once this has started; say so if one ran meanwhile.
+    (while sleep 10; do if ci_job; then touch "$dir/overlap"; break; fi; done) &
+    watcher=$!
+    status=0
+    HOME="$dir/home" OSO_STATE_DIR="$dir/state" TMPDIR="$dir/tmp/" OSO_E2E_BIN_DIR="$dir/bin" \
+        RUST_LOG=oso=debug,wgpu=warn \
+        caffeinate -d "$dir/bin/e2e" --ignored --test-threads=1 "$@" || status=$?
+    if [ -e "$dir/overlap" ] || ci_job; then
+        echo "e2e-remote: an e2e job of the CI runner ran during this run"
+    fi
+    exit "$status"
+    REMOTE
+    trap 'ssh "$host" "rm -rf oso-e2e/$run" || true' EXIT
+    ssh "$host" "mkdir -p -m 700 oso-e2e && [ ! -L oso-e2e ] && mkdir -m 700 oso-e2e/$run oso-e2e/$run/bin"
+    rsync -q "$out/run.sh" "$host:oso-e2e/$run/run.sh"
+    rsync -q "$exe" "$host:oso-e2e/$run/bin/e2e"
+    rsync -q "$target/debug/oso" "$target/debug/fake-lsp-server" "$target/debug/fake-typewhisper" \
+        "$host:oso-e2e/$run/bin/"
+    # A terminal there, so that a dropped connection or ^C here hangs the run up and it cleans up.
+    status=0
+    ssh -tt "$host" "bash oso-e2e/$run/run.sh $run ${filters[*]}" | tr -d '\r' | tee "$out/output.log" \
+        || status=${PIPESTATUS[0]}
+    echo "e2e-remote: exit status $status; log in $out/output.log"
+    exit "$status"
 
 # Draw panes on a real GPU and read the pixels (ADR 0061); needs no window and no text backend
 pixel-tests:

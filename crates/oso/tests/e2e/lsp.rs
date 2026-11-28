@@ -25,7 +25,7 @@ fn config(scratch: &Scratch, rules: &Value) -> PathBuf {
     );
     let toml = format!(
         "[lsp.servers.rust-analyzer]\ncommand = [{:?}, {:?}]\n",
-        env!("CARGO_BIN_EXE_fake-lsp-server"),
+        super::harness::bin(env!("CARGO_BIN_EXE_fake-lsp-server")),
         script.to_str().expect("a UTF-8 scratch path"),
     );
     let config = scratch.write("conf/config.toml", toml.as_bytes());
@@ -310,7 +310,7 @@ fn edits_reach_the_servers_copy_and_a_write_or_a_kill_closes_it() {
     );
     let toml = format!(
         "[lsp.servers.rust-analyzer]\ncommand = [{:?}, {:?}]\n",
-        env!("CARGO_BIN_EXE_fake-lsp-server"),
+        super::harness::bin(env!("CARGO_BIN_EXE_fake-lsp-server")),
         script.to_str().unwrap(),
     );
     let config = scratch.write("conf/config.toml", toml.as_bytes());
@@ -397,7 +397,7 @@ fn a_go_file_starts_gopls_with_its_settings_and_a_missing_server_shows_nothing()
     // gopls is the fake server; marksman, for the README, is a program that is not there.
     let toml = format!(
         "[lsp.servers.gopls]\ncommand = [{:?}, {:?}]\n[lsp.servers.marksman]\ncommand = [\"oso-no-such-marksman\"]\n",
-        env!("CARGO_BIN_EXE_fake-lsp-server"),
+        super::harness::bin(env!("CARGO_BIN_EXE_fake-lsp-server")),
         script.to_str().unwrap(),
     );
     let config = scratch.write("conf/config.toml", toml.as_bytes());
@@ -778,7 +778,7 @@ fn answering_places(name: &str) -> (Scratch, App, String) {
     let script = scratch.write("conf/fake-lsp.json", script.to_string().as_bytes());
     let toml = format!(
         "[lsp.servers.rust-analyzer]\ncommand = [{:?}, {:?}]\n",
-        env!("CARGO_BIN_EXE_fake-lsp-server"),
+        super::harness::bin(env!("CARGO_BIN_EXE_fake-lsp-server")),
         script.to_str().expect("a UTF-8 scratch path"),
     );
     let config = scratch.write("conf/config.toml", toml.as_bytes());
@@ -986,7 +986,7 @@ fn completion_at_point_pops_up_narrows_and_inserts() {
     let script = scratch.write("conf/fake-lsp.json", script.to_string().as_bytes());
     let toml = format!(
         "[lsp.servers.rust-analyzer]\ncommand = [{:?}, {:?}]\n",
-        env!("CARGO_BIN_EXE_fake-lsp-server"),
+        super::harness::bin(env!("CARGO_BIN_EXE_fake-lsp-server")),
         script.to_str().expect("a UTF-8 scratch path"),
     );
     let config = scratch.write("conf/config.toml", toml.as_bytes());
@@ -1057,7 +1057,7 @@ fn typing_opens_the_completion_popup_and_a_resolved_use_line_goes_in_with_it() {
     let script = scratch.write("conf/fake-lsp.json", script.to_string().as_bytes());
     let toml = format!(
         "[lsp.servers.rust-analyzer]\ncommand = [{:?}, {:?}]\n",
-        env!("CARGO_BIN_EXE_fake-lsp-server"),
+        super::harness::bin(env!("CARGO_BIN_EXE_fake-lsp-server")),
         script.to_str().expect("a UTF-8 scratch path"),
     );
     let config = scratch.write("conf/config.toml", toml.as_bytes());

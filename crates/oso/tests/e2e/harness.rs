@@ -103,9 +103,38 @@ fn compositor_is_there() {
     }
 }
 
+/// The variable that names another directory the binaries a flow runs are in, for
+/// `just e2e-remote`, which builds them on one Mac and runs them on another, where the paths
+/// cargo built them at are not. Only the binaries' own names are read from it.
+const BIN_DIR_VARIABLE: &str = "OSO_E2E_BIN_DIR";
+
+/// Where to run the binary cargo built at `built`, given as `env!("CARGO_BIN_EXE_<name>")`:
+/// there, or under the same name in the absolute directory [`BIN_DIR_VARIABLE`] names. Panics
+/// if that is not an absolute directory, or has no such file.
+pub fn bin(built: &str) -> PathBuf {
+    let built = Path::new(built);
+    let Some(dir) = std::env::var_os(BIN_DIR_VARIABLE) else {
+        return built.to_path_buf();
+    };
+    let dir = PathBuf::from(dir);
+    assert!(
+        dir.is_absolute() && dir.is_dir(),
+        "{BIN_DIR_VARIABLE} is not an absolute directory"
+    );
+    let name = built.file_name().expect("cargo names the binary");
+    let path = dir.join(name);
+    assert!(
+        path.is_file(),
+        "{BIN_DIR_VARIABLE} has no {}",
+        Path::new(name).display()
+    );
+    path
+}
+
 /// The dev build cargo built for this test.
 fn oso() -> Executable {
-    Executable::absolute(env!("CARGO_BIN_EXE_oso")).expect("cargo builds the binary for this test")
+    Executable::absolute(bin(env!("CARGO_BIN_EXE_oso")))
+        .expect("cargo builds the binary for this test")
 }
 
 /// Starts an instance in `cwd` with no window system to reach, waits for it to exit, and
@@ -344,7 +373,7 @@ impl App {
             pid > 0 && pid != std::process::id(),
             "not a child's process ID: {pid}"
         );
-        let binary = fs::canonicalize(env!("CARGO_BIN_EXE_oso")).expect("the binary is there");
+        let binary = fs::canonicalize(bin(env!("CARGO_BIN_EXE_oso"))).expect("the binary is there");
         let expected = serde_json::Value::from(binary.to_str().expect("a path in UTF-8"));
         format!(
             "ObjC.import('AppKit');
