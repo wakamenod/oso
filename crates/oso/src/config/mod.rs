@@ -19,6 +19,7 @@
 
 mod agent_rules;
 mod checked;
+mod claude_settings;
 mod defaults;
 mod dictation;
 mod git;

@@ -99,7 +99,7 @@ impl App {
         let carried_terminals = std::mem::take(&mut state.terminals);
         let follows = std::mem::take(&mut state.follows);
         let native_resumes = std::mem::take(&mut state.native_resumes);
-        let native_agents = std::mem::take(&mut state.native_agents);
+        let remote_off = std::mem::replace(&mut state.native_remote_off, Ok(Vec::new()));
         let histories = state
             .histories
             .iter()
@@ -180,7 +180,7 @@ impl App {
         self.place_terminals(carried_terminals, terminal_texts, &stand_for, &mut named);
         self.handover.follows = follows;
         // They resume once the instance before has gone (ADR 0165, part 4c).
-        self.natives_of_agents_carried(native_agents);
+        self.remote_turned_off_carried(remote_off);
         self.natives_carried(native_resumes);
         if let (Some((text, facts)), Some(buffer)) = (scratch_text, self.editor.buffer_mut(scratch))
         {

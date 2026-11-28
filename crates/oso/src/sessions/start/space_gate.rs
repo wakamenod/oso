@@ -83,6 +83,16 @@ pub struct SpaceGate {
 }
 
 impl SpaceGate {
+    /// One for `directory`, for tests elsewhere.
+    #[cfg(all(test, unix))]
+    pub fn for_tests(directory: PathBuf) -> Self {
+        Self {
+            directory,
+            made: None,
+            revoked: Arc::default(),
+        }
+    }
+
     /// The directory it was judged in.
     pub fn directory(&self) -> &Path {
         &self.directory

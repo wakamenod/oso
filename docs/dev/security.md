@@ -1042,24 +1042,33 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)); no hook reports a session's state.
   The hook is `oso hook deny-worktree`: it reads at most 64 KiB of standard input, starts
   nothing, and allows what it cannot read. It steers Claude, and is no boundary.
-- Remote Control is off in every native session the person did not connect
+- Remote Control is off in every native session that neither the person's Claude Code settings
+  nor the person connect
   ([ADR 0165](adr/0165-native-claude-sessions-the-route.md), as amended,
-  [ADR 0181](adr/0181-remote-control-of-native-sessions.md)): each other native start's, and each
-  one-shot run's, `--settings` has `disableRemoteControl`, so the CLI refuses a
-  request to connect it to claude.ai, whatever the project's settings or the person's
-  `remoteControlAtStartup` say. Connected, the conversation would be stored there, and messages
-  and mode changes would come from outside oso's window, past oso's rules on who makes them.
-  A terminal's `claude`, the TUI a native session is handed to among
-  them, follows the person's own settings. It is a setting of that one process: a `claude` the
-  session runs reads its own, and it is no boundary against other processes of the same user.
-  - The person's command alone connects one, by a question with a report of what is sent, never an
-    agent, a project or the configuration; leave for it is for one resume, and is judged again
-    under the trust of that start, where the git remotes' addresses must hold no password and no
-    user name but ssh's `git`. Never an agent's session or an orchestrator. The session is marked
+  [ADR 0181](adr/0181-remote-control-of-native-sessions.md),
+  [ADR 0189](adr/0189-remote-control-at-start-as-claude-codes-setting-says.md)): each other native
+  start's, and each one-shot run's, `--settings` has `disableRemoteControl`, so the CLI refuses a
+  request to connect it to claude.ai, whatever the project's settings say. Connected, the
+  conversation is stored there, and messages and mode changes come from outside oso's window,
+  past oso's rules on who makes them. A terminal's `claude`, the TUI a native session is handed to
+  among them, follows the person's own settings. It is a setting of that one process: a `claude`
+  the session runs reads its own, and it is no boundary against other processes of the same user.
+  - Where the person's `remoteControlAtStartup` is `true` (in Claude Code's `settings.json`, or
+    in a managed settings file, whose `false` comes first; a project's `false` turns it off),
+    every native start connects, an agent's session and an orchestrator among them, with a row
+    and the mark in place of a question. The configuration's thread reads the files, and the
+    start thread again just before the line. What cannot be read is off. Whatever can write
+    that file, a session's own tools among them, turns it on for later starts, as it does for
+    the TUI. The person's command turns a session off, and it then stays off until they turn it
+    on again.
+  - The person's command connects one, by a question with a report of what is sent; leave for it
+    is for one resume. Either leave is judged again under the trust of that start, or a space
+    directory's gate, where the git remotes' addresses must hold no password and no user name
+    but ssh's `git`; a space's own directory must be in no repository. The session is marked
     until its process ended. Whoever holds the account then drives it: its messages are no
-    person's at oso, its questions are answered in oso alone, its starts, resumes, added
-    repositories and archives' stops ask, and it may
-    set a mode in which calls run unasked. What the session read stays on Anthropic's servers.
+    person's at oso, its questions are answered in oso alone, its session tools ask or go
+    unasked as the configuration says, as a TUI session's do, and it may set a mode in which
+    calls run unasked. What the session read stays on Anthropic's servers.
     `oso-restart` connects it again only where the session there, the directory, its repository
     and the trust are the same.
   - What the stream says of it is read strictly, and a process started blocked is off whatever it

@@ -490,7 +490,6 @@ impl App {
             self.session_terminal_not_started(token);
         }
         self.hosting.baselines.remove(&token);
-        self.fork_not_started(token);
         if self.hosting.table.release(token).is_some() {
             self.hosting.trusts.remove(&token);
         } else if let Some(session) = self.hosting.table.get_mut(token)
@@ -527,7 +526,6 @@ impl App {
             if added.is_none() {
                 return;
             }
-            self.fork_started(key, &ready.id);
             self.space_session_started(key);
             self.prune_sessions();
         }

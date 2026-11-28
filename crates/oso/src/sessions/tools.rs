@@ -315,17 +315,15 @@ fn brief_said(lines: Option<usize>) -> String {
 pub struct CallerStanding {
     /// `[sessions] agents_start_without_asking` at oso's start, and no `agent-starts-ask` since.
     pub allowed: bool,
-    /// How the calling session started.
+    /// How the calling session started. Whether it is connected to claude.ai changes nothing
+    /// (ADR 0189).
     pub caller: Origin,
-    /// It may be connected to claude.ai (ADR 0181): whoever holds the account may drive it, so each
-    /// call of its that may go without asking otherwise asks the person at oso.
-    pub connected: bool,
 }
 
 impl CallerStanding {
     /// Whether its calls may go without asking.
     pub fn goes_unasked(self) -> bool {
-        self.allowed && self.caller.by_the_person() && !self.connected
+        self.allowed && self.caller.by_the_person()
     }
 }
 

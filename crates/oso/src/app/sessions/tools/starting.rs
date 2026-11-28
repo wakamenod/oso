@@ -242,7 +242,6 @@ impl App {
         rules::CallerStanding {
             allowed: self.agent_starts_allowed(),
             caller: caller.origin,
-            connected: self.remote_watched(caller.key),
         }
     }
 

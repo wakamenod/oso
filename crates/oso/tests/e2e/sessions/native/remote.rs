@@ -425,3 +425,88 @@ fn off_pressed_while_oso_restart_waits_is_not_connected_again() {
     assert!(!there(&flow, "on.3"));
     let _ = new.exchange("exit", None);
 }
+
+/// A flow whose person's Claude Code settings connect each session at start (ADR 0189), with
+/// its session started and idle after one turn; and the transcript then.
+fn at_startup(test: &str, remote: Option<&str>) -> (Flow, App) {
+    let flow = Flow::with(test, REMOTE_FAKE, "");
+    flow.scratch.write("there", b"cse_a1");
+    let claude = flow.scratch.path().join("home/.claude");
+    fs::create_dir_all(&claude).unwrap();
+    fs::write(
+        claude.join("settings.json"),
+        r#"{"remoteControlAtStartup": true}"#,
+    )
+    .unwrap();
+    if let Some(url) = remote {
+        let config = flow.project.join(".git/config");
+        let mut text = fs::read_to_string(&config).unwrap();
+        text.push_str(&format!("[remote \"origin\"]\n\turl = {url}\n"));
+        fs::write(&config, text).unwrap();
+    }
+    let mut app = flow.start();
+    app.open_file(&flow.project.join("notes.md"));
+    trust_restricted(&mut app, "proj");
+    app.wait_for("the project trusted", |state| {
+        !modeline(state).contains("restricted")
+    });
+    app.run_command("claude", None).unwrap();
+    app.wait_for("the composer", in_composer);
+    send(&mut app, "one");
+    assert_eq!(flow.wait_for_file("sent.1.1").trim(), "one");
+    transcript_says(&mut app, "reply 1.1");
+    (flow, app)
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn claude_codes_setting_connects_each_start_until_the_person_turns_it_off() {
+    let (flow, mut app) = at_startup("native-remote-at-startup", None);
+    // Unblocked from the first run, asked by oso alone, and said so.
+    let run = args(&flow, "run.1");
+    assert!(!remote_control_off(&run), "{run:?}");
+    let settings = run.iter().find(|arg| arg.starts_with("--settings="));
+    assert!(
+        settings.is_some_and(|s| s.contains(r#""remoteControlAtStartup":false"#)),
+        "{run:?}"
+    );
+    let asked: Value = serde_json::from_str(&flow.wait_for_file("on.1")).unwrap();
+    assert_eq!(asked["request"]["keep_session_on_exit"], true);
+    transcript_says(
+        &mut app,
+        "as remoteControlAtStartup in your Claude Code settings says",
+    );
+    app.wait_for("the mark", |state| modeline(state).contains("⇄ claude.ai"));
+    // The person's key turns it off, and the setting does not connect it again.
+    app.run_command("native-remote-control", None).unwrap();
+    flow.wait_for_file("off.1");
+    assert!(remote_control_off(&args(&flow, "run.2")));
+    transcript_says(&mut app, "Remote Control is off");
+    app.wait_for("no mark", |state| !modeline(state).contains('⇄'));
+    thread::sleep(Duration::from_millis(300));
+    assert!(!there(&flow, "on.2"), "a blocked process is never asked");
+    let _ = app.exchange("exit", None);
+    app.wait_for_exit();
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn claude_codes_setting_never_connects_a_repository_whose_remote_holds_a_password() {
+    let (flow, mut app) = at_startup(
+        "native-remote-at-startup-password",
+        Some("https://me:secret@example.invalid/r"),
+    );
+    assert!(remote_control_off(&args(&flow, "run.1")));
+    transcript_says(
+        &mut app,
+        "Remote Control stays off: a git remote's address holds a password.",
+    );
+    assert!(!there(&flow, "on.1"));
+    let state = app.state();
+    assert!(
+        !state.to_string().contains("secret@"),
+        "no address is shown"
+    );
+    let _ = app.exchange("exit", None);
+    app.wait_for_exit();
+}

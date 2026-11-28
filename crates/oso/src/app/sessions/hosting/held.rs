@@ -63,6 +63,11 @@ impl App {
                 native.settings = settings;
                 native.env = env.to_vec();
                 self.native_control_from_now(order.token);
+                // Turned off, or turned secret, while it waited (ADR 0189).
+                if native.remote.by_settings() && !self.remote_at_startup_holds(order.token) {
+                    native.remote = start::connect::Leave::Blocked;
+                    self.remote_not_started(order.token);
+                }
             }
         }
         self.order_session(order);
@@ -87,14 +92,6 @@ impl App {
                     (order.trusted, native.trust) = self.native_judged(order.token, judged);
                 }
             }
-        }
-        // Leave to connect holds only for a session it would still be given for (ADR 0181).
-        let token = order.token;
-        if let Runs::Native(native) = &mut order.runs
-            && !native.remote.blocked()
-            && (!matches!(native.gate, start::space_gate::ByGate::No) || self.remote_never(token))
-        {
-            native.remote = start::connect::Leave::Blocked;
         }
         if order.space.is_some() {
             order.space = self.orchestrator_start_for(order.token)?;

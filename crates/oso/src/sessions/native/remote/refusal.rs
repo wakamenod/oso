@@ -8,7 +8,6 @@ use super::super::mode;
 /// Where a session is, as the caller knows it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct At {
-    pub whose: Whose,
     /// It runs a process, or is being started.
     pub runs: bool,
     pub starting: bool,
@@ -24,20 +23,9 @@ pub struct At {
     pub untrusted: bool,
 }
 
-/// Whose a session is.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Whose {
-    /// An agent started it, or it is a fork of one that an agent started.
-    pub agents: bool,
-    /// It is an issue space's orchestrator, or was one, or runs in a space's own directory.
-    pub orchestrator: bool,
-}
-
 /// Why Remote Control is not turned on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Refused {
-    Agents,
-    Orchestrator,
     NotRunning,
     Starting,
     Asks,
@@ -49,23 +37,10 @@ pub enum Refused {
     Untrusted,
 }
 
-impl Whose {
-    /// Why it is never connected.
-    pub fn refused(self) -> Option<Refused> {
-        if self.agents {
-            return Some(Refused::Agents);
-        }
-        self.orchestrator.then_some(Refused::Orchestrator)
-    }
-}
-
 impl At {
     /// Why it is not turned on now.
     pub fn refused(self) -> Option<Refused> {
         use mode::Refusal::{Busy, Unspoken};
-        if let Some(refused) = self.whose.refused() {
-            return Some(refused);
-        }
         let first = [
             (self.starting, Refused::Starting),
             (!self.runs, Refused::NotRunning),
@@ -92,11 +67,6 @@ impl Refused {
     /// What the person is told of session `name`.
     pub fn message(self, name: &str) -> String {
         let why = match self {
-            Self::Agents => "was started by an agent: it is never connected to claude.ai",
-            Self::Orchestrator => {
-                "is an orchestrator, or runs in a space's directory: it is not connected to \
-                 claude.ai yet"
-            }
             Self::NotRunning => "runs no claude: resume it first",
             Self::Starting => "is starting: ask again once it runs",
             Self::Asks => "asks you something: answer it first",
@@ -118,14 +88,10 @@ impl Refused {
 
 #[cfg(test)]
 mod tests {
-    use super::{At, Refused, Whose};
+    use super::{At, Refused};
     use crate::sessions::native::mode::Refusal;
 
     const FREE: At = At {
-        whose: Whose {
-            agents: false,
-            orchestrator: false,
-        },
         runs: true,
         starting: false,
         respawn: None,
@@ -138,26 +104,12 @@ mod tests {
     #[test]
     fn each_thing_that_holds_it_refuses_and_says_so() {
         assert_eq!(FREE.refused(), None);
-        let whose = |agents, orchestrator| Whose {
-            agents,
-            orchestrator,
-        };
         let with = |change: fn(&mut At)| {
             let mut at = FREE;
             change(&mut at);
             at
         };
-        let agents = At {
-            whose: whose(true, false),
-            ..FREE
-        };
-        let orchestrator = At {
-            whose: whose(false, true),
-            ..FREE
-        };
         let cases = [
-            (agents, Refused::Agents, "by an agent"),
-            (orchestrator, Refused::Orchestrator, "orchestrator"),
             (with(|at| at.runs = false), Refused::NotRunning, "resume it"),
             (with(|at| at.starting = true), Refused::Starting, "starting"),
             (with(|at| at.asks = true), Refused::Asks, "answer it"),
@@ -190,18 +142,5 @@ mod tests {
             assert!(said.starts_with("Session wa "), "{said}");
             assert!(said.contains(says), "{said}");
         }
-    }
-
-    #[test]
-    fn whose_it_is_is_said_before_where_it_is() {
-        let at = At {
-            whose: Whose {
-                agents: true,
-                orchestrator: true,
-            },
-            runs: false,
-            ..FREE
-        };
-        assert_eq!(at.refused(), Some(Refused::Agents));
     }
 }

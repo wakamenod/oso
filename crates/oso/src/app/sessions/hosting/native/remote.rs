@@ -25,17 +25,19 @@ use oso_core::editor::NativeAction;
 use super::Native;
 use crate::app::App;
 use crate::app::sessions::hosting::Hosting;
-use crate::sessions::identity::{Origin, SessionId};
+use crate::sessions::identity::SessionId;
 use crate::sessions::native::mode::Refusal;
 use crate::sessions::native::remote::Remote;
 use crate::sessions::native::remote::off::Off;
-use crate::sessions::native::remote::refusal::{At, Refused, Whose};
+use crate::sessions::native::remote::refusal::{At, Refused};
 use crate::sessions::native::wire::control::Request;
 use crate::sessions::native::wire::remote::Enable;
+use crate::sessions::start::connect::at_startup::Reading;
 use crate::sessions::start::connect::{Connect, Place, Sent, Settled};
 use crate::sessions::worker::SessionKey;
 
 mod again;
+mod at_startup;
 mod question;
 
 pub(crate) use question::Looked;
@@ -65,12 +67,18 @@ pub(super) struct Remotes {
     token: u64,
     /// Sessions whose buffer was killed and whose process may still be connected.
     pub(super) ending: HashSet<SessionKey>,
-    /// Conversations forked, through any number of forks, from an agent's session, and the forks
-    /// of one being started: never connected, while oso runs or restarts itself. Any may be one
-    /// where a restart could not name them.
-    from_agents: HashSet<SessionId>,
-    forks_of_agents: HashSet<SessionKey>,
-    any_may_be_agents: bool,
+    /// What Claude Code's settings say of connecting each session at start, as the
+    /// configuration's thread last read them (ADR 0189).
+    pub(super) at_startup: Reading,
+    /// Sessions turned off, by the person or as oso had to: their next starts are not
+    /// connected by those settings, until the person turns it on again.
+    pub(super) turned_off: HashSet<SessionKey>,
+    /// Conversations the instance before turned off, carried by `oso-restart`.
+    pub(super) carried_off: HashSet<SessionId>,
+    /// The state before said that all were, or said so in a way that does not read.
+    pub(super) all_carried_off: bool,
+    /// Sessions told that those settings connect them.
+    told_at_startup: HashSet<SessionKey>,
 }
 
 /// Remote Control of a session beside its process's state.
@@ -87,6 +95,8 @@ pub(super) struct RemoteControl {
     told_off: bool,
     /// Where its process runs, for a restart.
     pub(super) place: Option<Place>,
+    /// Its process was started to connect as Claude Code's settings say (ADR 0189).
+    pub(super) at_startup: bool,
 }
 
 impl RemoteControl {
@@ -173,50 +183,10 @@ impl App {
         }
     }
 
-    /// Whether a call of native session `key`'s may come from claude.ai: it is marked, or the canary
-    /// said that it may be connected.
-    pub(in crate::app) fn remote_watched(&self, key: SessionKey) -> bool {
-        let native = self.hosting.natives.map.get(&key);
-        self.remote_marked(key) || native.is_some_and(|native| native.remote.watched())
-    }
-
     /// Whether native session `key`'s process may be connected to claude.ai, by how oso started
     /// it.
     pub(in crate::app) fn remote_marked(&self, key: SessionKey) -> bool {
         self.hosting.natives.remote_mark(key).is_some()
-    }
-
-    /// Whose session `key` is, for what is never connected.
-    pub(super) fn remote_whose(&self, key: SessionKey) -> Whose {
-        let Some(session) = self.hosting.table.get(key) else {
-            return Whose::default();
-        };
-        let agents = session.parent.is_some()
-            || session.origin != Origin::Person
-            || self.hosting.natives.remotes.any_may_be_agents
-            || self
-                .hosting
-                .natives
-                .remotes
-                .from_agents
-                .contains(&session.id);
-        Whose {
-            agents,
-            orchestrator: self.orchestrates(&session.id)
-                || self.is_space_directory(&session.directory),
-        }
-    }
-
-    /// Whether session `key` is never connected, whatever the person asks.
-    pub(in crate::app::sessions::hosting) fn remote_never(&self, key: SessionKey) -> bool {
-        self.remote_whose(key).refused().is_some()
-    }
-
-    /// Whether `id` is an issue space's orchestrator, or was one.
-    fn orchestrates(&self, id: &SessionId) -> bool {
-        (self.watch.spaces().iter()).any(|space| {
-            space.stored.orchestrator.as_ref() == Some(id) || space.stored.earlier.contains(id)
-        })
     }
 
     /// Why Remote Control is not turned on for native session `key` now.
@@ -226,14 +196,16 @@ impl App {
         };
         let natives = &self.hosting.natives;
         let process = super::mode::process(native, !self.native_resume_held(key));
+        // A space's own directory runs under its gate, which the respawn's start takes (ADR 0189).
         let untrusted = (self.hosting.table.get(key)).is_none_or(|session| {
             let root = session.root.as_deref();
-            self.native_trust_listed(&session.directory, root, true)
-                .is_err()
+            !self.is_space_directory(&session.directory)
+                && self
+                    .native_trust_listed(&session.directory, root, true)
+                    .is_err()
         });
         let secret = |id| (self.editor.buffer(id)).is_some_and(oso_core::buffer::Buffer::is_secret);
         At {
-            whose: self.remote_whose(key),
             runs: native.stream.is_some(),
             starting: native.starting(),
             respawn: process
@@ -264,6 +236,7 @@ impl App {
         };
         native.remote_control.connect = Some(Connect::asked(sent));
         stop(native);
+        self.hosting.natives.remotes.turned_off.remove(&key);
         self.native_note_row(
             key,
             "Turning Remote Control on: claude ends, and resumes its conversation to connect.",
@@ -273,8 +246,9 @@ impl App {
     }
 
     /// `native-remote-control` of a marked session: turned off, or, going off, ended now.
-    fn remote_off(&mut self, key: SessionKey) {
+    pub(super) fn remote_off(&mut self, key: SessionKey) {
         let name = self.remote_name(key);
+        self.hosting.natives.remotes.turned_off.insert(key);
         let Some(native) = self.hosting.natives.map.get_mut(&key) else {
             return self
                 .editor
@@ -359,23 +333,35 @@ impl App {
         match &settled {
             Settled::Connects(place) => {
                 native.remote_control.place = *place;
+                let at_startup = native.remote_control.at_startup;
+                if at_startup && self.hosting.natives.remotes.told_at_startup.insert(key) {
+                    self.native_note_row(key, at_startup::TOLD);
+                }
                 self.remote_ready(key);
                 return self.sweep_remote_off();
             }
             Settled::Blocked if !native.remote.marked() => return,
             // Nothing is left to turn off.
-            Settled::Blocked | Settled::Refused(_) => native.remote_control.off = false,
+            Settled::Blocked | Settled::Refused(_) | Settled::NotAtStartup => {
+                native.remote_control.off = false;
+            }
         }
-        let why = match settled {
-            Settled::Refused(why) => Some(why),
-            Settled::Blocked | Settled::Connects(_) => None,
-        };
         // One that ended and resumes already is another start's.
         let canary = native.remote.marked() && native.remote.start_blocked();
         if canary {
             self.follow(key, super::control::Follow::Canary);
         }
-        self.remote_stays_off(key, why.as_deref().unwrap_or("it was started blocked"));
+        match settled {
+            Settled::Refused(why) => self.remote_stays_off(key, &why),
+            // Claude Code's settings no longer connect it: as any start of theirs.
+            Settled::NotAtStartup => {
+                self.native_note_changed(key);
+                self.sessions_touched();
+            }
+            Settled::Blocked | Settled::Connects(_) => {
+                self.remote_stays_off(key, "it was started blocked");
+            }
+        }
     }
 
     /// Remote Control of native session `key` stays off, as `why` says: in its rows and the echo
@@ -390,7 +376,7 @@ impl App {
     }
 
     /// Native session `key` did not start, or may not connect after all: no mark stays.
-    pub(super) fn remote_not_started(&mut self, key: SessionKey) {
+    pub(in crate::app::sessions::hosting) fn remote_not_started(&mut self, key: SessionKey) {
         if let Some(native) = self.hosting.natives.map.get_mut(&key) {
             native.remote = Remote::default();
             native.remote_control = RemoteControl::default();
@@ -401,6 +387,13 @@ impl App {
     /// Asks to connect native session `key`, once it is known that it can be asked: after its
     /// events, and once its process's stream is there.
     pub(super) fn remote_ready(&mut self, key: SessionKey) {
+        if !self.remote_marked(key) {
+            return;
+        }
+        // Its earlier turns came before its stream: one they made secret is not asked.
+        if self.remote_at_startup_secret(key) {
+            return;
+        }
         let Hosting { natives, table, .. } = &mut self.hosting;
         let Some(native) = natives.map.get_mut(&key) else {
             return;
@@ -433,6 +426,7 @@ impl App {
     /// The session there is not the one native session `key` comes back to, or is another
     /// session's here: it is turned off at once.
     pub(super) fn remote_elsewhere(&mut self, key: SessionKey) {
+        self.hosting.natives.remotes.turned_off.insert(key);
         if let Some(native) = self.hosting.natives.map.get_mut(&key) {
             native.remote_control.off = true;
             stop(native);
@@ -483,41 +477,6 @@ impl App {
         (self.hosting.table.get(key)).map_or_else(String::new, |session| {
             crate::git::printable(&session.name, MAX_NAME)
         })
-    }
-
-    /// The fork `key`, with conversation `id`, of `from`: an agent's, if that is one's, so that it
-    /// is never connected either.
-    pub(in crate::app::sessions::hosting) fn note_fork(
-        &mut self,
-        from: &SessionId,
-        key: SessionKey,
-    ) {
-        let source = (self.hosting.table.iter())
-            .find(|session| session.id == *from)
-            .map(|session| session.key);
-        let agents = self.hosting.natives.remotes.from_agents.contains(from)
-            || source.is_some_and(|source| self.remote_whose(source).agents);
-        if agents {
-            self.hosting.natives.remotes.forks_of_agents.insert(key);
-        }
-    }
-
-    /// Fork `key` started with conversation `id`.
-    pub(in crate::app::sessions::hosting) fn fork_started(
-        &mut self,
-        key: SessionKey,
-        id: &SessionId,
-    ) {
-        if self.hosting.natives.remotes.forks_of_agents.remove(&key) {
-            self.hosting.natives.remotes.from_agents.insert(id.clone());
-        }
-    }
-}
-
-impl App {
-    /// Fork `key` did not start.
-    pub(in crate::app::sessions::hosting) fn fork_not_started(&mut self, key: SessionKey) {
-        self.hosting.natives.remotes.forks_of_agents.remove(&key);
     }
 }
 

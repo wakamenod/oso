@@ -352,7 +352,7 @@ fn prepare(mut order: Order, send: &(dyn Fn(Report) + Sync)) {
         Err(why) => return refuse(why),
     };
     // Under the trust just judged, before the line it changes.
-    let remote = connect::settle(&mut order);
+    let remote = connect::settle(&mut order, gate.as_ref());
     let launch = match launch_of(&order, &id, &found.executable, &extra, gate.is_some()) {
         Ok(launch) => launch,
         Err(why) => return refuse(why),

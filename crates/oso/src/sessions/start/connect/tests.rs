@@ -11,9 +11,10 @@ use std::path::{Path, PathBuf};
 use oso_platform::process::{Executable, Sink, Source, Spawn, spawn};
 use serde_json::json;
 
+use super::at_startup::Files;
 use super::{
-    Back, CHANGED, Connect, Leave, MOVED, NO_ANSWER, NO_STATE, NO_TRUST, Place, Sent, Settled,
-    TOO_MANY, address_of, judge, look, settle,
+    Back, CHANGED, Connect, IN_REPOSITORY, Leave, MOVED, NO_ANSWER, NO_STATE, NO_TRUST, Place,
+    Sent, Settled, TOO_MANY, address_of, judge, look, settle,
 };
 use crate::git::TrustedRoot;
 use crate::sessions::native::wire::remote::RemoteId;
@@ -344,21 +345,113 @@ fn a_start_is_blocked_unless_every_check_passes() {
     };
     // With no leave.
     let mut plain = order(&scratch, Leave::Blocked, trusted());
-    assert_eq!(settle(&mut plain), Settled::Blocked);
+    assert_eq!(settle(&mut plain, None), Settled::Blocked);
     assert!(blocked(&plain));
     // With it.
     let mut leave = order(&scratch, connect(), trusted());
-    assert!(matches!(settle(&mut leave), Settled::Connects(Some(_))));
+    assert!(matches!(
+        settle(&mut leave, None),
+        Settled::Connects(Some(_))
+    ));
     assert!(!blocked(&leave));
     // Under a space's gate there is no trust.
     let mut gated = order(&scratch, connect(), None);
-    assert_eq!(settle(&mut gated), Settled::Refused(NO_TRUST.to_owned()));
+    assert_eq!(
+        settle(&mut gated, None),
+        Settled::Refused(NO_TRUST.to_owned())
+    );
     assert!(blocked(&gated));
     // A remote's password.
     scratch.git(&["remote", "add", "origin", "https://a:b@h/r"]);
     let mut remote = order(&scratch, connect(), trusted());
-    assert_eq!(settle(&mut remote), Settled::Refused(PASSWORD.to_owned()));
+    assert_eq!(
+        settle(&mut remote, None),
+        Settled::Refused(PASSWORD.to_owned())
+    );
     assert!(blocked(&remote));
+}
+
+/// Files of Claude Code's settings in `dir` that say `text`.
+fn settings_files(dir: &Path, text: &str) -> Files {
+    let user = dir.join("settings.json");
+    fs::write(&user, text).unwrap();
+    Files {
+        user: Some(user),
+        managed: dir.join("managed"),
+    }
+}
+
+#[test]
+fn a_start_connects_at_startup_while_the_settings_say_so_as_it_starts() {
+    let scratch = Scratch::new("at-startup");
+    let trusted = || Some(TrustedRoot::for_tests(scratch.root.clone()));
+    let at = |text: &str| Leave::Connect(Connect::at_startup(settings_files(&scratch.dir, text)));
+    let on = r#"{"remoteControlAtStartup": true}"#;
+    let mut leave = order(&scratch, at(on), trusted());
+    assert!(matches!(
+        settle(&mut leave, None),
+        Settled::Connects(Some(_))
+    ));
+    // Turned off since the app ordered it: blocked, and nothing to say.
+    let mut off = order(&scratch, at("{}"), trusted());
+    assert_eq!(settle(&mut off, None), Settled::NotAtStartup);
+    let mut unread = order(&scratch, at("{"), trusted());
+    assert!(
+        matches!(settle(&mut unread, None), Settled::Refused(why) if why.contains("settings.json"))
+    );
+    // The project's false.
+    fs::create_dir(scratch.root.join(".claude")).unwrap();
+    let local = scratch.root.join(".claude/settings.local.json");
+    fs::write(&local, r#"{"remoteControlAtStartup": false}"#).unwrap();
+    let mut project = order(&scratch, at(on), trusted());
+    assert_eq!(settle(&mut project, None), Settled::NotAtStartup);
+    fs::remove_file(&local).unwrap();
+    // The remotes' rules hold as for the person's question.
+    scratch.git(&["remote", "add", "origin", "https://me@h/r"]);
+    let mut remote = order(&scratch, at(on), trusted());
+    assert!(matches!(settle(&mut remote, None), Settled::Refused(_)));
+}
+
+#[test]
+fn a_space_s_directory_connects_under_its_gate_in_no_repository() {
+    let scratch = Scratch::bare("space");
+    let on = r#"{"remoteControlAtStartup": true}"#;
+    let at = || Leave::Connect(Connect::at_startup(settings_files(&scratch.dir, on)));
+    let gate = crate::sessions::start::space_gate::SpaceGate::for_tests(scratch.root.clone());
+    let mut gated = order(&scratch, at(), None);
+    let Settled::Connects(Some(place)) = settle(&mut gated, Some(&gate)) else {
+        panic!("not connected");
+    };
+    assert_eq!(place.repository, None);
+    // Another directory's gate.
+    let other = crate::sessions::start::space_gate::SpaceGate::for_tests(scratch.dir.clone());
+    let mut elsewhere = order(&scratch, at(), None);
+    assert_eq!(
+        settle(&mut elsewhere, Some(&other)),
+        Settled::Refused(NO_TRUST.to_owned())
+    );
+    gate.revoke();
+    let mut revoked = order(&scratch, at(), None);
+    assert_eq!(
+        settle(&mut revoked, Some(&gate)),
+        Settled::Refused(NO_TRUST.to_owned())
+    );
+    // In a repository, or below one.
+    let gate = crate::sessions::start::space_gate::SpaceGate::for_tests(scratch.root.clone());
+    fs::create_dir(scratch.dir.join(".git")).unwrap();
+    let mut below = order(&scratch, at(), None);
+    assert_eq!(
+        settle(&mut below, Some(&gate)),
+        Settled::Refused(IN_REPOSITORY.to_owned())
+    );
+    // The person's question looks so too.
+    let looked = super::look_space_directory(&scratch.root);
+    assert_eq!(looked, Err(IN_REPOSITORY.to_owned()));
+    fs::remove_dir(scratch.dir.join(".git")).unwrap();
+    assert_eq!(
+        super::look_space_directory(&scratch.root),
+        Ok(Sent::default())
+    );
 }
 
 #[test]
