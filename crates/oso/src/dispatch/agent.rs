@@ -101,7 +101,7 @@ impl Dispatcher {
         // goes to the agent (ADR 0122, step 12, Q7), and a brief, which starts a session as the
         // person's words (ADR 0121 step 4, ADR 0165).
         let mode = editor.current().1.mode();
-        if let Some(why) = docked_refusal(editor, reach) {
+        if let Some(why) = docked_refusal(editor, reach).or_else(|| place_refusal(editor, name)) {
             return refused(why.into());
         }
         if reach == Reach::Change {
@@ -194,6 +194,14 @@ impl Dispatcher {
         }
         Ok(ran)
     }
+}
+
+/// Why the agent may not run `name` now, if it would go to a place in a buffer it may not be
+/// shown: `pop-global-mark`'s newest place, checked before anything moves (ADR 0190).
+fn place_refusal(editor: &Editor, name: &str) -> Option<&'static str> {
+    let (buffer, _) = editor.global_marks().iter().next()?;
+    (name == "pop-global-mark" && editor.buffer(buffer).and_then(unshowable).is_some())
+        .then_some("the newest global mark is in a buffer the agent is not shown; ask the person")
 }
 
 /// Why the agent may not select a terminal or a list with keys of its own, such as

@@ -341,6 +341,33 @@ Built on 2026-11-29.
 - **`mark-page` is Emacs's:** with N it marks the page N pages away, and point goes to the page's
   start. Again, or while a region shows, it moves the mark N pages on, one with no N.
 
+## Step 8, as built
+
+Built on 2026-11-29.
+
+- **A push reaches the global ring through the selection set.** Marks are pushed at many places
+  through `SelectionSet::push_marks` and `push_primary_mark`; each now notes that it pushed, in a
+  crate-private flag that equality leaves out. When a command ends, the editor takes it from
+  each tiled window's set and from the place the window last left, the selected window last, so
+  a push just before a switch to another buffer counts too. A place is the primary cursor's mark.
+- **`pop-global-mark` pushes no mark and keeps the region as it was,** as Emacs's `goto-char`
+  does. The agent is refused a place in a buffer it may not be shown, by the channel's one check
+  (`unshowable`) before anything moves, a buffer with keys of its own among them. The
+  ring is not carried by a restart, as a window's jumps are not; `get-state` lists its places in
+  `global_marks`, leaving out those in a buffer that may hold secrets, and the field while one
+  is shown.
+- **`ArgSpec::CountAndChar` reads in a text prompt with no history, which the dispatcher ends
+  as soon as typed text puts a character in it,** as `read-char-from-minibuffer` ends. No new
+  `minibuffer::Kind`. `RET` on it empty runs nothing. A key typed there does not break a run of
+  kills, so `M-z` right after a kill appends to it.
+- **A zap matches characters as Emacs does, with `case-fold-search` on,** and ends what it kills
+  at a display cluster's edge. It reads at most 4 MiB across its cursors, its own bound in the
+  tip crate, as `kill-line`'s blanks are; a backward zap reads 64 KiB at a time. A character
+  yanked into the prompt from a secret is refused, as query-replace refuses such a string
+  (ADR 0113): where the kill ends would tell it, and the kill would hold it unmarked.
+- **New public items beyond the list above:** `Editor::pop_global_mark`, and `GlobalMarks::len`,
+  `is_empty` and `iter`, which `get-state` reads.
+
 ## Changes to accepted ADRs
 
 - [ADR 0138](0138-language-servers.md), "Keys (Q15)" and the key table: `lsp-next-diagnostic`

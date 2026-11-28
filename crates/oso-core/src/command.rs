@@ -335,6 +335,12 @@ impl<'a> Ctx<'a> {
         self.invocation.answer
     }
 
+    /// The character read for a command whose [`ArgSpec`] is `CountAndChar`: the first of the
+    /// answer, or `None` if it is empty.
+    pub fn char_answer(&self) -> Option<char> {
+        self.answer()?.chars().next()
+    }
+
     /// Whether the answer came from a prompt whose buffer may hold secrets.
     pub fn answer_secret(&self) -> bool {
         self.invocation.answer_secret

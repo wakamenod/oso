@@ -456,6 +456,7 @@ impl Editor {
             window.places_mut().forget(id);
             window.jumps_mut().forget(id);
         }
+        self.global_marks.forget(id);
         if self.kill_asked == Some(id) {
             self.kill_asked = None;
         }

@@ -1,4 +1,5 @@
-//! Default key bindings of the kill and yank commands (ADR 0030, ADR 0033, ADR 0074).
+//! Default key bindings of the kill and yank commands (ADR 0030, ADR 0033, ADR 0074,
+//! ADR 0190).
 //!
 //! Must not depend on: `dispatch`, `app` or winit; bindings are data.
 
@@ -10,6 +11,7 @@ pub const BINDINGS: &[(&str, &str)] = &[
     ("C-k", "kill-line"),
     ("M-d", "kill-word"),
     ("M-DEL", "backward-kill-word"),
+    ("M-z", "zap-to-char"),
     ("C-y", "yank"),
     // consult-yank-pop, as the author's Emacs binds it (ADR 0091).
     ("M-y", "consult-yank-pop"),

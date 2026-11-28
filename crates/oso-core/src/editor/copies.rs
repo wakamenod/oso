@@ -191,6 +191,7 @@ impl Editor {
             window.way_back_mut().retain(|other| *other != id);
             window.places_mut().forget(id);
         }
+        self.global_marks.forget(id);
         let position = self.buffers.iter().position(|(other, _)| *other == id)?;
         self.buffer_order.forget(id);
         Some(self.buffers.remove(position).1)

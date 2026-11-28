@@ -51,6 +51,7 @@ mod file_preview;
 mod files;
 mod follow;
 mod git;
+mod global_marks;
 mod gutter;
 mod indent;
 mod isearch;
@@ -109,6 +110,7 @@ pub use dictation::{
 pub use file_preview::{Excerpt, FilePreviewRead, FilePreviewRequest, PreviewAt};
 pub use files::Looked;
 pub use git::*;
+pub use global_marks::GlobalMarks;
 pub use gutter::Gutter;
 pub use indent::{IndentError, Shift};
 pub use isearch::{Isearch, MatchCells};
@@ -272,6 +274,8 @@ pub struct Editor {
     save_over_asked: Option<BufferId>,
     /// The kill ring, and whether the command before killed (ADR 0074).
     kills: kill::Kills,
+    /// The global mark ring (ADR 0190).
+    global_marks: GlobalMarks,
     /// What the editor knows of the agent channel (ADR 0085).
     agent: agent::Agent,
     /// What commands asked of dictation, and its mark (ADR 0175).
@@ -400,6 +404,7 @@ impl Editor {
             passphrase_command: false,
             save_over_asked: None,
             kills: kill::Kills::default(),
+            global_marks: GlobalMarks::default(),
             agent: agent::Agent::default(),
             dictation: dictation::Dictation::default(),
             sessions: sessions::Sessions::default(),
@@ -491,13 +496,6 @@ impl Editor {
             let index = self.leave_side_at();
             self.window_shows(index, buffer);
         }
-    }
-
-    /// Whether any window shows a buffer that may hold secrets (ADR 0044).
-    pub fn shows_secret(&self) -> bool {
-        self.windows
-            .iter()
-            .any(|window| self.shown(window).is_secret())
     }
 
     /// The selected window.

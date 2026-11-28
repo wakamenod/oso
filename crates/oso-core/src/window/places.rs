@@ -63,6 +63,14 @@ impl Places {
             .find_map(|(other, place)| (*other == buffer).then_some(place))
     }
 
+    /// The buffer the window left last and where it was in it, to change, as the editor takes
+    /// in a mark pushed there before the window left it (ADR 0190).
+    pub(crate) fn latest_mut(&mut self) -> Option<(BufferId, &mut Place)> {
+        self.order
+            .first_mut()
+            .map(|(buffer, place)| (*buffer, place))
+    }
+
     /// Forgets `buffer`, which is gone.
     pub(crate) fn forget(&mut self, buffer: BufferId) {
         self.order.retain(|(other, _)| *other != buffer);

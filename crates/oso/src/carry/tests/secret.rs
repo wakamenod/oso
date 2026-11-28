@@ -262,3 +262,20 @@ fn kills_from_a_secret_buffer_or_the_clipboard_are_never_carried() {
     assert_eq!(state["kills"], serde_json::json!([]));
     assert!(!state.to_string().contains("SECRET"));
 }
+
+/// The global mark ring is not carried (ADR 0190), so no place of it, in a secret buffer or
+/// another, is in a state.
+#[test]
+fn a_state_holds_no_place_of_the_global_mark_ring() {
+    let path = absolute("/p/.env");
+    let mut editor = visiting(&path, &"KEY=value\n".repeat(1000));
+    let selections = &mut editor.current_mut().0.selections;
+    selections.move_primary(4321);
+    selections.push_marks();
+    editor.end_command();
+    editor.toggle_messages();
+    assert_eq!(editor.global_marks().len(), 1);
+    let line = export(&editor, &[], None, None).unwrap().to_string();
+    assert!(!line.contains("4321"), "{line}");
+    assert!(!line.contains("global"), "{line}");
+}

@@ -137,6 +137,13 @@ pub fn map(
         (ArgSpec::Count | ArgSpec::Key | ArgSpec::CountAndClipboard, Given::Text(_)) => {
             Err(format!("{name} takes a count, not text"))
         }
+        // One character, given as text; the count is then 1 (ADR 0190).
+        (ArgSpec::CountAndChar { .. }, Given::Text(text)) if text.chars().count() == 1 => {
+            answered(text.to_owned())
+        }
+        (ArgSpec::CountAndChar { .. }, _) => {
+            Err(format!("{name} needs one character, given as text"))
+        }
         (ArgSpec::Number { .. }, Given::Count(n)) => answered(n.to_string()),
         (ArgSpec::Number { .. }, _) => Err(format!("{name} needs a number")),
         (ArgSpec::Text { .. }, Given::Text(text)) => answered(text.to_owned()),

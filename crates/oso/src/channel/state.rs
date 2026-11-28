@@ -383,6 +383,8 @@ pub fn commands<'a>(commands: impl Iterator<Item = &'a Command>) -> Value {
                     ArgSpec::Number { .. } => "number",
                     ArgSpec::Text { .. } => "text",
                     ArgSpec::TextOnPrefix { .. } => "optional text",
+                    // One character, given as text (ADR 0190).
+                    ArgSpec::CountAndChar { .. } => "character",
                     // With no prefix it reads nothing, and the channel gives no prefix.
                     ArgSpec::DirectoryAndTextOnPrefix { .. } | ArgSpec::ListedOnPrefix { .. } => {
                         "none"

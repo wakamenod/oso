@@ -906,6 +906,28 @@ As Emacs with `transient-mark-mode` and `shift-select-mode`
 - With several cursors, each has its own mark, and all regions show or none. Regions that come to
   overlap merge into one.
 - During a composition the region stays, and the preedit pushes it as it pushes the text.
+- `M-@` (`mark-word`) sets every cursor's mark N words on, where `M-f` would go, and shows the
+  region; again at once, or while the region shows, it marks N more words, away from the cursor
+  with no prefix argument ([ADR 0190](adr/0190-emacs-motion-by-expressions-defuns-paragraphs-and-sentences.md)).
+- A global mark ring, as Emacs's, keeps 16 places: a mark set in another buffer than the newest
+  place's adds one. `C-x C-SPC` and `C-x C-@` (`pop-global-mark`) go to the newest with one cursor,
+  in its buffer, and put it last, so that repeating them goes round. The places follow edits, a
+  killed buffer's go, and a restart does not carry them. `get-state` lists them but those in a
+  buffer that may hold secrets, and none while one is shown.
+
+## Zapping
+
+As Emacs's `zap-to-char` ([ADR 0190](adr/0190-emacs-motion-by-expressions-defuns-paragraphs-and-sentences.md)):
+
+- `M-z` reads a character, ending as soon as one is typed, and kills at every cursor up to and
+  through the Nth next one (backward with a negative N). `M-x zap-up-to-char` stops before it,
+  passing one right at the cursor first.
+- A lowercase character matches either case, an uppercase one only itself. A kill ends at a
+  display cluster's edge, so a letter goes with its combining marks.
+- A cursor that finds none kills nothing, and the echo area says `Search failed: "x"` once the
+  others have killed. A zap reads at most 4 MiB across its cursors; past that, "Count too large".
+- A zap right after a kill appends to it. A character yanked into the prompt from a secret is
+  refused. The agent channel gives the character as text, as a `Change`.
 
 ## Expressions
 
