@@ -5,13 +5,14 @@
 //! Must not depend on: key presses or how a frame is drawn; the worktree is made by a job on
 //! the `oso-sessions-git` threads, never here.
 
-use oso_core::buffer::{Buffer, BufferId, Mode};
+use oso_core::buffer::{BufferId, Mode};
 use oso_core::project::ProjectId;
 
 use super::super::super::App;
 use super::super::hosting::{Begin, Then};
 use super::{BRIEF, Brief};
 use crate::app::sessions::withheld_draft;
+use crate::commands::worktrees::SECRET_BRIEF;
 use crate::git::{TrustedRoot, printable};
 use crate::sessions::worktree::brief::MAX_BRIEF;
 use crate::sessions::worktree::create::{Created, Handover, Order, Step};
@@ -104,9 +105,14 @@ impl App {
                 .editor
                 .message("This brief belongs to no worktree session");
         };
-        let Some(text) = self.editor.buffer(buffer).map(Buffer::text) else {
+        let Some(shown) = self.editor.buffer(buffer) else {
             return;
         };
+        // Also here, where its text is taken: a yank may have turned it secret since.
+        if shown.is_secret() {
+            return self.editor.message(SECRET_BRIEF);
+        }
+        let text = shown.text();
         // Measured before it is copied.
         if text.len() > MAX_BRIEF {
             return self.editor.message("The brief is over 64 KiB");

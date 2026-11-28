@@ -54,7 +54,7 @@ pub(crate) mod vcs;
 mod view;
 mod whitespace;
 mod windows;
-mod worktrees;
+pub(crate) mod worktrees;
 
 #[cfg(test)]
 pub(crate) use messages::kept_messages;

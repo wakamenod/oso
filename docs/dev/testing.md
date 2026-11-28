@@ -350,7 +350,7 @@ on a real GPU with a block for a glyph and read the pixels: an opaque pane hides
 under it, a pane's text goes over its background, both layers draw their own ranges, a
 glyph stops at its pane's edges, and the frame's top row keeps its band. They are ignored
 because `cargo test` must not need a GPU. `e2e.yml` runs them on Linux with lavapipe and on
-macOS, on `main` and on a pull request labelled `e2e`. The glyphs come from a fake text system, so they assert the same on both, and a
+macOS, on `main` and on a branch when started by hand. The glyphs come from a fake text system, so they assert the same on both, and a
 failure on Linux is real. There are no stored images to compare. Once M2-16 draws floats,
 a flow can take over.
 
@@ -554,52 +554,49 @@ agent sessions' rules engine (`sessions::fuzz_tests`), a native session's reques
 
 ## CI
 
-GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and
-every push to `main`. See [ADR 0021](adr/0021-development-tooling.md) and
+GitHub Actions (`.github/workflows/ci.yml`) runs on every push to `main`, and on a branch
+only when started by hand (`gh workflow run ci.yml --ref <branch>`). Pull requests run no CI
+but `adr-cited`: a pull request merges once its local checks pass (`just ci` by the commit
+hook, `just clippy-windows`, `just public-api-check`, the e2e flows it needs), and what
+`main`'s run then finds is fixed forward
+([ADR 0188](adr/0188-no-ci-on-pull-requests-and-every-commit-on-main-checked.md)). See
+[ADR 0021](adr/0021-development-tooling.md) and
 [ADR 0166](adr/0166-macos-ci-on-a-self-hosted-mac-and-fewer-jobs-per-pull-request.md).
-Its macOS jobs run on a self-hosted Mac, set up as in [ci-runner.md](ci-runner.md), on
-pushes to `main`; a pull request runs a macOS job only when labelled `e2e`, and one from a
-fork gets GitHub's `macos-latest` instead.
+Its macOS jobs run on a self-hosted Mac, set up as in [ci-runner.md](ci-runner.md).
 
-A pull request that changes nothing but docs builds nothing. Docs here means files under
-`docs/` and Markdown files at the root; Markdown elsewhere can be a test input. Its first
-job, `changes`, finds that from the files it changes since it left `main`, and every job
-below that builds or checks code is skipped, so it shows as skipped, not failed. The
-gitleaks scan, `just markers` and `adr-cited` still run. A push to `main` always runs
-everything. `ci-ok` sums the run up: it fails if a job of `ci.yml` failed or was
-cancelled, and counts a skipped one as passed. On a pull request it covers only the fast
-checks below; on `main` it covers every job of `ci.yml`, e2e included.
+No push to `main` cancels another's run: each commit runs every job and ends with a `ci-ok`
+of its own, which fails if a job of `ci.yml` failed or was cancelled and counts a skipped
+one as passed. The Mac's jobs wait in line on its two runners; after a burst of five merges
+the last one's `just e2e (macos)` ends about 90 minutes later.
 
-On each pull request, the fast checks:
+On pull requests:
 
-- `just ci` on Linux and Windows. `check`, `lint` and `test` cover
-  the dev features too (`--all-features`). The commit hook runs it on macOS, for commits
-  made through Claude Code.
+- the structure workflow (`structure.yml`): a structural change needs an
+  ADR cited in the pull request description. It reads the description, so it cannot run
+  on `main`, and the merge need not wait for it.
+
+On pushes to `main`, in `ci.yml`, and on a branch when started by hand:
+
+- `just ci` on Linux, macOS and Windows. `check`, `lint` and `test` cover the dev features
+  too (`--all-features`). On macOS it also runs `just release-safety`, as below, and
+  `just public-api-macos-check` for `oso-platform`'s macOS API, with the native window
+  layer ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)).
 - `just release-safety` on Linux: release builds contain no dev-only
   features, crates or code ([ADR 0032](adr/0032-control-socket-transport.md))
 - `cargo-deny` and `cargo-audit`
-- a gitleaks scan of the full history
+- a gitleaks scan of the full history; the commit hook scans each commit before it
 - `just markers` on Linux: no conflict marker in any tracked file, without a build, as
   the architecture test checks within `just ci`
 - `just public-api-check` on Linux: the public API matches
   `guardrails/public-api` ([ADR 0038](adr/0038-architecture-guardrails.md))
-- the structure workflow (`structure.yml`): a structural change needs an
-  ADR cited in the pull request description
 - `just test-time` on Linux: a warning when the test run grows past its budget
-
-On pushes to `main`, in `ci.yml`, and not on pull requests
-([ADR 0174](adr/0174-fast-checks-on-pull-requests.md)):
-
-- `just ci` on macOS, which also runs `just release-safety`, as above, and
-  `just public-api-macos-check` for `oso-platform`'s macOS API, with the native window
-  layer ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)).
 - `just e2e` and `just pixel-tests` (`e2e.yml`) on Linux with Xvfb and lavapipe, and on
   macOS, the one runner that checks text pixels
-  ([ADR 0049](adr/0049-end-to-end-test-harness.md)). A pull request runs them when
-  labelled `e2e`, which only people with triage access can add; its `ci-ok` does not wait
-  for them.
+  ([ADR 0049](adr/0049-end-to-end-test-harness.md), [ADR 0174](adr/0174-fast-checks-on-pull-requests.md)).
+  `gh workflow run e2e.yml --ref <branch>` runs them alone on a branch.
 
-On pushes to `main`, nightly at 17:00 UTC, and when started by hand, not on pull requests:
+On pushes to `main`, nightly at 17:00 UTC, and when started by hand, not on pull requests.
+On `main` none cancels a running run: a newer push replaces only a waiting one (ADR 0188).
 
 - the performance workflow (`perf.yml`): the benchmarks on Linux and macOS and the build
   time on all three, on GitHub's runners. Results go to the job summary and to JSON
@@ -607,8 +604,8 @@ On pushes to `main`, nightly at 17:00 UTC, and when started by hand, not on pull
   ([ADR 0046](adr/0046-performance-regression-checks.md)). A regression fails the run and
   opens or updates the issue "Performance regression on main"; a push's result becomes the
   baseline all the same. The nightly run measures only a head of `main` no push run
-  measured. A pull request runs it when labelled `perf`; a change to the input, render or
-  load paths is measured with that label or with `just perf-remote`
+  measured. `gh workflow run perf.yml --ref <branch>` measures a branch; a change to the
+  input, render or load paths is measured that way or with `just perf-remote`
   ([ADR 0081](adr/0081-macos-benchmarks-off-pull-requests.md))
 - the coverage workflow (`coverage.yml`), in the job summary; it cannot fail the build
 - the end-to-end flows under headless Weston (`e2e-wayland.yml`), which gate nothing yet

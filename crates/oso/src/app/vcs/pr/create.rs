@@ -8,7 +8,8 @@
 //! run thread makes and merges.
 //!
 //! - A message is the person's: an agent's command does not change it (`dispatch::agent`). Its
-//!   text is kept for `M-p` when it is cancelled or its pull request is asked for.
+//!   text is kept for `M-p` when it is cancelled or its pull request is asked for, unless a
+//!   secret was yanked into it.
 //! - What `gh` reads late opens nothing over what the person does now: a message or a question
 //!   comes only while they are still where they asked, else they are told to ask again.
 //! - A question counts only while its prompt is open, and its `y` runs only what it named. The
@@ -23,7 +24,9 @@ use oso_core::minibuffer::PromptId;
 use oso_core::project::ProjectId;
 
 use super::super::super::App;
+use super::super::commit::{cancelled_says, ring_text};
 use super::super::runs::RUNNING;
+use crate::commands::vcs::pr::create::SECRET_MESSAGE;
 use crate::git::{TrustedRoot, printable};
 use crate::vcs::commit::Ring;
 use crate::vcs::pr::create::{MAX_PR_MESSAGE, PrRun, method_word, title_and_body};
@@ -209,6 +212,10 @@ impl App {
         let Some(at) = self.pr_message(buffer) else {
             return;
         };
+        // Also here, where its text is taken: a yank may have turned it secret since.
+        if self.editor.buffer(buffer).is_some_and(Buffer::is_secret) {
+            return self.editor.message(SECRET_MESSAGE);
+        }
         let Some(text) = self.pr_message_text(buffer) else {
             return self
                 .editor
@@ -379,9 +386,9 @@ impl App {
         if self.pr_message(buffer).is_none() {
             return;
         }
+        let says = cancelled_says("Pull request cancelled", self.editor.buffer(buffer));
         self.drop_pr_message(buffer);
-        self.editor
-            .message("Pull request cancelled; M-p in the next message brings it back");
+        self.editor.message(says);
         self.request_redraw();
     }
 
@@ -448,9 +455,11 @@ impl App {
         (shown.text().len() <= MAX_PR_MESSAGE).then(|| shown.text().to_string())
     }
 
-    /// Keeps the message's text for `M-p`, then kills its buffer.
+    /// Keeps the message's text for `M-p`, unless a secret was yanked into it, then kills its
+    /// buffer.
     fn drop_pr_message(&mut self, buffer: BufferId) {
-        if let Some(text) = self.pr_message_text(buffer) {
+        let shown = self.editor.buffer(buffer);
+        if let Some(text) = shown.and_then(|shown| ring_text(shown, MAX_PR_MESSAGE)) {
             self.gits.prs.create.ring.keep(text);
         }
         let project = (self.pr_message(buffer)).map(|at| self.gits.prs.create.messages[at].project);

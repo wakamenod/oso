@@ -11,6 +11,10 @@ use oso_core::buffer::Mode;
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
 use oso_core::editor::SessionRequest;
 
+/// Why a brief that a secret was yanked into is not sent, by the command and the host.
+pub(crate) const SECRET_BRIEF: &str =
+    "The brief holds secret text, which is not sent: take it out, or C-c C-k";
+
 /// The worktree commands.
 pub const COMMANDS: &[Command] = &[
     Command {
@@ -27,7 +31,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "brief-send",
-        doc: "Send the brief in this `*Brief*` buffer: make its worktree and start its session.\n\nThe brief goes to the session as its first prompt, after a header that says where it runs and what the session that started it left: its transcript, its plans and its uncommitted changes, which did not come along.",
+        doc: "Send the brief in this `*Brief*` buffer: make its worktree and start its session.\n\nThe brief goes to the session as its first prompt, after a header that says where it runs and what the session that started it left: its transcript, its plans and its uncommitted changes, which did not come along. A brief that a secret was yanked into is not sent.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: brief_send,
@@ -140,6 +144,10 @@ fn brief(ctx: &Ctx<'_>) -> Result<oso_core::buffer::BufferId, CommandError> {
 
 fn brief_send(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     let buffer = brief(ctx)?;
+    // A yank of a secret entry turns it secret: a text that a secret was put in stays marked.
+    if ctx.editor.current().1.is_secret() {
+        return Err(CommandError::new(SECRET_BRIEF));
+    }
     ctx.editor
         .request_session(SessionRequest::SendBrief(buffer));
     Ok(())
@@ -294,6 +302,31 @@ mod tests {
                 SessionRequest::SendBrief(buffer),
                 SessionRequest::CancelBrief(buffer)
             ]
+        );
+    }
+
+    #[test]
+    fn a_brief_that_a_secret_was_yanked_into_is_not_sent() {
+        let mut editor = editor("Fix it\n");
+        let buffer = editor.window().buffer();
+        assert!(editor.buffer_mut(buffer).unwrap().set_mode(Mode::Brief));
+        editor.kill_new("hunter2", true);
+        editor.yank(0, false).unwrap();
+        assert!(editor.current().1.is_secret());
+        assert_eq!(
+            run_as(&mut editor, "brief-send", Invocation::default()),
+            Err(
+                "brief-send: The brief holds secret text, which is not sent: take it out, or C-c C-k"
+                    .to_owned()
+            )
+        );
+        assert_eq!(
+            run_as(&mut editor, "brief-cancel", Invocation::default()),
+            Ok(())
+        );
+        assert_eq!(
+            editor.take_session_requests(),
+            [SessionRequest::CancelBrief(buffer)]
         );
     }
 

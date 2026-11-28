@@ -263,3 +263,27 @@ fn removing_a_stale_lock_asks_the_host_in_a_project_or_a_log_only() {
     assert_eq!(result.unwrap_err().to_string(), "Not in a project");
     assert!(editor.take_git_requests().is_empty());
 }
+
+#[test]
+fn a_message_that_a_secret_was_yanked_into_is_not_committed() {
+    let mut editor = editor("");
+    let mut buffer = Buffer::from_text("*commit: p*", "Subject\n");
+    assert!(buffer.set_mode(Mode::GitCommit));
+    let id = editor.add_buffer(buffer);
+    editor.show(id);
+    editor.kill_new("hunter2", true);
+    editor.yank(0, false).unwrap();
+    assert!(editor.current().1.is_secret());
+    let (result, _) = run(&mut editor, "git-commit-finish", Args::NONE);
+    assert_eq!(
+        result.unwrap_err(),
+        "The message holds secret text, which is not committed: take it out, or C-c C-k"
+    );
+    // It can still be dropped: the host keeps no secret message in the ring.
+    let (result, _) = run(&mut editor, "git-commit-cancel", Args::NONE);
+    assert!(result.is_ok());
+    assert_eq!(
+        editor.take_git_requests(),
+        [GitRequest::CommitCancel { buffer: id }]
+    );
+}

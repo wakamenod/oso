@@ -2,27 +2,23 @@
 # lavapipe, and on macOS, the one runner that draws text, on oso's own window layer
 # (ADR 0070). Nothing here reads a baseline or writes anything back, so the token stays
 # read-only (ADR 0021). ci.yml calls it on every push to main, so that ci-ok covers it there.
-# A pull request runs it only when labelled e2e, which only people with triage access can
-# add, as perf.yml's perf label (ADR 0174). Its result is not in that pull request's ci-ok.
+# No pull request runs it (ADR 0188); on a branch, start it by hand:
+# gh workflow run e2e.yml --ref <branch>.
 name: E2E
 
 on:
   workflow_call:
-  pull_request:
-    types: [opened, synchronize, reopened, labeled]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  # A called run has the caller's github.workflow, so the group names this file itself. A
-  # pull request's run that tests nothing (no e2e label, or another label added) has a group
-  # of its own, so it never cancels one that does.
-  group: >-
-    e2e-${{ github.event_name }}-${{ github.ref }}-${{
-    (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'e2e')
-    && (github.event.action != 'labeled' || github.event.label.name == 'e2e')) && 'test' || 'none' }}
-  cancel-in-progress: true
+  # A called run has the caller's github.workflow, so the group names this file itself. A run
+  # that ci.yml calls on a push to main has a group of its own, so the next push never
+  # cancels it (ADR 0188). A run started by hand on a branch cancels the branch's earlier one.
+  group: e2e-${{ github.ref == 'refs/heads/main' && github.event_name == 'push' && format('main-{0}', github.run_id) || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' || github.event_name != 'push' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -30,23 +26,18 @@ env:
 jobs:
   e2e:
     name: just e2e (${{ matrix.os }})
-    # Skipped, with no runner, on a pull request without the label, or when another label is
-    # added. A skipped matrix job keeps its unexpanded name, so it never stands in for a
-    # result of the jobs below.
-    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'e2e') && (github.event.action != 'labeled' || github.event.label.name == 'e2e')
     strategy:
       fail-fast: false
       matrix:
         # Not Windows: the control socket does not support it yet (ADR 0032).
         os: [ubuntu-latest, macos]
-    # macOS runs on the author's self-hosted Mac (docs/dev/ci-runner.md, ADR 0166), except
-    # for a pull request from a fork, which gets a GitHub-hosted runner. The label oso is
-    # the Mac's first runner's alone, so e2e runs never overlap there and windows do not
-    # take the focus from each other; just ci runs on the second one. The repository
+    # macOS runs on the author's self-hosted Mac (docs/dev/ci-runner.md, ADR 0166). The label
+    # oso is the Mac's first runner's alone, so e2e runs never overlap there and windows do
+    # not take the focus from each other; just ci runs on the second one. The repository
     # variable OSO_MACOS_RUNNER, a runner label such as macos-latest, overrides the Mac while
-    # it is offline. The runner's own job-started hook refuses a fork's job all the same,
-    # since a fork can edit this line.
-    runs-on: ${{ matrix.os != 'macos' && matrix.os || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'macos-latest' || vars.OSO_MACOS_RUNNER || fromJSON('["self-hosted", "macOS", "ARM64", "oso"]') }}
+    # it is offline. No pull request runs this workflow (ADR 0188); the runner's own
+    # job-started hook refuses a fork's job all the same.
+    runs-on: ${{ matrix.os != 'macos' && matrix.os || vars.OSO_MACOS_RUNNER || fromJSON('["self-hosted", "macOS", "ARM64", "oso"]') }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7.0.1
@@ -56,12 +47,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2.9.3
         if: runner.environment == 'github-hosted'
         with:
-          # Only main writes the cache, so pull requests cannot poison it.
+          # Only main writes the cache, so a branch cannot poison it.
           save-if: ${{ github.ref == 'refs/heads/main' }}
       # The self-hosted Mac keeps its build between jobs instead, outside the workspace, which
-      # checkout cleans: pull requests and main each have their own, so main never builds on
-      # what a branch left (ADR 0166). Each runner has its own folder, named as the runner, and
-      # its hooks clean only that one. git clean removes only the link.
+      # checkout cleans: branches (the pr folder) and main each have their own, so main never
+      # builds on what a branch left (ADR 0166). Each runner has its own folder, named as the
+      # runner, and its hooks clean only that one. git clean removes only the link.
       - name: Keep the build on the runner
         if: runner.environment == 'self-hosted'
         env:

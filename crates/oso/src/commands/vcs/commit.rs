@@ -16,6 +16,10 @@ pub const NO_VERIFY: &str = "no-verify";
 pub const SIGNOFF: &str = "signoff";
 pub const ALLOW_EMPTY: &str = "allow-empty";
 
+/// Why a message that a secret was yanked into is not committed, by the command and the host.
+pub(crate) const SECRET_MESSAGE: &str =
+    "The message holds secret text, which is not committed: take it out, or C-c C-k";
+
 macro_rules! command {
     ($name:literal, $doc:literal, $run:ident) => {
         Command {
@@ -63,12 +67,12 @@ pub const COMMANDS: &[Command] = &[
     ),
     command!(
         "git-commit-finish",
-        "In a commit's message, commit with it (`C-c C-c`).\n\nLines starting with `#` are left out. git runs the repository's hooks, with no time limit; the echo area says how long it has run, and `$` in the status shows what it wrote. A commit that fails keeps the message here.",
+        "In a commit's message, commit with it (`C-c C-c`).\n\nLines starting with `#` are left out. git runs the repository's hooks, with no time limit; the echo area says how long it has run, and `$` in the status shows what it wrote. A commit that fails keeps the message here. A message that a secret was yanked into is refused.",
         commit_finish
     ),
     command!(
         "git-commit-cancel",
-        "In a commit's message, drop it without committing (`C-c C-k`); `M-p` in the next one brings its text back.",
+        "In a commit's message, drop it without committing (`C-c C-k`); `M-p` in the next one brings its text back, unless a secret was yanked into it.",
         commit_cancel
     ),
     command!(
@@ -189,6 +193,10 @@ fn commit_squash(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 
 fn commit_finish(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     let buffer = message(ctx)?;
+    // A yank of a secret entry turns it secret: a text that a secret was put in stays marked.
+    if ctx.editor.current().1.is_secret() {
+        return Err(CommandError::new(SECRET_MESSAGE));
+    }
     ctx.editor.request_git(GitRequest::CommitFinish { buffer });
     ctx.request_redraw();
     Ok(())
