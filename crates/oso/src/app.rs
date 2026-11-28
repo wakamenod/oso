@@ -55,8 +55,7 @@ mod trims;
 mod vcs;
 mod walks;
 mod wraps;
-// The window system, the same loop, window and waker under the one name: oso's own layer on
-// macOS, and winit on Windows and Linux (ADR 0070, stage 3).
+// The window system under one name: oso's own on macOS, winit elsewhere (ADR 0070, stage 3).
 #[cfg(target_os = "macos")]
 mod native;
 #[cfg(not(target_os = "macos"))]
@@ -160,8 +159,7 @@ pub enum UserEvent {
     SessionSocketStarted(std::io::Result<crate::channel::Channel>),
     /// The sessions worker found something (ADR 0121).
     Sessions(crate::sessions::worker::Out),
-    /// The thread that keeps images kept the clipboard's image for this session, or could not
-    /// (ADR 0142).
+    /// The image thread kept the clipboard's image for this session, or could not (ADR 0142).
     ImageKept(
         SessionKey,
         Box<Result<crate::sessions::images::Kept, String>>,
@@ -200,6 +198,8 @@ pub enum UserEvent {
     RemoteLooked(sessions::RemoteLooked),
     /// A native session's stream read events, or its process ended (ADR 0165).
     NativeSession(SessionKey, crate::sessions::stream::Out),
+    /// A stopped native session's earlier turns were read, once it was shown (ADR 0165, 5c).
+    StoppedPast(SessionKey, Box<crate::sessions::native::past::Past>),
     /// A terminal's start thread found the shell and started it, or could not.
     TerminalStarted(Box<crate::terminal::hosted::Started>),
     /// A thread of a restart of terminals found something (ADR 0120, step 11).

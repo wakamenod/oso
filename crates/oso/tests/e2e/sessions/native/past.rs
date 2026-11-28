@@ -2,13 +2,17 @@
 //! writes where Claude Code keeps it under the flow's home: a fork shows the turns of the
 //! conversation it copies, then says it was forked; a session the new instance resumes after
 //! `oso-restart` shows its turns before saying so; one with no transcript says why; and a
-//! session back from the TUI shows the TUI's turns after its own rows (part 5b).
+//! session back from the TUI shows the TUI's turns after its own rows (part 5b); and a session
+//! brought back stopped at oso's next start shows its turns once its buffer is shown, and
+//! its resume adds none of them again (part 5c).
 //!
 //! Must not depend on: the app's internals; which lines are shown, and how, have their own
 //! tests.
 
 use std::fs;
 use std::path::PathBuf;
+use std::thread;
+use std::time::Duration;
 
 use serde_json::{Value, json};
 
@@ -177,6 +181,66 @@ fn a_session_back_from_the_tui_shows_the_tuis_turns_after_its_rows() {
         at(&shown, "answered in the TUI") < at(&shown, "Resumed."),
         "{shown}"
     );
+    let _ = app.exchange("exit", None);
+    app.wait_for_exit();
+}
+
+/// Selects the buffer named `name`, by its name.
+fn switch_to(app: &mut App, name: &str) {
+    app.send_keys("C-x b");
+    for ch in name.chars() {
+        app.send_keys(&match ch {
+            ' ' => "SPC".to_owned(),
+            ch => ch.to_string(),
+        });
+    }
+    app.send_keys("RET");
+    app.wait_for("its buffer", |state| state["buffer"]["name"] == name);
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_stopped_session_brought_back_shows_its_turns_once_shown_and_its_resume_keeps_them() {
+    let flow = Flow::new("native-past-stopped");
+    let mut app = spoken_and_stopped(&flow);
+    let id = first_id(&flow);
+    // The record is written on a thread: a moment before the exit.
+    thread::sleep(Duration::from_millis(500));
+    let _ = app.exchange("exit", None);
+    assert!(app.wait_for_exit().success(), "the instance exits");
+    write_transcript(&flow, &id);
+
+    // The next start brings it back stopped; shown, it reads its turns, and nothing runs.
+    let mut app = flow.start();
+    switch_to(&mut app, "*claude: proj*");
+    app.wait_for("its earlier turns, at their end", |state| {
+        text(state).contains("plum") && text(state).contains("*Spaces*")
+    });
+    let shown = whole(&mut app);
+    let prompt = "Reply with the single word apple.";
+    assert_eq!(shown.matches(prompt).count(), 1, "{shown}");
+    assert!(
+        at(&shown, "Stopped.") < at(&shown, "Its earlier turns"),
+        "{shown}"
+    );
+    assert!(
+        at(&shown, "Its earlier turns") < at(&shown, prompt),
+        "{shown}"
+    );
+    let hint = at(&shown, "C-c a r");
+    assert!(at(&shown, "plum") < hint, "{shown}");
+    assert!(!flow.scratch.path().join("run.2").exists(), "the fake ran");
+
+    // Its resume reads only what follows its rows: here nothing, so no turn twice.
+    app.run_command("session-resume", None).unwrap();
+    let args = flow.wait_for_file("run.2");
+    assert!(args.contains(&format!("arg --resume={id}")), "{args}");
+    app.send_keys("C-c C-o");
+    app.wait_for("the resume", |state| text(state).contains("Resumed."));
+    let shown = whole(&mut app);
+    assert_eq!(shown.matches(prompt).count(), 1, "{shown}");
+    assert!(!shown.contains("Its turns since"), "{shown}");
+    assert!(at(&shown, "C-c a r") < at(&shown, "Resumed."), "{shown}");
     let _ = app.exchange("exit", None);
     app.wait_for_exit();
 }

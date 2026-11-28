@@ -216,6 +216,7 @@ impl App {
             resuming_for: super::resumed::ResumeFor::default(),
             not_resumed: None,
             may_have_gone_on: false,
+            stopped_past: super::stopped::StoppedPast::None,
         };
         self.hosting.natives.map.insert(key, native);
         // Its composer, docked under it (ADR 0170).
@@ -224,7 +225,7 @@ impl App {
     }
 
     /// Brings native session `key` back as a buffer with no process, which says so. Nothing
-    /// starts.
+    /// starts; its earlier turns are read once its buffer is shown (part 5c).
     pub(in crate::app::sessions::hosting) fn bring_back_native(&mut self, key: SessionKey) {
         let Some(session) = self.hosting.table.get(key) else {
             return;
@@ -241,6 +242,7 @@ impl App {
                 .note("Stopped. Its conversation is kept by Claude Code.");
             draw(&mut self.editor, native, [change]);
         }
+        self.native_stopped_unread(key);
         if let Some(session) = self.hosting.table.get_mut(key) {
             session.buffer = Some(buffer);
             session.run = Run::Stopped;

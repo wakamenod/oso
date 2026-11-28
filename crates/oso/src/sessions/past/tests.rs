@@ -260,3 +260,40 @@ fn after_a_message_the_rows_hold_only_the_later_turns_are_read() {
     assert_eq!(past.missing, Some(Missing::NotFound));
     assert!(past.after().is_empty());
 }
+
+/// What a stopped session's read handed on, and the name of the thread it ran on.
+fn read_stopped(projects: Option<PathBuf>, work: &Path) -> (Option<String>, Past) {
+    let (sent, got) = std::sync::mpsc::channel();
+    read_stopped_in(projects, ask(), work.to_path_buf(), move |past| {
+        let name = std::thread::current().name().map(str::to_owned);
+        sent.send((name, past)).unwrap();
+    })
+    .unwrap();
+    got.recv_timeout(Duration::from_secs(10)).unwrap()
+}
+
+#[test]
+fn a_stopped_sessions_read_runs_on_its_own_thread_and_reads_the_whole_conversation() {
+    let scratch = Scratch::new("stopped");
+    let work = scratch.work();
+    scratch.write(&slug_of(&work), &id(), &Scratch::recorded(&work));
+    let (thread, past) = read_stopped(Some(scratch.projects()), &work);
+    assert_eq!(thread.as_deref(), Some("oso-native-past"));
+    assert_eq!(past.missing, None);
+    assert!(!past.after_rows);
+    assert_eq!(prompts(&past)[0], "Reply with the single word apple.");
+    assert_eq!(past.since, Since::Start);
+}
+
+#[test]
+fn a_stopped_sessions_read_with_no_transcripts_directory_or_file_says_so() {
+    let scratch = Scratch::new("stopped-none");
+    let (_, past) = read_stopped(None, &scratch.work());
+    assert_eq!(past.missing, Some(Missing::NotFound));
+    let (_, past) = read_stopped(Some(scratch.projects()), &scratch.work());
+    assert_eq!(past.missing, Some(Missing::NotFound));
+    assert_eq!(
+        past.after(),
+        ["Its earlier turns are not shown: its transcript was not found."]
+    );
+}
