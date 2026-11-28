@@ -347,8 +347,8 @@ and `-`.
   `./svc.sh stop` in both `~/actions-runner` and `~/actions-runner-2`. Then run
   `./svc.sh start` in both afterwards. Jobs queue meanwhile. `just e2e-remote` needs no
   pause: it runs as your own user over SSH and waits while `oso-mac` has a job
-  ([testing.md](testing.md)). It finds that job by the paths `actions-runner/bin/Runner.Worker`
-  and `actions-runner/_work/`, so keep the first runner in `~/actions-runner`.
+  ([testing.md](testing.md)). It finds that job by its worker, `actions-runner/bin/Runner.Worker`,
+  so keep the first runner in `~/actions-runner`.
 - **Changing the hooks:** edit them as an admin with `sudo`. They apply from the next job.
   After a change to a runner's `.env`, run `./svc.sh stop && ./svc.sh start` in its folder.
 

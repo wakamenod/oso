@@ -451,8 +451,9 @@ e2e-remote tests ref="":
     lock="$base/lock"
     own=0
     # The CI runner that opens windows runs from actions-runner (its second, actions-runner-2,
-    # runs just ci): its job's worker, or anything started from its work folder.
-    ci_job() { pgrep -f 'actions-runner/(bin/Runner\.Worker|_work/)' >/dev/null; }
+    # runs just ci). Its job's worker lives as long as the job; processes from its work folder
+    # may outlive a job, so they do not count.
+    ci_job() { pgrep -f 'actions-runner/bin/Runner\.Worker' >/dev/null; }
     busy() {
         if ci_job; then echo "an e2e job of the CI runner"; return 0; fi
         if pgrep -f 'perf run --oso' >/dev/null; then echo "a perf run"; return 0; fi

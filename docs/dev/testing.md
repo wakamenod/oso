@@ -311,8 +311,8 @@ unset, they run what cargo built where it built it.
 The host needs the ssh user logged in to a GUI session, as for `perf-remote`: a process
 started over ssh opens windows in that user's session. It never runs as, or touches, the
 user of the self-hosted CI runner ([ci-runner.md](ci-runner.md)). Before it starts, it waits
-while that Mac's e2e runner has a job (a process of `actions-runner`'s worker or from its
-work folder; the second runner, `actions-runner-2`, opens no windows), while a `perf run`
+while that Mac's e2e runner has a job (while `actions-runner`'s worker runs; the second
+runner, `actions-runner-2`, opens no windows), while a `perf run`
 is running, or while another `e2e-remote` holds `~/oso-e2e/lock`, for at most 40 minutes. A
 job that starts during a run cannot be held off, so the run says when one did, and a failure
 then may come from it. The flows that send Apple events through `osascript` may need that
