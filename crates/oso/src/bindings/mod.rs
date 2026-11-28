@@ -39,6 +39,7 @@ mod save;
 mod scroll;
 mod session;
 mod session_help;
+mod sexp;
 mod terminal;
 mod theme;
 mod vcs;
@@ -82,6 +83,7 @@ const TABLES: &[&[(&str, &str)]] = &[
     save::BINDINGS,
     scroll::BINDINGS,
     session::BINDINGS,
+    sexp::BINDINGS,
     theme::BINDINGS,
     vcs::BINDINGS,
     view::BINDINGS,

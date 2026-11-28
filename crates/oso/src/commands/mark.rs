@@ -69,7 +69,7 @@ fn consult_mark(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 }
 
 /// The signal for a command that needs the primary cursor's mark.
-const NO_MARK: &str = "No mark set in this buffer";
+pub(super) const NO_MARK: &str = "No mark set in this buffer";
 
 fn set_mark_command(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
     if args.raw().is_some() {

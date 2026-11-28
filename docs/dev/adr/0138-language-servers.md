@@ -421,8 +421,11 @@ Every bound lives in `oso-lsp`'s `limits`:
 - **The message at point (Q14):** when the cursor stays 300 ms on a diagnostic, the echo area shows
   its first line, and `+2` when more cover that place, as Flymake and Flycheck do with ElDoc. A
   message the person put there stays until it times out, as usual.
-- **Keys (Q15):** `C-M-n` and `C-M-p` (`lsp-next-diagnostic`, `lsp-previous-diagnostic`) move to
-  the next and previous diagnostic, as the author's Flycheck keys do. They wrap, and say
+- **Keys (Q15):** `M-g n` and `M-g p`, with `M-g M-n` and `M-g M-p` (`lsp-next-diagnostic`,
+  `lsp-previous-diagnostic`), move to the next and previous diagnostic, as Emacs's `next-error`
+  keys do. They were `C-M-n` and `C-M-p`, the author's Flycheck keys, until
+  [ADR 0190](0190-emacs-motion-by-expressions-defuns-paragraphs-and-sentences.md) gave those to
+  `forward-list` and `backward-list`. They wrap, and say
   `Wrapped`, as isearch does. `M-g d` (`lsp-diagnostics`) lists the project's diagnostics in the centred float
   with a preview, as `consult-flymake` does. The buffer's own come first, then the project's by
   file.
@@ -504,7 +507,7 @@ Every bound lives in `oso-lsp`'s `limits`:
   | `M-?` | `lsp-find-references` |
   | `M-,` | `lsp-go-back` |
   | `C-M-,` | `lsp-go-forward` |
-  | `C-M-n`, `C-M-p` | `lsp-next-diagnostic`, `lsp-previous-diagnostic` |
+  | `M-g n`, `M-g p`, `M-g M-n`, `M-g M-p` | `lsp-next-diagnostic`, `lsp-previous-diagnostic` (ADR 0190) |
   | `M-g d` | `lsp-diagnostics` |
   | `C-M-i` | `completion-at-point` |
   | `C-c C-d`, `C-h .` | `lsp-describe-at-point` |
@@ -524,7 +527,7 @@ Every bound lives in `oso-lsp`'s `limits`:
 | `lsp-start`, `lsp-restart` | `Person` | spawns a process |
 | `lsp-shutdown` | `Person` | manages the person's processes |
 | `M-.`, `M-?`, `M-,`, `C-M-,` | `Look` | moves and opens; asks a running server about a buffer it knows |
-| `C-M-n`, `C-M-p` | `Look` | moves |
+| `M-g n`, `M-g p`, `M-g M-n`, `M-g M-p` | `Look` | moves |
 | `M-g d`, `C-M-i`, `C-c C-d`, `C-h .` | `Person` | an interactive float for the keyboard |
 | `lsp-describe-scroll-up`, `-down`, `-close` (step 10) | `Person` | the description's own keys |
 | `diagnostics` tool on `oso mcp` | read, like `text` | reads the reports oso holds |
@@ -775,6 +778,8 @@ Put to the author on 2026-11-15, the recommended option first. The answer follow
     (b) `M-n` and `M-p` in buffers a server follows, as many Flymake set-ups bind, with the list on
     `M-g d`.
     **Answer:** `C-M-n` and `C-M-p`, the author's Flycheck keys, with the list on `M-g d`.
+    [ADR 0190](0190-emacs-motion-by-expressions-defuns-paragraphs-and-sentences.md) later moved
+    them to `M-g n` and `M-g p`, with `M-g M-n` and `M-g M-p`.
 16. **Hints and unused code.**
     (a) A hint is not underlined or counted, and shows at point. An `Unnecessary` range is dim.
     (b) Hints are drawn and counted as information is.
@@ -1435,8 +1440,8 @@ the `revision` fields of step 4's `Document` and `Change` among them (Q8).
     severe there, the server's name first, its runs of blanks as one, and `+2` when two more
     cover it: `rust-analyzer: mismatched types +2`. It replaces only an empty echo area or its
     own last message, and goes to neither `*Messages*` nor the log.
-  - The `lsp` minor mode layer (`bindings/lsp.rs`) binds `C-M-n` and `C-M-p` to
-    `lsp-next-diagnostic` and `lsp-previous-diagnostic` (`Look`), which call
+  - The `lsp` minor mode layer (`bindings/lsp.rs`) binds `C-M-n` and `C-M-p` (`M-g n` and
+    `M-g p` since ADR 0190) to `lsp-next-diagnostic` and `lsp-previous-diagnostic` (`Look`), which call
     `Editor::to_diagnostic`: the primary cursor alone goes to a display cluster's start, past
     a diagnostic that starts inside its own cluster, and a move past the last wraps and says
     `Wrapped`. The layer is on while the buffer's modeline mark says a server follows it and

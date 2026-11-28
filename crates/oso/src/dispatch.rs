@@ -694,6 +694,8 @@ mod sessions_send_tests;
 #[cfg(test)]
 mod sessions_tests;
 #[cfg(test)]
+mod sexp_tests;
+#[cfg(test)]
 mod status_tests;
 #[cfg(test)]
 mod terminal_tests;
