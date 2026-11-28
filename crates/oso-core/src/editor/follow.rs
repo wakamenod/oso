@@ -2,7 +2,7 @@
 //! and are put where a cursor can be afterwards (ADR 0053, ADR 0071), how isearch and
 //! a jump are kept true to the text they show before the host waits (ADR 0082, ADR 0116), and
 //! how the other places the editor marks in a buffer follow each edit: servers' answers
-//! (ADR 0138) and dictation's spans (ADR 0175).
+//! (ADR 0138), dictation's spans (ADR 0175) and the global mark ring (ADR 0190).
 //!
 //! Must not depend on: `command` or `keymap`; it works out sets of selections from
 //! offsets and a display snapshot, and the editor swaps them in.
@@ -18,15 +18,17 @@ use crate::sum_tree::Bias;
 
 impl Editor {
     /// The places marked in `buffer` follow an edit's `steps`, as the cursors do: servers'
-    /// answers and dictation's spans.
+    /// answers, dictation's spans and the global mark ring's.
     pub(super) fn marks_follow(&mut self, buffer: BufferId, steps: &[Vec<OffsetEdit>]) {
         self.answers_follow(buffer, steps);
+        self.global_marks.follow(buffer, steps);
         self.dictation_spans_follow(buffer, steps);
     }
 
     /// `buffer` was read again, its offsets moved through `map`: servers' answers move or go,
     /// and dictation's spans, whose text is no longer known, go.
-    pub(super) fn marks_reloaded(&mut self, buffer: BufferId, map: impl FnMut(usize) -> usize) {
+    pub(super) fn marks_reloaded(&mut self, buffer: BufferId, mut map: impl FnMut(usize) -> usize) {
+        self.global_marks.map(buffer, &mut map);
         self.answers_reloaded(buffer, map);
         self.forget_dictation_spans(buffer);
     }
@@ -57,6 +59,8 @@ impl Editor {
         });
         if let Some(edits) = &batch {
             self.answers_follow(buffer, std::slice::from_ref(edits));
+            self.global_marks
+                .follow(buffer, std::slice::from_ref(edits));
         }
         match (span_steps, &batch) {
             (Some(steps), _) => self.dictation_spans_follow(buffer, steps),

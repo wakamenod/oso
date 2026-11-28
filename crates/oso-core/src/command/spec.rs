@@ -219,6 +219,11 @@ pub enum ArgSpec {
     /// the UI thread, and runs the command once it has the answer, as `yank` needs
     /// (ADR 0074).
     CountAndClipboard,
+    /// A numeric prefix argument as with `Count`, and a character, read in a prompt that says
+    /// `prompt`, which ends as soon as one is typed, as Emacs's `read-char-from-minibuffer`
+    /// does, and keeps no history (ADR 0190). The agent channel gives the character as text,
+    /// with no count. The command reads it with [`Ctx::char_answer`](super::Ctx::char_answer).
+    CountAndChar { prompt: &'static str },
     /// An entry of the kill ring, read in a prompt that says `prompt` and completes over the
     /// ring, newest first, with the selected entry's text beside it, after the dispatcher has
     /// read the clipboard, as for `CountAndClipboard`, so that another app's newest copy is

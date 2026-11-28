@@ -191,11 +191,13 @@ impl Editor {
     }
 
     /// Marks that the command has ended, so that messages reach `*Messages*` and the log
-    /// again. What a panic leaves comes after this: it names only the command, and is
+    /// again, and the marks it pushed reach the global mark ring. What a panic leaves comes after this: it names only the command, and is
     /// a bug to find.
     pub fn end_command(&mut self) {
         self.command_left_secret = None;
         self.passphrase_command = false;
+        // Where it pushed marks goes on the global mark ring (ADR 0190).
+        self.note_pushed_marks();
     }
 
     /// Shows `text` in the echo area alone, for what must stay out of the log and
@@ -322,6 +324,13 @@ impl Editor {
     /// secrets was shown, so the control socket leaves them out until they end.
     pub fn keys_withheld(&self) -> bool {
         self.keys_withheld
+    }
+
+    /// Whether any window shows a buffer that may hold secrets (ADR 0044).
+    pub fn shows_secret(&self) -> bool {
+        self.windows
+            .iter()
+            .any(|window| self.shown(window).is_secret())
     }
 
     /// If a buffer that may hold secrets is shown, the keys in progress, the composition and

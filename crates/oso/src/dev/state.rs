@@ -36,6 +36,7 @@ use serde_json::{Value, json};
 use super::Reply;
 
 mod popup;
+mod rings;
 mod syntax;
 mod text;
 use crate::channel::state::{searches_around_secret, slice};
@@ -63,7 +64,9 @@ const WITHHELD: &str = "the buffer may hold secrets or is still being checked, s
 /// prefix, and the surface size if there is a window.
 ///
 /// The cursor and each selection carry their mark, and each window says whether its
-/// regions show and holds its mark ring (ADR 0071).
+/// regions show and holds its mark ring (ADR 0071). `global_marks` lists the global mark
+/// ring's places outside buffers that may hold secrets, and is left out while one is shown
+/// (ADR 0190).
 ///
 /// For a buffer that may hold secrets, `text` is null, and `cursor` and `scroll`
 /// are left out, with every mark. Its other metadata stays, as [`buffer_state`] has it. While any window
@@ -132,7 +135,10 @@ pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u3
             state["echo"] = json!(status.echo);
         }
     }
-    state["kill_ring"] = kill_ring_state(editor);
+    state["kill_ring"] = rings::kill_ring_state(editor);
+    if !shows_secret {
+        state["global_marks"] = rings::global_marks_state(editor);
+    }
     state
 }
 
@@ -202,57 +208,6 @@ fn replace_state(editor: &Editor) -> Value {
         "count": count,
         "replaced": replace.replaced(),
     })
-}
-
-/// The most pieces of the newest entry `get-state` shows, and the most bytes of each.
-const SHOWN_PIECES: usize = 16;
-const SHOWN_PIECE_BYTES: usize = 1024;
-
-/// The `kill_ring` field of `get-state`: how many entries there are, and the newest one's
-/// pieces, cut short. Secret entries and text from other apps' copies are left out as if
-/// absent, and the whole field is null while a buffer that may hold secrets is shown
-/// (ADR 0074).
-fn kill_ring_state(editor: &Editor) -> Value {
-    if editor.shows_secret() {
-        return Value::Null;
-    }
-    let mut ordinary = editor
-        .kill_ring()
-        .iter()
-        .filter(|entry| !entry.is_secret() && !entry.came_from_clipboard());
-    let newest = ordinary.next().map(|entry| {
-        let pieces = entry.pieces();
-        let mut truncated = pieces.len() > SHOWN_PIECES;
-        let shown: Vec<String> = pieces
-            .iter()
-            .take(SHOWN_PIECES)
-            .map(|piece| {
-                truncated |= piece.len() > SHOWN_PIECE_BYTES;
-                piece_start(piece)
-            })
-            .collect();
-        json!({ "pieces": shown, "truncated": truncated })
-    });
-    json!({ "entries": usize::from(newest.is_some()) + ordinary.count(), "newest": newest })
-}
-
-/// The first [`SHOWN_PIECE_BYTES`] of `piece`, cut at a character's start.
-fn piece_start(piece: &oso_core::kill::Piece) -> String {
-    let mut text = String::new();
-    for chunk in piece.chunks() {
-        let room = SHOWN_PIECE_BYTES - text.len();
-        if chunk.len() <= room {
-            text.push_str(chunk);
-            continue;
-        }
-        let mut end = room;
-        while !chunk.is_char_boundary(end) {
-            end -= 1;
-        }
-        text.push_str(&chunk[..end]);
-        break;
-    }
-    text
 }
 
 /// The open prompts, the outermost first: each one's depth, kind, label, answer so far, cursor
@@ -762,7 +717,7 @@ mod tests {
             state,
             json!({
                 "modeline": "%% bad.txt  2:4  Fundamental  UTF-8 (invalid) CRLF",
-                "echo": "",
+                "echo": "", "global_marks": [],
                 "buffer": buffer,
                 "cursor": { "offset": 6, "row": 1, "column": 4, "count": 1, "mark": null },
                 "scroll": { "start": 0, "top": 0, "left": 3 },
@@ -1260,7 +1215,7 @@ mod tests {
 
     #[test]
     fn the_kill_ring_shows_its_newest_own_entry_cut_short_and_nothing_secret_or_copied() {
-        use super::{SHOWN_PIECE_BYTES, kill_ring_state};
+        use super::rings::{SHOWN_PIECE_BYTES, kill_ring_state};
         use oso_core::kill::{Direction, Fingerprint};
         let (mut editor, secret) = visiting("/p/.env", Some("/p/.env"), "ONE\n");
         let scratch = editor.buffers().next().unwrap().0;
@@ -1478,6 +1433,47 @@ mod tests {
         assert_eq!(window["selections"][0]["mark"], mark);
         assert_eq!(window["mark_active"], true);
         assert_eq!(window["mark_ring"], json!([0]));
+    }
+
+    #[test]
+    fn the_global_mark_ring_gives_no_place_in_a_buffer_that_may_hold_secrets() {
+        let (mut editor, secret) = visiting("/p/.env", Some("/p/.env"), "KEY=value\n");
+        let notes = editor.add_buffer(Buffer::from_text("notes", "one two\n"));
+        editor.show(notes);
+        let push_at = |editor: &mut Editor, at: usize| {
+            let selections = &mut editor.current_mut().0.selections;
+            selections.move_primary(at);
+            selections.push_marks();
+            editor.end_command();
+        };
+        push_at(&mut editor, 4);
+        editor.show(secret);
+        push_at(&mut editor, 3);
+        editor.show(notes);
+        assert_eq!(editor.global_marks().len(), 2);
+        let state = state(&editor, &[]);
+        assert_eq!(
+            state["global_marks"],
+            json!([{ "buffer": notes.get(), "offset": 4 }]),
+            "the secret buffer's place is left out"
+        );
+        // A secret yanked into `notes` makes it one too: its place goes from the field.
+        editor.show(secret);
+        editor
+            .kill(
+                std::iter::once(0..3),
+                oso_core::kill::Direction::Forward,
+                true,
+            )
+            .unwrap();
+        editor.show(notes);
+        editor.yank(0, false).unwrap();
+        assert!(editor.current().1.is_secret());
+        editor.toggle_messages();
+        assert_eq!(
+            super::get_state(&editor, &[], None)["global_marks"],
+            json!([])
+        );
     }
 
     #[test]

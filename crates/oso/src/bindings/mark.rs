@@ -1,4 +1,4 @@
-//! Default key bindings of the mark commands (ADR 0033, ADR 0071).
+//! Default key bindings of the mark commands (ADR 0033, ADR 0071, ADR 0190).
 //!
 //! Must not depend on: `dispatch`, `app` or winit; bindings are data.
 
@@ -11,4 +11,7 @@ pub const BINDINGS: &[(&str, &str)] = &[
     ("C-,", "pop-to-mark-command"),
     ("C-.", "consult-mark"),
     ("C-x h", "mark-whole-buffer"),
+    ("M-@", "mark-word"),
+    ("C-x C-SPC", "pop-global-mark"),
+    ("C-x C-@", "pop-global-mark"),
 ];

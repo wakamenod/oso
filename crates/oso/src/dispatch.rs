@@ -379,7 +379,9 @@ impl Dispatcher {
         };
         drop(boundary);
         let mut effects = ctx.effects();
-        editor.note_command_ended(effects.prefix.is_some());
+        // What is typed in a prompt that reads a character is part of the command it reads for,
+        // so a zap right after a kill appends to it (ADR 0190).
+        editor.note_command_ended(effects.prefix.is_some() || self.reads_char(editor));
         self.prefix = effects.prefix.take();
         match &result {
             Ok(()) => {
@@ -628,6 +630,8 @@ mod emergency_tests;
 #[cfg(test)]
 mod file_tests;
 #[cfg(test)]
+mod global_mark_tests;
+#[cfg(test)]
 mod grid_tests;
 #[cfg(test)]
 mod held_tests;
@@ -709,6 +713,8 @@ mod worktree_tests;
 mod wrap_tests;
 #[cfg(test)]
 mod yank_pop_tests;
+#[cfg(test)]
+mod zap_tests;
 
 #[cfg(test)]
 mod tests {

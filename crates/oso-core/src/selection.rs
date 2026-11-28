@@ -167,13 +167,27 @@ impl MarkRing {
 /// A window's selections: never empty, sorted by cursor, with no two
 /// cursors at one offset, and while the region shows, no two regions that
 /// overlap. One of them is primary: the one the window scrolls to.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub struct SelectionSet {
     selections: Vec<Selection>,
     primary: usize,
     mark_active: MarkActive,
     ring: MarkRing,
+    /// A mark was pushed since the editor last asked, for the global mark ring (ADR 0190).
+    /// It is no part of what the set is, so equality leaves it out.
+    pushed: bool,
 }
+
+impl PartialEq for SelectionSet {
+    fn eq(&self, other: &Self) -> bool {
+        self.selections == other.selections
+            && self.primary == other.primary
+            && self.mark_active == other.mark_active
+            && self.ring == other.ring
+    }
+}
+
+impl Eq for SelectionSet {}
 
 impl Default for SelectionSet {
     fn default() -> Self {
@@ -213,6 +227,7 @@ impl SelectionSet {
             primary: 0,
             mark_active: MarkActive::Inactive,
             ring: MarkRing::default(),
+            pushed: false,
         }
     }
 
@@ -288,6 +303,7 @@ impl SelectionSet {
         if let Some(mark) = self.primary().mark {
             self.ring.push(mark);
         }
+        self.pushed = true;
         for selection in &mut self.selections {
             selection.mark = Some(selection.cursor);
         }
@@ -301,6 +317,7 @@ impl SelectionSet {
         if let Some(mark) = primary.mark.replace(offset) {
             self.ring.push(mark);
         }
+        self.pushed = true;
     }
 
     /// Moves the primary cursor to `offset` with no goal, and keeps its mark. The others
@@ -410,6 +427,12 @@ impl SelectionSet {
     /// display cluster.
     pub(crate) fn update_ring(&mut self, f: impl FnMut(usize) -> usize) {
         self.ring.update(f);
+    }
+
+    /// Whether a mark was pushed since this was last asked, which it forgets, for the global
+    /// mark ring to take in where (ADR 0190).
+    pub(crate) fn take_pushed(&mut self) -> bool {
+        std::mem::take(&mut self.pushed)
     }
 
     /// This set with `ring` in place of its own, for an undo, which puts back

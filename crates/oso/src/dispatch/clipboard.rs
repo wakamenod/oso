@@ -191,8 +191,10 @@ impl Dispatcher {
                     switches: &switches,
                     ..Invocation::default()
                 };
-                this.execute(editor, waiting.id, waiting.args, invocation, Step::MayJoin)
-                    .0
+                let effects =
+                    this.execute(editor, waiting.id, waiting.args, invocation, Step::MayJoin);
+                // A yank into a prompt that reads a character ends it (ADR 0190).
+                effects.0.union(this.after_prompts(editor))
             })
         };
         self.replay_held(editor, waiting.held, effects)

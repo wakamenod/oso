@@ -22,6 +22,8 @@ use super::{Dispatcher, Step, extended};
 use paths::First;
 
 mod buffer;
+mod char;
+mod mark;
 mod note;
 mod paths;
 mod replace;
@@ -47,6 +49,9 @@ pub(super) struct Reading {
 enum Then {
     /// The command, with the answer.
     Run,
+    /// The command, with the answer of a prompt that ends as soon as it holds a character
+    /// (ADR 0190).
+    Char,
     /// The command it names, in the command's place, as `M-x` does (ADR 0076).
     RunAnswer,
     /// One of query-replace's prompts, the first or the second with the first's answer
@@ -224,6 +229,9 @@ impl Dispatcher {
                 },
             ),
             Some(ArgSpec::Passphrase { prompt }) => (prompt, Kind::Passphrase),
+            Some(ArgSpec::CountAndChar { prompt }) => {
+                return self.read_char(editor, id, args.raw(), prompt);
+            }
             // What the clipboard holds is read off the UI thread, with no prompt (ADR 0074).
             Some(spec) if spec.reads_clipboard(args.raw()) && invocation.clipboard.is_none() => {
                 self.wait_unless_refused(editor, (id, spec), args, &invocation);
@@ -339,31 +347,6 @@ impl Dispatcher {
         (effects, Ok(()))
     }
 
-    /// Opens the prompt that reads a mark for the command `id`, `C-.`, unless a prompt is
-    /// selected, whose own buffer is no list of marks and may be a passphrase's (ADR 0088).
-    fn read_mark(
-        &mut self,
-        editor: &mut Editor,
-        id: CommandId,
-        prefix: Option<Prefix>,
-        prompt: &'static str,
-    ) -> (Effects, Result<(), ExecuteError>) {
-        let effects = Effects {
-            redraw: true,
-            ..Effects::default()
-        };
-        if editor.prompt().is_some() {
-            editor.prompt_says("Not in the minibuffer");
-            return (effects, Ok(()));
-        }
-        match editor.open_mark_list(prompt) {
-            Ok(prompt) => self.reading.push(Reading::run(id, prefix, prompt)),
-            Err(PromptError::Invalid) => editor.message("No mark set in this buffer"),
-            Err(error) => editor.prompt_says(error.to_string()),
-        }
-        (effects, Ok(()))
-    }
-
     /// Keeps the command `id` waiting for the clipboard, unless it is `M-y` where it could not
     /// yank, which refuses before it reads anything (ADR 0091).
     fn wait_unless_refused(
@@ -451,7 +434,7 @@ impl Dispatcher {
                 self.execute(editor, reading.id, args, invocation, Step::MayJoin)
                     .0
             }
-            Then::Run => {
+            Then::Run | Then::Char => {
                 let switches: Vec<&str> = reading.switches.iter().map(String::as_str).collect();
                 let invocation = Invocation {
                     answer: Some(text),
@@ -469,6 +452,7 @@ impl Dispatcher {
     /// command a question's answer names. Drops what waited for a prompt that closed with
     /// no answer.
     pub(super) fn after_prompts(&mut self, editor: &mut Editor) -> Effects {
+        self.end_char_prompt(editor);
         let mut effects = Effects::default();
         for _ in 0..MOST_FOLLOW_UPS {
             let ran = match editor.take_prompt_outcome() {
