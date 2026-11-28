@@ -60,7 +60,9 @@ impl Fake {
         let script = scratch.write("typewhisper/script.json", script.to_string().as_bytes());
         let dir = scratch.path().join("typewhisper");
         let (discovery, requests) = (dir.join("api-discovery.json"), dir.join("requests.jsonl"));
-        let fake = Executable::absolute(env!("CARGO_BIN_EXE_fake-typewhisper")).unwrap();
+        let fake =
+            Executable::absolute(super::harness::bin(env!("CARGO_BIN_EXE_fake-typewhisper")))
+                .unwrap();
         let args = [
             script.into_os_string(),
             discovery.clone().into(),

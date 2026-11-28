@@ -378,7 +378,8 @@ fn start_outside(
     );
     fs::set_permissions(&script, fs::Permissions::from_mode(0o700)).unwrap();
     let sh = Executable::absolute("/bin/sh").expect("sh is there");
-    let oso = fs::canonicalize(env!("CARGO_BIN_EXE_oso")).expect("the binary is there");
+    let oso = fs::canonicalize(super::harness::bin(env!("CARGO_BIN_EXE_oso")))
+        .expect("the binary is there");
     let pid = app.pid().to_string();
     let args: Vec<OsString> = vec![script.into()];
     let set = [

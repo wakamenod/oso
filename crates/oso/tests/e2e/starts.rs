@@ -48,7 +48,7 @@ pub(super) fn fake_server_config(scratch: &Scratch) -> std::path::PathBuf {
     );
     let toml = format!(
         "[lsp.servers.rust-analyzer]\ncommand = [{:?}, {:?}]\n",
-        env!("CARGO_BIN_EXE_fake-lsp-server"),
+        super::harness::bin(env!("CARGO_BIN_EXE_fake-lsp-server")),
         script.to_str().expect("a UTF-8 scratch path"),
     );
     scratch.write("conf/config.toml", toml.as_bytes())
