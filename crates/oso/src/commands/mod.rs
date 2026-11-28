@@ -13,6 +13,7 @@ mod aids;
 mod buffers;
 mod complete;
 mod cursors;
+mod defun;
 #[cfg(feature = "dev")]
 mod dev_tools;
 mod dictation;
@@ -92,6 +93,7 @@ const TABLES: &[&[Command]] = &[
     agent::COMMANDS,
     complete::COMMANDS,
     cursors::COMMANDS,
+    defun::COMMANDS,
     #[cfg(feature = "dev")]
     dev_tools::COMMANDS,
     dictation::COMMANDS,

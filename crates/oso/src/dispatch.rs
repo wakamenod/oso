@@ -612,6 +612,8 @@ mod composer_tests;
 #[cfg(test)]
 mod cursor_tests;
 #[cfg(test)]
+mod defun_tests;
+#[cfg(test)]
 mod dictation_tests;
 #[cfg(test)]
 mod directory_and_text_tests;

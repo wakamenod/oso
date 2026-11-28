@@ -17,12 +17,15 @@
 //!   with [`ScanError::TooFar`]: half a sexp is no place to stop.
 //! - A motion that fails leaves the cursor where it was.
 
+mod defun;
+mod heads;
 mod lex;
 mod lines;
 mod read;
 
 use std::ops::Range;
 
+pub use defun::{beginning_of_defun, defun_bounds, end_of_defun};
 use read::{Ahead, Behind, Read, Token};
 
 use crate::buffer::Mode;

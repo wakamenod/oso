@@ -302,6 +302,36 @@ Built on 2026-11-29; the author approved the changes through the space's orchest
   bounded cost.
 - **`up_list` leaves a comment as it leaves a string,** as its first level.
 
+## Step 3, as built
+
+- **Go's heads are at the line's start only,** not at any indentation: gofmt puts every
+  declaration there, and a `var` inside a function body is no defun. This and the quiet edge
+  wait for the author's word.
+- **`beginning-of-defun` goes to the head's first non-blank character;** `defun_bounds` covers
+  whole lines, from the comment just above (and in Rust the `#[…]` attributes) to the start of
+  the line after the end. Past the last defun the cursor goes to the buffer's edge with no
+  error, as Emacs's does and as step 4's paragraphs do; the motions keep `Result<(), Edge>` and
+  return `Ok`.
+- **A head holds those indented under it** (a Markdown section those of a greater level): from
+  between two methods `end-of-defun` goes past the next, and after the last past what holds
+  them.
+- **In the languages of braces, a defun with no `{` and no `;`** (Go's `var x = 1`, a TypeScript
+  line with no `;`) ends before a blank line, before the next head and the comment above it, or
+  before the line of a closer of what holds it.
+- **A JSON key ends after its value,** its bracket group or its `,`, so the last key leaves the
+  closing `}` out. YAML, TOML, Markdown and LaTeX sections end before the next head of their
+  level or above, less the blank lines and the comment just above that head. A LaTeX
+  `\begin{…}` ends at the line of its own `\end{…}` and holds the environments inside it.
+- **Highlights hide a head in a string or a comment;** in JSON, YAML and TOML only in a
+  comment, as a key may be highlighted as a string. A Markdown head's `#` must be highlighted as
+  a heading's marker, which keeps a `#` in a fence out.
+- **A line is matched on its first 512 bytes** and costs at least 2 bytes of the budget. A full
+  4 MiB budget reads in about 22 ms in a release build, on lines with no head, empty lines, one
+  long line, or a brace that never closes.
+- **What the commands ask goes through a private `Find` trait** (the start before or after a
+  place, the end after or before it, and the bounds), so that step 7's ranges can answer before
+  the lines do. No new public item.
+
 ## Changes to accepted ADRs
 
 - [ADR 0138](0138-language-servers.md), "Keys (Q15)" and the key table: `lsp-next-diagnostic`
