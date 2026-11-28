@@ -1,6 +1,6 @@
 # 0174. Fast checks on pull requests
 
-- Status: Accepted
+- Status: Accepted, amended by 0188
 - Date: 2026-11-23
 
 ## Context

@@ -1,7 +1,8 @@
 # Performance results and regression checks (ADR 0024, ADR 0025, ADR 0046,
 # ADR 0081, ADR 0166).
-# Results go to the job summary and to JSON artifacts. Pull requests run this only when
-# labelled perf; pushes to main and the nightly run always do. Every run compares with
+# Results go to the job summary and to JSON artifacts. Pushes to main and the nightly run
+# always run this; a branch only when started by hand (gh workflow run perf.yml --ref
+# <branch>), and pull requests never (ADR 0188). Every run compares with
 # the last push to main and fails on a regression. A push's result becomes the baseline
 # all the same, so a regression accepted on purpose fails once, not on every later run;
 # a failure on main or nightly also opens or updates the "Performance regression on main"
@@ -13,12 +14,9 @@ on:
   push:
     branches: [main]
     paths-ignore: ["docs/**"]
-  # Only with the perf label, which only people with triage access can add.
-  pull_request:
-    types: [opened, synchronize, reopened, labeled]
   schedule:
     # Nightly, 17:00 UTC. It measures only a head of main that no push run measured, as
-    # when a later push cancelled it (ADR 0166).
+    # when a newer push replaced its waiting run (ADR 0166, ADR 0188).
     - cron: "0 17 * * *"
   workflow_dispatch:
 
@@ -26,25 +24,20 @@ permissions:
   contents: read
 
 concurrency:
-  # A pull request's run that measures nothing (no perf label, or another label added) has
-  # a group of its own, so it never cancels one that does. The event is in the group, so a
-  # nightly run does not cancel a push's.
-  group: >-
-    ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{
-    (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'perf')
-    && (github.event.action != 'labeled' || github.event.label.name == 'perf')) && 'measure' || 'none' }}
-  cancel-in-progress: true
+  # A push to main never cancels a run that is measuring: the next one waits, and GitHub
+  # replaces only a waiting run with a newer one (ADR 0188). The newer run measures the
+  # replaced one's commit along with its own, and the nightly run measures a head that no
+  # push run measured. The event is in the group, so a nightly run does not wait for a
+  # push's. A run started by hand on a branch cancels the branch's earlier one.
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # Whether this run measures: a pull request only with the perf label, not when another
-  # label is added; a nightly run only when no push run measured main's head.
+  # Whether this run measures: a nightly run only when no push run measured main's head.
   gate:
-    # Skipped, with no runner, on a pull request without the label: the jobs below then
-    # skip too.
-    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'perf') && (github.event.action != 'labeled' || github.event.label.name == 'perf')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -58,11 +51,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          LABELLED: ${{ contains(github.event.pull_request.labels.*.name, 'perf') && (github.event.action != 'labeled' || github.event.label.name == 'perf') }}
         run: |
           measure=true
           case "$GITHUB_EVENT_NAME" in
-            pull_request) measure=$LABELLED ;;
             schedule)
               # A push run that finished, failed included, measured this head; a cancelled
               # one did not.
@@ -154,7 +145,7 @@ jobs:
           retention-days: 90
       # For the regression issue (perf-report), which runs no repository code.
       - uses: actions/upload-artifact@v7.0.2
-        if: ${{ failure() && github.event_name != 'pull_request' }}
+        if: ${{ failure() && github.ref == 'refs/heads/main' }}
         with:
           name: summary-perf-${{ runner.os }}
           path: target/perf/summary.md
@@ -222,7 +213,7 @@ jobs:
           if-no-files-found: error
           retention-days: 90
       - uses: actions/upload-artifact@v7.0.2
-        if: ${{ failure() && github.event_name != 'pull_request' }}
+        if: ${{ failure() && github.ref == 'refs/heads/main' }}
         with:
           name: summary-build-time-${{ runner.os }}
           path: target/perf/summary.md
@@ -234,7 +225,7 @@ jobs:
   # checkout, no build. It reads the summaries the jobs above uploaded.
   perf-report:
     needs: [benchmarks, build-time]
-    if: failure() && github.event_name != 'pull_request'
+    if: failure() && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

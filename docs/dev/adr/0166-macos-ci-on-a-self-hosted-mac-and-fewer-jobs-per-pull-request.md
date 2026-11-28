@@ -1,6 +1,6 @@
 # 0166. macOS CI on a self-hosted Mac, and fewer jobs per pull request
 
-- Status: Accepted, amended by 0174; "Two runners on one Mac, as amended" and "Timer coalescing off on GitHub's macOS runner, as amended" (2026-11-22)
+- Status: Accepted, amended by 0174 and 0188; "Two runners on one Mac, as amended" and "Timer coalescing off on GitHub's macOS runner, as amended" (2026-11-22)
 - Date: 2026-11-21
 
 ## Context
