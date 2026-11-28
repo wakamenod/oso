@@ -212,7 +212,7 @@ impl Editor {
 
     /// Moves the selected window's primary cursor, alone, to the start of the next diagnostic
     /// after it, `forward`, or the previous before it, on a display cluster's start, as
-    /// `C-M-n` and `C-M-p` do (Q15): hints are skipped, no mark is pushed, and past either end
+    /// `M-g n` and `M-g p` do (Q15, ADR 0190): hints are skipped, no mark is pushed, and past either end
     /// it wraps, which `Ok(true)` says. `Err` says why it did not move.
     pub fn to_diagnostic(&mut self, forward: bool) -> Result<bool, &'static str> {
         let (window, buffer) = self.current();

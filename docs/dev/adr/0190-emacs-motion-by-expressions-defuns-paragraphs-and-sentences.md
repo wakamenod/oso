@@ -302,6 +302,23 @@ Built on 2026-11-29; the author approved the changes through the space's orchest
   bounded cost.
 - **`up_list` leaves a comment as it leaves a string,** as its first level.
 
+## Step 2, as built
+
+- **The commands are in `commands/sexp.rs` and their keys in `bindings/sexp.rs`;** no new public
+  item. `kill-sexp` and `backward-kill-sexp` kill through `kill.rs`'s helper, so a kill after a
+  kill appends.
+- **`mark-sexp`:** a cursor whose scan fails keeps its mark; if every cursor's fails, nothing
+  changes, as in Emacs, where the error comes before `push-mark`. Extending with no argument
+  moves the mark away from point, as Emacs's `(if (< (mark) (point)) -1 1)`.
+- **`transpose-sexps`:** every scan error but the budget's says "Don't have two things to
+  transpose", as Emacs's interactive `transpose-sexps` gives one message for any scan error. With
+  0, point and the mark each go with their expression, as Emacs's `exchange-point-and-mark`
+  after the swap leaves them. A cursor whose swap overlaps an earlier cursor's swaps nothing, so
+  that no text is swapped twice. The text copied across cursors is at most `MAX_INSERT`
+  (16 MiB), past which it says "Too much text to transpose" and changes nothing.
+- **`C-M-p` in a terminal** stays `terminal-float-cycle-position` while the floating terminal
+  shows ([ADR 0120](0120-the-terminal.md)): that layer is above the global keymap.
+
 ## Step 4, as built
 
 Built on 2026-11-29.

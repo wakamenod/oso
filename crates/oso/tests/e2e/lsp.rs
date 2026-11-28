@@ -445,7 +445,7 @@ fn a_go_file_starts_gopls_with_its_settings_and_a_missing_server_shows_nothing()
 }
 
 /// Step 6 (ADR 0138, Diagnostics): a report for `main.rs`'s first version, which the fake server
-/// sends as the file opens, shows its counts in the modeline; `C-M-n` and `C-M-p` move to each
+/// sends as the file opens, shows its counts in the modeline; `M-g n` and `M-g p` move to each
 /// diagnostic and wrap, and the echo area says the one at point once the cursor stays on it;
 /// an edit before it keeps the move on it.
 #[cfg(unix)]
@@ -488,24 +488,24 @@ fn diagnostics_are_counted_moved_to_and_said_at_point() {
     app.wait_until_ready();
     modeline_has(&mut app, "the counts", "proj-lsp  lsp E1 W1  ");
 
-    // `C-M-n` goes to `main`, and the echo area says its first line once the cursor stays.
-    app.send_keys("C-M-n");
+    // `M-g n` goes to `main`, and the echo area says its first line once the cursor stays.
+    app.send_keys("M-g n");
     app.wait_for("the message at point", |state| {
         state["echo"].as_str() == Some("rust-analyzer: mismatched types")
             && state["cursor"]["column"] == 3
     });
     // Past the last it wraps to the first, the hint skipped.
-    app.send_keys("C-M-n");
+    app.send_keys("M-g M-n");
     app.wait_for("the wrap", |state| {
         state["echo"].as_str() == Some("Wrapped") && state["cursor"]["column"] == 0
     });
     // Before the first it wraps to the last.
-    app.send_keys("C-M-p");
+    app.send_keys("M-g p");
     app.wait_for("the wrap back", |state| state["cursor"]["column"] == 3);
 
-    // Text typed before `main` moves it, and `C-M-n` from the start still lands on it.
+    // Text typed before `main` moves it, and `M-g n` from the start still lands on it.
     app.send_keys("C-a x x");
-    app.send_keys("C-a C-M-n C-M-n");
+    app.send_keys("C-a M-g n M-g n");
     app.wait_for("main, moved", |state| state["cursor"]["column"] == 5);
     let modeline = app.state()["modeline"].as_str().unwrap().to_owned();
     assert!(modeline.contains("lsp E1 W1  "), "{modeline}");

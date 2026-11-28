@@ -42,27 +42,40 @@ fn cursor(editor: &Editor) -> usize {
 }
 
 #[test]
-fn c_m_n_and_c_m_p_move_while_a_server_follows_the_buffer() {
+fn m_g_n_and_m_g_p_move_while_a_server_follows_the_buffer() {
     for mark in [
         ServerMark::Ready,
         ServerMark::Starting,
         ServerMark::Working(Some(40)),
     ] {
-        let (mut d, mut editor) = followed(Some(mark));
-        send(&mut d, &mut editor, "C-M-n");
-        assert_eq!(cursor(&editor), 4, "{mark:?}");
-        send(&mut d, &mut editor, "C-M-n");
-        assert_eq!(cursor(&editor), 10);
-        send(&mut d, &mut editor, "C-M-p");
-        assert_eq!(cursor(&editor), 4);
+        for (next, previous) in [("M-g n", "M-g p"), ("M-g M-n", "M-g M-p")] {
+            let (mut d, mut editor) = followed(Some(mark));
+            send(&mut d, &mut editor, next);
+            assert_eq!(cursor(&editor), 4, "{mark:?} {next}");
+            send(&mut d, &mut editor, next);
+            assert_eq!(cursor(&editor), 10);
+            send(&mut d, &mut editor, previous);
+            assert_eq!(cursor(&editor), 4, "{previous}");
+        }
     }
+}
+
+#[test]
+fn c_m_n_is_forward_list_where_a_server_follows_too() {
+    let (mut d, mut editor) = followed(Some(ServerMark::Ready));
+    send(&mut d, &mut editor, "C-M-n");
+    assert_eq!(
+        cursor(&editor),
+        20,
+        "no list: the buffer's end, not a diagnostic"
+    );
 }
 
 #[test]
 fn the_layer_goes_once_the_server_stopped_or_none_follows() {
     for mark in [Some(ServerMark::Stopped), None] {
         let (mut d, mut editor) = followed(mark);
-        send(&mut d, &mut editor, "C-M-n");
+        send(&mut d, &mut editor, "M-g n");
         assert_eq!(cursor(&editor), 0, "{mark:?}");
     }
 }
@@ -70,7 +83,7 @@ fn the_layer_goes_once_the_server_stopped_or_none_follows() {
 #[test]
 fn a_prefix_argument_keeps_the_layer() {
     let (mut d, mut editor) = followed(Some(ServerMark::Ready));
-    send(&mut d, &mut editor, "C-u C-M-n");
+    send(&mut d, &mut editor, "C-u M-g n");
     assert_eq!(cursor(&editor), 4);
 }
 
