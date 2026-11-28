@@ -182,3 +182,37 @@ fn the_agents_menu_dims_the_session_s_own_heads_with_no_session_in_front() {
         .collect();
     assert_eq!(dim, [PIN_LABEL, ARCHIVE_LABEL]);
 }
+
+/// From a window docked under a session's transcript, as its composer is, the session in front
+/// is the transcript's: no head is dim (ADR 0170, "Session commands from a docked window").
+#[test]
+fn the_agents_menu_dims_nothing_in_a_window_docked_under_a_session() {
+    use oso_core::buffer::Buffer;
+    use oso_core::frame::FrameSize;
+    use oso_core::window::DockSlot;
+
+    let registry = commands::registry();
+    let menus = built_in_menus(&registry);
+    let open = Open::new(Arc::clone(built_in(&menus, "agents")));
+    let mut editor = Editor::with_buffer(Buffer::from_text("notes.md", ""));
+    editor.set_frame_size(FrameSize {
+        rows: 30,
+        columns: 80,
+    });
+    let host = editor.add_native_session_buffer("*claude: s*");
+    editor.show(host);
+    editor.set_hosts_session(host, true);
+    let composer = editor.add_buffer(Buffer::from_text("*compose: s*", ""));
+    editor.set_dock(host, DockSlot::Composer, Some(composer));
+    let window = editor.dock_window(host, DockSlot::Composer).unwrap();
+    editor.select_window(window);
+    let notes = agents_menu(&editor, &open);
+    let dim = (0..open.definition().heads().len())
+        .filter(|index| {
+            notes
+                .get(*index)
+                .is_some_and(|note| note.unavailable.is_some())
+        })
+        .count();
+    assert_eq!(dim, 0);
+}

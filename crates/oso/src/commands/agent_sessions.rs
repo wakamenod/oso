@@ -303,7 +303,7 @@ fn space_zoom(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 
 fn session_explain(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     super::not_in_prompt(ctx)?;
-    let buffer = ctx.editor.window().buffer();
+    let buffer = mode::here(ctx.editor).0;
     ctx.editor.request_session(SessionRequest::Explain(buffer));
     Ok(())
 }
@@ -323,7 +323,7 @@ fn claude(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 
 fn session_resume(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     super::not_in_prompt(ctx)?;
-    let buffer = ctx.editor.window().buffer();
+    let buffer = mode::here(ctx.editor).0;
     ctx.editor.request_session(SessionRequest::Resume(buffer));
     Ok(())
 }
@@ -336,14 +336,14 @@ fn session_adopt(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 
 fn session_fork(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     super::not_in_prompt(ctx)?;
-    let buffer = ctx.editor.window().buffer();
+    let buffer = mode::here(ctx.editor).0;
     ctx.editor.request_session(SessionRequest::Fork(buffer));
     Ok(())
 }
 
 fn session_switch_mode(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     super::not_in_prompt(ctx)?;
-    let buffer = ctx.editor.window().buffer();
+    let buffer = mode::here(ctx.editor).0;
     ctx.editor
         .request_session(SessionRequest::SwitchMode(buffer));
     Ok(())

@@ -338,3 +338,34 @@ the last, from shots of the app.
 - **Not chosen:** a footer as a dock of its own (`DockSlot::Footer`), which would be a window that
   `C-x o` goes to and every state lists, with a buffer and a mode. Text drawn half a cell off the
   grid, which would cost one row less, and an offset in every place that turns a cell into pixels.
+
+## Session commands from a docked window, as amended
+
+The author's ask of 2026-11-28, which the space's orchestrator approved the same day: the `C-c a`
+commands that act on the session whose buffer this is were refused in a native session's composer,
+`*compose: NAME*`, and its other docked windows ("This buffer holds no session"), as the composer's
+buffer hosts none. They act on the composer's session, as if pressed in its transcript.
+
+- **The session in front** is that of the selected window's buffer, or, in a docked window, its
+  host's: a docked buffer shows nowhere else ("The buffer order"), so a window docked under a
+  transcript is the composer, the card, a request's line in the composer's place, or the strip of
+  that one session. It is so for the head and for `M-x` alike. A docked window whose host holds no
+  session, as an agent's request docked under a file, is refused as its host is.
+- **The commands:** `session-resume` (`r`), `session-stop` (`K`), `session-pin` (`P`),
+  `session-archive` (`A`), `session-rename` (`R`), `session-follow-message` (`f`),
+  `session-explain` (`e`), `session-switch-mode` (`t`), which the composer already took through its
+  host, and `session-fork`, which has no head. The Agents menu dims `P` and `A` by the same session
+  in front.
+- **Still as before:** `session-explain` refuses a native session, as in its transcript, as it
+  explains a terminal's screen; `session-mention` (`@`) and `session-yank-image` go to the composer
+  from it already, and in the card or the strip do as before, as what they give is text, not a
+  session. The review's heads (`D`, `v`, `V`) act on the buffer's project or the layout, not a
+  session, and are not changed. Session mode's `C-c C-<letter>` stays off the composer, whose own
+  keys take `C-c C-c`, `C-c C-k`, `C-c C-r` and the like.
+- **Tests:** `commands::agent_sessions::mode` (each command from the composer names the transcript,
+  from the card and the strip too, and a docked window under a buffer that hosts no session is
+  refused), `bindings::menus` (no head is dim in the composer), and end to end
+  (`sessions::native::resume`): in a native session's composer, `C-c a K` stops it and `C-c a r`
+  resumes it.
+- **New public items:** none.
+

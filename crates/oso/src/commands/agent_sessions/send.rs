@@ -372,7 +372,7 @@ fn session_mention(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 
 fn session_follow_message(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     super::super::not_in_prompt(ctx)?;
-    let buffer = ctx.editor.window().buffer();
+    let buffer = super::mode::here(ctx.editor).0;
     ctx.editor
         .request_session(SessionRequest::FollowMessage(buffer));
     Ok(())
