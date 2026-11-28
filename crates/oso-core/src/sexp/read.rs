@@ -62,13 +62,13 @@ fn is_symbol(table: Table, c: char) -> bool {
         }
 }
 
-fn is_closer(table: Table, c: char) -> bool {
+pub(super) fn is_closer(table: Table, c: char) -> bool {
     matches!(c, ')' | ']' | '}') || (table == Table::Html && c == '>')
 }
 
 /// Whether `c` opens a bracket, `next` the character after it: in HTML, a `<` that starts a
 /// tag, a comment or a doctype.
-fn is_opener(table: Table, c: char, next: Option<char>) -> bool {
+pub(super) fn is_opener(table: Table, c: char, next: Option<char>) -> bool {
     matches!(c, '(' | '[' | '{')
         || (table == Table::Html
             && c == '<'
@@ -286,6 +286,31 @@ impl<'a, 'b> Ahead<'a, 'b> {
             }
         }
         Ok(())
+    }
+}
+
+impl Ahead<'_, '_> {
+    /// The next character of code and where it is, passing strings and comments as
+    /// [`Read::token`] does: `None` at the end of what it may read.
+    pub(super) fn code_char(&mut self) -> Result<Option<(usize, char)>, ScanError> {
+        loop {
+            if self.pos >= self.limit {
+                return Ok(None);
+            }
+            if self.kind()? != Kind::Code {
+                let end = self.run.0.end.min(self.limit);
+                self.charge((end - self.pos).min(SEEK_COST))?;
+                self.skip_to(end);
+                continue;
+            }
+            let Some(c) = self.peek() else {
+                return Ok(None);
+            };
+            self.charge(c.len_utf8())?;
+            let at = self.pos;
+            self.bump(c);
+            return Ok(Some((at, c)));
+        }
     }
 }
 

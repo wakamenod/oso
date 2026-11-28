@@ -6611,7 +6611,10 @@ pub fn oso_core::sexp::Syntax<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> 
 impl<'a> core::clone::Clone for oso_core::sexp::Syntax<'a>
 pub fn oso_core::sexp::Syntax<'a>::clone(&self) -> oso_core::sexp::Syntax<'a>
 impl<'a> core::marker::Copy for oso_core::sexp::Syntax<'a>
+pub fn oso_core::sexp::beginning_of_defun(&oso_core::sexp::Syntax<'_>, &mut oso_core::selection::Selection, isize, &mut oso_core::motion::WalkBudget) -> core::result::Result<(), oso_core::motion::Edge>
+pub fn oso_core::sexp::defun_bounds(&oso_core::sexp::Syntax<'_>, usize, &mut oso_core::motion::WalkBudget) -> core::option::Option<core::ops::range::Range<usize>>
 pub fn oso_core::sexp::down_list(&oso_core::sexp::Syntax<'_>, &mut oso_core::selection::Selection, isize, &mut oso_core::motion::WalkBudget) -> core::result::Result<(), oso_core::sexp::ScanError>
+pub fn oso_core::sexp::end_of_defun(&oso_core::sexp::Syntax<'_>, &mut oso_core::selection::Selection, isize, &mut oso_core::motion::WalkBudget) -> core::result::Result<(), oso_core::motion::Edge>
 pub fn oso_core::sexp::forward_list(&oso_core::sexp::Syntax<'_>, &mut oso_core::selection::Selection, isize, &mut oso_core::motion::WalkBudget) -> core::result::Result<(), oso_core::sexp::ScanError>
 pub fn oso_core::sexp::forward_sexp(&oso_core::sexp::Syntax<'_>, &mut oso_core::selection::Selection, isize, &mut oso_core::motion::WalkBudget) -> core::result::Result<(), oso_core::sexp::ScanError>
 pub fn oso_core::sexp::sexp_end(&oso_core::sexp::Syntax<'_>, usize, isize, &mut oso_core::motion::WalkBudget) -> core::result::Result<usize, oso_core::sexp::ScanError>

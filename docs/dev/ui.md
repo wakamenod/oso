@@ -1040,6 +1040,45 @@ As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
   characters, none of `W K Y T c`. `[jump] timeout` sets the wait in seconds, 0.1 to 5, 0.5 by
   default.
 
+## Defuns
+
+As Emacs's ([ADR 0190](adr/0190-emacs-motion-by-expressions-defuns-paragraphs-and-sentences.md),
+step 3):
+
+- `C-M-a` and `C-M-<home>` (`beginning-of-defun`) go back to the start of a defun, at its first
+  line's first non-blank character; `C-M-e` and `C-M-<end>` (`end-of-defun`) go past the end of
+  the defun point is in, or of the next one, to the start of the line after it. A count repeats,
+  and a negative one goes the other way. Past the last defun, the cursor goes to the buffer's
+  edge with nothing said, as in Emacs.
+- A defun starts on a line that begins one in the buffer's mode, at any indentation, outside
+  strings and comments where the highlights say: in Rust an item (`fn`, `struct`, `enum`,
+  `union`, `trait`, `impl`, `mod` with a body, `const`, `static`, `type`, `macro_rules!`) after
+  `pub`, `async`, `unsafe`, `extern "…"` or `const`; in Go `func`, `type`, `var` and `const` at
+  the line's start; in JavaScript and TypeScript `function`, `class`, `interface`, `export` and
+  `const f = (…) =>`; in Swift `func`, `class`, `struct`, `enum`, `extension` and `protocol`
+  after their modifiers; a CSS rule's line that ends with `{`; a TOML `[table]`; a YAML key at
+  the line's start, and a JSON key at the top level; a Markdown heading; a LaTeX `\section` and
+  its kin, and `\begin{…}`; in Fundamental, `(` or `{` at the line's start.
+- In the languages of braces a defun ends after the braces from its first `{`, or at a `;`
+  before any, or before a blank line or the next defun if there is neither. A section ends
+  before the next of its level or above, a LaTeX environment at its `\end`, and a JSON key after
+  its value. A defun indented under another, such as a method in an `impl`, is held by it:
+  between two methods `C-M-e` goes past the next, and after the last past what holds them.
+- Every cursor moves, and Shift selects. The mark is set where the cursors were, with "Mark
+  set", unless a region shows or the key repeats.
+- `C-M-h` (`mark-defun`) leaves one cursor at the start of the defun point is in, or of the one
+  after it, with the comment just above it (and in Rust its attributes), and the mark past its
+  end, and shows the region. A count marks that many; repeated, or while a region shows, the
+  mark goes on past the next defun.
+- `C-M-l` (`reposition-window`) scrolls so that the defun point is in starts at the window's
+  top, its comment with it, unless point would then be below the window: then point's line is
+  at the bottom.
+- With no highlights (Swift, LaTeX, Fundamental, a buffer past 2 MiB or before the first
+  report), a head inside a string or a block comment that spans lines is taken as one. A
+  defun's head must be among the first 512 bytes of its line. A key reads at most 4 MiB, about
+  25 ms; past that it stops at the last defun it found whole and says "Count too large".
+  Methods with no keyword, such as a JavaScript class's, are not found yet (step 7).
+
 ## query-replace
 
 - `M-%` reads the string and its replacement in two prompts, which take Japanese as the prompt
