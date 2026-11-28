@@ -12,7 +12,8 @@
 //! - A call is asked about once: a request for a call that waits already, or that was answered
 //!   lately, is refused.
 //! - A request whose call has not shown within [`FIND_WITHIN`] is denied unasked, and so is one
-//!   whose call stopped waiting, as it got its result, before it was asked.
+//!   whose call stopped waiting, as it got its result, before it was asked. One shown whose call
+//!   got its result leaves too, as the CLI stopped waiting for the person's answer.
 //! - Each request taken gets an id of oso's own, [`RequestId`], by which a space's orchestrator
 //!   names the one it answers (ADR 0186): never the call's own id, which the session chose.
 
@@ -257,18 +258,23 @@ impl<R> Asks<R> {
             .min()
     }
 
-    /// Looks for each request's call not asked yet with `find`, as of `now`: a found call's
-    /// request waits for the person, and one denied leaves the queue.
+    /// Looks for each request's call with `find`, as of `now`: a found call's request waits for
+    /// the person, and one denied leaves the queue, a shown one among them whose call no longer
+    /// waits.
     pub fn look(&mut self, now: Instant, mut find: impl FnMut(&Ask<R>) -> Look) -> Vec<Outcome<R>> {
         let mut outcomes = Vec::new();
-        // Each shown one waits for the person only.
-        if self.waiting.iter().all(|ask| ask.shown.is_some()) {
-            return outcomes;
-        }
         let mut kept = VecDeque::with_capacity(self.waiting.len());
         for mut ask in self.waiting.drain(..) {
+            // A shown one waits for the person only, while its call waits: one that got its
+            // result, as the CLI stopped waiting for the bridge, or whose session went, leaves.
             if ask.shown.is_some() {
-                kept.push_back(ask);
+                match find(&ask) {
+                    Look::NotWaiting => {
+                        outcomes.push(Outcome::Denied(Box::new(ask), Denied::NoLonger, true));
+                    }
+                    Look::Gone => outcomes.push(Outcome::Denied(Box::new(ask), Denied::Gone, true)),
+                    _ => kept.push_back(ask),
+                }
                 continue;
             }
             let found = ask.asked.is_some();
