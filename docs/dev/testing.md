@@ -295,6 +295,29 @@ what you type goes into their buffers, which can fail a flow. End an instance yo
 hand through its own exit (`oso ctl exit`), with no prompt or search open: one killed while one is
 cannot give the person's input source back ([ADR 0158](adr/0158-japanese-in-prompts-and-review-drafts.md)).
 
+`just e2e-remote "TESTS" REF` runs chosen flows on the Mac in `OSO_PERF_HOST` instead, as
+`just perf-remote` does, so that their windows and input source switches stay off the Mac
+you work at. TESTS are one or more test names, space-separated, given to the test binary as
+filters; REF, if given, is built from git alone, as `perf-remote`'s base, and otherwise the
+working tree is. It builds the flows, `oso`, `fake-lsp-server` and `fake-typewhisper` here,
+in `target/e2e-remote`, apart from `target/debug`, so builds and commits may go on during a
+run. It copies them to a new directory of the ssh user's `~/oso-e2e`, runs them there with
+`--ignored --test-threads=1`, and a `HOME`, `OSO_STATE_DIR` and `TMPDIR` inside that
+directory, and removes it afterwards, also when the connection drops. The output streams
+back and is kept in `target/e2e-remote/runs/`, and the recipe exits with the flows' status.
+The flows find the copies through `OSO_E2E_BIN_DIR`, which must name an absolute directory;
+unset, they run what cargo built where it built it.
+
+The host needs the ssh user logged in to a GUI session, as for `perf-remote`: a process
+started over ssh opens windows in that user's session. It never runs as, or touches, the
+user of the self-hosted CI runner ([ci-runner.md](ci-runner.md)). Before it starts, it waits
+while that Mac's e2e runner has a job (a process of `actions-runner`'s worker or from its
+work folder; the second runner, `actions-runner-2`, opens no windows), while a `perf run`
+is running, or while another `e2e-remote` holds `~/oso-e2e/lock`, for at most 40 minutes. A
+job that starts during a run cannot be held off, so the run says when one did, and a failure
+then may come from it. The flows that send Apple events through `osascript` may need that
+user's Automation permission on the host.
+
 | Flow | The seam it checks |
 |---|---|
 | keys and commands | socket to UI thread to window: `send-keys`, `run-command`, the cursor, scrolling, the visible text, `oso ctl --pid` and its exit status |
