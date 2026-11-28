@@ -293,6 +293,7 @@ fn project(ctx: &Ctx<'_>) -> Result<ProjectId, CommandError> {
 
 /// Asks the host to open a review of `scope`.
 fn open(ctx: &mut Ctx<'_>, scope: ScopeKind, revision: Option<String>) -> Result<(), CommandError> {
+    super::refuse_secret_answer(ctx, super::SECRET_REVISION)?;
     let project = project(ctx)?;
     if !ctx.editor.project_trusted(project) {
         return Err(CommandError::new(RESTRICTED));

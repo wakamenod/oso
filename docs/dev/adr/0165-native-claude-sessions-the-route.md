@@ -594,6 +594,11 @@ check's change.
   from agents' state (`Editor::ask_for_agent_withheld`); `y` allows, `n` or `C-g` denies. While
   it waits, the session is `needs input` with reason `permission`. The bridge going, the session
   ending or the socket stopping closes it and denies.
+- **The CLI's idle limit** (added 2026-11-28): the `--mcp-config` gives its `oso` server
+  `"timeout": 2147483647` ms, the CLI's most, so the CLI's idle limit (30 min for a stdio
+  server, CLI 2.1.331) does not stop a call that waits for the person. A call the CLI cancels,
+  whose bridge goes while the session runs, or whose result comes first closes its card or
+  request, and its row says `denied: Claude Code stopped waiting before you answered`.
 - **Left for part 2e-2:** the docked card with the call's preview and reason (U1), `N` with a
   note, `AskUserQuestion` and `ExitPlanMode`; until then they are asked as any call, and a `y`
   to `AskUserQuestion` answers nothing. Part 2e-2 replaced the question with the card: see

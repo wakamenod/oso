@@ -20,7 +20,7 @@ pub const DELETE_BRANCH: &str = "pr-delete-branch";
 
 /// Why a message that a secret was yanked into is not sent, by the command and the host.
 pub(crate) const SECRET_MESSAGE: &str =
-    "The message holds secret text, which is not sent: take it out, or C-c C-k";
+    "The message holds secret text, which is not sent: C-c C-k drops it";
 
 /// The keys of a pull request's message and their commands, which `bindings` binds.
 pub const MESSAGE_KEYS: &[(&str, &str)] = &[
@@ -144,6 +144,10 @@ fn create(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 }
 
 fn create_base(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    super::super::super::refuse_secret_answer(
+        ctx,
+        "A base holding what may be secret is not given to gh",
+    )?;
     let base = ctx.answer().unwrap_or_default().trim().to_owned();
     if base.is_empty() {
         return Err(CommandError::new("No base was named"));

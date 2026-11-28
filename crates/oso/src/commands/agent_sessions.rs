@@ -112,7 +112,7 @@ pub fn is_adopt_prompt(prompt: &oso_core::minibuffer::Prompt) -> bool {
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "claude",
-        doc: "Start a Claude Code session in a buffer, `*claude: NAME*`.\n\nAt the root of a project you trust, it is a native session: its conversation shows as oso's own rows, with a composer under them, and Claude Code asks it no trust question. Elsewhere, or with `[sessions] mode = \"tui\"`, it is Claude Code's TUI in a terminal. It runs in the selected buffer's project root, else the directory the buffer stands in, as a new terminal does (from a terminal, the one it started in), else the directory oso started in. In `*Spaces*`, it runs where the row at point is: a project's main checkout, a worktree, or a session's worktree (`c`). It is named after that directory, then `-2`, `-3` for more there. With `C-u`, a directory is read first, then a name. oso gives the session its id, its name and an `oso` MCP server for this instance, and, in a terminal, no permission option: it starts in the mode your own Claude Code settings give it. It runs as your login shell would, or `[sessions] claude` names the executable. It turns the agent channel on, as the session's tools need it.",
+        doc: "Start a Claude Code session in a buffer, `*claude: NAME*`.\n\nAt the root of a project you trust, it is a native session: its conversation shows as oso's own rows, with a composer under them, and Claude Code asks it no trust question. Elsewhere, or with `[sessions] mode = \"tui\"`, it is Claude Code's TUI in a terminal. It runs in the selected buffer's project root, else the directory the buffer stands in, as a new terminal does (from a terminal, the one it started in), else the directory oso started in. In `*Spaces*`, it runs where the row at point is: a project's main checkout, a worktree, or a session's worktree (`c`). It is named after that directory, then `-2`, `-3` for more there. With `C-u`, a directory is read first, then a name; one that a secret was yanked into is refused. oso gives the session its id, its name and an `oso` MCP server for this instance, and, in a terminal, no permission option: it starts in the mode your own Claude Code settings give it. It runs as your login shell would, or `[sessions] claude` names the executable. It turns the agent channel on, as the session's tools need it.",
         args: ArgSpec::DirectoryAndTextOnPrefix {
             directory: "Session in directory:",
             directory_history: "session-directory",
@@ -310,6 +310,10 @@ fn session_explain(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 
 fn claude(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     super::not_in_prompt(ctx)?;
+    super::refuse_secret_answer(
+        ctx,
+        "A directory or name holding what may be secret is not used",
+    )?;
     let read = ctx.directory_and_text();
     let given = |text: &str| (!text.trim().is_empty()).then(|| text.to_owned());
     let directory = read

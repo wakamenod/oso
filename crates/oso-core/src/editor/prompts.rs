@@ -269,9 +269,12 @@ impl Editor {
         }
         // An empty answer takes the last pair (ADR 0113).
         if prompt.regexp && !text.is_empty() {
+            // One a secret was yanked into is not kept, as query-replace may refuse it.
+            let secret = self.buffer(prompt.buffer).is_some_and(Buffer::is_secret);
             match crate::search::compile_regexp(&text) {
                 // Kept, so that query-replace compiles it once.
-                Ok(regexp) => self.replace_checked(text.clone(), regexp),
+                Ok(regexp) if !secret => self.replace_checked(text.clone(), regexp),
+                Ok(_) => {}
                 Err(why) => {
                     self.prompt_says(why);
                     return Err(PromptError::Invalid);

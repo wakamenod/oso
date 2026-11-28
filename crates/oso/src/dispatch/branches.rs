@@ -153,14 +153,14 @@ impl Dispatcher {
         redraw()
     }
 
-    /// Takes the branch read for `reading`, and opens its base prompt, which runs the command
-    /// with both.
+    /// Takes the branch read for `reading`, which a secret was yanked into if the flag says so,
+    /// and opens its base prompt, which runs the command with both.
     pub(super) fn open_base_after(
         &mut self,
         editor: &mut Editor,
         reading: &Reading,
         base: &BasePrompt,
-        branch: String,
+        branch: (String, bool),
     ) -> Effects {
         let branches = Arc::clone(&base.branches);
         match editor.open_completion_as(base.prompt, base.history, branches, STYLE) {

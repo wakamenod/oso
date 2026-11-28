@@ -13,7 +13,7 @@ use oso_core::editor::ServerRequest;
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "lsp-rename",
-        doc: "Rename what is at point through the language server, as Eglot's `eglot-rename`.\n\nThe server checks the place first if it can, and the new name is read in a prompt that names the old one, which `M-n` gives. Every line the rename changes, in every file, is shown before and after in `*lsp-rename*`: `y` applies it, each buffer's edits one step to undo, and `n`, `q` or `C-g` leaves everything as it was. Files no buffer holds open unshown and stay unsaved, as the buffers it changes do; `C-x s` saves them. A buffer that may hold secrets is never asked about or edited, and a rename that would create, rename or delete a file is refused.",
+        doc: "Rename what is at point through the language server, as Eglot's `eglot-rename`.\n\nThe server checks the place first if it can, and the new name is read in a prompt that names the old one, which `M-n` gives. Every line the rename changes, in every file, is shown before and after in `*lsp-rename*`: `y` applies it, each buffer's edits one step to undo, and `n`, `q` or `C-g` leaves everything as it was. Files no buffer holds open unshown and stay unsaved, as the buffers it changes do; `C-x s` saves them. A buffer that may hold secrets is never asked about or edited, a rename that would create, rename or delete a file is refused, and so is a new name that a secret was yanked into.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: rename,
@@ -63,6 +63,10 @@ fn rename(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 
 /// The host asks the server to rename to the name read.
 fn rename_to(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    super::refuse_secret_answer(
+        ctx,
+        "A name holding what may be secret is not sent to the server",
+    )?;
     let name = ctx.answer().unwrap_or_default();
     ctx.editor
         .request_server(ServerRequest::RenameTo(name.into()));

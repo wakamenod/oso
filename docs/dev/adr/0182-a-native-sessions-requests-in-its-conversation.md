@@ -174,8 +174,10 @@ In place of "the card's window shows all of it":
    switches neither highlighting nor wrapping (`global-font-lock-mode`, `toggle-truncate-lines`), and
    nothing an agent does changes what the window that carries a waiting request, or shows its plan,
    shows. Nothing an agent does counts as reading.
-9. **Gone otherwise** (an interrupt, its bridge gone, the session ended): the block and the line go,
-   the echo area says so, and point that was there goes to the composer. An own answer half written
+9. **Gone otherwise** (an interrupt, its bridge gone, the session ended, a cancel from the CLI, or the
+   call's result coming first): the block and the line go, the echo area says so, and point that was
+   there goes to the composer. Where the CLI stopped waiting (a cancel, its bridge gone while the
+   session runs, or the result), its call's row says Claude Code stopped waiting. An own answer half written
    goes into that session's history of own answers, in memory only, never one that holds secret text.
 
 ### Questions

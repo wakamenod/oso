@@ -170,7 +170,7 @@ pub const COMMANDS: &[Command] = &[
     ),
     row(
         "session-rename",
-        "Rename the session on this row of `*Spaces*`, or the session whose terminal is this buffer: its name in oso and its buffer's, `*claude: NAME*`.\n\nThe prompt holds its name now, and `M-p` empties it. The name is cleaned as `C-u claude` cleans one, and no other session's or space's. A space's orchestrator is not renamed: its name is the space's, which the space's sessions message. A running claude keeps the name Claude Code's SendMessage knows it by until it is resumed; `/rename` in its terminal changes that at once.",
+        "Rename the session on this row of `*Spaces*`, or the session whose terminal is this buffer: its name in oso and its buffer's, `*claude: NAME*`.\n\nThe prompt holds its name now, and `M-p` empties it. The name is cleaned as `C-u claude` cleans one, refused if a secret was yanked into it, and no other session's or space's. A space's orchestrator is not renamed: its name is the space's, which the space's sessions message. A running claude keeps the name Claude Code's SendMessage knows it by until it is resumed; `/rename` in its terminal changes that at once.",
         Reach::Person,
         rename,
     ),
@@ -286,6 +286,7 @@ fn rename(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 
 fn rename_to(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     super::super::not_in_prompt(ctx)?;
+    super::super::refuse_secret_answer(ctx, "A name holding what may be secret is not kept")?;
     let name = match ctx.answer().map(str::trim) {
         Some(name) if !name.is_empty() => name.to_owned(),
         _ => return Err(CommandError::new("No name")),
