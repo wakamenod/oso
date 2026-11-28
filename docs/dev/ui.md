@@ -868,6 +868,28 @@ plan.txt        2 days ago  exit      420 B  not open         /home/me/notes/pla
 - A switch redraws once. In every theme, text that is read keeps 7:1 contrast and secondary
   labels 4.5:1, and a question's label has a colour no buffer text has.
 
+## Paragraphs, sentences and pages
+
+Emacs's keys ([ADR 0190](adr/0190-emacs-motion-by-expressions-defuns-paragraphs-and-sentences.md)):
+
+- `M-}` and `C-<down>` go to the end of the paragraph, `M-{` and `C-<up>` to its start, and
+  `M-h` marks it. A line of only spaces, tabs and form feeds separates paragraphs, and one that
+  starts with a form feed starts one. In Markdown, a heading or a fence line is a paragraph of
+  its own. Forward stops at the first separating line after the paragraph, back at the last one
+  before it.
+- `M-e` goes to the end of the sentence, `M-a` to its start; `M-k` kills to its end, and
+  `C-x DEL` back to its start, appending to a kill just before. A sentence ends at `.`, `?`, `!`
+  or `…`, with any closing quotes and brackets, before one space or a line's end; at `。`, `！`,
+  `？` or `．` with no space after; and at its paragraph's end.
+- `C-x ]` goes to the next page, `C-x [` to the start of this one, and `C-x C-p` marks it. A page
+  ends at a form feed at a line's start.
+- They take a count, and a negative one goes the other way. They move every cursor, grow a
+  shown region, select with Shift, and stop at the buffer's edge with no message. `M-h` and
+  `C-x C-p` put the old mark in the ring and show the region; again, or while a region shows,
+  they move the mark on.
+- macOS keeps `C-<up>` and `C-<down>` for Mission Control while its shortcuts are on; `M-{` and
+  `M-}` always reach oso.
+
 ## Mark and region
 
 As Emacs with `transient-mark-mode` and `shift-select-mode`

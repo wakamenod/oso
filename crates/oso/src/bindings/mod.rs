@@ -40,6 +40,7 @@ mod scroll;
 mod session;
 mod session_help;
 mod terminal;
+mod text_motion;
 mod theme;
 mod vcs;
 mod view;
@@ -82,6 +83,7 @@ const TABLES: &[&[(&str, &str)]] = &[
     save::BINDINGS,
     scroll::BINDINGS,
     session::BINDINGS,
+    text_motion::BINDINGS,
     theme::BINDINGS,
     vcs::BINDINGS,
     view::BINDINGS,

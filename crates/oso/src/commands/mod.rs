@@ -49,6 +49,7 @@ mod save;
 mod scroll;
 pub(crate) mod session;
 mod terminal;
+mod text_motion;
 mod theme;
 pub(crate) mod vcs;
 mod view;
@@ -146,6 +147,7 @@ const TABLES: &[&[Command]] = &[
     agent_sessions::SEND_COMMANDS,
     agent_sessions::SPACE_COMMANDS,
     terminal::COMMANDS,
+    text_motion::COMMANDS,
     theme::COMMANDS,
     vcs::COMMANDS,
     vcs::commit::COMMANDS,
