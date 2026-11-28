@@ -51,6 +51,11 @@ use crate::sessions::native::wire::tools::decode;
 use crate::sessions::state::{Reason, Target};
 use crate::sessions::worker::SessionKey;
 
+/// What a call's row says, after `denied: `, and the echo area of its card, once the CLI stopped
+/// waiting for the person's answer: it cancelled the call, ended its bridge or gave the call its
+/// result (ADR 0165, part 2).
+const STOPPED: &str = "Claude Code stopped waiting before you answered";
+
 /// What the CLI is told when the person says no.
 const DENIED: &str = "The person denied this call in oso.";
 
@@ -162,7 +167,7 @@ impl App {
         self.hosting.table.permission_bridges_gone();
         let gone = self.hosting.natives.permissions.asks.remove_where(|_| true);
         for ask in gone {
-            self.drop_ask(ask);
+            self.drop_ask(ask, false);
         }
     }
 
@@ -280,14 +285,15 @@ impl App {
         self.sync_permissions();
     }
 
-    /// The connection went: what it asked is dropped, an open question closes, and its
-    /// session holds no permission bridge.
+    /// The connection went, as the CLI cancelled the call or ended the bridge: what it asked is
+    /// dropped, an open question closes and its call's row says the CLI stopped waiting, and
+    /// its session holds no permission bridge.
     fn permission_bridge_gone(&mut self, connection: Connection) {
         self.hosting.table.permission_bridge_gone(connection);
         let gone =
             (self.hosting.natives.permissions.asks).remove_where(|ask| ask.from == connection);
         for ask in gone {
-            self.drop_ask(ask);
+            self.drop_ask(ask, true);
         }
     }
 
@@ -295,17 +301,28 @@ impl App {
     pub(super) fn drop_permissions_of(&mut self, key: SessionKey) {
         let gone = (self.hosting.natives.permissions.asks).remove_where(|ask| ask.key == key);
         for ask in gone {
-            self.drop_ask(ask);
+            self.drop_ask(ask, false);
         }
     }
 
     /// Denies `ask`, whose session, bridge or socket went: what it shows goes, and its
     /// session no longer waits on it.
-    fn drop_ask(&mut self, ask: Ask<Sender<Reply>>) {
+    /// `ask` goes unanswered: what shows it closes, and the CLI, if it still waits, is denied.
+    /// If the CLI `stopped` waiting for it, its call's row says so, as the echo area does of a
+    /// card.
+    fn drop_ask(&mut self, ask: Ask<Sender<Reply>>, stopped: bool) {
         match (ask.shown, ask.request()) {
             (Some(_), Some(request)) => self.request_gone(ask.key, request.block.tool()),
-            (Some(_), None) => self.close_card(ask.key),
+            (Some(_), None) => {
+                self.close_card(ask.key);
+                if stopped {
+                    self.say_card_stopped(&ask);
+                }
+            }
             (None, _) => {}
+        }
+        if stopped && ask.asked.is_some() {
+            self.say_stopped(&ask);
         }
         if ask.asked.is_some() {
             self.call_waits(ask.key, &ask.call.tool_use_id, false);
@@ -314,9 +331,33 @@ impl App {
         if ask.shown.is_some() {
             self.show_asked();
         }
-        let _ = (ask.reply).send(Ok(permission::deny(
-            "Denied: oso could not ask the person.",
-        )));
+        let why = if stopped {
+            "Denied: Claude Code stopped waiting before the person answered."
+        } else {
+            "Denied: oso could not ask the person."
+        };
+        let _ = (ask.reply).send(Ok(permission::deny(why)));
+    }
+
+    /// The row of `ask`'s call says that the CLI stopped waiting for the person's answer.
+    fn say_stopped(&mut self, ask: &Ask<Sender<Reply>>) {
+        if let Some(native) = self.hosting.natives.map.get_mut(&ask.key) {
+            let change = native.rows.denied(&ask.call.tool_use_id, STOPPED);
+            super::draw(&mut self.editor, native, change);
+            self.request_redraw();
+        }
+    }
+
+    /// The echo area says that `ask`'s card closed as the CLI stopped waiting.
+    fn say_card_stopped(&mut self, ask: &Ask<Sender<Reply>>) {
+        let name = (self.hosting.table.get(ask.key)).map_or_else(String::new, |s| s.name.clone());
+        let what = if ask.call.tool_name == "ExitPlanMode" {
+            "plan"
+        } else {
+            "question"
+        };
+        self.editor
+            .message(format!("Session {name}'s {what} closed: {STOPPED}"));
     }
 
     /// After each event, before the agent channel's questions, and after each batch of a
@@ -379,6 +420,10 @@ impl App {
                         .map(|ask| ask.call.tool_name.clone())
                         .unwrap_or_default();
                     self.tell_tracker(key, waits_for(&tool));
+                }
+                // Shown, its call got its result: the CLI stopped waiting for the answer.
+                Outcome::Denied(ask, why, _) if ask.shown.is_some() => {
+                    self.drop_ask(*ask, why == Denied::NoLonger);
                 }
                 Outcome::Denied(ask, why, found) => {
                     if found {

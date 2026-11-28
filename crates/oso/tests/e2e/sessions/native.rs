@@ -536,6 +536,7 @@ mod slash;
 mod space;
 mod split;
 mod status;
+mod stopped_waiting;
 mod suggest;
 mod switch;
 mod todo;

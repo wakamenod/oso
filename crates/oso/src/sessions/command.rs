@@ -20,6 +20,8 @@
 //!   [`PERMISSION_TOOL`] as its `--permission-prompt-tool`, so that a call that would ask is
 //!   asked of the person in oso (ADR 0165, step 2), and its bridge is started with
 //!   `--permission`, which lists that tool.
+//! - The `oso` server is given [`SERVER_TIMEOUT`] as its `timeout`, so that the CLI does not
+//!   stop a call that waits for the person, a card's or a session tool's, after its idle limit.
 
 use std::ffi::OsString;
 use std::path::Path;
@@ -47,6 +49,14 @@ pub const NATIVE: [&str; 7] = [
 /// The tool a native session's `claude` asks permission through: the `oso` server's
 /// `permission`, which only a bridge started with `--permission` lists (ADR 0165, step 2).
 pub const PERMISSION_TOOL: &str = "mcp__oso__permission";
+
+/// The `oso` server's `timeout`, in milliseconds: the most the CLI takes (2^31 − 1, about 24.8
+/// days). The CLI stops a call to a stdio server that sends nothing for 30 minutes, unless the
+/// server's own `timeout` is longer; that `timeout` is also the call's limit in all, and no
+/// value of it turns the idle check off (read in CLI 2.1.331). Set on this server alone, it
+/// changes nothing of the person's other servers, as `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT=0` in
+/// the session's environment would.
+pub const SERVER_TIMEOUT: u64 = 2_147_483_647;
 
 /// How a session's `claude` starts.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -127,7 +137,8 @@ impl std::fmt::Display for LineError {
 
 /// The MCP configuration given with `--mcp-config`: one server, `oso`, which is oso's own
 /// executable as `mcp --pid PID`, and `--permission` for a `native` session's, with
-/// [`SESSION_VARIABLE`] set. The person's other MCP servers still load.
+/// [`SESSION_VARIABLE`] set and [`SERVER_TIMEOUT`] as its `timeout`. The person's other MCP
+/// servers still load.
 pub fn mcp_config(
     oso: &Path,
     oso_pid: u32,
@@ -146,6 +157,7 @@ pub fn mcp_config(
                 "command": command,
                 "args": args,
                 "env": { SESSION_VARIABLE: id.as_str() },
+                "timeout": SERVER_TIMEOUT,
             }
         }
     });
@@ -215,7 +227,7 @@ mod tests {
     use std::ffi::OsString;
     use std::path::Path;
 
-    use super::{Line, SESSION_VARIABLE, Start, arguments};
+    use super::{Line, SESSION_VARIABLE, Start, arguments, mcp_config};
     use crate::sessions::identity::SessionId;
 
     fn id(n: u8) -> SessionId {
@@ -260,6 +272,18 @@ mod tests {
         assert_eq!(oso["env"][SESSION_VARIABLE], a.as_str());
         assert_eq!(config["mcpServers"].as_object().unwrap().len(), 1);
         assert_eq!(args.len(), 3);
+    }
+
+    /// A call that waits for the person, a card's or a session tool's, is not stopped by the
+    /// CLI's idle limit: the `oso` server's own `timeout`, which raises that limit for it alone,
+    /// is the most the CLI takes, in a native session's configuration and a terminal's.
+    #[test]
+    fn the_oso_server_has_the_longest_timeout() {
+        for native in [false, true] {
+            let config = mcp_config(Path::new("/opt/oso/bin/oso"), 4242, &id(1), native).unwrap();
+            let config: serde_json::Value = serde_json::from_str(&config).unwrap();
+            assert_eq!(config["mcpServers"]["oso"]["timeout"], 2_147_483_647);
+        }
     }
 
     #[test]

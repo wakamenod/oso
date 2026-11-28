@@ -166,6 +166,35 @@ fn a_found_call_that_stops_waiting_or_differs_is_denied_before_it_is_asked() {
     assert!(asks.is_empty());
 }
 
+/// A shown request whose call got its result meanwhile, as when the CLI stopped waiting for
+/// the bridge, leaves the queue: the app closes its card or its request. One whose call still
+/// waits stays shown.
+#[test]
+fn a_shown_call_that_got_its_result_leaves() {
+    let now = Instant::now();
+    let mut asks = Asks::default();
+    asks.push(ask(1, 7, "t1", now));
+    asks.push(ask(2, 8, "t2", now));
+    asks.look(now, |_| Look::Found(question("q")));
+    for ask in asks.unshown() {
+        ask.shown = Some(now);
+    }
+    let outcomes = asks.look(now, |ask| match ask.key {
+        7 => Look::NotWaiting,
+        _ => Look::Waits,
+    });
+    assert_eq!(denied(&outcomes), [("t1".to_owned(), Denied::NoLonger)]);
+    let Some(Outcome::Denied(gone, _, found)) = outcomes.first() else {
+        panic!("{outcomes:?}");
+    };
+    assert!(
+        *found && gone.shown.is_some(),
+        "the app closes what it showed"
+    );
+    assert!(asks.shown(7).is_none());
+    assert!(asks.shown(8).is_some(), "its call still waits");
+}
+
 #[test]
 fn a_call_is_shown_by_the_block_made_of_it_and_denied_with_none() {
     let now = Instant::now();
