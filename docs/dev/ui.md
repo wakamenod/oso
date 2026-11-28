@@ -929,6 +929,33 @@ As Emacs's `zap-to-char` ([ADR 0190](adr/0190-emacs-motion-by-expressions-defuns
 - A zap right after a kill appends to it. A character yanked into the prompt from a secret is
   refused. The agent channel gives the character as text, as a `Change`.
 
+## Expressions
+
+As Emacs's motion by balanced expressions
+([ADR 0190](adr/0190-emacs-motion-by-expressions-defuns-paragraphs-and-sentences.md)):
+
+- `C-M-f` and `C-M-b` (`C-M-<right>`, `C-M-<left>`) move over a sexp: a string, a bracket group
+  (`()`, `[]`, `{}`, and a tag in HTML) with what it holds, or a run of letters, digits and `_`
+  (and `$` in JavaScript, `-` in CSS, HTML and YAML). `C-M-n` and `C-M-p` move over bracket
+  groups only. `C-M-u` (`C-M-<up>`) goes back up out of a group, `M-x up-list` forward out of
+  one, and `C-M-d` (`C-M-<down>`) down into the next. Past the last sexp, point goes to the
+  buffer's edge.
+- `C-M-k` and `C-M-DEL` kill sexps, appending to a kill just before. `C-M-SPC` (or `C-M-@`) sets
+  the mark a sexp on and shows the region; again, or while the region shows, it moves the mark
+  on. `C-M-t` drags the sexp before point past the next; `C-u 0 C-M-t` swaps the sexps at point
+  and the mark.
+- Strings and comments are as the highlighting says; with none (Swift, LaTeX, Fundamental, a
+  buffer that may hold secrets, past 2 MiB, or before the first report), each line is read on
+  its own.
+- The echo area says Emacs's words: "Containing expression ends prematurely", "Unbalanced
+  parentheses", "Don't have two things to transpose", and "Count too large" for a scan that would
+  read more than a key may. Then the cursor stays.
+- They work at every cursor, take a count (negative goes the other way), keep a shown region,
+  and select with Shift.
+- In a buffer a language server follows, the diagnostics are on `M-g n` and `M-g p` (and
+  `M-g M-n`, `M-g M-p`), as Emacs's `next-error`.
+- macOS may take `C-M-SPC` (Emoji & Symbols) and `C-M-d` (Look Up) before oso sees them.
+
 ## Multiple cursors
 
 As multiple-cursors.el ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):

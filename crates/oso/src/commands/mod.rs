@@ -48,6 +48,7 @@ pub(crate) mod review;
 mod save;
 mod scroll;
 pub(crate) mod session;
+mod sexp;
 mod terminal;
 mod text_motion;
 mod theme;
@@ -146,6 +147,7 @@ const TABLES: &[&[Command]] = &[
     agent_sessions::SEARCH_COMMANDS,
     agent_sessions::SEND_COMMANDS,
     agent_sessions::SPACE_COMMANDS,
+    sexp::COMMANDS,
     terminal::COMMANDS,
     text_motion::COMMANDS,
     theme::COMMANDS,
