@@ -12,7 +12,7 @@ as amended):
 
 Both jobs run on every push to `main`, and on a branch when its workflow is started by hand;
 a pull request runs neither
-([ADR 0188](adr/0188-no-ci-on-pull-requests-and-every-commit-on-main-checked.md)). No push
+([ADR 0188](adr/0188-no-ci-on-pull-requests-and-mains-runs-never-cancelled.md)). No push
 cancels another's run, so with several merges in a row the jobs wait in line, one of each at
 a time: about 17.5 minutes per `just e2e (macos)`. So the two jobs run at once, and only
 `oso-mac` opens windows. Both runners run as the same

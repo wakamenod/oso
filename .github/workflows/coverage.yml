@@ -17,8 +17,9 @@ permissions:
 
 concurrency:
   # A push to main never cancels a running run: the next one waits, and GitHub replaces
-  # only a waiting run with a newer one (ADR 0188). The event is in the group, so a nightly
-  # run does not wait for a push's.
+  # only a waiting run with a newer one. The newer run reads the whole code at its head, so
+  # only the newest waiting commit is analysed, and nothing else is lost (ADR 0188). The
+  # event is in the group, so a nightly run does not wait for a push's.
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 

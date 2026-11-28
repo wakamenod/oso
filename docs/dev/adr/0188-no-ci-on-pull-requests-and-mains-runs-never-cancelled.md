@@ -1,6 +1,6 @@
-# 0188. No CI on pull requests, and every commit on main checked
+# 0188. No CI on pull requests, and main's runs never cancelled
 
-- Status: Accepted
+- Status: Accepted; "Perf queued, Wayland per push, as amended" (2026-11-29)
 - Date: 2026-11-28
 
 ## Context
@@ -152,3 +152,65 @@ and drains after it.
   is what this change is for.
 - **A bound on the Mac's e2e job only**, as a concurrency group on that job: the commit whose
   e2e job was replaced would end with a cancelled job, and its `ci-ok` would fail.
+
+## Perf queued, Wayland per push, as amended
+
+Amended on 2026-11-29, with the author's choices through the orchestrator. After three quick
+merges on 2026-11-28, GitHub cancelled three runs that were still waiting: `perf.yml` for two
+commits and `e2e-wayland.yml` for one. GitHub keeps one waiting run per concurrency group, and
+a newer one replaces it even with `cancel-in-progress: false`. So those commits had no result of
+their own, and the title "every commit on main checked" did not hold.
+
+Measured on `main` that day: `perf.yml` takes about 42 minutes a run, `e2e-wayland.yml` about
+20, coverage and CodeQL about 10 to 12 each. All run on GitHub's runners. `perf.yml` never runs
+on the self-hosted Mac (ADR 0166); only `just perf-remote` does, by hand, with its runners
+paused.
+
+- **`perf.yml` queues every run: `queue: max` with `cancel-in-progress: false`.** GitHub
+  then keeps up to 100 runs waiting in the group, starts them first in, first out, and
+  replaces none.
+  - Each push to `main` is measured, against the push before it, so a regression names one
+    merge. The runs never overlap.
+  - The cost is time. After a burst of five merges, the last one's result comes about
+    3.5 hours later, and a busy day's queue drains in the evening. The nightly run then has
+    little left to measure: only a head of `main` whose push run was cancelled by hand.
+  - GitHub refuses `queue: max` together with `cancel-in-progress: true`. So a run started
+    by hand on a branch waits for the branch's earlier one, and does not cancel it.
+  - Checked on 2026-11-29 with three runs started by hand on a branch. The second and third
+    both stayed waiting, and when the first was cancelled, the second started.
+  - actionlint 1.7.12, its latest release, does not know `queue` yet (rhysd/actionlint#657).
+    oso runs actionlint in neither `just ci` nor CI. Run it by hand with
+    `-ignore 'unexpected key "queue" for "concurrency"'`, as well as the ignore for the `$/`
+    paths of the actions lockfile.
+- **`e2e-wayland.yml` has a group of its own for each push to `main`**, as `ci.yml` has. Every
+  commit gets a result. Each merge adds one Ubuntu job of about 20 minutes, which runs beside
+  the others.
+- **Coverage and CodeQL keep the newest waiting commit only**, as above. Each run reads the
+  whole code at its head, so a skipped commit loses no alert and no number, only which merge
+  caused it.
+
+What this changes above:
+
+- The title, "No CI on pull requests, and every commit on main checked". Now: "No CI on pull
+  requests, and main's runs never cancelled". Every commit gets its own run of `ci.yml`, its
+  e2e, `e2e-wayland.yml` and `perf.yml`. Coverage and CodeQL check only the newest waiting
+  commit.
+- "`perf.yml`, `coverage.yml`, `codeql.yml` and `e2e-wayland.yml` never cancel a running run
+  on `main` … a newer push replaces the waiting one." Now: only coverage and CodeQL work this
+  way.
+- "Queuing every commit would pile them up." Now `perf.yml` queues every commit, on GitHub's
+  runners alone, one run at a time.
+- The rejected alternative "Queue `ci.yml`'s runs on `main`" stays rejected: queued, the
+  hosted jobs of several commits could not run side by side.
+
+Rejected:
+
+- **A group of its own for each `perf.yml` run on `main`:** each result would come in about
+  42 minutes. But a run would often start before the one before it had uploaded its result,
+  and compare with the one before that. A regression would then fail twice. Each run also
+  holds two of GitHub's macOS runners, and three quick merges would reach the free plan's
+  limit of five.
+- **`perf.yml` on the newest commit only:** costs nothing, but a regression would name a range
+  of merges.
+- **Groups of their own for coverage and CodeQL:** cheap, but they would add nothing but which
+  merge caused a finding.
